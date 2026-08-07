@@ -54,7 +54,6 @@ def _retrieve_due_checks() -> list[DueCheckGroup]:
         # Non-null by the schedule_interval_minutes__gt=0 filter above; mypy can't see that.
         interval = check.schedule_interval_minutes or 0
         check.next_run_at = advance_next_run_at(
-            check.next_run_at,
             interval,
             now,
             shard_offset_seconds=compute_shard_offset_seconds(UUID(str(check.id)), interval),

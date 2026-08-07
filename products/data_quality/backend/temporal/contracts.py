@@ -57,6 +57,13 @@ class FinalizeCheckSuiteInputs:
 
 
 @dataclasses.dataclass
+class MarkSuiteFailedInputs:
+    team_id: int
+    suite_run_id: str
+    error: str
+
+
+@dataclasses.dataclass
 class DueCheckGroup:
     """Checks on one subject that came due together, so they share a single suite run."""
 
@@ -70,7 +77,7 @@ class DueCheckGroup:
 class CleanupOutcome:
     compiled_queries_cleared: int = 0
     check_runs_deleted: int = 0
-    empty_suite_runs_deleted: int = 0
+    suite_runs_deleted: int = 0
 
 
 @dataclasses.dataclass

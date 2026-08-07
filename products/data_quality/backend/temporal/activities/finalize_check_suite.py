@@ -7,7 +7,7 @@ from posthog.temporal.common.logger import get_logger
 
 from ...facade.enums import SuiteRunStatus
 from ...models import DataQualitySuiteRun
-from ..contracts import CheckSuiteResult, FinalizeCheckSuiteInputs
+from ..contracts import CheckSuiteResult, FinalizeCheckSuiteInputs, MarkSuiteFailedInputs
 
 LOGGER = get_logger(__name__)
 
@@ -67,3 +67,28 @@ def _mark_empty(inputs: FinalizeCheckSuiteInputs) -> CheckSuiteResult:
     suite_run.finished_at = datetime.now(UTC)
     suite_run.save(update_fields=["status", "finished_at", "updated_at"])
     return CheckSuiteResult(suite_run_id=str(suite_run.id), status=suite_run.status)
+
+
+@activity.defn
+async def mark_check_suite_failed_activity(inputs: MarkSuiteFailedInputs) -> None:
+    await sync_to_async(_mark_failed)(inputs)
+
+
+def _mark_failed(inputs: MarkSuiteFailedInputs) -> None:
+    """Move a suite off RUNNING when the workflow gives up, so a poller sees a terminal state.
+
+    A conditional update rather than a load-and-save: it must not clobber a suite another attempt
+    already finalized, and it stays a no-op when there is nothing to fail.
+    """
+    updated = (
+        DataQualitySuiteRun.objects.for_team(inputs.team_id)
+        .filter(id=inputs.suite_run_id, status=SuiteRunStatus.RUNNING)
+        # A queryset update bypasses auto_now, so updated_at is set explicitly.
+        .update(
+            status=SuiteRunStatus.FAILED,
+            error=inputs.error,
+            finished_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+    )
+    LOGGER.info("Marked check suite failed", suite_run_id=inputs.suite_run_id, updated=updated)

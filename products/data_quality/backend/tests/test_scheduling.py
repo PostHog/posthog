@@ -5,7 +5,13 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
+from products.data_quality.backend.facade.enums import (
+    CheckRunStatus,
+    CheckType,
+    SubjectStatus,
+    SubjectType,
+    SuiteRunStatus,
+)
 from products.data_quality.backend.logic.scheduling import (
     SCAN_INTERVAL_SECONDS,
     advance_next_run_at,
@@ -15,6 +21,7 @@ from products.data_quality.backend.models import DataQualityCheck, DataQualityCh
 from products.data_quality.backend.temporal.activities.cleanup import (
     CHECK_RUN_RETENTION_DAYS,
     COMPILED_QUERY_RETENTION_DAYS,
+    SUITE_RUN_RETENTION_DAYS,
     _cleanup,
 )
 from products.data_quality.backend.temporal.activities.schedule_due_checks import _retrieve_due_checks
@@ -22,40 +29,43 @@ from products.data_quality.backend.temporal.activities.schedule_due_checks impor
 NOW = datetime(2026, 7, 28, 12, 7, 30, tzinfo=UTC)
 
 
-class TestSchedulingMath:
-    @parameterized.expand(
-        [
-            ("never_run_lands_one_interval_out", None, 60, datetime(2026, 7, 28, 13, 0, tzinfo=UTC)),
-            (
-                "on_time_advances_one_interval",
-                datetime(2026, 7, 28, 12, 0, tzinfo=UTC),
-                60,
-                datetime(2026, 7, 28, 13, 0, tzinfo=UTC),
-            ),
-            (
-                "a_day_of_downtime_does_not_backlog",
-                datetime(2026, 7, 27, 12, 0, tzinfo=UTC),
-                60,
-                datetime(2026, 7, 28, 13, 0, tzinfo=UTC),
-            ),
-        ]
-    )
-    def test_next_run_lands_on_the_cadence_grid_ahead_of_now(self, _name, current, interval, expected) -> None:
-        assert advance_next_run_at(current, interval, NOW) == expected
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
-    def test_a_missed_window_produces_one_run_not_many(self) -> None:
-        # The point of skipping rather than catching up: a check disabled for a week must not
-        # queue a week of runs the moment it comes back.
-        next_at = advance_next_run_at(NOW - timedelta(days=7), 60, NOW)
-        assert next_at > NOW
-        assert next_at - NOW < timedelta(hours=2)
+
+class TestSchedulingMath:
+    def test_hourly_lands_on_the_next_top_of_the_hour(self) -> None:
+        assert advance_next_run_at(60, NOW) == datetime(2026, 7, 28, 13, 0, tzinfo=UTC)
+
+    def test_a_slot_exactly_at_now_advances_to_the_following_one(self) -> None:
+        # The scanner claims a check when next_run_at <= now, so a slot landing exactly on now must
+        # move forward, never return now itself and get re-claimed on the same tick.
+        on_the_hour = datetime(2026, 7, 28, 13, 0, tzinfo=UTC)
+        assert advance_next_run_at(60, on_the_hour) == datetime(2026, 7, 28, 14, 0, tzinfo=UTC)
 
     def test_zero_interval_is_rejected(self) -> None:
         try:
-            advance_next_run_at(None, 0, NOW)
+            advance_next_run_at(0, NOW)
         except ValueError:
             return
         raise AssertionError("expected a ValueError for a non-positive interval")
+
+    @parameterized.expand(
+        [
+            ("daily_offset_by_twelve_hours", 24 * 60, 12 * 3600),
+            ("weekly_offset_by_three_days", 7 * 24 * 60, 3 * 24 * 3600),
+        ]
+    )
+    def test_a_non_zero_offset_is_applied_once_and_the_cadence_holds(self, _name, interval, offset) -> None:
+        # The regression this guards: re-adding the offset to an already-phased slot made a daily
+        # 12h-offset check advance by 36h, and weekly cadences drift the same way. Feeding one
+        # result back in must yield exactly one interval later.
+        first = advance_next_run_at(interval, NOW, shard_offset_seconds=offset)
+        second = advance_next_run_at(interval, first, shard_offset_seconds=offset)
+
+        assert second - first == timedelta(minutes=interval)
+        # The offset phases the grid exactly once: every slot sits offset seconds past a whole
+        # number of intervals from the fixed epoch anchor.
+        assert int((first - EPOCH).total_seconds()) % (interval * 60) == offset
 
     def test_shard_offsets_spread_a_fleet_across_scanner_ticks(self) -> None:
         offsets = {compute_shard_offset_seconds(uuid4(), 60) for _ in range(200)}
@@ -65,11 +75,12 @@ class TestSchedulingMath:
         assert max(offsets) < 60 * 60
 
     def test_a_multi_day_cadence_keeps_its_interval(self) -> None:
-        # Flooring by minutes-into-day would snap a weekly check onto midnight and run it daily.
+        # Anchoring on a within-day grid would snap a weekly check onto midnight and run it daily.
         weekly = 7 * 24 * 60
-        next_at = advance_next_run_at(datetime(2026, 7, 28, 9, 0, tzinfo=UTC), weekly, NOW)
+        first = advance_next_run_at(weekly, NOW)
+        second = advance_next_run_at(weekly, first)
 
-        assert next_at - datetime(2026, 7, 28, 9, 0, tzinfo=UTC) >= timedelta(days=6)
+        assert second - first == timedelta(days=7)
 
     def test_a_cadence_at_the_scan_interval_has_nothing_to_spread(self) -> None:
         assert compute_shard_offset_seconds(UUID(int=12345), SCAN_INTERVAL_SECONDS // 60) == 0
@@ -141,11 +152,11 @@ class TestRetention(BaseTest):
             fingerprint=uuid4().hex,
         )
 
-    def _run(self, age_days: int) -> DataQualityCheckRun:
+    def _run(self, age_days: int, suite_run: DataQualitySuiteRun | None = None) -> DataQualityCheckRun:
         run = DataQualityCheckRun.objects.for_team(self.team.id).create(
             team=self.team,
             quality_check=self.check,
-            suite_run=self.suite_run,
+            suite_run=suite_run or self.suite_run,
             subject_type=SubjectType.VIEW,
             subject_uuid=self.check.subject_uuid,
             subject_name="orders",
@@ -160,6 +171,16 @@ class TestRetention(BaseTest):
         )
         run.refresh_from_db()
         return run
+
+    def _aged_suite(self, age_days: int, status: str = SuiteRunStatus.COMPLETED) -> DataQualitySuiteRun:
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="schedule", status=status
+        )
+        DataQualitySuiteRun.objects.unscoped().filter(pk=suite.pk).update(
+            created_at=datetime.now(UTC) - timedelta(days=age_days)
+        )
+        suite.refresh_from_db()
+        return suite
 
     def test_old_compiled_queries_are_cleared_but_the_numbers_stay(self) -> None:
         old = self._run(COMPILED_QUERY_RETENTION_DAYS + 1)
@@ -189,3 +210,20 @@ class TestRetention(BaseTest):
         remaining = set(DataQualityCheckRun.objects.for_team(self.team.id).values_list("pk", flat=True))
         assert remaining == {newest.pk}
         assert superseded.pk not in remaining
+
+    def test_an_aged_completed_suite_with_no_runs_is_deleted(self) -> None:
+        # Before the fix only EMPTY suites aged out, so completed scheduled runs piled up forever
+        # even after their check runs were swept away.
+        orphaned = self._aged_suite(SUITE_RUN_RETENTION_DAYS + 5)
+
+        _cleanup()
+
+        assert not DataQualitySuiteRun.objects.for_team(self.team.id).filter(pk=orphaned.pk).exists()
+
+    def test_an_aged_suite_survives_while_a_check_run_still_points_at_it(self) -> None:
+        backed = self._aged_suite(SUITE_RUN_RETENTION_DAYS + 5)
+        self._run(1, suite_run=backed)
+
+        _cleanup()
+
+        assert DataQualitySuiteRun.objects.for_team(self.team.id).filter(pk=backed.pk).exists()

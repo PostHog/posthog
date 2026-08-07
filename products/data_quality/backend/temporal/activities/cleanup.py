@@ -7,7 +7,6 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
-from ...facade.enums import SuiteRunStatus
 from ...models import DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import CleanupOutcome
 
@@ -18,7 +17,10 @@ LOGGER = get_logger(__name__)
 COMPILED_QUERY_RETENTION_DAYS = 30
 # A year of numeric history is the training window future anomaly-detection check types need.
 CHECK_RUN_RETENTION_DAYS = 365
-EMPTY_SUITE_RUN_RETENTION_DAYS = 90
+# A suite run is a poll handle plus a report header; once its check runs age out it has no history
+# left to back, so this is really a floor before an empty suite is eligible, not its own history
+# window. A completed suite outlives it as long as any of its check runs survive above.
+SUITE_RUN_RETENTION_DAYS = 90
 
 
 @activity.defn
@@ -47,12 +49,14 @@ def _cleanup() -> CleanupOutcome:
         .delete()
     )
 
+    # Delete an aged-out suite only once nothing points at it, so a completed suite survives as long
+    # as any of its check runs do and empty runs (which never had check runs) age out on the floor
+    # above. Without this the suite table grows forever while its check runs are swept away.
+    backs_a_run = DataQualityCheckRun.objects.unscoped().filter(suite_run_id=OuterRef("id"))
     suites_deleted, _ = (
         DataQualitySuiteRun.objects.unscoped()
-        .filter(
-            status=SuiteRunStatus.EMPTY,
-            created_at__lt=now - timedelta(days=EMPTY_SUITE_RUN_RETENTION_DAYS),
-        )
+        .filter(created_at__lt=now - timedelta(days=SUITE_RUN_RETENTION_DAYS))
+        .filter(~Exists(backs_a_run))
         .delete()
     )
 
@@ -65,5 +69,5 @@ def _cleanup() -> CleanupOutcome:
     return CleanupOutcome(
         compiled_queries_cleared=queries_cleared,
         check_runs_deleted=runs_deleted,
-        empty_suite_runs_deleted=suites_deleted,
+        suite_runs_deleted=suites_deleted,
     )

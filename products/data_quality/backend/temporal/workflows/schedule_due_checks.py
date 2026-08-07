@@ -3,7 +3,7 @@ import datetime as dt
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -12,6 +12,11 @@ from ...facade.enums import SuiteRunTrigger
 from ..activities.cleanup import cleanup_check_runs_activity
 from ..activities.schedule_due_checks import retrieve_due_checks_activity
 from ..contracts import CleanupOutcome, DueCheckGroup, RunCheckSuiteInputs
+
+# A scan can claim up to MAX_DUE_CHECKS_PER_SCAN groups; starting them all in one workflow task
+# would flood the shared data-modeling queue, so cap concurrent starts the way ExecuteDAGWorkflow
+# does. Bounding in-flight starts also bounds the child-start commands emitted per workflow task.
+MAX_CONCURRENT_STARTS = 10
 
 
 @workflow.defn(name="schedule-due-data-quality-checks")
@@ -37,8 +42,28 @@ class ScheduleDueChecksWorkflow(PostHogWorkflow):
         if not groups:
             return 0
 
-        results = await asyncio.gather(*[self._start_suite(group) for group in groups], return_exceptions=True)
-        return sum(1 for result in results if not isinstance(result, BaseException))
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_STARTS)
+
+        async def _start(group: DueCheckGroup) -> None:
+            async with semaphore:
+                await self._start_suite(group)
+
+        results = await asyncio.gather(*[_start(group) for group in groups], return_exceptions=True)
+
+        # The scan already advanced next_run_at for every group, so a group we fail to start here
+        # waits a full cadence rather than retrying. Log each failure with its subject and raise so
+        # the scan surfaces as failed instead of silently dropping work, since a bare count would
+        # hide it. Successfully started children are unaffected: they run under ABANDON.
+        failures = [(group, result) for group, result in zip(groups, results) if isinstance(result, BaseException)]
+        for group, error in failures:
+            workflow.logger.error(
+                f"Failed to start check suite for subject {group.subject_uuid} (team {group.team_id}): {error}"
+            )
+        if failures:
+            raise ApplicationError(
+                f"{len(failures)} of {len(groups)} check suites failed to start; they retry next cadence"
+            )
+        return len(groups)
 
     async def _start_suite(self, group: DueCheckGroup) -> None:
         try:

@@ -5,12 +5,18 @@ separate because checks have no calendar anchoring, quiet hours, or timezone rul
 minute cadence spread across scanner ticks.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 # How often the due-checks scanner fires. Offsets are quantized to this so a check never lands
 # between ticks and waits a full extra period.
 SCAN_INTERVAL_SECONDS = 300
+
+# Every cadence grid is anchored at this fixed epoch, so its slots sit at ANCHOR + offset +
+# k * interval. Two checks sharing a cadence and offset therefore share slots regardless of when
+# either was created, the phase offset is baked into the grid once instead of re-added on every
+# advance, and a cadence that does not divide a day keeps its spacing across midnight.
+_GRID_ANCHOR = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def compute_shard_offset_seconds(
@@ -29,43 +35,24 @@ def compute_shard_offset_seconds(
 
 
 def advance_next_run_at(
-    current_next_run_at: datetime | None,
     interval_minutes: int,
     now: datetime,
     *,
     shard_offset_seconds: int = 0,
 ) -> datetime:
-    """Move to the next slot on the cadence grid, skipping any the scanner missed.
+    """The next slot on the phased cadence grid strictly after ``now``.
 
-    Skipping rather than catching up matters after downtime: a check disabled for a day should run
-    once when it comes back, not replay a day of missed ticks.
+    The result is a pure function of the cadence, the offset, and ``now`` -- never of the previous
+    ``next_run_at`` -- because the grid is anchored at a fixed epoch. Computing the slot directly
+    rather than adding an interval to the last one keeps the offset applied exactly once (advancing
+    an already-phased slot yields the following slot, not a doubly-offset one) and skips windows
+    missed during downtime rather than replaying them: a check disabled for a day runs once when it
+    comes back, not once per missed tick.
     """
     if interval_minutes <= 0:
         raise ValueError(f"interval_minutes must be positive, got {interval_minutes}")
 
     interval = timedelta(minutes=interval_minutes)
-    next_at = (current_next_run_at + interval) if current_next_run_at else (now + interval)
-    if next_at <= now:
-        missed = int((now - next_at).total_seconds() // interval.total_seconds()) + 1
-        next_at += interval * missed
-
-    snapped = _floor_to_grid(next_at, interval_minutes) + timedelta(seconds=shard_offset_seconds)
-    return snapped if snapped > now else snapped + interval
-
-
-MINUTES_PER_DAY = 24 * 60
-
-
-def _floor_to_grid(timestamp: datetime, cadence_minutes: int) -> datetime:
-    """Snap onto the within-day cadence grid, so checks sharing a cadence share slots.
-
-    Only meaningful for cadences that tile a day. A longer one (weekly, say) has no within-day grid
-    to snap to, and flooring by minutes-into-day would collapse every timestamp onto midnight and
-    turn a weekly check into a daily one.
-    """
-    if cadence_minutes >= MINUTES_PER_DAY:
-        return timestamp.replace(second=0, microsecond=0)
-
-    minutes_into_day = timestamp.hour * 60 + timestamp.minute
-    floored = (minutes_into_day // cadence_minutes) * cadence_minutes
-    return timestamp.replace(hour=floored // 60, minute=floored % 60, second=0, microsecond=0)
+    anchor = _GRID_ANCHOR + timedelta(seconds=shard_offset_seconds)
+    slots_elapsed = (now - anchor) // interval
+    return anchor + (slots_elapsed + 1) * interval

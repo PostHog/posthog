@@ -6,13 +6,18 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from ..activities.finalize_check_suite import finalize_check_suite_activity, mark_check_suite_empty_activity
+from ..activities.finalize_check_suite import (
+    finalize_check_suite_activity,
+    mark_check_suite_empty_activity,
+    mark_check_suite_failed_activity,
+)
 from ..activities.prepare_check_suite import prepare_check_suite_activity
 from ..activities.run_check_batch import run_check_batch_activity
 from ..contracts import (
     BatchOutcome,
     CheckSuiteResult,
     FinalizeCheckSuiteInputs,
+    MarkSuiteFailedInputs,
     PreparedSuite,
     RunCheckBatchInputs,
     RunCheckSuiteInputs,
@@ -35,28 +40,44 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RunCheckSuiteInputs) -> CheckSuiteResult:
-        prepared: PreparedSuite = await workflow.execute_activity(
-            prepare_check_suite_activity,
-            inputs,
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        if not prepared.batches:
-            return await workflow.execute_activity(
-                mark_check_suite_empty_activity,
-                FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=[]),
-                start_to_close_timeout=dt.timedelta(minutes=1),
+        # Once a step exhausts its retries the workflow raises, so a suite that got as far as a row
+        # is moved off RUNNING to FAILED before that. Otherwise a caller polling the handle sees it
+        # running forever. The suite_run_id comes from prepare when it got that far, else from the
+        # input the caller pre-created; a prepare failure with neither leaves no row to finalize.
+        suite_run_id = inputs.suite_run_id
+        try:
+            prepared: PreparedSuite = await workflow.execute_activity(
+                prepare_check_suite_activity,
+                inputs,
+                start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            suite_run_id = prepared.suite_run_id
 
-        outcomes = await self._run_batches(inputs.team_id, prepared)
-        return await workflow.execute_activity(
-            finalize_check_suite_activity,
-            FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=outcomes),
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+            if not prepared.batches:
+                return await workflow.execute_activity(
+                    mark_check_suite_empty_activity,
+                    FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=[]),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+            outcomes = await self._run_batches(inputs.team_id, prepared)
+            return await workflow.execute_activity(
+                finalize_check_suite_activity,
+                FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=outcomes),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception as error:
+            if suite_run_id:
+                await workflow.execute_activity(
+                    mark_check_suite_failed_activity,
+                    MarkSuiteFailedInputs(team_id=inputs.team_id, suite_run_id=suite_run_id, error=str(error)),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            raise
 
     async def _run_batches(self, team_id: int, prepared: PreparedSuite) -> list[BatchOutcome]:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
