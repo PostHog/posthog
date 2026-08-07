@@ -68,10 +68,12 @@ describe("artifact preview webviews", () => {
     const download = vi.fn();
     const guest = {
       setWindowOpenHandler: vi.fn(),
+      setWebRTCIPHandlingPolicy: vi.fn(),
       on: vi.fn((event: string, handler: (...args: never[]) => void) => {
         handlers.set(event, handler);
       }),
       session: {
+        setProxy: vi.fn().mockResolvedValue(undefined),
         setPermissionCheckHandler: permissionCheck,
         setPermissionRequestHandler: permissionRequest,
         on: vi.fn((event: string, handler: (...args: never[]) => void) => {
@@ -84,6 +86,12 @@ describe("artifact preview webviews", () => {
     lockDownArtifactPreview(guest);
 
     expect(guest.setWindowOpenHandler).toHaveBeenCalledOnce();
+    expect(guest.setWebRTCIPHandlingPolicy).toHaveBeenCalledWith(
+      "disable_non_proxied_udp",
+    );
+    expect(guest.session.setProxy).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "fixed_servers" }),
+    );
     expect(permissionCheck).toHaveBeenCalledOnce();
     expect(permissionRequest).toHaveBeenCalledOnce();
     expect(beforeRequest).toHaveBeenCalledWith(
@@ -173,8 +181,10 @@ describe("artifact preview webviews", () => {
 
     const guest = {
       setWindowOpenHandler: vi.fn(),
+      setWebRTCIPHandlingPolicy: vi.fn(),
       on: vi.fn(),
       session: {
+        setProxy: vi.fn().mockResolvedValue(undefined),
         setPermissionCheckHandler: vi.fn(),
         setPermissionRequestHandler: vi.fn(),
         on: vi.fn(),

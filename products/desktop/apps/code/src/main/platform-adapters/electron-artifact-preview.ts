@@ -40,6 +40,7 @@ export function hardenArtifactPreviewPreferences(
 
 export function lockDownArtifactPreview(guest: WebContents): void {
   guest.setWindowOpenHandler(() => ({ action: "deny" }));
+  guest.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   guest.on("will-navigate", (event, url) => {
     if (
       url.startsWith(ARTIFACT_PREVIEW_DATA_URL_PREFIX) ||
@@ -54,6 +55,14 @@ export function lockDownArtifactPreview(guest: WebContents): void {
   });
 
   const guestSession = guest.session;
+  void guestSession
+    .setProxy({
+      mode: "fixed_servers",
+      proxyRules: "http=127.0.0.1:9;https=127.0.0.1:9;socks=127.0.0.1:9",
+    })
+    .catch((error) =>
+      log.warn("Failed to isolate artifact preview proxy", { error }),
+    );
   guestSession.setPermissionCheckHandler(() => false);
   guestSession.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false),
