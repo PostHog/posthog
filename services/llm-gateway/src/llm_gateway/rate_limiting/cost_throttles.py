@@ -7,12 +7,7 @@ from typing import TYPE_CHECKING
 import structlog
 from redis.asyncio import Redis
 
-from llm_gateway.config import (
-    DEFAULT_USER_COST_LIMIT,
-    FREE_PLAN_COST_LIMIT,
-    ORG_BILLED_USER_COST_LIMIT,
-    get_settings,
-)
+from llm_gateway.config import DEFAULT_USER_COST_LIMIT, get_settings
 
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
@@ -24,7 +19,7 @@ from llm_gateway.rate_limiting.throttles import (
     get_rate_limit_multiplier,
     is_usage_unlimited,
 )
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, get_billing_period_number, is_pro_plan
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT
 
 logger = structlog.get_logger(__name__)
 
@@ -36,18 +31,6 @@ class CostStatus:
     remaining_usd: float
     resets_in_seconds: int
     exceeded: bool
-
-
-def _is_free_plan_throttled(context: ThrottleContext) -> bool:
-    return (
-        context.product == POSTHOG_CODE_PRODUCT
-        and not is_pro_plan(context.plan_key)
-        and (context.seat_created_at is not None or context.seat_missing)
-    )
-
-
-def _is_org_billed_seatless(context: ThrottleContext) -> bool:
-    return context.product == POSTHOG_CODE_PRODUCT and context.seat_missing and context.code_usage_billed
 
 
 class CostThrottle(Throttle):
@@ -250,13 +233,6 @@ class _UserCostThrottleBase(CostThrottle):
         return f"{base}:m{mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
-        # Precedence matters: an org-billed seatless user is uncapped even though
-        # seat_missing would otherwise select the free-plan cap below.
-        if _is_org_billed_seatless(context):
-            return ORG_BILLED_USER_COST_LIMIT
-        if _is_free_plan_throttled(context):
-            return FREE_PLAN_COST_LIMIT
-
         config = get_settings().user_cost_limits.get(context.product)
         if not config:
             if context.end_user_id and context.product not in self._warned_products:
@@ -270,7 +246,7 @@ class _UserCostThrottleBase(CostThrottle):
         return config
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        if not context.end_user_id:
+        if not context.end_user_id or context.product == POSTHOG_CODE_PRODUCT:
             return ThrottleResult.allow()
         if is_usage_unlimited(context.user):
             return ThrottleResult.allow()
@@ -281,7 +257,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().allow_request(context)
 
     async def get_status(self, context: ThrottleContext) -> CostStatus:
-        if is_usage_unlimited(context.user):
+        if context.product == POSTHOG_CODE_PRODUCT or is_usage_unlimited(context.user):
             # Staff have no per-user cap: report an effectively unlimited budget
             # so the usage endpoint computes 0% used and never flags the user as
             # rate limited. `float("inf")` never crosses the wire — only
@@ -297,7 +273,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().get_status(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
-        if not context.end_user_id:
+        if not context.end_user_id or context.product == POSTHOG_CODE_PRODUCT:
             return
         await super().record_cost(context, cost)
 
@@ -319,19 +295,6 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
 
     def _get_limit_exceeded_detail(self) -> str:
         return "User sustained rate limit exceeded"
-
-    def _get_cache_key(self, context: ThrottleContext) -> str:
-        base_key = super()._get_cache_key(context)
-        if not base_key:
-            return base_key
-        if context.product == POSTHOG_CODE_PRODUCT:
-            period = get_billing_period_number(
-                context.seat_created_at,
-                get_settings().billing_period_days,
-                billing_period_start=context.billing_period_start,
-            )
-            return f"{base_key}:period:{period}"
-        return base_key
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._get_config(context)
