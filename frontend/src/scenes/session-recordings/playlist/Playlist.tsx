@@ -249,7 +249,11 @@ export function Playlist({
         <div className="flex flex-col min-w-60 h-full">
             {!notebookNode && type !== 'collection' && (
                 <div className="mb-2 flex gap-2">
-                    <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
+                    <DraggableToNotebook
+                        className="flex-1"
+                        href={urls.replay(ReplayTabs.Home, filters)}
+                        onlyWithModifierKey
+                    >
                         <RecordingsUniversalFiltersEmbedButton
                             filters={filters}
                             setFilters={setFilters}
@@ -293,7 +297,7 @@ export function Playlist({
                 >
                     <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
                         <div className="relative">
-                            <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
+                            <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)} onlyWithModifierKey>
                                 <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
                                     <div className="flex items-center gap-0.5">
