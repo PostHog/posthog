@@ -216,6 +216,21 @@ class TestSentryTransport:
 
     @parameterized.expand(
         [
+            ("issue_events",),
+            ("project_events",),
+        ]
+    )
+    def test_events_endpoints_default_to_date_received(self, endpoint) -> None:
+        # Both endpoints fetch full event bodies (child_params full=true), which carry a
+        # `dateReceived` timestamp rather than the `dateCreated` field the lightweight
+        # issue/event list serializers use. Defaulting to `dateCreated` here made every
+        # incremental sync of these tables fail with IncrementalFieldMissingFromDataError.
+        config = SENTRY_ENDPOINTS[endpoint]
+        assert config.default_incremental_field == "dateReceived"
+        assert [incremental_field["field"] for incremental_field in config.incremental_fields] == ["dateReceived"]
+
+    @parameterized.expand(
+        [
             ("projects", "/organizations/acme/projects/"),
             ("teams", "/organizations/acme/teams/"),
             ("members", "/organizations/acme/members/"),

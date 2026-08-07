@@ -468,6 +468,24 @@ tools:
     warehouse-dag-list:
         operation: warehouse_dag_list
         enabled: false
+    warehouse-expressions-create:
+        operation: warehouse_expressions_create
+        enabled: false
+    warehouse-expressions-destroy:
+        operation: warehouse_expressions_destroy
+        enabled: false
+    warehouse-expressions-list:
+        operation: warehouse_expressions_list
+        enabled: false
+    warehouse-expressions-partial-update:
+        operation: warehouse_expressions_partial_update
+        enabled: false
+    warehouse-expressions-retrieve:
+        operation: warehouse_expressions_retrieve
+        enabled: false
+    warehouse-expressions-update:
+        operation: warehouse_expressions_update
+        enabled: false
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
         enabled: false

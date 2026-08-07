@@ -43,6 +43,14 @@ impl PgStore {
             ALLOWED_TABLES
         );
 
+        // Most columns take the record's value outright — the record is the
+        // leader's authoritative snapshot and the version guard orders
+        // records — but three merge against the existing row instead. The
+        // meta columns coalesce because changelog records carry no meta
+        // (the leader does not maintain those columns; ingestion's direct
+        // writer does), so assignment would erase real values. last_seen_at
+        // takes GREATEST — which ignores NULL — because records may predate
+        // the field, and the column's invariant is that it only advances.
         let upsert_sql = format!(
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
@@ -61,12 +69,14 @@ impl PgStore {
             ON CONFLICT (team_id, id) DO UPDATE SET
                 uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
-                properties_last_updated_at = EXCLUDED.properties_last_updated_at,
-                properties_last_operation = EXCLUDED.properties_last_operation,
+                properties_last_updated_at =
+                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
+                properties_last_operation =
+                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
-                last_seen_at = EXCLUDED.last_seen_at
+                last_seen_at = GREATEST(EXCLUDED.last_seen_at, {table}.last_seen_at)
             WHERE EXCLUDED.version > COALESCE({table}.version, -1)",
             table = table_name
         );
@@ -123,13 +133,13 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
         .map_err(|e| unbindable("properties_last_updated_at", e))?;
     let properties_last_operation = bytes_to_optional_json_str(&p.properties_last_operation)
         .map_err(|e| unbindable("properties_last_operation", e))?;
-    let created_at = epoch_secs_to_datetime(p.created_at)
+    let created_at = epoch_ms_to_datetime(p.created_at)
         .ok_or_else(|| unbindable("created_at", format!("epoch {} out of range", p.created_at)))?;
     let last_seen_at = match p.last_seen_at {
         None => None,
-        Some(secs) => Some(
-            epoch_secs_to_datetime(secs)
-                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {secs} out of range")))?,
+        Some(ms) => Some(
+            epoch_ms_to_datetime(ms)
+                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {ms} out of range")))?,
         ),
     };
 
@@ -312,8 +322,8 @@ fn bytes_to_optional_json_str(bytes: &[u8]) -> Result<Option<&str>, String> {
         .map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
-fn epoch_secs_to_datetime(epoch_secs: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_opt(epoch_secs, 0).single()
+fn epoch_ms_to_datetime(epoch_ms: i64) -> Option<DateTime<Utc>> {
+    Utc.timestamp_millis_opt(epoch_ms).single()
 }
 
 #[cfg(test)]
@@ -365,10 +375,10 @@ mod tests {
     }
 
     #[test]
-    fn epoch_secs_conversion() {
-        let dt = epoch_secs_to_datetime(1700000000).unwrap();
-        assert_eq!(dt.timestamp(), 1700000000);
-        assert!(epoch_secs_to_datetime(i64::MAX).is_none());
+    fn epoch_ms_conversion() {
+        let dt = epoch_ms_to_datetime(1700000000000).unwrap();
+        assert_eq!(dt.timestamp_millis(), 1700000000000);
+        assert!(epoch_ms_to_datetime(i64::MAX).is_none());
     }
 
     #[tokio::test]
