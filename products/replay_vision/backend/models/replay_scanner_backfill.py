@@ -27,9 +27,7 @@ class ReplayScannerBackfill(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
 
     window_start = models.DateTimeField(help_text="Inclusive lower bound of the historical window to scan.")
-    window_end = models.DateTimeField(
-        help_text="Exclusive upper bound of the window; clamped to the scanner's sweep watermark at creation."
-    )
+    window_end = models.DateTimeField(help_text="Exclusive upper bound of the window; clamped to now at creation.")
 
     status = models.CharField(max_length=16, choices=BackfillStatus.choices, default=BackfillStatus.RUNNING)
 
@@ -46,7 +44,7 @@ class ReplayScannerBackfill(TeamScopedRootMixin, UUIDModel):
     cursor_session_id = models.CharField(max_length=200, blank=True, default="")
 
     total_count = models.PositiveIntegerField(
-        help_text="Exact candidate enumeration at creation; the cost ceiling is total_count x credits_per_observation."
+        help_text="Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation."
     )
     dispatched_count = models.PositiveIntegerField(default=0)
 

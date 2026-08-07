@@ -41,6 +41,9 @@ MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
+# Emitted by `emit_observation_event_activity` once an observation succeeds.
+OBSERVATION_EVENT_NAME = "$recording_observed"
+
 # Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
 FOCUSED_SURFACING_THRESHOLD = 0.30
 BALANCED_SURFACING_THRESHOLD = 0.10
@@ -270,6 +273,7 @@ class BackfillCandidateQuery:
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         cursor_end_time: dt.datetime | None = None,
         cursor_session_id: str | None = None,
+        exclude_observed_by_scanner: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
     ) -> None:
@@ -288,6 +292,7 @@ class BackfillCandidateQuery:
         self._window_end = window_end
         self._cursor_end_time = cursor_end_time
         self._cursor_session_id = cursor_session_id
+        self._exclude_observed_by_scanner = exclude_observed_by_scanner
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
 
@@ -370,6 +375,8 @@ class BackfillCandidateQuery:
                 right=ast.Constant(value=MAX_SESSION_ID_LENGTH),
             ),
         ]
+        if self._exclude_observed_by_scanner is not None:
+            where_exprs.append(self._not_already_observed_predicate(self._exclude_observed_by_scanner))
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["sessions", "session_id"]),
@@ -377,6 +384,46 @@ class BackfillCandidateQuery:
             ],
             select_from=ast.JoinExpr(table=cast(ast.SelectQuery, inner), alias="sessions"),
             where=ast.And(exprs=where_exprs),
+        )
+
+    def _not_already_observed_predicate(self, scanner_id: str) -> ast.Expr:
+        """Drop sessions this scanner already published a `$recording_observed` event for.
+
+        Reads the event rather than shipping observation ids over from Postgres, so the exclusion is
+        a plain ClickHouse join with no cross-database list and no size ceiling. The trade-off is that
+        the event is only emitted on the success path, and fail-soft even there, so ineligible,
+        failed, and in-flight observations stay in the count. Those cannot produce a second
+        observation (the unique constraint blocks it), which is why the total is an upper bound.
+        """
+        observed = ast.SelectQuery(
+            select=[ast.Field(chain=["properties", "session_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=OBSERVATION_EVENT_NAME),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["properties", "scanner_id"]),
+                        right=ast.Constant(value=scanner_id),
+                    ),
+                    # An observation is always emitted after its session ended, so the window's own
+                    # lower bound prunes partitions without ever excluding a relevant event.
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=self._window_start),
+                    ),
+                ]
+            ),
+        )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotIn,
+            left=ast.Field(chain=["sessions", "session_id"]),
+            right=observed,
         )
 
     def _cursor_predicate(self) -> ast.Expr | None:

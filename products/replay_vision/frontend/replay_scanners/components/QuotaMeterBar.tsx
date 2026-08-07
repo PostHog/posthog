@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
 export interface QuotaMeterSegment {
-    /** Width as a percentage of the cap; may exceed the bar — segments are clamped cumulatively. */
+    /** Width as a percentage of the cap; may exceed it — the bar rescales to the total instead of truncating. */
     pct: number
     /** Background class, e.g. `bg-success` / `bg-warning` / `bg-danger` / `bg-accent`. */
     barClass: string
@@ -25,27 +25,39 @@ interface QuotaMeterBarProps {
     valueNow: number
     label: string
     size?: 'small' | 'medium'
+    /** Caption under the limit marker, shown only once the segments overshoot the limit. */
+    limitLabel?: string
     className?: string
 }
 
-/** Segment widths fill left to right; later segments absorb overflow past 100%. */
-export function clampSegmentWidths(pcts: number[]): number[] {
-    let headroom = 100
-    return pcts.map((pct) => {
-        const width = Math.max(Math.min(pct, headroom), 0)
-        headroom -= width
-        return width
-    })
+/** What the bar's full width represents: the limit, or the whole total once the segments overshoot it. */
+export function meterScale(pcts: number[]): number {
+    return Math.max(
+        pcts.reduce((total, pct) => total + Math.max(pct, 0), 0),
+        100
+    )
+}
+
+/**
+ * Segment widths as a percentage of the rendered bar.
+ *
+ * Past the limit the bar rescales to the total rather than truncating. Clamping made whichever segment came last
+ * vanish exactly when it mattered most: a small amount of headroom left under the limit would swallow a large
+ * segment whole, and the user could not see the size of what they were about to commit to.
+ */
+export function fitSegmentWidths(pcts: number[]): number[] {
+    const scale = 100 / meterScale(pcts)
+    return pcts.map((pct) => Math.max(pct, 0) * scale)
 }
 
 /** Widths for `[free, billed, ...projected]`, with the free slice clamped inside the used slice. The bar and its
  * legends both derive widths from this, so a legend chip can never outlive its segment. */
 export function quotaMeterWidths(usedPct: number, usedFreePct: number, projectedPcts: number[]): number[] {
     const freePct = Math.max(Math.min(usedFreePct, usedPct), 0)
-    return clampSegmentWidths([freePct, usedPct - freePct, ...projectedPcts])
+    return fitSegmentWidths([freePct, usedPct - freePct, ...projectedPcts])
 }
 
-/** Quota meter: solid used segment plus projection segments; later segments absorb overflow past 100%. */
+/** Quota meter: solid used segment plus projection segments, rescaled with a limit marker when they overshoot. */
 export function QuotaMeterBar({
     usedPct,
     usedFreePct = 0,
@@ -53,42 +65,74 @@ export function QuotaMeterBar({
     valueNow,
     label,
     size = 'medium',
+    limitLabel = 'Spend limit',
     className,
 }: QuotaMeterBarProps): JSX.Element {
-    const widths = quotaMeterWidths(
-        usedPct,
-        usedFreePct,
-        projected.map((segment) => segment.pct)
-    )
+    const pcts = projected.map((segment) => segment.pct)
+    const widths = quotaMeterWidths(usedPct, usedFreePct, pcts)
+    // Where the limit falls once the bar has rescaled past it. At or under the limit that is the far end, so the
+    // marker would sit on the bar's own edge and is left off.
+    const freePct = Math.max(Math.min(usedFreePct, usedPct), 0)
+    const limitMarkerPct = 10000 / meterScale([freePct, usedPct - freePct, ...pcts])
+    const overshoots = limitMarkerPct < 100
+    // Keep the caption inside the card when the marker sits near either end, instead of centering it off the edge.
+    const captionAnchor = limitMarkerPct > 85 ? 'translateX(-100%)' : limitMarkerPct < 15 ? 'none' : 'translateX(-50%)'
     return (
-        <div
-            className={clsx(
-                'flex overflow-hidden bg-fill-tertiary',
-                size === 'small' ? 'h-1.5 rounded-full' : 'h-3 rounded',
-                className
-            )}
-            role="meter"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.min(Math.round(valueNow), 100)}
-            aria-label={label}
-        >
-            <div
-                className={clsx('transition-[width] duration-500 ease-out', QUOTA_METER_FREE_CLASS)}
-                style={{ width: `${widths[0]}%` }}
-            />
-            <div className="bg-muted transition-[width] duration-500 ease-out" style={{ width: `${widths[1]}%` }} />
-            {projected.map(({ barClass, striped }, index) => (
+        <div className={className}>
+            <div className="relative">
                 <div
-                    key={index}
                     className={clsx(
-                        'transition-[width,background-color] duration-500 ease-out',
-                        striped && 'QuotaMeterBar__stripes QuotaMeterBar__stripes--animated',
-                        barClass
+                        'flex overflow-hidden bg-fill-tertiary',
+                        size === 'small' ? 'h-1.5 rounded-full' : 'h-3 rounded'
                     )}
-                    style={{ width: `${widths[index + 2]}%` }}
-                />
-            ))}
+                    role="meter"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.min(Math.round(valueNow), 100)}
+                    aria-label={label}
+                >
+                    <div
+                        className={clsx('transition-[width] duration-500 ease-out', QUOTA_METER_FREE_CLASS)}
+                        style={{ width: `${widths[0]}%` }}
+                    />
+                    <div
+                        className="bg-muted transition-[width] duration-500 ease-out"
+                        style={{ width: `${widths[1]}%` }}
+                    />
+                    {projected.map(({ barClass, striped }, index) => (
+                        <div
+                            key={index}
+                            className={clsx(
+                                'transition-[width,background-color] duration-500 ease-out',
+                                striped && 'QuotaMeterBar__stripes QuotaMeterBar__stripes--animated',
+                                barClass
+                            )}
+                            style={{ width: `${widths[index + 2]}%` }}
+                        />
+                    ))}
+                </div>
+                {overshoots && (
+                    <div
+                        className={clsx(
+                            'absolute w-0.5 rounded-full bg-text-3000 transition-[left] duration-500 ease-out',
+                            size === 'small' ? '-top-1 h-3.5' : '-top-1 h-5'
+                        )}
+                        style={{ left: `${limitMarkerPct}%` }}
+                    />
+                )}
+            </div>
+            {overshoots &&
+                limitLabel && (
+                    // Its own row in normal flow, so the caption can never land on whatever the parent renders next.
+                    <div className="relative mt-1 h-4">
+                        <span
+                            className="absolute whitespace-nowrap text-[11px] font-medium text-secondary transition-[left] duration-500 ease-out"
+                            style={{ left: `${limitMarkerPct}%`, transform: captionAnchor }}
+                        >
+                            {limitLabel}
+                        </span>
+                    </div>
+                )}
         </div>
     )
 }
@@ -102,7 +146,7 @@ export function QuotaMeterLegendItem({
 }: {
     barClass?: string
     striped?: boolean
-    /** Clamped width of the matching segment; omit for entries that are always shown. */
+    /** Rendered width of the matching segment; omit for entries that are always shown. */
     width?: number
     children: ReactNode
 }): JSX.Element | null {

@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +20,8 @@ import type { BackfillStatusEnumApi, ReplayScannerBackfillApi } from '../../gene
 import { formatCreditCount, formatCredits } from '../../utils/credits'
 import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
+import type { ScannerCreatedBy } from '../types'
+import { BackfillCostEstimate } from './BackfillCostEstimate'
 
 // Hour-scale presets matter as much as day-scale ones: a common case is re-scanning the last couple
 // of hours after fixing a prompt, not re-scanning a month.
@@ -30,20 +35,20 @@ const BACKFILL_DATE_OPTIONS: DateMappingOption[] = [
     { key: 'Last 90 days', values: ['-90d'] },
 ]
 
-/** Windows can be hours wide, so drop to date-only formatting just when both bounds sit on midnight. */
-function formatWindow(start: string, end: string): string {
-    const from = dayjs(start)
-    const to = dayjs(end)
-    const wholeDays = from.isSame(from.startOf('day')) && to.isSame(to.startOf('day'))
-    const format = wholeDays ? 'MMM D, YYYY' : 'MMM D, YYYY HH:mm'
-    return `${from.format(format)} to ${to.format(format)}`
-}
-
 const BACKFILL_STATUS_TAG: Record<BackfillStatusEnumApi, { label: string; type: LemonTagType }> = {
     running: { label: 'Running', type: 'success' },
     paused_quota: { label: 'Paused (quota)', type: 'warning' },
     completed: { label: 'Completed', type: 'default' },
     cancelled: { label: 'Cancelled', type: 'muted' },
+}
+
+/** Raw instant, so two window bounds can be compared at a glance. */
+const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
+
+/** A full UUID overflows the observations filter row; the leading block still identifies a backfill,
+ * and the Backfills table shows the whole id to match against. */
+export function shortBackfillId(id: string): string {
+    return id.slice(0, 8)
 }
 
 /** Convert a DateFilter token (`-30d`, an ISO date, or null) into an ISO instant for the API. */
@@ -66,8 +71,6 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
     const { requestEstimate, createBackfill, cancelBackfill, resumeBackfill, setWindowRange } = useActions(logic)
 
     const activeBackfill = backfills.find(isBackfillActive)
-    const overQuota =
-        estimate !== null && estimate.credits_remaining !== null && estimate.total_credits > estimate.credits_remaining
 
     const estimateWindow = (dateFrom: string | null, dateTo: string | null): void => {
         setWindowRange(dateFrom, dateTo)
@@ -84,10 +87,29 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
 
     const columns: LemonTableColumns<ReplayScannerBackfillApi> = [
         {
-            title: 'Window',
-            key: 'window',
+            title: 'ID',
+            key: 'id',
             render: (_, backfill) => (
-                <span className="whitespace-nowrap">{formatWindow(backfill.window_start, backfill.window_end)}</span>
+                <CopyToClipboardInline explicitValue={backfill.id} description="backfill ID" iconSize="xsmall">
+                    <span className="font-mono text-xs">{backfill.id}</span>
+                </CopyToClipboardInline>
+            ),
+        },
+        {
+            title: 'Start',
+            key: 'window_start',
+            // `timestampStyle="absolute"` is what suppresses the Today/Yesterday substitution; the
+            // format props alone leave it on. A window bound has to read as an exact instant so two
+            // rows can be compared, and this keeps TZLabel's timezone-conversion popover.
+            render: (_, backfill) => (
+                <TZLabel time={backfill.window_start} timestampStyle="absolute" {...WINDOW_TIME_FORMAT} />
+            ),
+        },
+        {
+            title: 'End',
+            key: 'window_end',
+            render: (_, backfill) => (
+                <TZLabel time={backfill.window_end} timestampStyle="absolute" {...WINDOW_TIME_FORMAT} />
             ),
         },
         {
@@ -129,57 +151,66 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
         {
             title: 'Created',
             key: 'created',
-            render: (_, backfill) => (
-                <div className="flex flex-col">
-                    <TZLabel time={backfill.created_at} />
-                    {backfill.created_by ? (
-                        <span className="text-muted text-xs">{backfill.created_by.email}</span>
-                    ) : null}
-                </div>
-            ),
+            // Relative here, unlike the window bounds: "how long ago was this started" is the useful
+            // reading, and it matches how created timestamps show elsewhere in the app.
+            render: (_, backfill) => <TZLabel time={backfill.created_at} />,
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            render: (_, backfill) =>
+                backfill.created_by ? (
+                    // Same adapter the scanner list uses: the generated hedgehog_config shape does not
+                    // match ProfilePicture's, and it is not needed to draw an avatar.
+                    <ProfilePicture user={backfill.created_by as ScannerCreatedBy} size="md" showName />
+                ) : (
+                    <span className="text-secondary">—</span>
+                ),
         },
         {
             key: 'actions',
             width: 0,
             render: (_, backfill) => (
-                <div className="flex gap-1">
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        to={
-                            combineUrl(urls.replayVision(scannerId), {
-                                tab: ReplayScannerTab.Observations,
-                                backfill_id: backfill.id,
-                            }).url
-                        }
-                        data-attr="vision-backfill-view-observations"
-                    >
-                        View observations
-                    </LemonButton>
-                    {backfill.status === 'paused_quota' && (
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={() => resumeBackfill(backfill.id)}
-                            loading={transitioningIds.includes(backfill.id)}
-                            data-attr="vision-backfill-resume"
-                        >
-                            Resume
-                        </LemonButton>
-                    )}
-                    {isBackfillActive(backfill) && (
-                        <LemonButton
-                            size="xsmall"
-                            status="danger"
-                            type="secondary"
-                            onClick={() => cancelBackfill(backfill.id)}
-                            loading={transitioningIds.includes(backfill.id)}
-                            data-attr="vision-backfill-cancel"
-                        >
-                            Cancel
-                        </LemonButton>
-                    )}
-                </div>
+                <More
+                    data-attr="vision-backfill-actions"
+                    overlay={
+                        <>
+                            <LemonButton
+                                fullWidth
+                                to={
+                                    combineUrl(urls.replayVision(scannerId), {
+                                        tab: ReplayScannerTab.Observations,
+                                        backfill_id: backfill.id,
+                                    }).url
+                                }
+                                data-attr="vision-backfill-view-observations"
+                            >
+                                View observations
+                            </LemonButton>
+                            {backfill.status === 'paused_quota' && (
+                                <LemonButton
+                                    fullWidth
+                                    onClick={() => resumeBackfill(backfill.id)}
+                                    disabledReason={transitioningIds.includes(backfill.id) ? 'Resuming…' : undefined}
+                                    data-attr="vision-backfill-resume"
+                                >
+                                    Resume
+                                </LemonButton>
+                            )}
+                            {isBackfillActive(backfill) && (
+                                <LemonButton
+                                    fullWidth
+                                    status="danger"
+                                    onClick={() => cancelBackfill(backfill.id)}
+                                    disabledReason={transitioningIds.includes(backfill.id) ? 'Cancelling…' : undefined}
+                                    data-attr="vision-backfill-cancel"
+                                >
+                                    Cancel
+                                </LemonButton>
+                            )}
+                        </>
+                    }
+                />
             ),
         },
     ]
@@ -190,9 +221,10 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                 <div>
                     <h3 className="mb-1">Scan historical recordings</h3>
                     <p className="text-muted mb-0">
-                        Run this scanner over recordings from before it was created or enabled. Sessions the scanner
-                        already observed are skipped and not billed. The backfill uses the scanner's current
-                        configuration, frozen when it starts, so later edits don't affect it.
+                        Run this scanner over older recordings, including ones from before you created it. The backfill
+                        skips recordings it has already scanned, so you're not billed twice. It uses the scanner's
+                        settings as they are now, so editing the scanner later won't change a backfill that's already
+                        running.
                     </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -218,26 +250,7 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                         Start backfill
                     </LemonButton>
                 </div>
-                {estimateLoading ? (
-                    <p className="text-muted mb-0">Counting eligible sessions…</p>
-                ) : estimate ? (
-                    <div className="flex flex-col gap-2">
-                        <p className="mb-0">
-                            {estimate.total_sessions.toLocaleString('en-US')}{' '}
-                            {estimate.total_sessions === 1 ? 'session' : 'sessions'} will be scanned, costing at most{' '}
-                            {formatCredits(estimate.total_credits)}.
-                            {estimate.credits_remaining !== null
-                                ? ` You have ${formatCreditCount(estimate.credits_remaining)} left this month.`
-                                : ''}
-                        </p>
-                        {overQuota && (
-                            <LemonBanner type="warning">
-                                This backfill costs more than your remaining monthly credits. It will scan the most
-                                recent sessions first, pause when the quota runs out, and you can resume it next period.
-                            </LemonBanner>
-                        )}
-                    </div>
-                ) : null}
+                <BackfillCostEstimate estimate={estimate} loading={estimateLoading} />
             </div>
 
             <LemonTable

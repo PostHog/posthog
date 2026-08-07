@@ -58,9 +58,7 @@ class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
 
 class BackfillWindowSerializer(serializers.Serializer):
     window_start = serializers.DateTimeField(help_text="Inclusive lower bound of the historical window to scan.")
-    window_end = serializers.DateTimeField(
-        help_text="Exclusive upper bound of the window; clamped server-side to the scanner's sweep watermark."
-    )
+    window_end = serializers.DateTimeField(help_text="Exclusive upper bound of the window; clamped server-side to now.")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs["window_start"] >= attrs["window_end"]:
@@ -74,11 +72,12 @@ class BackfillWindowSerializer(serializers.Serializer):
 
 class BackfillEstimateResponseSerializer(serializers.Serializer):
     total_sessions = serializers.IntegerField(
-        help_text="Exact number of eligible sessions the backfill would dispatch, after sampling and quality filters."
+        help_text="Upper bound on the sessions the backfill would scan, after sampling and quality "
+        "filters and excluding sessions this scanner already reported an observation for."
     )
     total_credits = serializers.IntegerField(
-        help_text="Exact cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. "
-        "Actual spend can only come in under it (already-scanned, expired, or failed sessions are not billed)."
+        help_text="Cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. "
+        "Actual spend lands under it: sessions already tried, expired recordings, and failures are not billed."
     )
     credits_per_observation = serializers.IntegerField(
         help_text="Per-observation credit price at the scanner's current model."
@@ -90,9 +89,7 @@ class BackfillEstimateResponseSerializer(serializers.Serializer):
         help_text="Projected monthly credit spend from enabled scanners plus active backfills' remaining commitments."
     )
     window_start = serializers.DateTimeField(help_text="The window lower bound the estimate covered.")
-    window_end = serializers.DateTimeField(
-        help_text="The window upper bound after clamping to the scanner's sweep watermark."
-    )
+    window_end = serializers.DateTimeField(help_text="The window upper bound after clamping to now.")
 
 
 class ReplayScannerBackfillSerializer(serializers.ModelSerializer):
@@ -194,19 +191,27 @@ class ReplayScannerBackfillViewSet(
         )
 
     def _clamped_window(self, scanner: ReplayScanner, data: dict[str, Any]) -> tuple[datetime, datetime]:
-        """The requested window bounded above by the sweep watermark, so live and backfill never contest a session."""
-        window_end = min(data["window_end"], scanner.last_swept_at)
+        """The requested window, bounded above by now.
+
+        Deliberately not clamped to the scanner's sweep watermark. Overlapping the live sweep is safe:
+        both paths mint the same deterministic workflow id and the unique (scanner, session) constraint
+        means a session can only ever produce one observation, so nothing is scanned or billed twice.
+        Whether a backfill is worth running is decided by how many *unobserved* recordings it would
+        find, which `_enumerate` answers directly.
+        """
+        window_end = min(data["window_end"], timezone.now())
         window_start = data["window_start"]
         if window_start >= window_end:
-            # Naming the boundary matters: the scanner owns everything after it whether or not it has
-            # scanned those recordings yet, so "already scanned" would be wrong when it is behind.
-            raise ValidationError(
-                f"This scanner already handles recordings from {scanner.last_swept_at:%b %-d, %Y at %H:%M} onward. "
-                "Pick a range that ends before then."
-            )
+            raise ValidationError("The end of the range must be in the past. Pick an earlier range.")
         return window_start, window_end
 
-    def _enumerate(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
+    def _enumerate(
+        self,
+        scanner: ReplayScanner,
+        window_start: datetime,
+        window_end: datetime,
+        exclude_observed: bool = False,
+    ) -> int:
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
         return BackfillCandidateQuery(
             team=scanner.team,
@@ -216,8 +221,34 @@ class ReplayScannerBackfillViewSet(
             sampling_rate=snapshot.sampling_rate,
             sampling_salt=str(scanner.id),
             sampling_mode=snapshot.sampling_mode,
+            exclude_observed_by_scanner=str(scanner.id) if exclude_observed else None,
             max_execution_time_seconds=ENUMERATION_MAX_EXECUTION_SECONDS,
         ).count()
+
+    def _unobserved_count(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
+        """Upper bound on what a backfill over this window would scan, rejecting when it is zero.
+
+        An upper bound rather than exact: the exclusion reads `$recording_observed`, which only exists
+        for observations that succeeded and managed to publish, so sessions already tried and found
+        ineligible or failed still count here. They cannot produce a second observation, so the real
+        spend lands under the quote.
+
+        Distinguishes "nothing here matches the scanner" from "everything here is already done"; the
+        second count only runs on the rejection path, so the happy path stays at one ClickHouse query.
+        """
+        unobserved = self._enumerate(scanner, window_start, window_end, exclude_observed=True)
+        if unobserved > 0:
+            return unobserved
+        if self._enumerate(scanner, window_start, window_end) > 0:
+            raise ValidationError("All recordings in this range have already been scanned. Pick a different range.")
+        # Naming sampling matters: a heavily sampled scanner finds nothing in a short range even
+        # though its filters match plenty, and "filters" alone sends people to edit the wrong setting.
+        if scanner.sampling_rate < 1:
+            raise ValidationError(
+                f"No recordings in this range match this scanner. It samples {scanner.sampling_rate:.1%} of "
+                "sessions, so try a wider range."
+            )
+        raise ValidationError("No recordings in this range match this scanner's filters. Try a wider range.")
 
     @extend_schema(request=BackfillWindowSerializer, responses={200: BackfillEstimateResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)
@@ -227,7 +258,7 @@ class ReplayScannerBackfillViewSet(
         window = BackfillWindowSerializer(data=request.data)
         window.is_valid(raise_exception=True)
         window_start, window_end = self._clamped_window(scanner, window.validated_data)
-        total = self._enumerate(scanner, window_start, window_end)
+        total = self._unobserved_count(scanner, window_start, window_end)
         price = observation_credits_for_model(scanner.model)
         quota = compute_quota_snapshot(scanner.team.organization_id)
         response = BackfillEstimateResponseSerializer(
@@ -259,7 +290,7 @@ class ReplayScannerBackfillViewSet(
             raise ValidationError("This scanner already has an active backfill.")
 
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
-        total = self._enumerate(scanner, window_start, window_end)
+        total = self._unobserved_count(scanner, window_start, window_end)
         try:
             backfill = ReplayScannerBackfill.objects.create(
                 scanner=scanner,

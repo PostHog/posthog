@@ -4,12 +4,15 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.core.cache import cache
 from django.utils import timezone
 
 from posthog.models import Organization, Team
 
-from products.replay_vision.backend.api.backfills import MAX_BACKFILL_WINDOW_DAYS, BackfillEnumerationThrottle
+from products.replay_vision.backend.api.backfills import (
+    MAX_BACKFILL_WINDOW_DAYS,
+    BackfillEnumerationThrottle,
+    ReplayScannerBackfillViewSet,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
@@ -258,7 +261,13 @@ class TestBackfillTickActivities:
         assert backfill.status == BackfillStatus.RUNNING
 
         result = advance_backfill_cursor_activity(
-            AdvanceBackfillCursorInputs(backfill_id=backfill.id, team_id=backfill.team_id, exhausted=True)
+            AdvanceBackfillCursorInputs(
+                backfill_id=backfill.id,
+                team_id=backfill.team_id,
+                expected_cursor_end_time=cursor_time,
+                expected_cursor_session_id="sess-9",
+                exhausted=True,
+            )
         )
         assert result.finished
         backfill.refresh_from_db()
@@ -298,14 +307,15 @@ class TestBackfillsApi(APIBaseTest):
         super().tearDown()
 
     def _window_body(self) -> dict:
+        now = timezone.now()
         return {
-            "window_start": (self.scanner.last_swept_at - dt.timedelta(days=30)).isoformat(),
-            "window_end": (self.scanner.last_swept_at + dt.timedelta(days=1)).isoformat(),
+            "window_start": (now - dt.timedelta(days=30)).isoformat(),
+            "window_end": (now + dt.timedelta(days=1)).isoformat(),
         }
 
     @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
     @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
-    def test_create_freezes_config_clamps_window_and_rejects_second_active(
+    def test_create_freezes_config_clamps_window_to_now_and_rejects_second_active(
         self, mock_query: MagicMock, mock_upsert: AsyncMock
     ) -> None:
         mock_query.return_value.count.return_value = 7
@@ -316,8 +326,10 @@ class TestBackfillsApi(APIBaseTest):
         assert body["status"] == "running"
 
         backfill = ReplayScannerBackfill.objects.for_team(self.team.id).get(pk=body["id"])
-        # The upper bound never crosses the live sweep's watermark.
-        assert backfill.window_end == self.scanner.last_swept_at
+        # A window reaching into the future is clamped back to now, but is no longer cut at the
+        # scanner's sweep watermark: overlap with the live sweep is safe and often the whole point.
+        assert backfill.window_end <= timezone.now()
+        assert backfill.window_end > self.scanner.last_swept_at
         assert backfill.scanner_snapshot["scanner_config"] == {"prompt": "p"}
         assert backfill.credits_per_observation > 0
         assert mock_upsert.await_count == 1
@@ -339,20 +351,35 @@ class TestBackfillsApi(APIBaseTest):
     def test_estimate_rejects_window_longer_than_the_cap(self) -> None:
         # An unbounded window makes the synchronous enumeration pay for the whole partition range.
         body = {
-            "window_start": (self.scanner.last_swept_at - dt.timedelta(days=MAX_BACKFILL_WINDOW_DAYS + 1)).isoformat(),
-            "window_end": self.scanner.last_swept_at.isoformat(),
+            "window_start": (timezone.now() - dt.timedelta(days=MAX_BACKFILL_WINDOW_DAYS + 1)).isoformat(),
+            "window_end": timezone.now().isoformat(),
         }
         response = self.client.post(f"{self.base_url}/estimate/", body, format="json")
         assert response.status_code == 400
         assert "365 days" in str(response.json())
 
-    def test_estimate_rejects_window_entirely_past_the_watermark(self) -> None:
-        body = {
-            "window_start": (self.scanner.last_swept_at + dt.timedelta(hours=1)).isoformat(),
-            "window_end": (self.scanner.last_swept_at + dt.timedelta(hours=2)).isoformat(),
-        }
-        response = self.client.post(f"{self.base_url}/estimate/", body, format="json")
+    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    def test_estimate_rejects_when_every_candidate_is_already_observed(self, mock_query: MagicMock) -> None:
+        # Excluded run returns 0 while the unfiltered run finds rows: nothing left for a backfill to do.
+        mock_query.return_value.count.side_effect = [0, 5]
+        self.scanner.observations.create(
+            team=self.team,
+            session_id="already-done",
+            status=ObservationStatus.SUCCEEDED,
+            triggered_by=ObservationTrigger.SCHEDULE,
+            scanner_snapshot={},
+            completed_at=timezone.now(),
+        )
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
         assert response.status_code == 400
+        assert "already been scanned" in str(response.json())
+
+    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    def test_estimate_rejects_when_nothing_matches_the_scanner(self, mock_query: MagicMock) -> None:
+        mock_query.return_value.count.return_value = 0
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+        assert response.status_code == 400
+        assert "match this scanner" in str(response.json())
 
     @patch("products.replay_vision.backend.temporal.schedule.a_delete_backfill_schedule", new_callable=AsyncMock)
     def test_cancel_marks_terminal(self, _mock_delete: AsyncMock) -> None:
@@ -375,22 +402,20 @@ class TestBackfillsApi(APIBaseTest):
         response = self.client.post(f"{self.base_url}/{running.id}/resume/")
         assert response.status_code == 400
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
-    def test_estimate_throttles_a_session_authenticated_caller(self, mock_query: MagicMock) -> None:
-        # The global burst/sustained throttles only cover personal API keys, so without this one a
-        # UI session could resubmit wide windows and saturate the ClickHouse pool.
-        mock_query.return_value.count.return_value = 1
-        cache.clear()
-        with (
-            patch.object(BackfillEnumerationThrottle, "rate", "1/minute"),
-            patch.object(
-                BackfillEnumerationThrottle, "THROTTLE_RATES", {"replay_vision_backfill_enumeration": "1/minute"}
-            ),
-        ):
-            first = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
-            second = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
-        assert first.status_code == 200, first.json()
-        assert second.status_code == 429
+    def test_enumerating_actions_carry_a_rate_limited_throttle(self) -> None:
+        # The global burst/sustained throttles only cover personal API keys, so without this one a UI
+        # session could resubmit wide windows and saturate the ClickHouse pool. The rate is asserted
+        # too, since the wiring alone would pass with a throttle that never limits anything.
+        viewset = ReplayScannerBackfillViewSet()
+        for enumerating_action in ("estimate", "create"):
+            viewset.action = enumerating_action
+            throttles = viewset.get_throttles()
+            assert any(isinstance(t, BackfillEnumerationThrottle) for t in throttles)
+            # Appended, not substituted: the global limits must survive on the heaviest actions.
+            assert len(throttles) > 1
+        viewset.action = "cancel"
+        assert not any(isinstance(t, BackfillEnumerationThrottle) for t in viewset.get_throttles())
+        assert BackfillEnumerationThrottle.rate
 
     def test_list_includes_observation_progress_counts(self) -> None:
         backfill = _make_backfill(self.scanner, dispatched_count=3)
