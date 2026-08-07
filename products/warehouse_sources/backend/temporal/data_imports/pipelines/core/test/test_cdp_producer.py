@@ -879,6 +879,27 @@ def _make_producer(job_id: str) -> CDPProducer:
     return CDPProducer(team_id=1, schema_id="schema_1", job_id=job_id, logger=mock.AsyncMock())
 
 
+def test_get_fs_reuses_the_same_filesystem_across_calls():
+    # stage_chunk() calls _get_fs() once per chunk over a whole sync (potentially thousands of
+    # chunks); constructing a fresh S3FileSystem per call leaks its underlying connections/file
+    # descriptors until the process runs out of them.
+    producer = _make_producer("job_1")
+
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.pa_fs.S3FileSystem"
+        ) as mock_s3_filesystem,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.ensure_bucket_exists"
+        ),
+    ):
+        first = producer._get_fs()
+        second = producer._get_fs()
+
+    mock_s3_filesystem.assert_called_once()
+    assert first is second
+
+
 def test_build_event_id_is_a_valid_uuid():
     event_id = _make_producer("job_1")._build_event_id({"id": 1, "name": "Alice"})
     assert str(uuid.UUID(event_id)) == event_id

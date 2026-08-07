@@ -177,6 +177,23 @@ async def test_stage_chunk_filenames_are_unique_per_attempt():
     assert len(set(paths)) == 2
 
 
+def test_get_fs_reuses_the_same_filesystem_across_calls():
+    # stage_chunk() calls _get_fs() once per chunk over a whole sync (potentially thousands of
+    # chunks); constructing a fresh S3FileSystem per call leaks its underlying connections/file
+    # descriptors until the process runs out of them.
+    sink = _sink()
+
+    with (
+        patch(f"{_MODULE}.pa_fs.S3FileSystem") as mock_s3_filesystem,
+        patch(f"{_MODULE}.ensure_bucket_exists"),
+    ):
+        first = sink._get_fs()
+        second = sink._get_fs()
+
+    mock_s3_filesystem.assert_called_once()
+    assert first is second
+
+
 @pytest.mark.asyncio
 async def test_clear_tolerates_missing_prefixes():
     # First sync of a schema has nothing staged anywhere; clearing must not fail the sync.
