@@ -228,6 +228,7 @@ export type MinimalAppMetric = {
         | 'missing_addon'
         | 'fetch'
         | 'billable_invocation'
+        | 'billable_invocation_attributed'
         | 'dropped'
         | 'budget_skipped'
         | 'email_queued'

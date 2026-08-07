@@ -6,11 +6,17 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
+import { HogFunctionTypeType } from '~/types'
+
+// Only destinations emit the billed-events metric (billing is per triggering event, per destination)
+const BILLED_EVENTS_KEY = 'billable_invocation_attributed'
+
 const HOGFUNCTION_METRIC_KEYS = [
     'succeeded',
     'failed',
     'inputs_failed',
     'filtered',
+    'billable_invocation_attributed',
     'dropped',
     'budget_skipped',
     'disabled_permanently',
@@ -39,6 +45,12 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
         description: 'Total number of events that were filtered out',
         color: getColorVar('muted'),
     },
+    billable_invocation_attributed: {
+        name: 'Billed events',
+        description:
+            'Billed events this destination participated in. Billing is per event, so when several destinations match the same event they each count it, and the total across destinations can be higher than your bill.',
+        color: getColorVar('data-color-1'),
+    },
     dropped: {
         name: 'Dropped',
         description: 'Total number of events or log records dropped by the transformation',
@@ -62,7 +74,9 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
     },
 }
 
-export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
+export function HogFunctionMetrics({ id, type }: { id: string; type?: HogFunctionTypeType }): JSX.Element {
+    const metricKeys = HOGFUNCTION_METRIC_KEYS.filter((key) => key !== BILLED_EVENTS_KEY || type === 'destination')
+
     const logic = appMetricsLogic({
         logicKey: `hog-function-metrics-${id}`,
         loadOnMount: true,
@@ -70,7 +84,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
         forceParams: {
             appSource: 'hog_function',
             appSourceId: id,
-            metricName: [...HOGFUNCTION_METRIC_KEYS],
+            metricName: [...metricKeys],
             breakdownBy: 'metric_name',
         },
     })
@@ -84,7 +98,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                {HOGFUNCTION_METRIC_KEYS.map((key) => (
+                {metricKeys.map((key) => (
                     <AppMetricSummary
                         key={key}
                         name={HOGFUNCTION_METRICS_INFO[key].name}
@@ -94,7 +108,15 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
                         previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
                         color={HOGFUNCTION_METRICS_INFO[key].color}
                         colorIfZero={getColorVar('muted')}
-                        hideIfZero={!['succeeded', 'failed', 'inputs_failed', 'filtered'].includes(key)}
+                        hideIfZero={
+                            ![
+                                'succeeded',
+                                'failed',
+                                'inputs_failed',
+                                'filtered',
+                                'billable_invocation_attributed',
+                            ].includes(key)
+                        }
                     />
                 ))}
             </div>

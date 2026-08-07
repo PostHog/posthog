@@ -236,10 +236,17 @@ describe('HogFunctionInvocationPipeline', () => {
             filterFn: () => true,
         })
 
-        const billingMetrics = hogFunctionMonitoringService.queueAppMetrics.mock.calls
-            .flatMap((c) => c[0])
-            .filter((m: any) => m.metric_name === 'billable_invocation')
+        const emittedMetrics = hogFunctionMonitoringService.queueAppMetrics.mock.calls.flatMap((c) => c[0])
+
+        const billingMetrics = emittedMetrics.filter((m: any) => m.metric_name === 'billable_invocation')
         expect(billingMetrics).toHaveLength(1)
+        expect(billingMetrics[0]).toMatchObject({ app_source_id: '_event_trigger' })
+
+        // Each destination that matched the event carries its own attributable share, keyed to
+        // the destination rather than the synthetic trigger, so the sum can exceed the billed count.
+        const attributedMetrics = emittedMetrics.filter((m: any) => m.metric_name === 'billable_invocation_attributed')
+        expect(attributedMetrics).toHaveLength(2)
+        expect(attributedMetrics.map((m: any) => m.app_source_id).sort()).toEqual(['fn-1', 'fn-2'])
     })
 
     it('does not drop rate-limited invocations (monitoring-only)', async () => {

@@ -215,6 +215,20 @@ export class HogFunctionInvocationPipeline {
             // Bill once per triggering event, not per destination
             if (item.hogFunction.type === 'destination') {
                 const eventUuid = item.state?.globals?.event?.uuid
+
+                // Companion metric keyed to the destination, so each one carries its own share of the
+                // billed events it participated in. This is NOT billed — the per-event row below is the
+                // billed unit — it exists only so a destination's metrics tab can attribute spend. When
+                // several destinations match one event they each count it, so the sum can exceed the bill.
+                triggeredInvocationsMetrics.push({
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
+                    instance_id: eventUuid,
+                    metric_kind: 'billing',
+                    metric_name: 'billable_invocation_attributed',
+                    count: 1,
+                })
+
                 if (eventUuid && !billedEventUuids.has(eventUuid)) {
                     billedEventUuids.add(eventUuid)
                     triggeredInvocationsMetrics.push({
