@@ -69,12 +69,6 @@ class Migration(migrations.Migration):
                 "verbose_name": "Signal report action",
                 "verbose_name_plural": "Signal report actions",
                 "default_manager_name": "all_teams",
-                "indexes": [
-                    models.Index(
-                        fields=["team", "type", "last_at"],
-                        name="signals_report_action_seen_idx",
-                    )
-                ],
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("report", "user", "type"),

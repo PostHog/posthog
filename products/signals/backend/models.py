@@ -1118,6 +1118,9 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     # Latest-wins detail about the interaction (e.g. the feedback row keeps the most recent
     # sentiment). Never required by readers — the row's existence is the fact that matters.
     metadata = models.JSONField(default=dict, blank=True)
+    # Coarse repeat signal, not an exact ledger: bundled rating+note submissions and reordered
+    # fire-and-forget requests can move it by one either way. Readers get "roughly how often",
+    # never billing-grade counts.
     count = models.PositiveIntegerField(default=1)
     first_at = models.DateTimeField(auto_now_add=True)
     last_at = models.DateTimeField()
@@ -1127,12 +1130,10 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         verbose_name_plural = "Signal report actions"
         default_manager_name = "all_teams"
         constraints = [
+            # Also the only index: the sweep's "which of these reports did a person touch since
+            # <ts>?" resolves as per-report probes on this, and keeping `last_at` out of any index
+            # leaves the hot repeat-view UPDATE eligible for HOT.
             models.UniqueConstraint(fields=["report", "user", "type"], name="signals_report_action_identity"),
-        ]
-        indexes = [
-            # The inactivity sweep asks "which of these reports did a person touch since <ts>?" —
-            # this makes that a seek without going through the per-report unique constraint.
-            models.Index(fields=["team", "type", "last_at"], name="signals_report_action_seen_idx"),
         ]
 
     @classmethod
