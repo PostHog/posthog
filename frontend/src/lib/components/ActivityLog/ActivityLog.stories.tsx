@@ -92,7 +92,7 @@ export function WithNoData(): JSX.Element {
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={6} />
 }
 
-export function WithoutAuditLogsFeaure(): JSX.Element {
+function useOrganizationWithoutAuditLogs(): void {
     useStorybookMocks({
         get: {
             '/api/users/@me': () => [
@@ -108,5 +108,16 @@ export function WithoutAuditLogsFeaure(): JSX.Element {
             ],
         },
     })
+}
+
+export function WithoutAuditLogsFeaure(): JSX.Element {
+    useOrganizationWithoutAuditLogs()
+    // Insight is a paid scope, so this still renders the paywall. Don't switch it back to a
+    // feature flag: that scope is exempt from the gate, which is the story below.
+    return <ActivityLog scope={ActivityScope.INSIGHT} />
+}
+
+export function BillingExemptScopeWithoutAuditLogsFeature(): JSX.Element {
+    useOrganizationWithoutAuditLogs()
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />
 }
