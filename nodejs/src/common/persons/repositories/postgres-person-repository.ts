@@ -270,7 +270,9 @@ export class PostgresPersonRepository
             WHERE
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
-                AND posthog_persondistinctid.distinct_id = $2`
+                AND posthog_persondistinctid.distinct_id = $2
+                AND posthog_persondistinctid.is_deleted = false
+                AND posthog_person.is_deleted = false`
         if (options.forUpdate) {
             // Locks the teamId and distinctId tied to this personId + this person's info
             queryString = queryString.concat(` FOR UPDATE`)
@@ -335,7 +337,10 @@ export class PostgresPersonRepository
             )
             JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
                 ON posthog_persondistinctid.team_id = batch.team_id
-                AND posthog_persondistinctid.distinct_id = batch.distinct_id`
+                AND posthog_persondistinctid.distinct_id = batch.distinct_id
+            WHERE
+                posthog_persondistinctid.is_deleted = false
+                AND posthog_person.is_deleted = false`
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
@@ -386,6 +391,8 @@ export class PostgresPersonRepository
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
                 AND posthog_persondistinctid.distinct_id = ANY($2::text[])
+                AND posthog_persondistinctid.is_deleted = false
+                AND posthog_person.is_deleted = false
             ORDER BY posthog_person.id
             FOR UPDATE`
 
@@ -441,7 +448,8 @@ export class PostgresPersonRepository
                 posthog_person.is_identified,
                 posthog_person.last_seen_at
             FROM posthog_person
-            WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))`
+            WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))
+                AND posthog_person.is_deleted = false`
 
         const { rows } = await this.postgres.query<RawPerson>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
@@ -473,7 +481,7 @@ export class PostgresPersonRepository
             JOIN LATERAL (
                 SELECT distinct_id, id AS pdi_id
                 FROM posthog_persondistinctid
-                WHERE team_id = $1 AND person_id = p.id
+                WHERE team_id = $1 AND person_id = p.id AND is_deleted = false
                 ORDER BY id ASC
                 LIMIT $3::bigint
             ) pdi ON true`
@@ -902,7 +910,7 @@ export class PostgresPersonRepository
             tx ?? PostgresUse.PERSONS_WRITE,
             `SELECT person_id, count(*) AS count
                 FROM posthog_persondistinctid
-                WHERE team_id = $1 AND person_id = ANY($2::bigint[])
+                WHERE team_id = $1 AND person_id = ANY($2::bigint[]) AND is_deleted = false
                 GROUP BY person_id`,
             [teamId, personIds],
             'countDistinctIdsForPersons'
@@ -987,14 +995,14 @@ export class PostgresPersonRepository
             ? `
                 SELECT distinct_id
                 FROM posthog_persondistinctid
-                WHERE person_id = $1 AND team_id = $2
+                WHERE person_id = $1 AND team_id = $2 AND is_deleted = false
                 ORDER BY id
                 LIMIT $3
             `
             : `
                 SELECT distinct_id
                 FROM posthog_persondistinctid
-                WHERE person_id = $1 AND team_id = $2
+                WHERE person_id = $1 AND team_id = $2 AND is_deleted = false
                 ORDER BY id
             `
 

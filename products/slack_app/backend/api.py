@@ -58,8 +58,11 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
+    ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
+    is_slack_app_assistant_flag_enabled,
     is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_untagged_thread_followups_enabled,
@@ -1666,7 +1669,7 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
 
 def send_assistant_install_welcome(integration: Integration) -> None:
     """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
-    if not is_slack_app_assistant_enabled(integration.team):
+    if not is_slack_app_assistant_enabled(integration):
         return
     slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
     if not slack_user_id:
@@ -1675,11 +1678,6 @@ def send_assistant_install_welcome(integration: Integration) -> None:
         SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
     except Exception:
         logger.warning("assistant_install_welcome_failed", exc_info=True)
-
-
-# The DM/agent surface needs the base coding-agent scopes plus the assistant container scopes.
-# Kept separate from REQUIRED_SLACK_SCOPES so the mention flow isn't gated on im:history.
-_ASSISTANT_REQUIRED_SLACK_SCOPES = REQUIRED_SLACK_SCOPES | frozenset({"assistant:write", "im:history"})
 
 
 def _handle_assistant_dm_message(
@@ -1693,7 +1691,7 @@ def _handle_assistant_dm_message(
     posthog_user: User,
 ) -> str:
     slack = SlackIntegration(integration)
-    missing = slack.missing_scopes(_ASSISTANT_REQUIRED_SLACK_SCOPES)
+    missing = slack.missing_scopes(ASSISTANT_REQUIRED_SCOPES)
     if missing:
         _notify_missing_slack_scopes(slack, event, missing)
         return ROUTE_HANDLED_LOCALLY
@@ -1760,7 +1758,9 @@ def _route_assistant_event(
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
 
     # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
-    if not is_slack_app_assistant_enabled(probe.team):
+    # The flag alone, not the full gate — a workspace that opted in but is missing scopes should
+    # hear that from `_handle_assistant_dm_message`, not be silently ignored.
+    if not is_slack_app_assistant_flag_enabled(probe.team):
         return ROUTE_HANDLED_LOCALLY
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
@@ -1943,6 +1943,22 @@ def route_posthog_code_event_to_relevant_region(
             if region_route == ROUTE_NO_INTEGRATION and event_type == "app_mention":
                 _report_slack_mention_dropped(event, slack_team_id, reason="no_integration", replied=False)
             return region_route
+
+        # A reply on a thread that mirrors a PostHog discussion becomes a comment, not agent work.
+        if event_type == "message":
+            try:
+                ingested = try_ingest_discussion_reply(
+                    event, workspace_result.candidates, channel_str, thread_ts_str, slack_team_id
+                )
+            except Exception:
+                # Never let discussion ingest break the shared event handler — a 500 here would
+                # also lose the agent-followup routing, and Slack retries are dropped upstream.
+                logger.exception(
+                    "slack_discussion_reply_ingest_failed", slack_team_id=slack_team_id, channel=channel_str
+                )
+                ingested = False
+            if ingested:
+                return ROUTE_HANDLED_LOCALLY
 
         # Threads we don't own (and orgs that haven't opted in) are dropped here
         # so the rest of the pipeline only runs for actionable messages.
@@ -2485,7 +2501,7 @@ def _route_team_join(
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
         return _proxy_event_and_return_route(request, other_domain)
 
-    integration = next((c for c in workspace_result.candidates if is_slack_app_assistant_enabled(c.team)), None)
+    integration = next((c for c in workspace_result.candidates if is_slack_app_assistant_enabled(c)), None)
     if integration is None:
         return ROUTE_HANDLED_LOCALLY
 

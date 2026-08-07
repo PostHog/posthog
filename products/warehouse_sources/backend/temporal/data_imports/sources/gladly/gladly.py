@@ -40,16 +40,27 @@ def _get_session(agent_email: str, api_token: str) -> requests.Session:
 
 
 def _clean_organization(organization: str) -> str:
-    """Accept either the bare org subdomain or a pasted full domain/URL."""
+    """Accept the bare org subdomain, a region-qualified one like myorg.us-1, or a pasted full domain/URL."""
     org = organization.strip().removeprefix("https://").removeprefix("http://")
-    org = org.split(".")[0].split("/")[0]
-    if not re.fullmatch(r"[a-zA-Z0-9-]+", org):
-        raise ValueError(f"Invalid Gladly organization: {organization}")
+    org = org.split("/")[0]
+    if org.lower().endswith(".gladly.com"):
+        org = org[: -len(".gladly.com")]
+    # One optional extra label covers Gladly's region-sharded orgs (myorg.us-1.gladly.com);
+    # the charset keeps the credentials pinned to a subdomain of gladly.com.
+    if not re.fullmatch(r"[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)?", org):
+        raise ValueError(
+            "Invalid Gladly organization. Enter the part of your Gladly URL before .gladly.com. "
+            "For myorg.gladly.com enter myorg. For myorg.us-1.gladly.com enter myorg.us-1."
+        )
     return org
 
 
+def _host(organization: str) -> str:
+    return f"{_clean_organization(organization)}.gladly.com"
+
+
 def _base_url(organization: str) -> str:
-    return f"https://{_clean_organization(organization)}.gladly.com/api/v1"
+    return f"https://{_host(organization)}/api/v1"
 
 
 def _format_timestamp(value: Any) -> str:
@@ -61,19 +72,42 @@ def _format_timestamp(value: Any) -> str:
     return str(value)
 
 
-def validate_credentials(organization: str, agent_email: str, api_token: str) -> bool:
-    """Confirm the credentials are valid with a cheap agents probe."""
-    # Resolve the org first so a malformed organization surfaces its own ValueError
-    # rather than being mislabelled as a credentials problem by the caller.
-    base_url = _base_url(organization)
+def validate_credentials(organization: str, agent_email: str, api_token: str) -> tuple[bool, str | None]:
+    """Confirm the credentials are valid with a cheap agents probe.
+
+    A wrong subdomain, an agent missing the API User permission, and a bad token each
+    need a different fix, so they are reported separately. Returning one generic
+    message for every outcome leaves the user nothing to act on, and hides an
+    unreachable host or a Gladly outage behind a credentials error.
+    """
+    try:
+        base_url = _base_url(organization)
+        host = _host(organization)
+    except ValueError as e:
+        return False, str(e)
+
     try:
         response = _get_session(agent_email, api_token).get(
             f"{base_url}/agents",
             timeout=15,
         )
-        return response.status_code == 200
     except Exception:
-        return False
+        # The tracked session already logs the URL and exception class, so the message
+        # stays readable instead of surfacing urllib3 retry and TLS internals.
+        return False, f"Could not connect to Gladly at {host}. Check your organization subdomain."
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, "Gladly authentication failed. Check your agent email and API token."
+    if response.status_code == 403:
+        return False, (
+            "Gladly denied access. Check that the agent has the API User permission, "
+            "under Settings > API Tokens in Gladly."
+        )
+    if response.status_code == 404:
+        return False, f"No Gladly organization found at {host}. Check your organization subdomain."
+    return False, f"Gladly returned an unexpected status: {response.status_code}"
 
 
 def get_rows(

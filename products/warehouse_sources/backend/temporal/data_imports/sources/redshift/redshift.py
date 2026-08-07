@@ -116,6 +116,13 @@ SYSTEM_REDSHIFT_SCHEMAS = ["pg_catalog", "information_schema", "pg_internal", "p
 # `pa.Table.from_pydict` raises a `KeyError`. The `padb_internal` prefix is Redshift-reserved.
 REDSHIFT_INTERNAL_COLUMN_LIKE = "padb_internal%"
 
+# A single-node Redshift cluster rejects any `FETCH FORWARD` above 1000 rows with
+# "Fetch size N exceeds the limit of 1000 for a single node configuration". The limit is fixed by
+# the node topology, so a cluster that rejects one fetch rejects every fetch: without a retry at
+# this size the server cursor is unreachable on such clusters and every sync degrades to a
+# client-side read of the whole table.
+REDSHIFT_SINGLE_NODE_FETCH_LIMIT = 1000
+
 
 def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
     """Discovery key for a table: dotted `schema.table` in multi-schema mode, bare table otherwise."""
@@ -293,20 +300,53 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
             pass
 
 
+def _is_fetch_size_error(error: Exception) -> bool:
+    """Is this Redshift rejecting the FETCH size rather than the cursor itself?
+
+    Matched on the message because Redshift reports it as a generic `InternalError_`/
+    `FeatureNotSupported` with no distinguishing SQLSTATE. Both halves are required so an
+    unrelated "exceeds the limit" (e.g. the cumulative result-set cap, which shrinking the fetch
+    cannot fix) doesn't trigger a pointless retry.
+    """
+    message = str(error).lower()
+    return "fetch size" in message and "exceeds the limit" in message
+
+
 def _fetch_arrow_batches(
     cursor: psycopg.Cursor,
     chunk_size: int,
     arrow_schema: pa.Schema,
+    fetch_size: int | None = None,
 ) -> Iterator[pa.Table]:
-    """Yield one Arrow table per `chunk_size` rows drawn from an already-executed `cursor`."""
-    column_names = [column.name for column in cursor.description or []]
+    """Yield one Arrow table per `chunk_size` rows drawn from an already-executed `cursor`.
 
+    `fetch_size` decouples the per-`FETCH` page from the Arrow batch: rows accumulate across
+    pages until `chunk_size` is reached. Redshift caps a single `FETCH` on a single-node cluster
+    (see `REDSHIFT_SINGLE_NODE_FETCH_LIMIT`) far below the chunk sizes we target, so paging is
+    the only way to keep the server cursor and still write batches the Delta writer sizes well.
+    Defaults to `chunk_size`, i.e. one `FETCH` per Arrow table.
+    """
+    column_names = [column.name for column in cursor.description or []]
+    page_size = fetch_size or chunk_size
+
+    def to_arrow(rows: list[Any]) -> pa.Table:
+        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+    pending: list[Any] = []
     while True:
-        rows = cursor.fetchmany(chunk_size)
+        rows = cursor.fetchmany(page_size)
         if not rows:
             break
 
-        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+        pending.extend(rows)
+        # Overshoots by at most `page_size - 1` rows, which is bounded and far below the byte
+        # budget `chunk_size` was derived from.
+        if len(pending) >= chunk_size:
+            yield to_arrow(pending)
+            pending = []
+
+    if pending:
+        yield to_arrow(pending)
 
 
 def _stream_arrow_batches(
@@ -327,34 +367,53 @@ def _stream_arrow_batches(
     doesn't fit), which is what keeps the worker's footprint proportional to `chunk_size`.
 
     Redshift constrains cursors in ways Postgres doesn't: cumulative result sets are capped per node
-    type, and single-node clusters reject a `FETCH FORWARD` above 1000 rows. Both surface before any
-    batch reaches the caller, so a failure there falls back to the client-side read instead of
-    failing the sync — no better than having no server cursor at all, but no worse either. Once a
-    batch has been yielded the fallback is off the table: re-running the query would re-emit rows the
-    pipeline has already consumed, so later errors propagate.
+    type, and single-node clusters reject a `FETCH FORWARD` above 1000 rows. The fetch cap is a
+    property of the cluster, not the table, so on a single-node cluster it rejects the *first* fetch
+    of every sync — the retry at `REDSHIFT_SINGLE_NODE_FETCH_LIMIT` is what keeps those clusters on
+    the server cursor at all. Anything else that makes the cursor unusable falls back to the
+    client-side read instead of failing the sync — no better than having no server cursor at all, but
+    no worse either. Once a batch has been yielded both recoveries are off the table: re-running the
+    query would re-emit rows the pipeline has already consumed, so later errors propagate.
     """
     yielded = False
-    try:
-        # `close()` is a no-op while the transaction is aborted (psycopg checks the status first),
-        # so this never masks the original failure with a CLOSE error.
-        with connection.cursor(name=cursor_name) as server_cursor:
-            server_cursor.execute(query)
-            for batch in _fetch_arrow_batches(server_cursor, chunk_size, arrow_schema):
-                yielded = True
-                yield batch
-        return
-    except Exception as e:
-        if yielded:
-            raise
-        logger.debug(
-            f"Server-side cursor unusable ({e}); falling back to a client-side read of the full result set",
-            exc_info=e,
-        )
+    fetch_sizes = [chunk_size]
+    if chunk_size > REDSHIFT_SINGLE_NODE_FETCH_LIMIT:
+        fetch_sizes.append(REDSHIFT_SINGLE_NODE_FETCH_LIMIT)
 
-    # A failed DECLARE/FETCH leaves the transaction aborted, and Redshift has no savepoints to scope
-    # it — roll back so the client-side retry below isn't killed by `InFailedSqlTransaction`.
-    if connection.info.transaction_status == TransactionStatus.INERROR:
-        connection.rollback()
+    for attempt, fetch_size in enumerate(fetch_sizes):
+        try:
+            # `close()` is a no-op while the transaction is aborted (psycopg checks the status
+            # first), so this never masks the original failure with a CLOSE error.
+            with connection.cursor(name=cursor_name) as server_cursor:
+                server_cursor.execute(query)
+                for batch in _fetch_arrow_batches(server_cursor, chunk_size, arrow_schema, fetch_size):
+                    yielded = True
+                    yield batch
+            return
+        except Exception as e:
+            if yielded:
+                raise
+
+            # A failed DECLARE/FETCH leaves the transaction aborted, and Redshift has no savepoints
+            # to scope it. Roll back so the next attempt isn't killed by `InFailedSqlTransaction` —
+            # and because that is also what frees `cursor_name` for a re-DECLARE, since an aborted
+            # transaction turns the block's `CLOSE` into a no-op.
+            if connection.info.transaction_status == TransactionStatus.INERROR:
+                connection.rollback()
+
+            is_last_attempt = attempt == len(fetch_sizes) - 1
+            if not is_last_attempt and _is_fetch_size_error(e):
+                logger.debug(
+                    f"Server cursor rejected a {fetch_size}-row FETCH ({e}); "
+                    f"retrying at {REDSHIFT_SINGLE_NODE_FETCH_LIMIT} rows per fetch"
+                )
+                continue
+
+            logger.debug(
+                f"Server-side cursor unusable ({e}); falling back to a client-side read of the full result set",
+                exc_info=e,
+            )
+            break
 
     with connection.cursor() as client_cursor:
         client_cursor.execute(query)
