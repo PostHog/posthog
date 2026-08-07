@@ -1,23 +1,11 @@
-import { router } from 'kea-router'
-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { ExportNudgeCandidate, claimExportNudge } from 'scenes/dashboard/dashboardExportNudgeLogic'
 
 import {
     SUBSCRIPTION_PREFILL_PARAMS,
-    urlForSubscription,
+    openSubscriptionFromNudge,
 } from 'products/subscriptions/frontend/components/Subscriptions/utils'
-
-// Deliberately free of any kea logic dependency: the sticky toast can outlive the dashboard scene,
-// so the CTA only touches globals — the router and the toast itself.
-export function onDashboardExportNudgeToastCta(dashboardId: number, toastId: string): void {
-    lemonToast.dismiss(toastId)
-    router.actions.push(urlForSubscription('new', { dashboardId }), {
-        [SUBSCRIPTION_PREFILL_PARAMS.param]: SUBSCRIPTION_PREFILL_PARAMS.nudge,
-        [SUBSCRIPTION_PREFILL_PARAMS.viaParam]: SUBSCRIPTION_PREFILL_PARAMS.viaExport,
-    })
-}
 
 export type ExportNudgeRenderer = (headline: string, secondaryAction?: ToastButton) => JSX.Element
 
@@ -44,7 +32,12 @@ export function claimExportNudgeMessage(
                     type="primary"
                     size="small"
                     data-attr="dashboard-export-nudge-toast-cta"
-                    onClick={() => onDashboardExportNudgeToastCta(candidate.dashboardId, toastId)}
+                    onClick={() =>
+                        openSubscriptionFromNudge(candidate.dashboardId, {
+                            toastId,
+                            via: SUBSCRIPTION_PREFILL_PARAMS.viaExport,
+                        })
+                    }
                 >
                     Set up recurring updates
                 </LemonButton>
