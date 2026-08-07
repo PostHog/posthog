@@ -235,9 +235,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             {"key": "clickid", "value": "is_set", "operator": "is_set", "type": "event"},
             {"key": "stored_clickid", "value": "is_set", "operator": "is_set", "type": "person"},
         ]
-        event_only = {"properties": {"clickid": "abc"}, "person": {"properties": {}}}
-        person_only = {"properties": {}, "person": {"properties": {"stored_clickid": "abc"}}}
-        neither = {"properties": {}, "person": {"properties": {}}}
+        event_only: dict = {"properties": {"clickid": "abc"}, "person": {"properties": {}}}
+        person_only: dict = {"properties": {}, "person": {"properties": {"stored_clickid": "abc"}}}
+        neither: dict = {"properties": {}, "person": {"properties": {}}}
 
         or_bytecode = compile_filters_bytecode({"properties": {"type": "OR", "values": leaves}}, self.team)["bytecode"]
         assert execute_bytecode(or_bytecode, event_only).result is True
