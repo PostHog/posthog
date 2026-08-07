@@ -60,7 +60,10 @@ _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
         "Connection refused",
         "Could not connect to the host on the port given. Check the host and port are correct and the MySQL server is accepting connections.",
     ),
-    ("timed out", "Connection timed out. Does your database have our IP addresses allowed?"),
+    (
+        "timed out",
+        "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
+    ),
     (
         "No route to host",
         "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
