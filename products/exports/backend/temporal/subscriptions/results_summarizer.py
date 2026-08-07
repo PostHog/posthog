@@ -68,17 +68,7 @@ def _summarize_trend_kind(
         # would describe a trim that never happened.
         return _summarize_trends(results, value_fmt, 0, in_progress=False)
 
-    # in_progress= earns its place only if the section still fits; on a wide breakdown the budget is
-    # better spent on series than on repeating a figure the model will not reach.
-    with_context = _prepend(
-        coverage.note(with_in_progress=True), _summarize_trends(results, value_fmt, coverage.excluded, in_progress=True)
-    )
-    if len(with_context) <= MAX_SUMMARY_LENGTH:
-        return with_context
-    return _prepend(
-        coverage.note(with_in_progress=False),
-        _summarize_trends(results, value_fmt, coverage.excluded, in_progress=False),
-    )
+    return _prepend(coverage.note(), _summarize_trends(results, value_fmt, coverage.excluded, in_progress=True))
 
 
 def _prepend(note: str, text: str) -> str:
@@ -164,20 +154,14 @@ class _Coverage:
     def excluded(self) -> int:
         return self.total - self.first_incomplete
 
-    def note(self, *, with_in_progress: bool) -> str:
+    def note(self) -> str:
         complete = self.first_incomplete
         elapsed = f", {self.elapsed_pct}% elapsed" if self.elapsed_pct is not None else ""
-        # Only describe in_progress= when the fields are actually there, so the note cannot promise a
-        # figure the budget gate dropped.
-        context = (
-            f" in_progress= is the unfinished {self.unit}{elapsed}: context only, not comparable to latest=."
-            if with_in_progress
-            else ""
-        )
         return (
             f"{INCOMPLETE_PERIOD_NOTE_PREFIX} {self.excluded} {_plural(self.unit, self.excluded)} at the end of the "
             f"range that had not completed when the query ran; the per-period figures below cover {complete} "
-            f"complete {_plural(self.unit, complete)}.{context})"
+            f"complete {_plural(self.unit, complete)}. in_progress= is the unfinished {self.unit}{elapsed}: "
+            f"context only, not comparable to latest=.)"
         )
 
 

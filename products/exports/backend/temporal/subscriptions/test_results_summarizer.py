@@ -519,14 +519,18 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         # Every retained line is whole, so a fragment cannot read as a series with no data.
         assert all(line.startswith("- Prompt ") and "latest=" in line for line in body.splitlines())
 
-    # A wide breakdown spends its budget on series rather than repeating a figure the model cannot reach.
-    def test_in_progress_is_dropped_when_it_would_not_fit(self):
+    # Every series line carries in_progress=, whatever the breakdown's width. A schema that varied
+    # with series count would make the prompt's description of the field true only sometimes.
+    @pytest.mark.parametrize("series_count", [1, 3, 200])
+    def test_in_progress_is_on_every_series_line(self, series_count):
         results = [
             {"label": f"Prompt {i}", "days": self.DAILY_DAYS, "data": [1, 0, 1, 0, 1, 9], "filter": self.DAILY_FILTER}
-            for i in range(200)
+            for i in range(series_count)
         ]
         summary = build_results_summary(
             "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
         )
         assert summary.startswith("(Excluding 1 day")
-        assert "in_progress=" not in summary
+        series_lines = [line for line in summary.splitlines() if line.startswith("- ")]
+        assert series_lines
+        assert all("in_progress=9" in line for line in series_lines)
