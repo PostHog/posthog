@@ -112,7 +112,7 @@ export function ArtifactPreview({
   const commentsQuery = useCommentsQuery(commentTarget, taskId, {
     enabled: commentsEnabled,
   });
-  const { members } = useOrgMembers();
+  const { members } = useOrgMembers({ enabled: commentsEnabled });
   const createComment = useCreateComment(commentTarget, taskId);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,

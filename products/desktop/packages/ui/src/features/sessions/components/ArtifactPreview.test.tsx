@@ -34,6 +34,7 @@ const artifactComments = vi.hoisted(() => ({
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
 const commentsFlag = vi.hoisted(() => ({ enabled: true }));
+const orgMembersOptions = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
   useCommentsEnabled: () => commentsFlag.enabled,
@@ -57,7 +58,10 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: () => ({ members: [] }),
+  useOrgMembers: (options: { enabled?: boolean }) => {
+    orgMembersOptions(options);
+    return { members: [] };
+  },
 }));
 
 vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
@@ -227,6 +231,8 @@ describe("ArtifactPreview", () => {
         name="report.html"
       />,
     );
+
+    expect(orgMembersOptions).toHaveBeenLastCalledWith({ enabled: false });
 
     expect(screen.queryByText("Comment…")).toBeNull();
     const documentBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0];
