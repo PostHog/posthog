@@ -511,8 +511,13 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
         relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
-        self.assertEqual(relay_state["idp"], str(self.organization_domain.id))
+        # The identifier comes off the IdP config. It currently equals the domain's id, so asserting
+        # against the domain would pass just as well if this regressed to reading the domain.
+        self.assertEqual(relay_state["idp"], config.saml_relay_state)
         self.assertEqual(relay_state["next"], "/settings/organization/authentication")
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):

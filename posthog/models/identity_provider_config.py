@@ -55,6 +55,9 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
+    # Round-trips through the IdP as RelayState to route an assertion back to this config, and is
+    # also the prefix of every `UserSocialAuth.uid` issued through it. Changing the value on a
+    # config already in use orphans those identities, so it is assigned once and never edited.
     saml_relay_state = models.CharField(max_length=36, blank=True, null=True, unique=True)
 
     # ---- SCIM attributes ----
