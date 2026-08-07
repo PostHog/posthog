@@ -783,7 +783,7 @@ export class PostgresPersonRepository
             kafkaMessages = [
                 // The +100 outranks any version bump that landed between our stale read and the
                 // delete; keep in sync with delete_person in posthog/models/person/util.py.
-                generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) + 100 }, true),
+                generateKafkaPersonUpdateMessage(person, true, Number(row.version || 0) + 100),
             ]
         }
         return kafkaMessages
@@ -846,12 +846,7 @@ export class PostgresPersonRepository
                 if (!person) {
                     return []
                 }
-                return [
-                    generateKafkaPersonUpdateMessage(
-                        { ...person, properties: {}, version: Number(row.version || 0) },
-                        true
-                    ),
-                ]
+                return [generateKafkaPersonUpdateMessage({ ...person, properties: {} }, true, Number(row.version || 0))]
             })
         } catch (error) {
             if (error.code === '40P01') {
@@ -909,7 +904,7 @@ export class PostgresPersonRepository
             return [
                 // The +100 outranks any version bump that landed between our stale read and the
                 // delete; keep in sync with delete_person in posthog/models/person/util.py.
-                generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) + 100 }, true),
+                generateKafkaPersonUpdateMessage(person, true, Number(row.version || 0) + 100),
             ]
         })
     }
