@@ -820,8 +820,11 @@ def validate_path_cleaning_filters(value: object) -> object:
             continue
         regex = rule.get("regex")
         alias = rule.get("alias")
-        if not regex or not isinstance(regex, str):
-            continue
+        # A missing or empty regex still reaches ClickHouse, where `replaceRegexpAll` returns NULL for
+        # a NULL pattern and an empty pattern matches at every position, interleaving the alias
+        # through the whole path. Neither is recoverable at query time, so refuse the rule.
+        if not isinstance(regex, str) or not regex:
+            raise exceptions.ValidationError("A path cleaning rule needs a regex. Remove the rule or give it one.")
         try:
             compiled = re2.compile(regex)
         except re2.error as error:

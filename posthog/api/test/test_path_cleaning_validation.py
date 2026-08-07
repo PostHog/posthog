@@ -13,6 +13,10 @@ class TestPathCleaningFilterValidation(SimpleTestCase):
             ("backreference_out_of_range", [{"regex": "/users/(\\d+)", "alias": "/users/\\2"}]),
             ("backreference_with_no_group", [{"regex": "/users/\\d+", "alias": "/users/\\1"}]),
             ("value_that_is_not_a_list", "not-a-list"),
+            # An empty pattern matches everywhere and a missing one reaches ClickHouse as NULL, so
+            # both mangle every path the rule touches rather than doing nothing.
+            ("empty_regex", [{"regex": "", "alias": "/users/x"}]),
+            ("rule_without_a_regex", [{"alias": "/users/<id>"}]),
         ]
     )
     def test_rejects_invalid_rules(self, _name, filters):
@@ -31,8 +35,8 @@ class TestPathCleaningFilterValidation(SimpleTestCase):
             # str.isdigit() instead crashes on the superscript and misreads the Arabic-Indic digit.
             ("superscript_digit_is_literal", [{"regex": "/users/\\d+", "alias": "/users/\\²"}]),
             ("arabic_indic_digit_is_literal", [{"regex": "/users/\\d+", "alias": "/users/\\٣"}]),
+            # Pydantic drops a rule that isn't a dict before the query runs, so it can't corrupt a path.
             ("rule_that_is_not_a_dict", ["not-a-rule"]),
-            ("rule_without_a_regex", [{"alias": "/users/<id>"}]),
             ("rule_without_an_alias", [{"regex": "/users/\\d+"}]),
         ]
     )
