@@ -72,14 +72,26 @@ class TestCascadeBotPRs(TestCase):
         assert outcome.mode == expected_mode
         assert outcome.mode != "needs_user_github"
 
+    @parameterized.expand(
+        [
+            ("with_team_install", True),
+            ("without_team_install", False),
+        ]
+    )
     @patch("products.slack_app.backend.api.GitHubIntegration")
     @patch("products.slack_app.backend.api.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_with_team_install_blocks_on_user_github(self, _mock_feature_enabled, mock_team_github_class):
-        self._create_team_github_integration()
+    def test_flag_off_defers_gating_to_the_workflow_classifier(
+        self, _name, has_team_install, _mock_feature_enabled, mock_team_github_class
+    ):
+        # A team install must not turn an unresolved repo into a hard gate: `no_repo` sends the
+        # workflow through the repo-need classifier, so analytics asks get answered rather than
+        # walled behind the Connect-GitHub prompt.
+        if has_team_install:
+            self._create_team_github_integration()
 
         outcome = cascade_posthog_code_repository_activity(
             _make_inputs(self.slack_integration.id), "fix the thing", self.user.id
         )
 
-        assert outcome.mode == "needs_user_github"
+        assert outcome.mode == "no_repo"
         mock_team_github_class.assert_not_called()

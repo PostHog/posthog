@@ -404,6 +404,67 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Ambiguous" in response.json()["detail"], response.json()
 
+    @parameterized.expand(
+        [
+            (
+                "webhook",
+                "template-source-webhook",
+                "{request.body.event}",
+                "{request.body.distinct_id}",
+                ["$workflow_triggered", "request.query"],
+            ),
+            (
+                "manual",
+                "template-source-webhook",
+                "$workflow_triggered",
+                "{request.body.user_id}",
+                ["{request.body.event}", "request.query"],
+            ),
+            (
+                "tracking_pixel",
+                "template-source-webhook-pixel",
+                "{request.query.ph_event}",
+                "{request.query.ph_distinct_id}",
+                ["request.body"],
+            ),
+        ]
+    )
+    def test_unknown_trigger_template_id_names_the_source_template(
+        self, trigger_type, expected_literal, expected_event, expected_distinct_id, forbidden_fragments
+    ):
+        # webhook/manual/tracking_pixel triggers are each backed by a fixed built-in source template that
+        # isn't in the destination catalog agents search, so a wrong/guessed template_id left them looping
+        # on a bare "Template not found". The error must name the exact source literal and say it isn't in
+        # the destination catalog. The event/distinct_id hints have to be per-type too: the request that
+        # reaches the template differs, so a webhook-shaped mapping saves fine and then 400s on every
+        # manual run, or silently drops every pixel hit.
+        hog_flow = {
+            "name": "Test Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {"type": trigger_type, "template_id": "not-a-real-template", "inputs": {}},
+                },
+                {"id": "exit_node", "name": "exit_1", "type": "exit", "config": {}},
+            ],
+            "edges": [{"from": "trigger_node", "to": "exit_node", "type": "continue"}],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert expected_literal in detail, detail
+        assert "destination template catalog" in detail, detail
+        assert expected_event in detail, detail
+        assert expected_distinct_id in detail, detail
+        # Another trigger type's mapping leaking in is the actual regression: it saves fine and only
+        # fails once triggered, so the positive assertions alone would still pass a shared example.
+        for fragment in forbidden_fragments:
+            assert fragment not in detail, (fragment, detail)
+
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
         flow = HogFlow.objects.get(pk=flow_id)

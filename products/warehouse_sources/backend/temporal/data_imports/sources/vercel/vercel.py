@@ -69,6 +69,13 @@ def _get_headers(access_token: str) -> dict[str, str]:
     }
 
 
+def _ms_to_iso8601(ms: int) -> str:
+    """Convert a Unix-ms cursor value to the ISO 8601 UTC string format some Vercel endpoints
+    (e.g. events) expect for `since`/`until` — see `VercelEndpointConfig.since_until_as_iso`."""
+    seconds, millis = divmod(ms, 1000)
+    return datetime.fromtimestamp(seconds, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{millis:03d}Z"
+
+
 def _build_params(
     config: VercelEndpointConfig,
     team_id: str | None,
@@ -81,10 +88,10 @@ def _build_params(
         params["teamId"] = team_id
 
     if config.since_param and since_value is not None:
-        params[config.since_param] = since_value
+        params[config.since_param] = _ms_to_iso8601(since_value) if config.since_until_as_iso else since_value
 
     if until is not None:
-        params["until"] = until
+        params["until"] = _ms_to_iso8601(until) if config.since_until_as_iso else until
 
     return params
 

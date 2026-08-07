@@ -811,6 +811,244 @@ export interface LogsAlertSimulateResponseApi {
     threshold_operator: string
 }
 
+export interface _ScanDateRangeApi {
+    /** Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history. */
+    date_from: string
+    /** End of the evaluation window (ISO 8601), clamped to now. */
+    date_to: string
+}
+
+export interface LogsAnomalyScanRequestApi {
+    /** Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call. */
+    serviceName: string
+    /** Evaluation window to scan for anomalies. May span at most 7 days. */
+    dateRange: _ScanDateRangeApi
+}
+
+/**
+ * * `team_retention` - team_retention
+ * * `byte_budget` - byte_budget
+ */
+export type BindingConstraintsEnumApi = (typeof BindingConstraintsEnumApi)[keyof typeof BindingConstraintsEnumApi]
+
+export const BindingConstraintsEnumApi = {
+    TeamRetention: 'team_retention',
+    ByteBudget: 'byte_budget',
+} as const
+
+/**
+ * * `insufficient` - insufficient
+ * * `cold_start` - cold_start
+ * * `developing` - developing
+ * * `mature` - mature
+ */
+export type LogsAnomalyBaselineStageEnumApi =
+    (typeof LogsAnomalyBaselineStageEnumApi)[keyof typeof LogsAnomalyBaselineStageEnumApi]
+
+export const LogsAnomalyBaselineStageEnumApi = {
+    Insufficient: 'insufficient',
+    ColdStart: 'cold_start',
+    Developing: 'developing',
+    Mature: 'mature',
+} as const
+
+/**
+ * * `a` - a
+ * * `b` - b
+ * * `c` - c
+ * * `d` - d
+ */
+export type LogsAnomalyScanSeriesTierEnumApi =
+    (typeof LogsAnomalyScanSeriesTierEnumApi)[keyof typeof LogsAnomalyScanSeriesTierEnumApi]
+
+export const LogsAnomalyScanSeriesTierEnumApi = {
+    A: 'a',
+    B: 'b',
+    C: 'c',
+    D: 'd',
+} as const
+
+/**
+ * * `series_history` - series_history
+ * * `team_retention` - team_retention
+ * * `byte_budget` - byte_budget
+ */
+export type LimitedByEnumApi = (typeof LimitedByEnumApi)[keyof typeof LimitedByEnumApi]
+
+export const LimitedByEnumApi = {
+    SeriesHistory: 'series_history',
+    TeamRetention: 'team_retention',
+    ByteBudget: 'byte_budget',
+} as const
+
+/**
+ * * `spike` - spike
+ * * `drop` - drop
+ * * `silence` - silence
+ */
+export type LogsAnomalyVerdictEnumApi = (typeof LogsAnomalyVerdictEnumApi)[keyof typeof LogsAnomalyVerdictEnumApi]
+
+export const LogsAnomalyVerdictEnumApi = {
+    Spike: 'spike',
+    Drop: 'drop',
+    Silence: 'silence',
+} as const
+
+export interface LogsAnomalyScanBucketApi {
+    /** Start of the 5 minute bucket (UTC). */
+    time: string
+    /** Log records observed in this bucket. */
+    observed: number
+    /**
+     * Expected count from the learned baseline. Null when the bucket was not scored.
+     * @nullable
+     */
+    expected: number | null
+    /**
+     * Lower edge of the expected band. Observed below this is a drop or silence candidate.
+     * @nullable
+     */
+    lower: number | null
+    /**
+     * Upper edge of the expected band. Observed above this is a spike candidate.
+     * @nullable
+     */
+    upper: number | null
+    /** How much history backed the baseline for this bucket. Wider bands and lower confidence in cold_start; mature means a full seasonal baseline. Null when the bucket was gated out (for example, traffic below the detection floor).
+     *
+     * * `insufficient` - insufficient
+     * * `cold_start` - cold_start
+     * * `developing` - developing
+     * * `mature` - mature */
+    stage: LogsAnomalyBaselineStageEnumApi | null
+    /** Anomaly verdict for this bucket, or null when the observed count sat inside the band.
+     *
+     * * `spike` - spike
+     * * `drop` - drop
+     * * `silence` - silence */
+    verdict: LogsAnomalyVerdictEnumApi | null
+}
+
+export interface LogsAnomalyScanSeriesApi {
+    /** Severity level of this log series (for example info, warn, error). */
+    severity: string
+    /** Baseline stage reached by the end of the evaluation window. Null if no bucket was scored.
+     *
+     * * `insufficient` - insufficient
+     * * `cold_start` - cold_start
+     * * `developing` - developing
+     * * `mature` - mature */
+    stage: LogsAnomalyBaselineStageEnumApi | null
+    /** Traffic tier at the end of the window, from a (0.5 or more records per second) down to d (below the detection floor of roughly 1 record per minute).
+     *
+     * * `a` - a
+     * * `b` - b
+     * * `c` - c
+     * * `d` - d */
+    tier: LogsAnomalyScanSeriesTierEnumApi | null
+    /**
+     * Earliest bucket with data inside the fetched lookback.
+     * @nullable
+     */
+    history_start: string | null
+    /** What limited this series' baseline maturity, or null for a full baseline. series_history: data starts inside the lookback, because the series is young or a per-stream retention rule trimmed it (indistinguishable from the data). byte_budget and team_retention mirror the scan level constraints.
+     *
+     * * `series_history` - series_history
+     * * `team_retention` - team_retention
+     * * `byte_budget` - byte_budget */
+    limited_by: LimitedByEnumApi | null
+    /** Per bucket observed counts and expected bands across the evaluation window, for evidence charts. */
+    buckets: LogsAnomalyScanBucketApi[]
+}
+
+/**
+ * * `up` - up
+ * * `down` - down
+ */
+export type LogsAnomalyScanIssueDirectionEnumApi =
+    (typeof LogsAnomalyScanIssueDirectionEnumApi)[keyof typeof LogsAnomalyScanIssueDirectionEnumApi]
+
+export const LogsAnomalyScanIssueDirectionEnumApi = {
+    Up: 'up',
+    Down: 'down',
+} as const
+
+/**
+ * * `pending` - pending
+ * * `active` - active
+ * * `resolved` - resolved
+ */
+export type LogsAnomalyScanIssueStateEnumApi =
+    (typeof LogsAnomalyScanIssueStateEnumApi)[keyof typeof LogsAnomalyScanIssueStateEnumApi]
+
+export const LogsAnomalyScanIssueStateEnumApi = {
+    Pending: 'pending',
+    Active: 'active',
+    Resolved: 'resolved',
+} as const
+
+export interface LogsAnomalyScanIssueApi {
+    /** up covers spikes; down covers drops and silences (which share one issue per service).
+     *
+     * * `up` - up
+     * * `down` - down */
+    direction: LogsAnomalyScanIssueDirectionEnumApi
+    /**
+     * Severity of the spiking series. Null for down issues, which are tracked per service.
+     * @nullable
+     */
+    severity: string | null
+    /** Most severe verdict the issue reached. A drop that deepens into silence escalates in place.
+     *
+     * * `spike` - spike
+     * * `drop` - drop
+     * * `silence` - silence */
+    kind: LogsAnomalyVerdictEnumApi
+    /** Lifecycle state at the end of the evaluation window.
+     *
+     * * `pending` - pending
+     * * `active` - active
+     * * `resolved` - resolved */
+    state: LogsAnomalyScanIssueStateEnumApi
+    /** Bucket where the issue first opened. */
+    opened_at: string
+    /** Most recent anomalous bucket attributed to this issue. */
+    last_anomalous_at: string
+    /**
+     * Bucket where the issue resolved, or null if it was still open at the end of the window.
+     * @nullable
+     */
+    resolved_at: string | null
+    /** Every anomalous bucket attributed to this issue, oldest first. */
+    anomalous_bucket_times: string[]
+}
+
+export interface LogsAnomalyScanResponseApi {
+    /** Service that was scanned. */
+    service_name: string
+    /** Actual start of the evaluated window after any clipping. */
+    eval_start: string
+    /** Actual end of the evaluated window after clamping to now. */
+    eval_end: string
+    /** Days of baseline history the scan used. */
+    lookback_days: number
+    /** True when the evaluation window was clipped to fit the read budget. The response covers only the clipped window. */
+    eval_clipped: boolean
+    /** True when the scan could not afford the full lookback and fell back to a cheaper configuration. */
+    degraded: boolean
+    /** Everything that limited the baseline, empty for an unconstrained scan. team_retention: the project's log retention is shorter than the full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget. */
+    binding_constraints: BindingConstraintsEnumApi[]
+    /** One entry per severity level observed for the service, with per bucket evidence. */
+    series: LogsAnomalyScanSeriesApi[]
+    /** Anomaly issues that opened during the evaluation window, oldest first. */
+    issues: LogsAnomalyScanIssueApi[]
+}
+
+export interface LogsAnomalyScanErrorApi {
+    /** Human readable description of why the scan could not run. */
+    error: string
+}
+
 export interface _DateRangeApi {
     /**
      * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
@@ -1050,16 +1288,21 @@ export const FacetFieldEnumApi = {
 } as const
 
 export interface _LogsFacetValuesBodyApi {
-    /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
      *
      * * `severity_text` - severity_text
      * * `service_name` - service_name */
     facetField?: FacetFieldEnumApi | null
     /**
-     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
      * @nullable
      */
     facetResourceAttribute?: string | null
+    /**
+     * Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter.
+     * @nullable
+     */
+    facetAttribute?: string | null
     /** Date range. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels (ignored when faceting on severity_text). */
