@@ -516,7 +516,6 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
 export const featureFlagsUpdateBodyKeyMax = 400
 
 export const featureFlagsUpdateBodyVersionDefault = 0
-export const featureFlagsUpdateBodyShouldCreateUsageDashboardDefault = true
 
 export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -588,7 +587,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod.boolean().default(featureFlagsUpdateBodyShouldCreateUsageDashboardDefault),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -945,7 +943,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax = 400
 
 export const featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault = 0
-export const featureFlagsCreateStaticCohortForFlagCreateBodyShouldCreateUsageDashboardDefault = true
 
 export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1017,9 +1014,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .nullish()
             .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsCreateStaticCohortForFlagCreateBodyShouldCreateUsageDashboardDefault),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1031,7 +1025,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
 export const featureFlagsDashboardCreateBodyKeyMax = 400
 
 export const featureFlagsDashboardCreateBodyVersionDefault = 0
-export const featureFlagsDashboardCreateBodyShouldCreateUsageDashboardDefault = true
 
 export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1103,9 +1096,6 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsDashboardCreateBodyShouldCreateUsageDashboardDefault),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1117,7 +1107,6 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
 export const featureFlagsEnrichUsageDashboardCreateBodyKeyMax = 400
 
 export const featureFlagsEnrichUsageDashboardCreateBodyVersionDefault = 0
-export const featureFlagsEnrichUsageDashboardCreateBodyShouldCreateUsageDashboardDefault = true
 
 export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1189,9 +1178,6 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsEnrichUsageDashboardCreateBodyShouldCreateUsageDashboardDefault),
     })
     .describe('Serializer mixin that handles tags for objects.')
 

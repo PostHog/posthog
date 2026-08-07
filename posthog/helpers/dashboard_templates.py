@@ -779,6 +779,8 @@ def _get_feature_flag_unique_calls_insight_name(feature_flag) -> str:
     return f"Feature Flag calls made by unique {plural} per variant"
 
 
+# The feature flag Usage tab renders these same charts inline for flags without a usage dashboard —
+# keep frontend/src/scenes/feature-flags/featureFlagUsageQueries.ts in sync with this template.
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     tag, _ = Tag.objects.get_or_create(
@@ -1191,6 +1193,8 @@ def _update_tile_with_new_key(
         insight.save()
 
 
+# The feature flag Usage tab renders these same charts inline for flags without a usage dashboard —
+# keep frontend/src/scenes/feature-flags/featureFlagUsageQueries.ts in sync with this template.
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     # 1 row
     _create_tile_for_insight(

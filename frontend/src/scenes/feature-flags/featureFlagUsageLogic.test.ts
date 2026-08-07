@@ -1,0 +1,92 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { FeatureFlagType } from '~/types'
+
+import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagUsageLogic } from './featureFlagUsageLogic'
+import { DEFAULT_USAGE_DATE_RANGE } from './featureFlagUsageQueries'
+
+const FLAG_ID = 1
+
+function flag(overrides: Partial<FeatureFlagType> = {}): FeatureFlagType {
+    return {
+        id: FLAG_ID,
+        key: 'alpha-feature',
+        filters: { groups: [], multivariate: null, payloads: {} },
+        has_enriched_analytics: false,
+        ...overrides,
+    } as FeatureFlagType
+}
+
+describe('featureFlagUsageLogic', () => {
+    let logic: ReturnType<typeof featureFlagUsageLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/feature_flags/${FLAG_ID}/`]: () => [200, flag()],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic({ id: FLAG_ID }).mount()
+        logic = featureFlagUsageLogic({ id: FLAG_ID })
+        logic.mount()
+    })
+
+    it.each([
+        [false, ['total-volume', 'unique-callers']],
+        [true, ['total-volume', 'unique-callers', 'feature-view', 'feature-interaction']],
+    ])('renders the enriched charts only when has_enriched_analytics is %s', (hasEnriched, expectedKeys) => {
+        featureFlagLogic({ id: FLAG_ID }).actions.loadFeatureFlagSuccess(flag({ has_enriched_analytics: hasEnriched }))
+
+        expect(logic.values.usageCharts.map((chart) => chart.key)).toEqual(expectedKeys)
+    })
+
+    it('rebuilds every chart against the selected date range', async () => {
+        featureFlagLogic({ id: FLAG_ID }).actions.loadFeatureFlagSuccess(flag({ has_enriched_analytics: true }))
+
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-24h', null)
+        }).toMatchValues({ dateRange: { date_from: '-24h', date_to: null } })
+
+        expect(logic.values.usageCharts).toHaveLength(4)
+        for (const chart of logic.values.usageCharts) {
+            expect(chart.query.source.dateRange).toEqual({ date_from: '-24h', date_to: null })
+            expect(chart.query.source.interval).toEqual('hour')
+        }
+    })
+
+    it('carries the flag key into every chart query', () => {
+        featureFlagLogic({ id: FLAG_ID }).actions.loadFeatureFlagSuccess(flag({ key: 'renamed-feature' }))
+
+        for (const chart of logic.values.usageCharts) {
+            expect(chart.query.source.properties).toEqual([expect.objectContaining({ value: 'renamed-feature' })])
+        }
+    })
+
+    it('writes the selected range to the URL without pushing a history entry', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-7d', null)
+        }).toFinishAllListeners()
+
+        expect(router.values.searchParams).toMatchObject({ date_from: '-7d' })
+        expect(router.values.searchParams.date_to).toBeUndefined()
+    })
+
+    it('restores the range from the URL', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlag(FLAG_ID), { date_from: '-24h' })
+        }).toMatchValues({ dateRange: { date_from: '-24h', date_to: null } })
+    })
+
+    it('keeps the default range when the URL carries no date params', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlag(FLAG_ID), { edit: 'true' })
+        }).toMatchValues({ dateRange: DEFAULT_USAGE_DATE_RANGE })
+    })
+})
