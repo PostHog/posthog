@@ -471,8 +471,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            delivery_failed_without_exception = any(
-                result.get("error", {}).get("type") == "no_assets" for result in delivery_recipient_results
+            delivery_failed_without_exception = bool(delivery_recipient_results) and all(
+                result["status"] == "failed" for result in delivery_recipient_results
             )
             if (
                 delivery_id is not None
