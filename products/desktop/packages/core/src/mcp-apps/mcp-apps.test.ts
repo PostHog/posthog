@@ -367,4 +367,31 @@ describe("McpAppsService lazy discovery", () => {
     expect(second?.html).toBe("<html></html>");
     expect(client.readResource).toHaveBeenCalledTimes(2);
   });
+
+  it("caches same-URI resources separately per server", async () => {
+    service.setServerConfigs([config("posthog"), config("staging")]);
+    const stagingClient = makeClient();
+    stagingClient.readResource.mockImplementation(async ({ uri }) => ({
+      contents: [{ uri, mimeType: UI_MIME_TYPE, text: "<html>staging</html>" }],
+    }));
+    const clients: Record<string, ReturnType<typeof makeClient>> = {
+      posthog: makeClient(),
+      staging: stagingClient,
+    };
+    vi.spyOn(internals(service), "createConnection").mockImplementation(
+      async (c) => ({ name: c.name, client: clients[c.name], transport: {} }),
+    );
+
+    const posthogResource = await service.getUiResourceByUri(
+      "posthog",
+      REVIEW_URI,
+    );
+    const stagingResource = await service.getUiResourceByUri(
+      "staging",
+      REVIEW_URI,
+    );
+
+    expect(posthogResource?.html).toBe("<html></html>");
+    expect(stagingResource?.html).toBe("<html>staging</html>");
+  });
 });

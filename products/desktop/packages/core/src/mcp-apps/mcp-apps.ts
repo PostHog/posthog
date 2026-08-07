@@ -87,6 +87,12 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.log = rootLogger.scope("mcp-apps-service");
   }
 
+  // Two servers can serve different content at the same ui:// URI, so every
+  // per-resource cache (resource, meta, pending fetch) keys on server + URI.
+  private resourceKey(serverName: string, resourceUri: string): string {
+    return `${serverName}\n${resourceUri}`;
+  }
+
   /**
    * Store server configs for lazy connections later.
    * No connections are created at this point.
@@ -212,7 +218,10 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       for (const resource of resourcesList.resources) {
         const meta = resource as McpResourceUiMeta;
         if (meta._meta?.ui) {
-          this.resourceMetaCache.set(resource.uri, meta);
+          this.resourceMetaCache.set(
+            this.resourceKey(serverName, resource.uri),
+            meta,
+          );
         }
       }
     }
@@ -412,7 +421,8 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     serverName: string,
     resourceUri: string,
   ): Promise<McpUiResource | null> {
-    const cached = this.resourceCache.get(resourceUri);
+    const key = this.resourceKey(serverName, resourceUri);
+    const cached = this.resourceCache.get(key);
     if (cached) {
       this.log.debug("fetchUiResourceByUri: cache hit", {
         serverName,
@@ -421,7 +431,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       return cached;
     }
 
-    const pendingFetch = this.pendingFetches.get(resourceUri);
+    const pendingFetch = this.pendingFetches.get(key);
     if (pendingFetch) {
       this.log.debug("fetchUiResourceByUri: joining pending fetch", {
         serverName,
@@ -435,11 +445,11 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       resourceUri,
     });
     const fetchPromise = this.doFetchUiResource(serverName, resourceUri);
-    this.pendingFetches.set(resourceUri, fetchPromise);
+    this.pendingFetches.set(key, fetchPromise);
     try {
       return await fetchPromise;
     } finally {
-      this.pendingFetches.delete(resourceUri);
+      this.pendingFetches.delete(key);
     }
   }
 
@@ -501,7 +511,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       return null;
     }
 
-    const resourceMeta = this.resourceMetaCache.get(resourceUri);
+    const resourceMeta = this.resourceMetaCache.get(
+      this.resourceKey(serverName, resourceUri),
+    );
     // The spec carries `ui.csp`/`ui.permissions` alongside the HTML on the read
     // response; the listing-derived cache is only a fallback for servers that
     // also advertise them at registration time. Reading the listing alone meant
@@ -526,7 +538,10 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     // copy; leave it uncached so a later fetch can attach the real CSP.
     const cacheable = warmed || resourceMeta !== undefined || csp !== undefined;
     if (cacheable) {
-      this.resourceCache.set(resourceUri, resource);
+      this.resourceCache.set(
+        this.resourceKey(serverName, resourceUri),
+        resource,
+      );
     }
     this.log.info("Lazily fetched UI resource", {
       serverName,
@@ -689,22 +704,21 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     }
     this.connections.delete(serverName);
 
-    // Clean up associations and cached resources for this server
-    const urisToEvict = new Set<string>();
     for (const [key, assoc] of this.toolAssociations) {
       if (assoc.serverName === serverName) {
-        urisToEvict.add(assoc.resourceUri);
         this.toolAssociations.delete(key);
       }
     }
 
-    // Only evict cached resources not referenced by remaining associations
-    const stillReferenced = new Set(
-      [...this.toolAssociations.values()].map((a) => a.resourceUri),
-    );
-    for (const uri of urisToEvict) {
-      if (!stillReferenced.has(uri)) {
-        this.resourceCache.delete(uri);
+    const keyPrefix = this.resourceKey(serverName, "");
+    for (const key of this.resourceCache.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        this.resourceCache.delete(key);
+      }
+    }
+    for (const key of this.resourceMetaCache.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        this.resourceMetaCache.delete(key);
       }
     }
   }
