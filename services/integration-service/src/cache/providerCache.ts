@@ -139,7 +139,7 @@ export class ProviderCache {
 
     /** Wait for in-flight L2 writes to drain. Used on shutdown and in tests. */
     async settled(): Promise<void> {
-        await Promise.all([...this.pendingWrites])
+        await Promise.all(this.pendingWrites)
     }
 
     private async readRedis(provider: string): Promise<ProviderSnapshot | null> {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { register, resolveTotal } from '@/metrics.js'
 import { resolveKeys, type ResolveDeps } from '@/policy/resolve.js'
 import type { CallerIdentity, ProviderSnapshot } from '@/types.js'
 import type { UsageRecorder } from '@/usage/recorder.js'
@@ -121,6 +122,37 @@ describe('resolve', () => {
         )
 
         expect(loadProvider).toHaveBeenCalledTimes(2)
+    })
+
+    // A key name a caller invents must never reach a Prometheus label. prom-client keeps
+    // every series in process memory for the lifetime of the pod, so a caller holding a
+    // signing key could otherwise grow the heap and the scrape payload without bound.
+    it('never puts a caller-supplied key name on a metric label', async () => {
+        register.resetMetrics()
+        const invented = 'TOTALLY_MADE_UP_KEY_NAME_9f2a'
+
+        const response = await resolveKeys(identity([invented]), [], deps())
+
+        const series = await resolveTotal.get()
+        const labelValues = series.values.flatMap((v) => Object.values(v.labels).map(String))
+        expect(labelValues).not.toContain(invented)
+        // The real name still reaches the caller, just not the metric.
+        expect(response.missing).toContain(invented)
+    })
+
+    it('drops an unknown key from the previous-used report before it reaches Redis', async () => {
+        const record = vi.fn()
+        await resolveKeys(
+            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'MADE_UP_KEY']),
+            ['GOOGLE_ADS_APP_CLIENT_ID', 'MADE_UP_KEY'],
+            deps({ recorder: { record } as unknown as UsageRecorder })
+        )
+
+        expect(record).toHaveBeenCalledWith(
+            'temporal-worker-data-warehouse',
+            ['GOOGLE_ADS_APP_CLIENT_ID'],
+            ['GOOGLE_ADS_APP_CLIENT_ID']
+        )
     })
 
     it('records only successfully served keys against the caller usage rollup', async () => {

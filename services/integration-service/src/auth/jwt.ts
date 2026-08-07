@@ -33,6 +33,16 @@ export interface VerifiedToken {
     extras: TokenExtras
 }
 
+// Caps on the `keys` claim. A holder of a valid signing key would otherwise be able to
+// grow this process's memory without bound: every distinct key name becomes a Prometheus
+// label value and a Redis usage field, and neither is reclaimed. The allowlist bounds
+// what a compromised caller can *read*; these bound what it can *cost*.
+//
+// The real ceiling is the provider manifest, which today is well under 50 fields in
+// total, so no legitimate request comes close.
+const MAX_REQUESTED_KEYS = 50
+const MAX_KEY_LENGTH = 128
+
 function stringArray(value: unknown): string[] | null {
     if (!Array.isArray(value)) {
         return null
@@ -109,13 +119,20 @@ export class JwtVerifier implements Verifier {
             throw new AuthError('malformed', 'caller claim changed between decode and verify')
         }
 
-        const requestedKeys = stringArray(payload['keys'])
-        if (!requestedKeys || requestedKeys.length === 0) {
+        const claimedKeys = stringArray(payload['keys'])
+        if (!claimedKeys || claimedKeys.length === 0) {
             throw new AuthError('no_keys_claim', 'token carries no keys claim — the request scope is the token')
         }
+        if (claimedKeys.length > MAX_REQUESTED_KEYS || claimedKeys.some((key) => key.length > MAX_KEY_LENGTH)) {
+            throw new AuthError('oversized_keys_claim', 'keys claim exceeds the per-request limits')
+        }
+
+        // Deduplicate: a repeated key would otherwise be resolved, counted and logged
+        // once per occurrence for no benefit.
+        const requestedSet = new Set(claimedKeys)
+        const requestedKeys = [...requestedSet]
 
         const reportedPreviousUsed = stringArray(payload['previous_used']) ?? []
-        const requestedSet = new Set(requestedKeys)
 
         return {
             identity: {
@@ -126,7 +143,7 @@ export class JwtVerifier implements Verifier {
             extras: {
                 // Confine the report to the request's own scope, so a caller cannot
                 // hold open somebody else's rotation.
-                previousUsed: reportedPreviousUsed.filter((key) => requestedSet.has(key)),
+                previousUsed: [...new Set(reportedPreviousUsed.filter((key) => requestedSet.has(key)))],
             },
         }
     }

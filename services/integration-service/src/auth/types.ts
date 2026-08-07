@@ -18,6 +18,7 @@ export type AuthFailureReason =
     | 'expired'
     | 'bad_audience'
     | 'no_keys_claim'
+    | 'oversized_keys_claim'
 
 export class AuthError extends Error {
     constructor(

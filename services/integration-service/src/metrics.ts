@@ -1,8 +1,10 @@
 // Prometheus metrics for the integration-service.
 //
-// Cardinality is bounded by the provider manifest: caller × provider × key, where the
-// key set is fixed in code (src/providers.ts) and the caller set is the registry. Never
-// add a per-team or per-request label here.
+// Cardinality is caller × provider × key. Both the caller set (the client registry) and
+// the key set (src/providers.ts) are fixed configuration, so the series count is bounded
+// — but only because nothing here ever takes a label value from a request. A key a caller
+// names that the manifest does not define is recorded under a constant label instead; see
+// policy/resolve.ts. Never add a per-team or per-request label.
 //
 // The rotation metrics are the reason this service is worth instrumenting at all. See
 // the note on previousVersionUseTotal — "was the old value still needed" is the

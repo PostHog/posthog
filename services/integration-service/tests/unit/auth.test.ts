@@ -39,14 +39,18 @@ async function mint(opts: {
     return builder.sign(new TextEncoder().encode(opts.key))
 }
 
+// Resolves to the rejection reason, or throws if the token was accepted. Deliberately
+// asserts by throwing rather than with `expect` inside a catch, which would make the
+// assertion conditional on the rejection happening at all.
 async function reasonFor(promise: Promise<unknown>): Promise<string> {
-    try {
-        await promise
-    } catch (err) {
-        expect(err).toBeInstanceOf(AuthError)
-        return (err as AuthError).reason
+    const outcome = await promise.then(
+        () => null,
+        (err: unknown) => err
+    )
+    if (!(outcome instanceof AuthError)) {
+        throw new Error(`expected the token to be rejected with an AuthError, got ${String(outcome)}`)
     }
-    throw new Error('expected the token to be rejected')
+    return outcome.reason
 }
 
 describe('jwt verification', () => {
@@ -131,6 +135,59 @@ describe('jwt verification', () => {
     it('treats a missing previous_used claim as no report', async () => {
         const token = await mint({ key: DW_KEY_NEW, caller: 'temporal-worker-data-warehouse' })
         expect((await verifier().verifyToken(token)).extras.previousUsed).toEqual([])
+    })
+
+    // Every distinct key name a caller sends becomes a metric label and a Redis field,
+    // and neither is reclaimed. The allowlist bounds what a compromised caller can read;
+    // these bound what it can cost.
+    describe('claim size limits', () => {
+        it('rejects a token asking for more keys than any real request needs', async () => {
+            const token = await mint({
+                key: DW_KEY_NEW,
+                caller: 'temporal-worker-data-warehouse',
+                keys: Array.from({ length: 51 }, (_, i) => `KEY_${i}`),
+            })
+            expect(await reasonFor(verifier().verifyToken(token))).toBe('oversized_keys_claim')
+        })
+
+        it('rejects a token carrying an absurdly long key name', async () => {
+            const token = await mint({
+                key: DW_KEY_NEW,
+                caller: 'temporal-worker-data-warehouse',
+                keys: ['A'.repeat(129)],
+            })
+            expect(await reasonFor(verifier().verifyToken(token))).toBe('oversized_keys_claim')
+        })
+
+        it('accepts a request at the limit', async () => {
+            const token = await mint({
+                key: DW_KEY_NEW,
+                caller: 'temporal-worker-data-warehouse',
+                keys: Array.from({ length: 50 }, (_, i) => `KEY_${i}`),
+            })
+            await expect(verifier().verifyToken(token)).resolves.toBeDefined()
+        })
+
+        it('deduplicates a repeated key rather than resolving it twice', async () => {
+            const token = await mint({
+                key: DW_KEY_NEW,
+                caller: 'temporal-worker-data-warehouse',
+                keys: ['GOOGLE_ADS_APP_CLIENT_SECRET', 'GOOGLE_ADS_APP_CLIENT_SECRET'],
+            })
+            const { identity } = await verifier().verifyToken(token)
+            expect(identity.requestedKeys).toEqual(['GOOGLE_ADS_APP_CLIENT_SECRET'])
+        })
+
+        it('deduplicates the previous_used report', async () => {
+            const token = await mint({
+                key: DW_KEY_NEW,
+                caller: 'temporal-worker-data-warehouse',
+                keys: ['GOOGLE_ADS_APP_CLIENT_SECRET'],
+                previousUsed: ['GOOGLE_ADS_APP_CLIENT_SECRET', 'GOOGLE_ADS_APP_CLIENT_SECRET'],
+            })
+            const { extras } = await verifier().verifyToken(token)
+            expect(extras.previousUsed).toEqual(['GOOGLE_ADS_APP_CLIENT_SECRET'])
+        })
     })
 })
 

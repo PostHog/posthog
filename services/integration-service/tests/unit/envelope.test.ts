@@ -53,7 +53,7 @@ describe('envelope cipher', () => {
     it('refuses to open a value under a different cache key', async () => {
         const cipher = cipherWith(fakeKms())
         const sealed = await cipher.seal('sk-live-secret', 'provider:stripe')
-        await expect(cipher.open(sealed, 'provider:google-ads')).rejects.toThrow()
+        await expect(cipher.open(sealed, 'provider:google-ads')).rejects.toThrow(Error)
     })
 
     it('refuses to open a value sealed in a different environment', async () => {
@@ -66,7 +66,7 @@ describe('envelope cipher', () => {
             rotationMs: 3_600_000,
         })
         const sealed = await inProdUs.seal('sk-live-secret', 'provider:stripe')
-        await expect(inProdEu.open(sealed, 'provider:stripe')).rejects.toThrow()
+        await expect(inProdEu.open(sealed, 'provider:stripe')).rejects.toThrow(Error)
     })
 
     it.each([
@@ -77,7 +77,7 @@ describe('envelope cipher', () => {
         const cipher = cipherWith(fakeKms())
         const record = JSON.parse(await cipher.seal('sk-live-secret', 'provider:stripe'))
         record[field] = Buffer.from(randomBytes(Buffer.from(record[field], 'base64').length)).toString('base64')
-        await expect(cipher.open(JSON.stringify(record), 'provider:stripe')).rejects.toThrow()
+        await expect(cipher.open(JSON.stringify(record), 'provider:stripe')).rejects.toThrow(Error)
     })
 
     it('binds the wrapped data key to this service and environment via the KMS context', async () => {

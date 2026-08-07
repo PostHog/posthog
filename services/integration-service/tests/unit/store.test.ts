@@ -2,6 +2,7 @@ import { GetSecretValueCommand, ResourceNotFoundException } from '@aws-sdk/clien
 import { describe, expect, it } from 'vitest'
 
 import { createSecretsManagerStore } from '@/store/secretsManager.js'
+import type { SecretStore } from '@/store/types.js'
 
 // AWSCURRENT/AWSPREVIOUS pairs, keyed by secret id. `undefined` for a stage means the
 // stage does not exist, which is how a never-rotated secret actually looks.
@@ -28,7 +29,7 @@ function fakeClient(versions: Versions, createdAt = new Date('2026-01-01T00:00:0
     }
 }
 
-const store = (versions: Versions) =>
+const store = (versions: Versions): SecretStore =>
     createSecretsManagerStore({ client: fakeClient(versions), prefix: 'integrations/' })
 
 describe('secrets manager store', () => {

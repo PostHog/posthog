@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ProviderSnapshot } from '@/types.js'
-import { buildUsageMap } from '@/usage/publisher.js'
+import { buildUsageMap, type UsageMap } from '@/usage/publisher.js'
 
 const ROTATING: ProviderSnapshot = {
     provider: 'google-ads',
@@ -24,7 +24,7 @@ function build(opts: {
     reads?: Record<string, number>
     previousUsed?: Record<string, number>
     lastSeen?: Record<string, number>
-}) {
+}): UsageMap {
     return buildUsageMap({
         env: 'prod-us',
         generatedAt: '2026-08-06T12:00:00.000Z',

@@ -32,6 +32,9 @@ export interface ResolveResponse {
     max_age_seconds: number
 }
 
+/** Stand-in label for anything a caller named that the provider manifest does not define. */
+const UNKNOWN_LABEL = 'unknown'
+
 export interface ResolveDeps {
     loadProvider: (provider: string) => Promise<import('../types.js').ProviderSnapshot | null>
     recorder: UsageRecorder
@@ -54,7 +57,11 @@ export async function resolveKeys(
         const provider = providerForKey(key)
         if (!provider) {
             missing.push(key)
-            observeResolve(identity.caller, 'unknown', key, 'missing')
+            // Constant labels, not the key itself. A key absent from the manifest is a
+            // caller-supplied string, and putting it on a metric would let any holder of
+            // a signing key grow this process's series set without bound. The real name
+            // still reaches the response and the log line, neither of which is a label.
+            observeResolve(identity.caller, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
             continue
         }
         if (!identity.allowedProviders.has(provider)) {
@@ -101,10 +108,15 @@ export async function resolveKeys(
         }
     }
 
+    // Only manifest keys this caller may actually read get counted or recorded. Without
+    // this the report would write caller-supplied names into both a metric label and a
+    // Redis hash field, neither of which is ever reclaimed.
+    const reportedPreviousUsed: string[] = []
     for (const key of previousUsed) {
         const provider = providerForKey(key)
         if (provider && identity.allowedProviders.has(provider)) {
             previousVersionUseTotal.labels({ caller: identity.caller, provider, key }).inc()
+            reportedPreviousUsed.push(key)
         }
     }
 
@@ -118,7 +130,7 @@ export async function resolveKeys(
         previousUsed,
     })
 
-    deps.recorder.record(identity.caller, served, previousUsed)
+    deps.recorder.record(identity.caller, served, reportedPreviousUsed)
 
     return { secrets, denied, missing, max_age_seconds: deps.maxAgeSeconds }
 }
