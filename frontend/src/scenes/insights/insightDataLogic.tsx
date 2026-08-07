@@ -86,7 +86,7 @@ import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
+import { crushDraftQueryForLocalStorage, isQueryTooLarge, parseDraftQueryFromURL } from './utils'
 import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
 export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
@@ -806,15 +806,31 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (isInsightSceneInstance(props)) {
                 const insightId = insightSceneLogic.findMounted()?.values.insightId
                 const { pathname, searchParams, hashParams } = router.values.currentLocation
-                if (query && (values.queryChanged || insightId === 'new')) {
-                    const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
-                    router.actions.replace(pathname, searchParams, {
-                        ...hash,
-                        q: query,
-                    })
-                } else {
-                    const { q: _, ...hash } = hashParams // remove existing insight query hash param
-                    router.actions.replace(pathname, searchParams, hash)
+
+                // On a new insight the scene briefly renders the type's default query before the
+                // drill-down query carried in the #q= hash is applied. That transient render fires
+                // setQuery with an unedited default; writing it to the hash would overwrite the
+                // different query already sitting there and collapse "Open as new insight" onto a
+                // stock trends chart. Leave the hash untouched when that would happen.
+                const existingHashQuery =
+                    typeof hashParams.q === 'string' ? parseDraftQueryFromURL(hashParams.q) : (hashParams.q ?? null)
+                const wouldClobberExistingQuery =
+                    insightId === 'new' &&
+                    !values.queryChanged &&
+                    !!existingHashQuery &&
+                    !objectsEqual(existingHashQuery, query)
+
+                if (!wouldClobberExistingQuery) {
+                    if (query && (values.queryChanged || insightId === 'new')) {
+                        const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
+                        router.actions.replace(pathname, searchParams, {
+                            ...hash,
+                            q: query,
+                        })
+                    } else {
+                        const { q: _, ...hash } = hashParams // remove existing insight query hash param
+                        router.actions.replace(pathname, searchParams, hash)
+                    }
                 }
             }
 

@@ -16,6 +16,7 @@ import { objectsEqual } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -873,7 +874,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         queryFromUrl = validQuery
                     }
                 } else {
+                    // A drill-down link carried a query we can't parse. Falling through to the
+                    // default trends query below would silently show an unrelated chart, so tell
+                    // the user the link was dropped instead of letting them read a wrong answer.
                     console.error('Invalid query', q)
+                    lemonToast.error(
+                        "Couldn't open this insight link, its saved query is invalid. Try opening it again from the original view."
+                    )
                 }
             } else if (insightType && Object.values(InsightType).includes(insightType)) {
                 queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)

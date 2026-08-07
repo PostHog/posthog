@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -162,6 +163,51 @@ describe('insightSceneLogic', () => {
         logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(router)
+            .delay(1)
+            .toMatchValues({
+                hashParams: partial({ q: JSON.stringify(dataTableQuery) }),
+            })
+    })
+
+    it('does not let a transient default query clobber the drill-down #q= hash', async () => {
+        // On /insights/new the scene briefly renders the type's default query, firing a default
+        // setQuery, before the drill-down DataTableNode from the hash is applied. That default write
+        // must not overwrite the different query already in #q=, otherwise "Open as new insight"
+        // lands on a stock trends chart. The existing "retains the #q= query hash" test doesn't
+        // simulate that transient write, so this one fires it explicitly.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['*'],
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The URL sync in insightDataLogic only fires while the Insight scene is the active scene,
+        // so activate it — otherwise setQuery never touches the hash and the guard isn't exercised.
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightNew',
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightNew',
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+
+        // Simulate the transient default render firing setQuery with an unedited default trends query
+        const dataLogic = logic.values.insightDataLogicRef!.logic
+        dataLogic.actions.setQuery(getDefaultQuery(InsightType.TRENDS, false))
+        await expectLogic(dataLogic).toFinishAllListeners()
 
         await expectLogic(router)
             .delay(1)
