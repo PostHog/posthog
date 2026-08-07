@@ -4,6 +4,7 @@ import { type DependencyList, useCallback, useMemo } from 'react'
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useAppliedThemeValue } from 'lib/hooks/useAppliedThemeValue'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 
@@ -29,12 +30,22 @@ function chartThemeDefaults(isDarkModeOn: boolean): Partial<ChartTheme> {
     }
 }
 
-/** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo keys on
- *  `isDarkModeOn` to re-read them when the app theme flips. Pass a stable (memoized or module-level)
- *  `overrides` object — a fresh object every render defeats the memo. */
+/** The CSS-variable half of a chart theme, re-read whenever the applied theme changes. Use it only
+ *  for a chart that deliberately keeps its own grid and crosshair styling; `useChartTheme()` is the
+ *  default, and layers the app's chart defaults on top of this. */
+export function useChartCssVarTheme(): ChartTheme {
+    return useAppliedThemeValue(buildTheme)
+}
+
+/** Theme for app quill charts. Pass a stable (memoized or module-level) `overrides` object — a fresh
+ *  object every render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
-    return useMemo(() => buildTheme({ ...chartThemeDefaults(isDarkModeOn), ...overrides }), [isDarkModeOn, overrides])
+    const cssVarTheme = useChartCssVarTheme()
+    return useMemo(
+        () => ({ ...cssVarTheme, ...chartThemeDefaults(isDarkModeOn), ...overrides }),
+        [cssVarTheme, isDarkModeOn, overrides]
+    )
 }
 
 /** The single rollout gate for chart drag-to-zoom, applied inside `useDateRangeZoom` so every

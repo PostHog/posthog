@@ -627,6 +627,10 @@ export const SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS = 10 // days
 
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
+/** `<style>` element holding the active custom CSS theme. `useThemedHtml` writes it; anything that
+ *  samples design tokens from computed styles has to re-read when it appears or goes away. */
+export const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
+
 export const ACTIVITY_PAGE_SIZE = 20
 export const ADVANCED_ACTIVITY_PAGE_SIZE = 100
 export const EVENT_DEFINITIONS_PER_PAGE = 50

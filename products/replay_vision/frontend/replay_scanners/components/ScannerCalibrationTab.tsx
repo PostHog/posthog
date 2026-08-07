@@ -15,7 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 import { BarChart, useChartLayout } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartCssVarTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -605,10 +605,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
     const { labelStats, labelStatsLoading } = useValues(scannerCalibrationLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setActiveTab } = useActions(replayScannerSceneLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-    // buildTheme snapshots the current CSS vars, so rebuild when the app theme flips.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartCssVarTheme()
     const [mode, setMode] = useState<ChartMode>('session')
     const [badgePositions, setBadgePositionsRaw] = useState<VersionBadgePosition[]>([])
     // Bail on identical positions so the measure->report->render loop settles instead of cycling.
