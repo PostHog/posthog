@@ -141,7 +141,7 @@ function PricingTerms(): JSX.Element | null {
         return null
     }
     return (
-        <p className="text-[11px] text-tertiary leading-snug mb-0">
+        <p className="text-[11px] text-secondary leading-snug mb-0">
             {terms}
             {/* Uncapped is the default, and the bar alone reads as though something will stop the spend. */}
             {isSubscribed && limitPrs == null && ' No monthly limit set.'}
@@ -204,11 +204,20 @@ export function InboxUsageWidget(): JSX.Element | null {
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                        <UsageBar percentage={percentage} status={status} />
-                    </div>
+                    {/* A bar needs a ceiling to mean anything. Uncapped, `percentage` falls back to
+                        the free tier and pins to 100% the moment that's spent, which reads as "you
+                        have hit something" on the state where nothing stops you. */}
+                    {limitPrs != null && (
+                        <div className="flex-1">
+                            <UsageBar percentage={percentage} status={status} />
+                        </div>
+                    )}
                     {spentUsd != null && (
-                        <span className="text-xs font-medium text-default tabular-nums">
+                        <span
+                            className={`text-xs font-medium text-default tabular-nums ${
+                                limitPrs == null ? '' : 'ml-auto'
+                            }`}
+                        >
                             {currencyFormatter(spentUsd)}
                         </span>
                     )}
