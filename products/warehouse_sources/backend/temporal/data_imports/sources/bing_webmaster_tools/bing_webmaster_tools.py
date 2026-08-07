@@ -84,11 +84,17 @@ def _request(
     params: dict[str, str] | None = None,
     timeout: int = REQUEST_TIMEOUT_SECONDS,
 ) -> list[dict[str, Any]]:
-    response = session.get(
-        f"{BASE_URL}/{method}",
-        params={"apikey": api_key, **(params or {})},
-        timeout=timeout,
-    )
+    try:
+        response = session.get(
+            f"{BASE_URL}/{method}",
+            params={"apikey": api_key, **(params or {})},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        # Connection and timeout errors embed the full request URL (including `apikey`) in their
+        # message, and `str(error)` ends up in logs and the schema's stored error. Re-raise the
+        # same type with the key redacted; preserving the type keeps retry classification intact.
+        raise type(exc)(_redact_api_key(str(exc))) from None
 
     if not response.ok:
         fault = _api_fault_message(response)

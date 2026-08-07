@@ -190,6 +190,22 @@ class TestRequest:
         assert "super-secret-key" not in str(exc_info.value)
         assert "apikey=REDACTED" in str(exc_info.value)
 
+    @pytest.mark.parametrize("exc_type", [requests.ConnectionError, requests.ReadTimeout])
+    def test_transport_error_redacts_api_key(self, exc_type):
+        # Connection/timeout errors embed the request URL in their message; the stringified
+        # error reaches logs and the schema's stored error, so the key must not survive.
+        session = mock.MagicMock()
+        session.get.side_effect = exc_type(
+            "HTTPSConnectionPool(host='ssl.bing.com', port=443): Max retries exceeded with url: "
+            "/webmaster/api.svc/json/GetUserSites?apikey=super-secret-key"
+        )
+
+        with pytest.raises(exc_type) as exc_info:
+            _request(session, "super-secret-key", "GetUserSites")
+
+        assert "super-secret-key" not in str(exc_info.value)
+        assert "apikey=REDACTED" in str(exc_info.value)
+
     @pytest.mark.parametrize("body", [{"unexpected": True}, {"d": "not-a-list"}, [1, 2], None])
     def test_unexpected_response_shape_raises(self, body):
         session = _session({"GetUserSites": _response(200, body)})
