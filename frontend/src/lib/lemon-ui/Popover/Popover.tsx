@@ -261,8 +261,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         },
         []
     )
+    // Register the child trigger via `setReference`, not the plain `reference` ref object. Only
+    // `setReference` populates floating-ui's `elements.domReference` state, which `useDismiss` reads
+    // to recognize a press on the trigger as "inside". Assigning `reference.current` alone leaves
+    // `domReference` null, so pressing the trigger while the menu is open is classified as an outside
+    // press and dismisses the menu that the same press just opened. `setReference` also keeps
+    // `reference.current` populated for the autoUpdate positioning effect below.
     const mergedReferenceRef = useMergeRefs([
-        referenceRef,
+        setReference,
         extraReferenceRef || null,
         (children as any)?.ref,
     ]) as React.RefCallback<HTMLElement>

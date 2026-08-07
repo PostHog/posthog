@@ -33,6 +33,18 @@ describe('Popover', () => {
         expect(onClickOutside).toHaveBeenCalled()
     })
 
+    // Regression: the child trigger is the floating-ui reference. If it isn't registered via
+    // `setReference`, `useDismiss` doesn't know it's "inside" and treats a press on the trigger as
+    // an outside press, dismissing the menu that press just opened. This is what made every `More`
+    // ellipsis menu look dead.
+    it('does not dismiss when pressing the trigger reference itself', async () => {
+        const { onClickOutside } = renderPopover()
+
+        await userEvent.click(screen.getByText('reference'))
+
+        expect(onClickOutside).not.toHaveBeenCalled()
+    })
+
     // Regression: a nested menu portaled out of a parent popover's *reference* subtree
     // (e.g. the TaxonomicFilter category pill in the search input suffix) inherits the
     // wrong overlay level, so the parent can't recognize it as nested. The element opts
