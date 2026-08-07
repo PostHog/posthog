@@ -656,6 +656,8 @@ export namespace Schemas {
       inlineCohortCalculation?: InlineCohortCalculation | null;
       materializationMode?: MaterializationMode | null;
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
+      /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+      mergeFederatedAggregateJoins?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -4743,6 +4745,7 @@ export namespace Schemas {
       /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
       connectionId?: string | null;
       explain?: boolean | null;
+      /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       kind?: 'HogQLQuery';
       /** Modifiers used when performing the query */
@@ -15544,6 +15547,8 @@ export namespace Schemas {
     export interface CommentSlackThreadRef {
       /** Slack channel ID this discussion is mirrored to. */
       channel_id: string;
+      /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+      channel_name: string;
       /** Deep link that opens the mirrored Slack thread. */
       url: string;
     }
@@ -15599,6 +15604,8 @@ export namespace Schemas {
       readonly integration: number;
       /** Slack channel the mirrored thread lives in. */
       readonly slack_channel_id: string;
+      /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+      readonly slack_channel_name: string;
       /** Slack thread timestamp anchoring the mirrored thread. */
       readonly slack_thread_ts: string;
       /**
@@ -38847,7 +38854,7 @@ export namespace Schemas {
       connectionId?: string | null;
       /** Enable more verbose output, usually run from the /debug page */
       debug?: boolean | null;
-      /** Extra filters applied to query via {filters} */
+      /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
@@ -66905,7 +66912,7 @@ export namespace Schemas {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
       /**
-         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
          * @maxLength 255
          */
       channel_id: string;
