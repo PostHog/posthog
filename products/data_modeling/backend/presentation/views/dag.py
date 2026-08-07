@@ -95,6 +95,15 @@ class DAGSerializer(serializers.ModelSerializer):
         # Block users from claiming a reserved system name via create or rename.
         if value in RESERVED_DAG_NAMES and (self.instance is None or is_rename):
             raise serializers.ValidationError("This name is reserved for system-managed DAGs.")
+        # The (team, name) unique constraint has no serializer field for `team`, so DRF generates no
+        # UniqueTogetherValidator — an unchecked duplicate would reach Postgres as an IntegrityError
+        # (a 500). Check it here for both create and rename.
+        if self.instance is None or is_rename:
+            duplicates = DAG.objects.filter(team_id=self.context["team_id"], name=value)
+            if self.instance is not None:
+                duplicates = duplicates.exclude(pk=self.instance.pk)
+            if duplicates.exists():
+                raise serializers.ValidationError("A DAG with this name already exists.")
         return value
 
     def create(self, validated_data: dict) -> DAG:

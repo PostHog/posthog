@@ -179,6 +179,43 @@ class TestDAGViewSet(APIBaseTest):
         dag.refresh_from_db()
         self.assertEqual(dag.name, "my_dag")
 
+    def test_cannot_create_dag_with_duplicate_name(self):
+        DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_dags/",
+            {"name": "my_dag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DAG.objects.filter(team=self.team, name="my_dag").count(), 1)
+
+    def test_cannot_rename_dag_to_an_existing_name(self):
+        DAG.objects.create(team=self.team, name="taken")
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"name": "taken"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, "my_dag")
+
+    def test_duplicate_name_check_is_scoped_to_the_team(self):
+        # The unique constraint is on (team, name); another team already holding the name
+        # must not block this team from claiming it.
+        other_team = self.create_team_with_organization(self.organization)
+        DAG.objects.create(team=other_team, name="shared")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_dags/",
+            {"name": "shared"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     @parameterized.expand([("tiered", True), ("not_tiered", False)])
     def test_frequency_managed_by_nodes_tracks_tiered_schedules_flag(self, _name, enabled):
         DAG.objects.create(team=self.team, name="my_dag")
