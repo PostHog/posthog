@@ -10,6 +10,10 @@
             "description": "The pagination cursor value.",
             "type": "string"
         },
+        "include_task_resources": {
+            "description": "When true with scope=task and task_id, include comments on the task and its artifacts and canvases.",
+            "type": "boolean"
+        },
         "item_id": {
             "description": "Filter by the ID of the resource being commented on.",
             "minLength": 1,
