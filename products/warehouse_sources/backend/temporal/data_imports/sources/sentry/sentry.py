@@ -715,12 +715,16 @@ def _iter_organization_stats_summary_rows(
     organization_slug: str,
 ) -> Iterator[dict[str, Any]]:
     """Per-project event volume for the retention window, one row per project per category."""
+    # A relative statsPeriod of the full retention length lands on the retention boundary, which
+    # Sentry rejects with a 400. Send an explicit clamped window instead, matching the other stats
+    # endpoints (see organization_stats).
+    window = _retention_window()
     try:
         payload = _fetch_json(
             base_api_url,
             _endpoint_path("organization_stats_summary", organization_slug=organization_slug),
             headers,
-            {"field": "sum(quantity)", "statsPeriod": f"{SENTRY_RETENTION_DAYS}d"},
+            {"field": "sum(quantity)", "start": window.start, "end": window.end},
         )
     except HTTPError as exc:
         response = exc.response

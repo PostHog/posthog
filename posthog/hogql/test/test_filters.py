@@ -5,7 +5,18 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
+from posthog.schema import (
+    CohortPropertyFilter,
+    DateRange,
+    ElementPropertyFilter,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    GroupPropertyFilter,
+    HogQLFilters,
+    HogQLPropertyFilter,
+    PersonPropertyFilter,
+    RecordingPropertyFilter,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
@@ -502,3 +513,189 @@ class TestFilters(BaseTest):
             "Unsupported filters placeholder `{filters.interval}`",
         ):
             replace_filters(select, HogQLFilters(), self.team)
+
+    def test_bound_filters_date_range_and_property(self):
+        # persons is a table the plain {filters} placeholder rejects, so this exercises the unlock
+        with freeze_time("2020-02-15T13:37:42Z"):
+            select = replace_filters(
+                self._parse_select(
+                    "SELECT id FROM persons WHERE {filters(created_at AS timestamp, properties.plan AS 'plan')}"
+                ),
+                HogQLFilters(
+                    dateRange=DateRange(date_from="2020-02-02"),
+                    properties=[EventPropertyFilter(key="plan", operator="exact", value="hobby", type="event")],
+                ),
+                self.team,
+            )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT id FROM persons WHERE "
+            "and(lessOrEquals(created_at, toDateTime('2020-02-15 23:59:59.999999')), "
+            "greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000')), "
+            f"equals(properties.plan, 'hobby')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_bound_filters_without_filters_resolve_to_true(self):
+        for filters in [None, HogQLFilters()]:
+            select = replace_filters(
+                self._parse_select("SELECT id FROM persons WHERE {filters(created_at AS timestamp)}"),
+                filters,
+                self.team,
+            )
+            self.assertEqual(
+                self._print_ast(select),
+                f"SELECT id FROM persons WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+
+    def test_bound_filters_null_bindings_skip_filters(self):
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons WHERE {filters(null AS timestamp, null AS 'plan')}"),
+            HogQLFilters(
+                dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03"),
+                properties=[EventPropertyFilter(key="plan", operator="exact", value="hobby", type="event")],
+            ),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "multi_value_exact_in",
+                EventPropertyFilter(key="plan", operator="exact", value=["hobby", "scale"], type="event"),
+                "in(properties.plan, tuple('hobby', 'scale'))",
+            ),
+            (
+                "multi_value_is_not",
+                EventPropertyFilter(key="plan", operator="is_not", value=["hobby", "scale"], type="event"),
+                "notIn(properties.plan, tuple('hobby', 'scale'))",
+            ),
+            (
+                "person_property_binds_by_key",
+                PersonPropertyFilter(key="plan", operator="icontains", value="hobby", type="person"),
+                "ilike(toString(properties.plan), '%hobby%')",
+            ),
+            (
+                "group_key_values_stringified",
+                EventMetadataPropertyFilter(key="$group_0", operator="exact", value=[123, 456], type="event_metadata"),
+                "in(properties.plan, tuple('123', '456'))",
+            ),
+        ]
+    )
+    def test_bound_filters_operator_semantics(self, _name, property_filter, expected_where):
+        key = property_filter.key
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons WHERE {filters(properties.plan AS '" + key + "')}"),
+            HogQLFilters(properties=[property_filter]),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE {expected_where} LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_bound_filters_unbound_property_raises(self):
+        select = self._parse_select("SELECT id FROM persons WHERE {filters(null AS timestamp)}")
+        with self.assertRaisesMessage(
+            QueryError,
+            "The property filter on 'plan' has no binding in {filters(...)}",
+        ):
+            replace_filters(
+                select,
+                HogQLFilters(
+                    properties=[EventPropertyFilter(key="plan", operator="exact", value="hobby", type="event")]
+                ),
+                self.team,
+            )
+
+    def test_bound_filters_date_range_requires_timestamp_binding(self):
+        select = self._parse_select("SELECT id FROM persons WHERE {filters(properties.plan AS 'plan')}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "A date filter is set, but {filters(...)} has no timestamp binding",
+        ):
+            replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+        # without an active date filter the missing timestamp binding is fine
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons WHERE {filters(properties.plan AS 'plan')}"),
+            HogQLFilters(properties=[EventPropertyFilter(key="plan", operator="exact", value="hobby", type="event")]),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE equals(properties.plan, 'hobby') LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    @parameterized.expand(
+        [
+            ("positional_argument", "{filters(created_at)}", "must bind an expression to a filter key with AS"),
+            ("no_arguments", "{filters()}", "must bind an expression to a filter key with AS"),
+            (
+                "duplicate_binding",
+                "{filters(created_at AS timestamp, id AS timestamp)}",
+                "Filter key 'timestamp' is bound more than once",
+            ),
+        ]
+    )
+    def test_bound_filters_usage_errors(self, _name, placeholder, expected_message):
+        select = self._parse_select(f"SELECT id FROM persons WHERE {placeholder}")
+        with self.assertRaisesMessage(QueryError, expected_message):
+            replace_filters(select, HogQLFilters(), self.team)
+
+    @parameterized.expand(
+        [
+            (
+                "cohort",
+                CohortPropertyFilter(key="id", value=42, type="cohort"),
+                "Cohort filters can't be applied through {filters(...)} bindings",
+            ),
+            (
+                "hogql",
+                HogQLPropertyFilter(key="properties.x = 1", type="hogql"),
+                "SQL expression filters can't be applied through {filters(...)} bindings",
+            ),
+            (
+                "element",
+                ElementPropertyFilter(key="selector", operator="exact", value=".sign-up", type="element"),
+                "Element filters match autocaptured elements and can't be applied through {filters(...)} bindings",
+            ),
+            (
+                "recording",
+                RecordingPropertyFilter(key="visited_page", operator="icontains", value="/pricing", type="recording"),
+                "Session recording filters can't be applied through {filters(...)} bindings",
+            ),
+        ]
+    )
+    def test_bound_filters_unbindable_filter_types_raise(self, _name, property_filter, expected_message):
+        select = self._parse_select("SELECT id FROM persons WHERE {filters(created_at AS timestamp)}")
+        with self.assertRaisesMessage(QueryError, expected_message):
+            replace_filters(select, HogQLFilters(properties=[property_filter]), self.team)
+
+    def test_bound_filters_apply_test_account_filters(self):
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "value": "posthog.com", "operator": "not_icontains"}
+        ]
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons WHERE {filters(properties.email AS 'email')}"),
+            HogQLFilters(filterTestAccounts=True),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT id FROM persons WHERE "
+            f"notILike(toString(properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+        select = self._parse_select("SELECT id FROM persons WHERE {filters(null AS timestamp)}")
+        with self.assertRaisesMessage(
+            QueryError,
+            "The test account filter on 'email' has no binding in {filters(...)}",
+        ):
+            replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)
