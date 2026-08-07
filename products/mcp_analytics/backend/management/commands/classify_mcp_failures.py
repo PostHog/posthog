@@ -5,6 +5,7 @@ Thin and throwaway-grade on purpose — no caching tables, no snapshots, no feat
 classifies each fingerprint with a batched LLM call (see ``failure_classification.py``).
 """
 
+import csv
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -19,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
+from posthog.security.spreadsheet_safety import sanitize_formula_injection
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.failure_classification import (
@@ -32,8 +34,14 @@ EXAMPLE_MAX_CHARS = 80
 
 
 def _clean(value: str) -> str:
-    """Raw messages carry tabs and newlines; keep the TSV/stdout tables one row per record."""
-    return value.replace("\t", " ").replace("\n", " | ").replace("\r", "")
+    """Raw messages carry tabs and newlines; keep the TSV/stdout tables one row per record.
+
+    Values are event-sender-controlled, so exported cells also get formula-injection
+    sanitization — staff will open this file in a spreadsheet.
+    """
+    flattened = value.replace("\t", " ").replace("\n", " | ").replace("\r", "")
+    sanitized: str = sanitize_formula_injection(flattened)
+    return sanitized
 
 
 _FAILURES_SQL = """
@@ -196,14 +204,19 @@ class Command(BaseCommand):
         aggregates: dict[str, FingerprintAggregate],
         classifications: dict[str, str],
     ) -> None:
-        with open(output, "w") as f:
-            f.write("fingerprint\tclass\tevents\tusers_upper_bound\ttools\texample\n")
+        with open(output, "w", newline="") as f:
+            writer = csv.writer(f, delimiter="\t", lineterminator="\n")
+            writer.writerow(["fingerprint", "class", "events", "users_upper_bound", "tools", "example"])
             for fingerprint, aggregate in sorted(aggregates.items(), key=lambda item: item[1].events, reverse=True):
                 failure_class = classifications.get(fingerprint, FailureClass.INTERNAL_ERROR.value)
-                tools = _clean(",".join(sorted(aggregate.tools)))
-                example = _clean(aggregate.example_message)[:EXAMPLE_MAX_CHARS]
-                f.write(
-                    f"{fingerprint}\t{failure_class}\t{aggregate.events}"
-                    f"\t{aggregate.users_upper_bound}\t{tools}\t{example}\n"
+                writer.writerow(
+                    [
+                        _clean(fingerprint),
+                        failure_class,
+                        aggregate.events,
+                        aggregate.users_upper_bound,
+                        _clean(",".join(sorted(aggregate.tools))),
+                        _clean(aggregate.example_message)[:EXAMPLE_MAX_CHARS],
+                    ]
                 )
         self.stdout.write(f"\nWrote {len(aggregates)} rows to {output}")
