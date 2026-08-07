@@ -13,6 +13,7 @@ import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -23,6 +24,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -559,6 +561,7 @@ const ExperimentsTable = ({
 
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
@@ -692,6 +695,9 @@ export function Experiments(): JSX.Element {
                     isOpen={true}
                     onCancel={() => setSurveyModalExperiment(null)}
                 />
+            )}
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_LIST_AA_TEST] === 'test' && (
+                <div data-attr="experiments-list-aa-test-variant" className="hidden" />
             )}
         </SceneContent>
     )

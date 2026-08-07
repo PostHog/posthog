@@ -9,7 +9,7 @@ import {
     CyclotronJobInvocationResult,
     MinimalLogEntry,
 } from '../../../types'
-import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
@@ -95,6 +95,15 @@ export class HogFunctionHandler implements ActionHandler {
                 invocation: functionResult.invocation,
                 billingMetricType: this.hogFlowActionBillingType,
             })
+
+            // Re-pin the attribution version to the one that actually sent. Live edits reach runs
+            // already in flight, so a run that entered on v2 can send its email after v3 is
+            // published — and the conversion belongs to the version whose message the person
+            // received, which is also the version `email_sent` was counted under. Leaving the
+            // run-start stamp here would split a rate across two versions.
+            if (this.hogFlowActionBillingType === 'email' || this.hogFlowActionBillingType === 'push') {
+                result.invocation.state.flowVersion = invocation.hogFlow.version
+            }
         }
 
         return {

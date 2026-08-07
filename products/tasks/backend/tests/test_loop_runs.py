@@ -95,7 +95,7 @@ class LoopRunsTestCase(TestCase):
         # non-deterministic (fails open when the gateway is down, blocks when it's up locally).
         # Default it to "allowed" so happy-path fires are deterministic; the gate-specific tests
         # override this with their own patch.
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
         # Cancelling a displaced run signals its Temporal workflow; mock it so tests neither hit
@@ -220,7 +220,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_records_failure_and_flags_attention_without_creating_a_run(
         self, mock_gate, mock_dispatch
     ):
@@ -240,7 +240,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_pauses_loop_after_reaching_failure_threshold(
         self, mock_gate, mock_pause, mock_dispatch
     ):
@@ -302,7 +302,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             LOOP_RATE_CAP_PER_DAY,
         )
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_team_wide_rate_cap_blocks_a_loop_under_its_own_cap(self, _mock_gate):
         # Two loops each below the per-loop cap, but together over the team aggregate: the
         # team cap must still stop the fire, or N loops would each spend the per-loop cap.
@@ -330,7 +330,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "team_rate_capped")
         mock_dispatch.assert_called_once_with(fresh, "needs_attention", {"reason": "team_rate_capped"})
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_rejected_fires_do_not_consume_the_team_rate_budget(self, _mock_gate):
         # Regression: rejected fires still record a LoopFire row (for idempotent replay) but must
         # not count toward the caps. Otherwise spamming unique keys at an already-capped loop drains
@@ -734,7 +734,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         super().setUp()
         # The cloud usage gate is a billing boundary; with no limit it returns None. Mock it so a
         # fire actually spawns a run regardless of the local env's billing state (CI returns None).
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
         self.channel = Channel(

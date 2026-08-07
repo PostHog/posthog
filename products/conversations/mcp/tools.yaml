@@ -75,6 +75,39 @@ tools:
             from the response envelope. Includes all messages from the customer, team members, and AI, as well as
             private internal notes. Each message contains author_type, author_name, content, and an is_private flag
             indicating internal notes.
+    conversations-tickets-notes-destroy:
+        operation: conversations_tickets_notes_destroy
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete private note
+        description: >
+            Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be
+            deleted. Customer-facing replies cannot be deleted. Message IDs come from
+            conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403
+            with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A
+            missing or already-deleted note returns 404 with error_type note_not_found.
+    conversations-tickets-notes-partial-update:
+        operation: conversations_tickets_notes_partial_update
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update private note
+        description: >
+            Update a private note on a support ticket. Only private notes authored by the calling user can be edited.
+            Customer-facing replies cannot be edited. Message IDs come from conversations-tickets-messages-retrieve.
+            Editing another user's note or an AI-authored note returns 403 with error_type not_note_author. Editing a
+            public reply returns 400 with error_type not_private_note. A missing or deleted note returns 404 with
+            error_type note_not_found. Each successful update increments the note's version. Omit rich_content to clear
+            previous TipTap JSON so the thread falls back to the markdown message.
     conversations-tickets-reply-create:
         operation: conversations_tickets_reply_create
         enabled: true

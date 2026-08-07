@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
     RedditAdsApiError,
     RedditAdsResumeConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -233,13 +234,51 @@ class TestRedditAdsSource:
         """Test get_schemas returns all endpoint schemas."""
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        # Should have schemas for all endpoints in REDDIT_ADS_CONFIG
-        expected_endpoints = ["campaigns", "ad_groups", "ads", "campaign_report", "ad_group_report", "ad_report"]
+        expected_endpoints = set(REDDIT_ADS_CONFIG)
+        assert {schema.name for schema in schemas} == expected_endpoints
         assert len(schemas) == len(expected_endpoints)
 
-        schema_names = [schema.name for schema in schemas]
-        for endpoint in expected_endpoints:
-            assert endpoint in schema_names
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "ad_account",
+            "custom_audiences",
+            "saved_audiences",
+            "pixels",
+            "funding_instruments",
+            "lead_gen_forms",
+            "profiles",
+            "structured_posts",
+        ],
+    )
+    def test_list_endpoints_without_a_server_side_time_filter_are_not_incremental(self, endpoint):
+        # Reddit's entity list endpoints take only `page.token` / `page.size` and value filters, so an
+        # "incremental" sync would re-fetch every page while merging on a cursor Reddit never applied.
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+
+        assert schema.supports_incremental is False
+        assert schema.incremental_fields == []
+
+    @pytest.mark.parametrize(
+        "endpoint,should_sync_default",
+        [
+            ("campaigns", True),
+            ("campaign_report", True),
+            ("ad_account", True),
+            ("pixels", True),
+            # Breakdown reports fan a campaign-day out across every dimension value, so they cost far
+            # more than the totals tables and stay off until the user opts in.
+            ("campaign_country_report", False),
+            ("campaign_gender_report", False),
+            ("campaign_placement_report", False),
+            ("campaign_community_report", False),
+            ("campaign_os_type_report", False),
+        ],
+    )
+    def test_expensive_breakdown_reports_are_not_selected_by_default(self, endpoint, should_sync_default):
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+
+        assert schema.should_sync_default is should_sync_default
 
     def test_get_resumable_source_manager(self):
         """The source must expose a ResumableSourceManager instance."""

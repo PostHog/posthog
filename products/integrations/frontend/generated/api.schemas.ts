@@ -168,6 +168,7 @@ export interface RoleLookupResponseApi {
  * * `gitlab` - Gitlab
  * * `google-ads` - Google Ads
  * * `google-analytics` - Google Analytics
+ * * `google-calendar` - Google Calendar
  * * `google-cloud-service-account` - Google Cloud Service Account
  * * `google-cloud-storage` - Google Cloud Storage
  * * `google-pubsub` - Google Pubsub
@@ -216,6 +217,7 @@ export const IntegrationKindEnumApi = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
@@ -477,6 +479,7 @@ export interface IntegrationAccessRequestApi {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -515,6 +518,53 @@ export interface IntegrationAccessRequestApi {
 export interface IntegrationAccessRequestResponseApi {
     /** Whether the access request was accepted and the project admins were notified. */
     success: boolean
+}
+
+/**
+ * Query parameters to send to the target.
+ */
+export type PostHogConnectionForwardApiQuery = { [key: string]: string }
+
+/**
+ * * `GET` - GET
+ * * `POST` - POST
+ * * `PUT` - PUT
+ * * `PATCH` - PATCH
+ * * `DELETE` - DELETE
+ */
+export type PostHogConnectionForwardMethodEnumApi =
+    (typeof PostHogConnectionForwardMethodEnumApi)[keyof typeof PostHogConnectionForwardMethodEnumApi]
+
+export const PostHogConnectionForwardMethodEnumApi = {
+    Get: 'GET',
+    Post: 'POST',
+    Put: 'PUT',
+    Patch: 'PATCH',
+    Delete: 'DELETE',
+} as const
+
+export interface PostHogConnectionForwardApi {
+    /** HTTP method to use against the target project's API.
+     *
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE */
+    method: PostHogConnectionForwardMethodEnumApi
+    /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+    path: string
+    /** Query parameters to send to the target. */
+    query?: PostHogConnectionForwardApiQuery
+    /** JSON request body for write methods. */
+    data?: unknown
+}
+
+export interface PostHogConnectionForwardResponseApi {
+    /** HTTP status the target project returned. */
+    status: number
+    /** The target project's response body, passed through. */
+    data: unknown
 }
 
 export type RoleExternalReferencesListParams = {
@@ -570,6 +620,7 @@ export type IntegrationsListParams = {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -629,6 +680,7 @@ export const IntegrationsListKind = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',

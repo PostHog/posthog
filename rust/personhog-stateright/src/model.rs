@@ -19,8 +19,8 @@ use personhog_coordination::types::{
 use stateright::{Model, Property};
 
 use crate::types::{
-    Action, Changelog, Handoff, Partition, Phase, Pod, PodId, Router, RouterId, StashedRequest,
-    SystemState, WarmState,
+    Action, Changelog, Handoff, HandoffId, Partition, PendingWarm, Phase, Pod, PodId, Router,
+    RouterId, StashedRequest, SystemState, WarmState,
 };
 
 /// Deterministic names bridging the model's compact u8 ids to the
@@ -73,6 +73,31 @@ pub enum Variant {
     EpochFenced,
 }
 
+/// How promptly a pod learns that its lease is gone.
+///
+/// The keepalive only finds out on its next round, so a revoked lease
+/// leaves the pod claiming a partition the coordinator can already have
+/// reassigned. Production closes that by watching its own registration;
+/// `Delayed` is what the window looks like without it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClaimDetection {
+    /// The registration watch: the claim drops with the registration.
+    Prompt,
+    /// Keepalive-only: the claim outlives the registration until a later
+    /// round notices, which the checker explores as a separate step.
+    Delayed,
+}
+
+/// Which side of the warm read acquires the broker fence, under
+/// `Variant::EpochFenced`. `warm_partition` ships `FenceFirst`;
+/// `ReadFirst` is the rejected ordering, kept checkable as the machine
+/// record of why the fence must precede the read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WarmOrder {
+    FenceFirst,
+    ReadFirst,
+}
+
 /// Model parameters. Small numbers — state spaces explode; protocol bugs
 /// are structural and show up at minimum viable scale.
 #[derive(Clone, Debug)]
@@ -84,6 +109,22 @@ pub struct HandoffModel {
     pub late_routers: u8,
     pub partitions: u8,
     pub variant: Variant,
+    /// Fence-vs-read ordering of the decomposed warm; ignored under
+    /// `Variant::Current`, whose warm is a single atomic step.
+    pub warm_order: WarmOrder,
+    /// How promptly a pod notices its lease is gone; only meaningful
+    /// with `lease_gated_reads`, since nothing else consults the claim.
+    pub claim_detection: ClaimDetection,
+    /// Whether a pod consults its lease before serving a strong read
+    /// (production: the leader's `LEASE_GATED_AUTHORITY`). Without it a
+    /// pod that has lost its registration keeps answering out of a cache
+    /// the new owner is already changing.
+    pub lease_gated_reads: bool,
+    /// Whether a lapsed claim can come back without the session ending
+    /// (production: the keepalive confirming a renewal again). Turning it
+    /// off is what makes the black hole permanent, which is the only way
+    /// to show that stability actually notices one.
+    pub claim_recovers: bool,
     /// Total client writes the checker may inject.
     pub writes: u8,
     /// Total strong reads the checker may inject.
@@ -190,6 +231,120 @@ impl HandoffModel {
         }
     }
 
+    /// One step of `warm_partition` for pod `x` on `partition`. Under
+    /// `Current` the warm is a single atomic install — there is no
+    /// broker step to separate from the read. Under `EpochFenced` it is
+    /// two steps whose order is `self.warm_order`, with the in-between
+    /// state held in `pending_warm` so the checker interleaves every
+    /// other action against the gap.
+    fn warm_step(
+        &self,
+        state: &mut SystemState,
+        x: PodId,
+        partition: Partition,
+        for_handoff: Option<HandoffId>,
+    ) {
+        // Both orderings are two steps in production, but only one of
+        // them is *observably* two steps. Acquiring the fence first bumps
+        // the epoch before the read, and an append requires an installed
+        // warm carrying the current epoch — which no pod has during the
+        // gap, this one included. The changelog therefore cannot grow
+        // between the two steps, so the cutoff read at acquire time and
+        // at install time are the same value and no interleaving can tell
+        // them apart. Collapsing that case keeps the state space at the
+        // size it had before the decomposition; `ReadFirst`, where the
+        // gap is the entire point, stays split.
+        //
+        // Be precise about what that buys: the checker *proves* ReadFirst
+        // unsafe by exploring its gap, and never explores FenceFirst's —
+        // FenceFirst's safety rests on the argument above, not on
+        // enumeration. If the no-observable-gap argument ever stops
+        // holding (an append path that does not require an installed
+        // warm), this collapse is the assumption to revisit first.
+        let observable_gap =
+            self.variant == Variant::EpochFenced && self.warm_order == WarmOrder::ReadFirst;
+        if !observable_gap {
+            let warm = {
+                let log = state.changelogs.get_mut(&partition).unwrap();
+                if self.variant == Variant::EpochFenced {
+                    log.epoch = log.epoch.wrapping_add(1);
+                }
+                WarmState {
+                    for_handoff,
+                    epoch: log.epoch,
+                    cutoff: log.len,
+                    accepted: 0,
+                }
+            };
+            let pod = state.pods.get_mut(&x).unwrap();
+            pod.warmed.insert(partition, warm);
+            pod.fenced.remove(&partition);
+            return;
+        }
+        match state.pods[&x].pending_warm.get(&partition).copied() {
+            None => {
+                // The rejected ordering: the changelog read runs to the
+                // current HWM while the fence — and thus the rejection of
+                // a zombie's write — does not exist yet.
+                let pending = PendingWarm {
+                    cutoff: state.changelogs[&partition].len,
+                };
+                state
+                    .pods
+                    .get_mut(&x)
+                    .unwrap()
+                    .pending_warm
+                    .insert(partition, pending);
+            }
+            Some(PendingWarm { cutoff }) => {
+                // The cutoff predates the fence: anything committed in
+                // the gap sits beyond it, invisible forever.
+                let warm = {
+                    let log = state.changelogs.get_mut(&partition).unwrap();
+                    log.epoch = log.epoch.wrapping_add(1);
+                    WarmState {
+                        for_handoff,
+                        epoch: log.epoch,
+                        cutoff,
+                        accepted: 0,
+                    }
+                };
+                let pod = state.pods.get_mut(&x).unwrap();
+                pod.pending_warm.remove(&partition);
+                pod.warmed.insert(partition, warm);
+                pod.fenced.remove(&partition);
+            }
+        }
+    }
+
+    /// Whether the handoff's new owner has fixed the cutoff it will
+    /// serve with: a warm installed for *this* handoff, or a mid-warm
+    /// read already taken (a pending warm always belongs to the current
+    /// attempt — cancellation requires the target unregistered, which
+    /// wipes its process memory). An earlier-era warm does NOT freeze
+    /// the cutoff: the Acquiring convergence releases and rebuilds it.
+    fn handoff_cutoff_frozen(
+        &self,
+        state: &SystemState,
+        h: &Handoff,
+        partition: Partition,
+    ) -> bool {
+        let pod = &state.pods[&h.new_owner];
+        match pod.warmed.get(&partition) {
+            Some(w) => w.for_handoff == Some(h.id),
+            None => pod.pending_warm.contains_key(&partition),
+        }
+    }
+
+    /// Whether the assignment owner has fixed its serving cutoff — the
+    /// Serving convergence honors any installed warm (an owner's warm
+    /// cannot go stale while ownership is continuous), so any warm or a
+    /// taken mid-warm read freezes it.
+    fn owner_cutoff_frozen(&self, state: &SystemState, x: PodId, partition: Partition) -> bool {
+        let pod = &state.pods[&x];
+        pod.warmed.contains_key(&partition) || pod.pending_warm.contains_key(&partition)
+    }
+
     /// Serve a strong read at pod `x`, if it can (running, partition
     /// warmed). Sets the staleness flag when the pod's visible prefix
     /// (warm cutoff + own accepted writes) is behind the changelog — the
@@ -198,6 +353,23 @@ impl HandoffModel {
     fn serve_read(&self, state: &mut SystemState, x: PodId, partition: Partition) -> bool {
         let pod = &state.pods[&x];
         if !pod.running {
+            return false;
+        }
+        // The read gate: a pod that no longer claims the partition
+        // refuses rather than serving from a cache it cannot vouch for.
+        // The claim is what production actually consults — a stamp the
+        // keepalive publishes — and it is not the same fact as holding
+        // the lease, which is the whole point of modeling it separately.
+        //
+        // Production refuses on a margin against the last confirmed
+        // renewal, which is a *later*-firing predicate than this one in
+        // the case where a lease is revoked between keepalive rounds:
+        // the stamp stays fresh for up to a heartbeat after the
+        // registration is gone. The model is therefore optimistic about
+        // that window, and the property holding here does not cover it —
+        // it is recorded as a residual in the coordination README rather
+        // than claimed as closed.
+        if self.lease_gated_reads && !pod.claims_authority {
             return false;
         }
         let Some(warm) = pod.warmed.get(&partition) else {
@@ -213,21 +385,14 @@ impl HandoffModel {
 
     /// Append one acked write to the changelog, tracking the loss flag:
     /// if the protocol has designated a *different* pod as the (incoming
-    /// or current) owner and that pod has already warmed, this write sits
-    /// beyond its warm cutoff and is invisible to it forever.
+    /// or current) owner and that pod's warm cutoff is already fixed,
+    /// this write sits beyond the cutoff and is invisible to it forever.
     fn accept_write(&self, state: &mut SystemState, x: PodId, partition: Partition) {
         let designated_other = match state.handoffs.get(&partition) {
-            // A handoff-designated pod's warm hides this write forever
-            // only if that warm will actually be honored — i.e. it was
-            // installed for this handoff. A stale-era warm is released
-            // and rebuilt at Acquiring, which picks the write up.
-            Some(h) if h.new_owner != x => state.pods[&h.new_owner]
-                .warmed
-                .get(&partition)
-                .is_some_and(|w| w.for_handoff == Some(h.id)),
+            Some(h) if h.new_owner != x => self.handoff_cutoff_frozen(state, h, partition),
             Some(_) => false,
             None => match state.assignments.get(&partition) {
-                Some(owner) if *owner != x => state.pods[owner].warmed.contains_key(&partition),
+                Some(owner) if *owner != x => self.owner_cutoff_frozen(state, *owner, partition),
                 _ => false,
             },
         };
@@ -369,7 +534,9 @@ impl Model for HandoffModel {
                         running: true,
                         warmed: BTreeMap::new(),
                         fenced: BTreeSet::new(),
+                        pending_warm: BTreeMap::new(),
                         zombie_writes_left: 0,
+                        claims_authority: true,
                     },
                 )
             })
@@ -457,6 +624,18 @@ impl Model for HandoffModel {
         }
         for pod in self.pod_ids() {
             actions.push(Action::SelfFence(pod));
+            if self.claim_detection == ClaimDetection::Delayed {
+                actions.push(Action::NoticeLeaseLoss(pod));
+            }
+            // Only meaningful when something consults the claim, and the
+            // state space is expensive enough that exploring it in
+            // configurations that ignore the claim would buy nothing.
+            if self.lease_gated_reads {
+                actions.push(Action::AuthorityLapse(pod));
+                if self.claim_recovers {
+                    actions.push(Action::AuthorityRenew(pod));
+                }
+            }
             if state.rejoins_left > 0 {
                 actions.push(Action::Join(pod));
             }
@@ -716,28 +895,30 @@ impl Model for HandoffModel {
                     DesiredState::Serving => {
                         let pod = &state.pods[&x];
                         if !pod.warmed.contains_key(&p) {
-                            // `warm_partition`: atomic install at the
-                            // current HWM; unfences. Under EpochFenced,
-                            // warming is also `init_transactions`, which
-                            // bumps the broker epoch and fences every
-                            // earlier producer for the partition.
-                            let warm = {
-                                let log = state.changelogs.get_mut(&p).unwrap();
-                                if self.variant == Variant::EpochFenced {
-                                    log.epoch = log.epoch.wrapping_add(1);
-                                }
-                                WarmState {
-                                    for_handoff: None,
-                                    epoch: log.epoch,
-                                    cutoff: log.len,
-                                    accepted: 0,
-                                }
-                            };
-                            let pod = state.pods.get_mut(&x).unwrap();
-                            pod.warmed.insert(p, warm);
-                            pod.fenced.remove(&p);
+                            // `warm_partition`, one step at a time (see
+                            // `warm_step` for the two orderings under
+                            // EpochFenced).
+                            self.warm_step(&mut state, x, p, None);
                         } else if pod.fenced.contains(&p) {
-                            // `resume_partition`.
+                            // `resume_partition`. Under EpochFenced the
+                            // cancelled handoff's target may have bumped
+                            // the broker epoch past this pod's producer;
+                            // production re-acquires the fence before
+                            // re-admitting writes, or every write would
+                            // fail as fenced until the next handoff.
+                            if self.variant == Variant::EpochFenced {
+                                let log = state.changelogs.get_mut(&p).unwrap();
+                                log.epoch = log.epoch.wrapping_add(1);
+                                let epoch = log.epoch;
+                                state
+                                    .pods
+                                    .get_mut(&x)
+                                    .unwrap()
+                                    .warmed
+                                    .get_mut(&p)
+                                    .unwrap()
+                                    .epoch = epoch;
+                            }
                             state.pods.get_mut(&x).unwrap().fenced.remove(&p);
                         } else {
                             return None;
@@ -747,48 +928,49 @@ impl Model for HandoffModel {
                         let h_id = state.handoffs[&p].id;
                         let pod = state.pods.get_mut(&x).unwrap();
                         let newly_fenced = pod.fenced.insert(p);
+                        // The flip to Drained abandons an in-flight warm:
+                        // the production warm future is dropped, and any
+                        // later warm re-acquires the fence rather than
+                        // resuming this attempt's stale init.
+                        let dropped_pending = pod.pending_warm.remove(&p).is_some();
                         // `put_drained_ack`, only while the phase is
                         // Draining, echoing the handoff id.
                         let ack_needed = ack && state.drained_acks.get(&(p, x)) != Some(&h_id);
                         if ack_needed {
                             state.drained_acks.insert((p, x), h_id);
                         }
-                        if !newly_fenced && !ack_needed {
+                        if !newly_fenced && !ack_needed && !dropped_pending {
                             return None;
                         }
                     }
                     DesiredState::Acquiring => {
                         let h_id = state.handoffs[&p].id;
                         let mut changed = false;
-                        // Mirror of the pod's `WarmProvenance` check: only
-                        // a warm installed for this handoff satisfies its
-                        // warming — a leftover from an earlier era (the
-                        // intervening Released convergence never ran) is
-                        // released and rebuilt at the current HWM.
+                        // Only a warm installed for *this* handoff
+                        // satisfies its warming; one from an earlier era
+                        // is released and rebuilt (its cutoff can
+                        // predate writes accepted since — the
+                        // `WarmProvenance` guard in the production
+                        // Acquiring arm).
                         let valid = state.pods[&x]
                             .warmed
                             .get(&p)
                             .is_some_and(|w| w.for_handoff == Some(h_id));
                         if !valid {
-                            let warm = {
-                                let log = state.changelogs.get_mut(&p).unwrap();
-                                if self.variant == Variant::EpochFenced {
-                                    log.epoch = log.epoch.wrapping_add(1);
-                                }
-                                WarmState {
-                                    for_handoff: Some(h_id),
-                                    epoch: log.epoch,
-                                    cutoff: log.len,
-                                    accepted: 0,
-                                }
-                            };
-                            let pod = state.pods.get_mut(&x).unwrap();
-                            pod.warmed.insert(p, warm);
-                            pod.fenced.remove(&p);
+                            // Release a warm from an earlier era, then
+                            // `warm_partition`, one step at a time.
+                            state.pods.get_mut(&x).unwrap().warmed.remove(&p);
+                            self.warm_step(&mut state, x, p, Some(h_id));
                             changed = true;
                         }
-                        // `put_warmed_ack`, echoing the handoff id.
-                        if state.warmed_acks.get(&(p, x)) != Some(&h_id) {
+                        // `put_warmed_ack`, echoing the handoff id —
+                        // only once this handoff's warm has installed.
+                        if state.pods[&x]
+                            .warmed
+                            .get(&p)
+                            .is_some_and(|w| w.for_handoff == Some(h_id))
+                            && state.warmed_acks.get(&(p, x)) != Some(&h_id)
+                        {
                             state.warmed_acks.insert((p, x), h_id);
                             changed = true;
                         }
@@ -800,7 +982,10 @@ impl Model for HandoffModel {
                         let pod = state.pods.get_mut(&x).unwrap();
                         let held = pod.warmed.remove(&p).is_some();
                         let fenced = pod.fenced.remove(&p);
-                        if !held && !fenced {
+                        // `release_partition` also drops a mid-warm
+                        // fence producer.
+                        let pending = pod.pending_warm.remove(&p).is_some();
+                        if !held && !fenced && !pending {
                             return None;
                         }
                     }
@@ -972,7 +1157,10 @@ impl Model for HandoffModel {
                 pod.running = true;
                 pod.warmed.clear();
                 pod.fenced.clear();
+                pod.pending_warm.clear();
                 pod.zombie_writes_left = 0;
+                // A new session is a new claim.
+                pod.claims_authority = true;
             }
             Action::CrashRestartWithinTtl(x) => {
                 let pod = &state.pods[&x];
@@ -983,6 +1171,7 @@ impl Model for HandoffModel {
                 let pod = state.pods.get_mut(&x).unwrap();
                 pod.warmed.clear();
                 pod.fenced.clear();
+                pod.pending_warm.clear();
             }
             Action::LeaseExpire(x) => {
                 let pod = &state.pods[&x];
@@ -991,12 +1180,51 @@ impl Model for HandoffModel {
                 }
                 state.crashes_left -= 1;
                 let zombie_window = self.zombie_window;
+                let prompt = self.claim_detection == ClaimDetection::Prompt;
                 let pod = state.pods.get_mut(&x).unwrap();
                 pod.registered = false;
+                // With the registration watch the claim drops here;
+                // without it the pod keeps claiming until a later round
+                // notices, which `NoticeLeaseLoss` explores as its own
+                // step so every interleaving in between is checked.
+                if prompt {
+                    pod.claims_authority = false;
+                }
                 if pod.running {
                     pod.zombie_writes_left = zombie_window;
                 }
             }
+            // The gap the registration watch closes: between losing the
+            // lease and noticing, the pod still answers as the owner.
+            // The window production's clock actually creates: the stamp
+            // ages past the margin at two thirds of the TTL, but etcd
+            // holds the registration until the full TTL. For that third
+            // the pod refuses to serve while still looking alive to the
+            // coordinator — the black hole `converges_to_stable` has to
+            // be able to see, and which tying the claim to the
+            // registration made unrepresentable.
+            Action::AuthorityLapse(x) => {
+                let pod = &state.pods[&x];
+                if !pod.registered || !pod.claims_authority {
+                    return None;
+                }
+                state.pods.get_mut(&x).unwrap().claims_authority = false;
+            }
+            Action::AuthorityRenew(x) => {
+                let pod = &state.pods[&x];
+                if !pod.registered || pod.claims_authority {
+                    return None;
+                }
+                state.pods.get_mut(&x).unwrap().claims_authority = true;
+            }
+            Action::NoticeLeaseLoss(x) => {
+                let pod = &state.pods[&x];
+                if pod.registered || !pod.claims_authority {
+                    return None;
+                }
+                state.pods.get_mut(&x).unwrap().claims_authority = false;
+            }
+
             Action::SelfFence(x) => {
                 let pod = &state.pods[&x];
                 if pod.registered || !pod.running {
@@ -1006,7 +1234,9 @@ impl Model for HandoffModel {
                 pod.running = false;
                 pod.warmed.clear();
                 pod.fenced.clear();
+                pod.pending_warm.clear();
                 pod.zombie_writes_left = 0;
+                pod.claims_authority = false;
             }
             Action::RouterLeaseExpire(r) => {
                 if state.crashes_left == 0 || !state.routers[&r].registered {
@@ -1151,11 +1381,20 @@ impl Model for HandoffModel {
                                 };
                                 let assigned = s.assignments.get(&p) == Some(&target);
                                 let pod = &s.pods[&target];
+                                // `write_capable` (not just warmed +
+                                // unfenced) so a stale producer epoch —
+                                // the fenced-wedge a resume without
+                                // re-acquisition would leave — fails
+                                // stability rather than passing it.
                                 assigned
                                     && pod.running
                                     && pod.registered
-                                    && pod.warmed.contains_key(&p)
-                                    && !pod.fenced.contains(&p)
+                                    && m.write_capable(s, target, p)
+                                    // A converged owner that refuses its
+                                    // own reads is a black hole the
+                                    // coordinator will not reassign,
+                                    // because it still looks alive.
+                                    && (!m.lease_gated_reads || pod.claims_authority)
                             })))
                     && m.router_ids().all(|r| {
                         let router = &s.routers[&r];

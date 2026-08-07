@@ -221,6 +221,11 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         path="/profiles",
         default_incremental_field="updated",
         partition_key="created",
+        # Klaviyo omits the subscriptions object (email/SMS/push consent detail) unless requested.
+        # Carries no rate-limit penalty, unlike predictive_analytics (75/s -> 10/s), which stays
+        # excluded. The list_profiles/segment_profiles fan-outs are unaffected: their own
+        # extra_params restrict profile payloads to joined_group_at via a fields[profile] fieldset.
+        extra_params={"additional-fields[profile]": "subscriptions"},
         incremental_fields=[
             {
                 "label": "updated",
@@ -628,6 +633,11 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         path="/webhooks",
         page_size=0,
         incremental_fields=[],
+        # Klaviyo only offers the webhooks API to accounts with its paid Advanced KDP add-on and
+        # 403s for everyone else even with the webhooks read scope granted, so a default-on table
+        # would fail the first sync for most connections.
+        should_sync_default=False,
+        description="Requires Klaviyo's Advanced KDP add-on",
     ),
     "accounts": KlaviyoEndpointConfig(
         name="accounts",

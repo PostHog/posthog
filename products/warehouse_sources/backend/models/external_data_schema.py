@@ -554,6 +554,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["delta_revive_required"] = info
         self._save_sync_type_config()
 
+    @property
+    def coarsen_requested(self) -> dict[str, Any] | None:
+        """Set by `stage_warehouse_coarsening` to nominate this table for the coarsening rewrite.
+
+        Nominating overrides the *policy* gates the automatic path applies (rollout flag, OOM history,
+        layout age, minimum partition count) because an operator has looked at the table. It never
+        overrides the *safety* checks: the controller still measures the live layout and refuses any
+        target that would not fit the memory budget, so a nomination can only ever be a no-op, never a
+        rewrite into partitions too big to merge. Consumed on the next evaluation either way.
+        Shape: {"requested_at": iso8601 str, "requested_by": str}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("coarsen_requested", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    def set_coarsen_requested(self, info: dict[str, Any]) -> None:
+        self.sync_type_config["coarsen_requested"] = info
+        self._save_sync_type_config()
+
+    def clear_coarsen_requested(self) -> None:
+        self.sync_type_config.pop("coarsen_requested", None)
+        self._save_sync_type_config()
+
     def stamp_last_repartition_at(self) -> None:
         self.sync_type_config["last_repartition_at"] = timezone.now().isoformat()
         self._save_sync_type_config()

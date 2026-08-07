@@ -166,7 +166,11 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
-            validate_incremental_sync(self._is_incremental, self._resource)
+            validate_incremental_sync(
+                self._is_incremental,
+                self._resource,
+                is_first_sync=self._table is None or self._reset_pipeline,
+            )
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 

@@ -672,6 +672,39 @@ def _record(
     )
 
 
+async def record_started_runs(
+    *, team_id: int, schema_id: str, job_id: str | None, trigger: str, started_at: str
+) -> None:
+    """Open a 'running' run row per source the schema feeds, so a sync in flight shows up in the UI
+    instead of appearing only once it finishes. The terminal record reconciles the same row (see
+    record_sync_run). Never raises — bookkeeping must not fail the sync it describes."""
+    try:
+        sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(
+            team_id, schema_id
+        )
+        for source in sources or []:
+            await database_sync_to_async(_record, thread_sensitive=False)(
+                team_id=team_id,
+                schema_id=schema_id,
+                job_id=job_id,
+                trigger=trigger,
+                status="running",
+                started_at=started_at,
+                finished_at="",
+                ps=PerSourceResult(source_id=str(source.source_id)),
+                error=None,
+            )
+    except Exception as e:
+        logger.exception(
+            "person-property run: failed to record started runs",
+            team_id=team_id,
+            schema_id=schema_id,
+            job_id=job_id,
+            trigger=trigger,
+        )
+        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
+
+
 async def record_completed_runs(
     *,
     team_id: int,
