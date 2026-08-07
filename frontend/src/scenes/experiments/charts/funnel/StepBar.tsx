@@ -174,12 +174,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                 onMouseEnter={() => {
                     if (ref.current) {
                         const rect = ref.current.getBoundingClientRect()
-                        // Only show "Click to inspect actors" hint when clicking will actually work:
-                        // - Step 0 (exposure): can't use actors query (returns early), so don't show hint
-                        // - Step 1 (first metric) drop-offs: can't query (no exposure in backend funnel), conversions work
-                        // - Step 2+: both conversions and drop-offs work
-                        const hasClickableData = stepIndex > 0
-                        showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
+                        showTooltip([rect.x, rect.y, rect.width], stepIndex, step)
                     }
                 }}
                 onMouseLeave={() => hideTooltip()}
@@ -195,7 +190,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     className="StepBar__fill"
                     onClick={handleConversionClick}
                     style={{
-                        cursor: stepIndex > 0 ? 'pointer' : 'default',
+                        cursor: 'pointer',
                     }}
                 />
             </div>
