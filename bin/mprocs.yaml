@@ -132,7 +132,7 @@ procs:
             AI_BLOB_S3_REGION: us-east-1
             AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
             AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
-            AI_BLOB_OFFLOAD_TEAMS: '1'
+            AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion:
         sandbox: true
@@ -142,6 +142,11 @@ procs:
         groups:
             layer: Ingestion pipeline
             tech: Node
+        env:
+            # The combined-mode AI consumer reads persons through PersonHog; the
+            # event_ingestion capability pulls the personhog services in.
+            PERSONHOG_ENABLED: 'true'
+            PERSONHOG_ADDR: '127.0.0.1:50052'
 
     ingestion-sessionreplay:
         sandbox: true

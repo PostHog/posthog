@@ -28,6 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.redis import get_client
 from posthog.test.persons import create_person
 
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
@@ -35,6 +36,7 @@ from products.conversations.backend.api.tickets import TicketReplyRequestSeriali
 from products.conversations.backend.models import Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
+from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.access_control import AccessControl
@@ -2325,6 +2327,8 @@ class TestTicketReplyAPI(APIBaseTest):
             status=Status.OPEN,
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/"
+        # Reply dedupe reservations live in fakeredis, which is a single process-wide store.
+        get_client().flushall()
 
     @parameterized.expand(
         [
@@ -2434,6 +2438,79 @@ class TestTicketReplyAPI(APIBaseTest):
         serializer = TicketReplyRequestSerializer(data={"message": "hi", "rich_content": {"amount": Decimal("1.2")}})
         assert not serializer.is_valid()
         assert "rich_content" in serializer.errors
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_retried_reply_returns_the_original_and_delivers_once(self, mock_send_email_reply, mock_on_commit):
+        # API clients and gateways replay this POST within a second or two, and each delivery that
+        # gets through is a message the customer actually receives twice.
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.save(update_fields=["email_from"])
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save(update_fields=["conversations_settings"])
+
+        first = self.client.post(self.url, {"message": "On it now"}, format="json")
+        second = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+        mock_send_email_reply.delay.assert_called_once()
+
+    def test_reply_still_being_created_returns_a_conflict(self, mock_on_commit):
+        fingerprint = ReplyFingerprint.build(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="On it now",
+            rich_content=None,
+            item_context={"author_type": "support", "is_private": False},
+        )
+        assert fingerprint is not None
+        reserve(fingerprint)
+
+        response = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error_type"] == REPLY_IN_PROGRESS_ERROR_TYPE
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+
+    @parameterized.expand(
+        [
+            ("different_privacy", {"is_private": True}),
+            ("different_body", {"message": "Something else"}),
+        ]
+    )
+    def test_a_genuinely_different_reply_is_still_posted(self, mock_on_commit, _name, overrides):
+        self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        response = self.client.post(self.url, {"message": "On it now", **overrides}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 2
+
+    def test_reply_replays_a_message_first_sent_through_the_comments_endpoint(self, mock_on_commit):
+        # The composer writes through /comments/ while API clients use /reply/. Both hash into one
+        # keyspace, so a retry that arrives on the other path must not post a second message.
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "On it now",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": False},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+
+        replayed = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert replayed.status_code == status.HTTP_200_OK
+        assert replayed.json()["id"] == created.json()["id"]
+        assert replayed.json()["author_type"] == "support"
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

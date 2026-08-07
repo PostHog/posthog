@@ -287,8 +287,9 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     url = serializers.URLField(
         required=False,
         help_text=(
-            "Presigned download URL for the artifact. Populated on the finalize-upload response so "
-            "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
+            "Stable download URL for the artifact. Populated on the finalize-upload response so "
+            "the caller can link to the file; it redirects to a fresh presigned URL on each request "
+            "and is not persisted on the manifest."
         ),
     )
 
@@ -2615,6 +2616,16 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         max_length=255,
         help_text="Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
     )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=3,
+        help_text="GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.",
+    )
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        return TaskWriteSerializer().validate_repositories(value)
+
     github_integration = serializers.IntegerField(
         required=False,
         default=None,
