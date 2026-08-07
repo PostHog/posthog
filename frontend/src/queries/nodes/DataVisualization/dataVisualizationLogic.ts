@@ -37,6 +37,7 @@ import {
     DataVisualizationNode,
     HeatmapSettings,
     HogQLVariable,
+    ScatterSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
@@ -351,6 +352,51 @@ const applyAutoHeatmapSettings = (
     })
 }
 
+const getScatterAutoSettings = (columns: Column[], scatterSettings: ScatterSettings): Partial<ScatterSettings> => {
+    const columnNames = new Set(columns.map((column) => column.name))
+    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    // A selected column that's no longer in the response can never render, so re-derive it
+    const isUsable = (name: string | null | undefined): boolean => Boolean(name && columnNames.has(name))
+
+    const nextSettings: Partial<ScatterSettings> = {}
+
+    if (!isUsable(scatterSettings.xAxisColumn) && numericalColumns[0]) {
+        nextSettings.xAxisColumn = numericalColumns[0].name
+    }
+
+    if (!isUsable(scatterSettings.yAxisColumn) && numericalColumns[1]) {
+        nextSettings.yAxisColumn = numericalColumns[1].name
+    }
+
+    // null means the user explicitly chose no label — only fill when never set or stale
+    if (scatterSettings.labelColumn !== null && !isUsable(scatterSettings.labelColumn) && stringColumns[0]) {
+        nextSettings.labelColumn = stringColumns[0].name
+    }
+
+    return nextSettings
+}
+
+const applyAutoScatterSettings = (
+    actions: { updateChartSettings: (settings: ChartSettings) => void },
+    columns: Column[],
+    scatterSettings: ScatterSettings
+): void => {
+    const autoSettings = getScatterAutoSettings(columns, scatterSettings)
+
+    if (Object.keys(autoSettings).length === 0) {
+        return
+    }
+
+    actions.updateChartSettings({
+        scatter: {
+            ...scatterSettings,
+            ...autoSettings,
+        },
+    })
+}
+
 const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): ChartSettings => {
     return {
         ...state,
@@ -360,6 +406,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                 ? {
                       ...state.heatmap,
                       ...settings.heatmap,
+                  }
+                : undefined,
+        scatter:
+            state.scatter || settings.scatter
+                ? {
+                      ...state.scatter,
+                      ...settings.scatter,
                   }
                 : undefined,
         pie:
@@ -1790,6 +1843,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
                 applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
             }
+
+            if (visualizationType === ChartDisplayType.ScatterPlot) {
+                applyAutoScatterSettings(actions, values.columns, values.chartSettings.scatter ?? {})
+            }
         },
         setTransposeResults: ({ transpose }) => {
             actions.setQuery((query) => ({
@@ -1898,6 +1955,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             if (values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
                 applyAutoHeatmapSettings(actions, value, values.chartSettings.heatmap ?? {})
+            }
+
+            if (values.effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+                applyAutoScatterSettings(actions, value, values.chartSettings.scatter ?? {})
             }
         },
     })),

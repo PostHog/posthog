@@ -4457,6 +4457,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ScatterPlot",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -4555,7 +4559,8 @@
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
                         "BoxPlot",
-                        "SlopeGraph"
+                        "SlopeGraph",
+                        "ScatterPlot"
                     ],
                     "type": "string"
                 },
@@ -14522,7 +14527,8 @@
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
                 "BoxPlot",
-                "SlopeGraph"
+                "SlopeGraph",
+                "ScatterPlot"
             ],
             "type": "string"
         },
@@ -14557,6 +14563,9 @@
                 },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
+                },
+                "scatter": {
+                    "$ref": "#/definitions/ScatterSettings"
                 },
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
@@ -46835,6 +46844,36 @@
                 }
             },
             "required": ["kind", "shortId"],
+            "type": "object"
+        },
+        "ScatterSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "labelColumn": {
+                    "description": "Column used as the tooltip title for each point; null means the user explicitly chose no label",
+                    "type": ["string", "null"]
+                },
+                "xAxisColumn": {
+                    "description": "Numeric column plotted on the X axis",
+                    "type": "string"
+                },
+                "xAxisLabel": {
+                    "type": "string"
+                },
+                "xLogScale": {
+                    "type": "boolean"
+                },
+                "yAxisColumn": {
+                    "description": "Numeric column plotted on the Y axis",
+                    "type": "string"
+                },
+                "yAxisLabel": {
+                    "type": "string"
+                },
+                "yLogScale": {
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         },
         "SchemaMap": {
