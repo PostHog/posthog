@@ -93,27 +93,28 @@ export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
                 openLogsViewerModal: (_, { fullScreen }) => fullScreen,
             },
         ],
+        // The three props below are what the modal binds its viewer with, and they deliberately
+        // survive close. useKeepMountedWhileOpen holds the modal rendered for 300ms so the exit
+        // animation can finish, so clearing them on close would rebind the viewer logics (shared
+        // with the embedding tab, which is keyed by the same id) with no filters and no scope for
+        // that beat, firing an unscoped project-wide query. Nothing leaks into the next open
+        // because openLogsViewerModal always writes all three, falling back to null.
         initialFilters: [
             null as Partial<LogsViewerFilters> | null,
             {
                 openLogsViewerModal: (_, { initialFilters }) => initialFilters,
-                closeLogsViewerModal: () => null,
             },
         ],
-        // Cleared on close so an entry point that opens the modal without a scope can never
-        // inherit the scope of whichever viewer opened it last.
         pinnedFilters: [
             null as UniversalFiltersGroup | null,
             {
                 openLogsViewerModal: (_, { pinnedFilters }) => pinnedFilters,
-                closeLogsViewerModal: () => null,
             },
         ],
         personId: [
             null as string | null,
             {
                 openLogsViewerModal: (_, { personId }) => personId,
-                closeLogsViewerModal: () => null,
             },
         ],
     }),

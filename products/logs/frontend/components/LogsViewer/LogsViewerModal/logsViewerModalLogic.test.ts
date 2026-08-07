@@ -106,13 +106,14 @@ describe('logsViewerModalLogic', () => {
             }).toMatchValues({ initialFilters: null })
         })
 
-        it('clears initialFilters on close', async () => {
-            logic.actions.openLogsViewerModal({ initialFilters: { searchTerm: 'test' } })
+        it('keeps initialFilters on close, while the modal renders out its exit animation', async () => {
+            const filters = { searchTerm: 'test' }
+            logic.actions.openLogsViewerModal({ initialFilters: filters })
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
                 logic.actions.closeLogsViewerModal()
-            }).toMatchValues({ initialFilters: null })
+            }).toMatchValues({ initialFilters: filters })
         })
     })
 
@@ -132,6 +133,15 @@ describe('logsViewerModalLogic', () => {
         it('keeps the scope the opening viewer was embedded with', async () => {
             await expectLogic(logic, () => {
                 logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            }).toMatchValues({ pinnedFilters, personId: 'a-person-uuid' })
+        })
+
+        it('holds the scope through close, so the closing viewer never queries unscoped', async () => {
+            logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.closeLogsViewerModal()
             }).toMatchValues({ pinnedFilters, personId: 'a-person-uuid' })
         })
 
