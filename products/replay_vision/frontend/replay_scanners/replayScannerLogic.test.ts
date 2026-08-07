@@ -17,10 +17,10 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
-import { readScannerDraft } from './scannerDraft'
+import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
-import { defaultScannerTemplates } from './scannerTemplates'
+import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 jest.mock('lib/forms/scrollToFormError', () => ({
@@ -96,6 +96,36 @@ describe('replayScannerLogic', () => {
                     scanner_type: template.scanner_type,
                     scanner_config: template.scanner_config,
                 }),
+            })
+        })
+
+        it('new scanner seeds its query from a ?filters= deep link', async () => {
+            const query = {
+                kind: 'RecordingsQuery',
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+            }
+            router.actions.push('/replay-vision/new', { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({ query: expect.objectContaining({ events: query.events }) }),
+            })
+        })
+
+        it('a ?filters= deep link outranks a saved draft', async () => {
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$autocapture', type: 'events' }] }
+            writeScannerDraft(teamLogic.values.currentTeamId!, { ...newScanner(null), name: 'stale draft' })
+            router.actions.push('/replay-vision/new', { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    name: '',
+                    query: expect.objectContaining({ events: query.events }),
+                }),
+            })
+        })
+
+        it('a malformed ?filters= param falls back to the blank wizard', async () => {
+            router.actions.push('/replay-vision/new', { filters: 'not-json{' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({ name: '', scanner_type: 'monitor' }),
             })
         })
     })
