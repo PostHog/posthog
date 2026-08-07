@@ -23,7 +23,7 @@ use crate::{
 
 use super::{Fetcher, Parser};
 
-const MAX_REF_BYTES: usize = 2048;
+pub(crate) const MAX_REF_BYTES: usize = 2048;
 
 // Total byte budget for the in-memory negative cache. Refs and failure reasons are
 // event-controlled (a JS frame's ref is its source URL, and a `NoSourcemap` failure embeds that

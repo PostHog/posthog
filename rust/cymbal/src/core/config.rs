@@ -80,8 +80,12 @@ pub struct ResolverConfig {
     #[envconfig(default = "60")]
     pub release_id_cache_ttl_seconds: u64,
 
-    #[envconfig(default = "100000")]
-    pub release_id_cache_size: u64,
+    // Byte budget for that cache, weighed by the ref bytes each entry holds. Refs are
+    // event-controlled (frame source URLs, chunk ids), so an entry-count bound would let a
+    // flood of unique long refs grow the cache without limit. 32 MiB comfortably holds the
+    // working set of a 60s TTL at typical ref-set sizes.
+    #[envconfig(default = "33554432")]
+    pub release_id_cache_max_bytes: u64,
 
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
