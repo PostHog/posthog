@@ -280,6 +280,10 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    dismissed_at = serializers.CharField(
+        required=False,
+        help_text="Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
+    )
     url = serializers.URLField(
         required=False,
         help_text=(
@@ -1389,6 +1393,26 @@ class TaskRunArtifactPresignRequestSerializer(serializers.Serializer):
 class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Presigned URL for downloading the artifact")
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
+
+
+class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        allow_empty=False,
+        max_length=100,
+        help_text=(
+            "Manifest ids of the artifacts to update. Pass every version of a file together so the "
+            "whole file is dismissed rather than a single upload of it."
+        ),
+    )
+    dismissed = serializers.BooleanField(
+        default=True,
+        help_text="True to hide the artifacts from clients, false to show them again.",
+    )
+
+
+class TaskRunArtifactsDismissResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
 
 
 TASK_SUMMARIES_MAX_IDS = 5000
