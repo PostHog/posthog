@@ -261,6 +261,7 @@ describe('exportsLogic', () => {
         })
 
         it('folds an eligible nudge into the toast a polled dashboard export completes with', async () => {
+            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 8 })
             jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
             const pending = asset({ id: 18, export_format: ExporterFormat.PNG, dashboard: 8 })
             const finished = asset({ id: 18, export_format: ExporterFormat.PNG, has_content: true, dashboard: 8 })
@@ -270,13 +271,18 @@ describe('exportsLogic', () => {
             await flush()
 
             expect(jest.mocked(resolveExportNudgeEligibility).mock.calls).toEqual([[8]])
+            // The completion toast and its Download button are raised before the check runs, so a
+            // slow check cannot delay the only signal a polled export gives.
             expect(lemonToast.success).toHaveBeenCalledWith(
-                'nudge:Export complete! +Download',
-                expect.objectContaining({ autoClose: false })
+                'Export complete!',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) })
             )
-            // The Download hand-off moves into the nudge's button row, so leaving it in the slot too
-            // would render it twice.
-            expect(jest.mocked(lemonToast.success).mock.calls.at(-1)![1]).not.toHaveProperty('button')
+            // The nudge then folds into that same toast. The Download hand-off moves into the
+            // nudge's button row, so leaving it in the slot too would render it twice.
+            const toastId = jest.mocked(lemonToast.success).mock.calls.at(-1)![1]!.toastId
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(toastId, 'nudge:Export complete! +Download', {
+                autoClose: false,
+            })
         })
 
         it('does not claim the nudge for an async export that renders none', async () => {
