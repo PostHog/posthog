@@ -40,13 +40,17 @@ def _get_session(agent_email: str, api_token: str) -> requests.Session:
 
 
 def _clean_organization(organization: str) -> str:
-    """Accept either the bare org subdomain or a pasted full domain/URL."""
+    """Accept the bare org subdomain, a region-qualified one like myorg.us-1, or a pasted full domain/URL."""
     org = organization.strip().removeprefix("https://").removeprefix("http://")
-    org = org.split(".")[0].split("/")[0]
-    if not re.fullmatch(r"[a-zA-Z0-9-]+", org):
+    org = org.split("/")[0]
+    if org.lower().endswith(".gladly.com"):
+        org = org[: -len(".gladly.com")]
+    # One optional extra label covers Gladly's region-sharded orgs (myorg.us-1.gladly.com);
+    # the charset keeps the credentials pinned to a subdomain of gladly.com.
+    if not re.fullmatch(r"[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)?", org):
         raise ValueError(
-            "Invalid Gladly organization. Use the first part of your Gladly URL, "
-            "with letters, digits, and hyphens only. For myorg.gladly.com enter myorg."
+            "Invalid Gladly organization. Enter the part of your Gladly URL before .gladly.com. "
+            "For myorg.gladly.com enter myorg. For myorg.us-1.gladly.com enter myorg.us-1."
         )
     return org
 

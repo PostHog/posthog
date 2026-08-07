@@ -229,6 +229,7 @@ function DashboardWidgetItemContent({
                 description={description}
                 showDescription={showDescription}
                 loading={loading}
+                isLive={headerCatalogEntry.live}
                 showEditingControls={showEditingControls}
                 isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}

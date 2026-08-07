@@ -20,9 +20,14 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,
     5_000.0,
     10_000.0,
+    15_000.0,
+    20_000.0,
     30_000.0,
+    45_000.0,
     60_000.0,
+    90_000.0,
     120_000.0,
+    180_000.0,
     300_000.0,
     600_000.0,
     1_800_000.0,
@@ -72,6 +77,10 @@ def _bool_label(value: bool | None) -> str:
 
 
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
+
+
+def sandbox_runtime_label(use_vm_sandbox: bool) -> str:
+    return "vm" if use_vm_sandbox else "gvisor"
 
 
 def _runtime_adapter_label(value: str | None) -> str:
@@ -223,7 +232,13 @@ def record_sandbox_created(runtime: str, image_kind: str, image_fallback: bool, 
         pass
 
 
-def record_agent_server_session_init_ms(session_init_ms: int, boot_path: str | None = None) -> None:
+def record_agent_server_session_init_ms(
+    session_init_ms: int,
+    boot_path: str | None = None,
+    *,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
     try:
         attributes: Attributes = {
             "step": "agent_server_session_init",
@@ -231,6 +246,10 @@ def record_agent_server_session_init_ms(session_init_ms: int, boot_path: str | N
         }
         if boot_path is not None:
             attributes["boot_path"] = boot_path
+        if origin_product is not None:
+            attributes["origin_product"] = origin_product
+        if runtime is not None:
+            attributes["runtime"] = runtime
         _metric_meter(attributes).create_histogram_timedelta(
             "tasks_process_sandbox_step_latency",
             "Latency for get_sandbox_for_repository sub-steps",
@@ -247,6 +266,7 @@ def record_boot_total_ms(
     used_snapshot: bool | None,
     has_repo: bool,
     origin_product: str | None,
+    runtime: str,
 ) -> None:
     """Wall-clock time from workflow start to agent-server ready, the boot headline number.
 
@@ -260,6 +280,7 @@ def record_boot_total_ms(
             "used_snapshot": _bool_label(used_snapshot),
             "has_repo": _bool_label(has_repo),
             "origin_product": origin_product or "unknown",
+            "runtime": runtime,
         }
         _metric_meter(attributes).create_histogram_timedelta(
             "tasks_boot_total_latency",
@@ -271,10 +292,20 @@ def record_boot_total_ms(
 
 
 class StepTimer:
-    def __init__(self, step: str, used_snapshot: bool | None = None, boot_path: str | None = None) -> None:
+    def __init__(
+        self,
+        step: str,
+        used_snapshot: bool | None = None,
+        boot_path: str | None = None,
+        *,
+        origin_product: str | None = None,
+        runtime: str | None = None,
+    ) -> None:
         self.step = step
         self.used_snapshot = used_snapshot
         self.boot_path = boot_path
+        self.origin_product = origin_product
+        self.runtime = runtime
         # Elapsed wall-clock of the step, readable after the context exits so callers
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
@@ -302,6 +333,10 @@ class StepTimer:
         }
         if self.boot_path is not None:
             attributes["boot_path"] = self.boot_path
+        if self.origin_product is not None:
+            attributes["origin_product"] = self.origin_product
+        if self.runtime is not None:
+            attributes["runtime"] = self.runtime
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(
