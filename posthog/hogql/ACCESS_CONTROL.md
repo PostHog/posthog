@@ -137,6 +137,12 @@ Without a user, warehouse access control denies every warehouse table and view, 
 
 1. **User is on the request:** pass it through, as shown in [passing the user into HogQL](#passing-the-user-into-hogql).
 2. **Background job acting for a user:** use the resource's `created_by`. Alerts evaluate as `alert.created_by` (`products/alerts/backend/evaluation/hogql.py`), exports render as `exported_asset.created_by` (`products/exports/backend/tasks/csv_exporter.py`).
+
+   **Known limitation:** if that user has left the organization, the run fails and the error surfaces in error tracking.
+   This is intentional for now. The plan is to check access when the resource is created, then run it with a bypass afterwards.
+   Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
+   Warming without access control would more often end in a cache miss.
+
 3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Used by materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`). **Be very skeptical before adding a new bypass** — only do it when the job genuinely has no acting user and the output isn't served to a specific user with narrower access.
 
 ```python
