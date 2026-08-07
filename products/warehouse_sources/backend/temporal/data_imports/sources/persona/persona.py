@@ -157,7 +157,16 @@ def _rows_for_parent(
     """Hydrate one parent object and return its child rows, tagged with the parent's identifiers."""
     parent_id = parent["id"]
     url = _build_url(f"{PERSONA_BASE_URL}{parent_path}/{parent_id}", {"include": fanout.relationship})
-    data = _fetch_page(session, url, headers, logger)
+    try:
+        data = _fetch_page(session, url, headers, logger)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            # The parent can be redacted/deleted between the list page and this hydrate call. Skip
+            # it rather than aborting the whole sync — the caller still advances its checkpoint past
+            # this item, so a resume won't keep re-hitting the same gone parent.
+            logger.warning(f"Persona: {parent_path}/{parent_id} returned 404 on fan-out hydrate, skipping")
+            return []
+        raise
 
     rows: list[dict[str, Any]] = []
     for item in data.get("included") or []:

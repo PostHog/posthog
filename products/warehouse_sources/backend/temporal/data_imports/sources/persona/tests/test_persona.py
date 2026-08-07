@@ -288,6 +288,51 @@ class TestVerificationsFanout:
 
         assert [state.after for state in manager.saved] == ["inq_a"]
 
+    def test_hydrate_404_skips_parent_instead_of_aborting_the_sync(self, monkeypatch: Any) -> None:
+        # An inquiry can be redacted/deleted between the list page and this hydrate call. Without a
+        # 404 guard, that fetch raises and kills the whole generator, and since the checkpoint only
+        # advances after an item's rows are processed, a resume re-fetches the same gone inquiry
+        # forever instead of moving on to the rest.
+        calls: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            calls.append(url)
+            if "/inquiries/inq_gone" in url:
+                response = requests.Response()
+                response.status_code = 404
+                raise requests.HTTPError(response=response)
+            if "/inquiries/inq_ok" in url:
+                return {
+                    "data": {"type": "inquiry", "id": "inq_ok", "attributes": {}},
+                    "included": [{"type": "verification/selfie", "id": "ver_1", "attributes": {"status": "passed"}}],
+                }
+            return {
+                "data": [
+                    {"type": "inquiry", "id": "inq_gone", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}},
+                    {"type": "inquiry", "id": "inq_ok", "attributes": {"created-at": "2026-01-02T00:00:00.000Z"}},
+                ],
+                "links": {"next": None},
+            }
+
+        monkeypatch.setattr(persona, "_fetch_page", fake_fetch)
+        manager = _FakeResumableManager()
+
+        rows: list[dict] = []
+        for table in get_rows(
+            api_key="persona_test",
+            endpoint="verifications",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
+
+        assert [r["id"] for r in rows] == ["ver_1"]
+        assert calls == [
+            "https://api.withpersona.com/api/v1/inquiries?page[size]=100",
+            "https://api.withpersona.com/api/v1/inquiries/inq_gone?include=verifications",
+            "https://api.withpersona.com/api/v1/inquiries/inq_ok?include=verifications",
+        ]
+
 
 class TestPersonaSourceResponse:
     @parameterized.expand(
