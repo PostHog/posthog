@@ -32,7 +32,10 @@ export const manifest: ProductManifest = {
         '/tracing': ['Tracing', 'tracing'],
         '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     },
-    redirects: {},
+    redirects: {
+        // Some persisted nav entries and stale links point at the pluralized path, which matches no route.
+        '/traces': '/tracing',
+    },
     urls: {
         tracing: (): string => '/tracing',
         // Query params rather than path segments: span names ("GET /api/stats") contain slashes
