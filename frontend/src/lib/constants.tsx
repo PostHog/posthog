@@ -351,8 +351,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
-    LLM_PROMPT_CONFIG: 'llm-prompt-config', // owner: @jurajmajerik #team-ai-observability
-    LLM_PROMPT_LABELS: 'prompt-labels', // owner: @jurajmajerik #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
     LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
