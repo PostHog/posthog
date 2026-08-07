@@ -4654,6 +4654,7 @@ export const IntegrationKindApi = {
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
@@ -6130,6 +6131,7 @@ export interface HogQLQueryApi {
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string | null
     explain?: boolean | null
+    /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
     kind?: 'HogQLQuery'
     /** Modifiers used when performing the query */

@@ -18,7 +18,7 @@ from typing import Any, Literal, LiteralString, Optional, cast
 import psycopg
 import pyarrow as pa
 import structlog
-from psycopg import sql
+from psycopg import pq, sql
 from psycopg.adapt import Loader
 from psycopg.pq import TransactionStatus
 from structlog.types import FilteringBoundLogger
@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
@@ -122,6 +123,13 @@ REDSHIFT_INTERNAL_COLUMN_LIKE = "padb_internal%"
 # this size the server cursor is unreachable on such clusters and every sync degrades to a
 # client-side read of the whole table.
 REDSHIFT_SINGLE_NODE_FETCH_LIMIT = 1000
+
+# Rows libpq hands over per chunk while streaming. Only the delivery granularity — the server sends
+# the result set at its own pace either way — so this trades per-row Python overhead against the
+# transient list held between yields. Chunked delivery needs libpq 17; older builds fall back to
+# row-at-a-time, which streams just as correctly.
+REDSHIFT_STREAM_ROWS_PER_CHUNK = 1000
+_LIBPQ_CHUNKED_ROWS_MIN_VERSION = 170000
 
 
 def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
@@ -312,6 +320,67 @@ def _is_fetch_size_error(error: Exception) -> bool:
     return "fetch size" in message and "exceeds the limit" in message
 
 
+def _is_cursor_size_error(error: Exception) -> bool:
+    """Is this Redshift refusing to materialize a cursor result set this large?
+
+    A cursor's result set is materialized whole on the leader node, and the cap is on that total,
+    not on the page a `FETCH` asks for. So no fetch size gets under it: the cap makes the server
+    cursor permanently unusable for the table on this cluster, whatever we do to the fetch.
+    """
+    message = str(error).lower()
+    return "cursor data" in message or ("cursor result set" in message and "exceeds the limit" in message)
+
+
+def _rollback_if_aborted(connection: psycopg.Connection) -> None:
+    """Clear an aborted transaction so the next attempt isn't killed by `InFailedSqlTransaction`.
+
+    Redshift has no savepoints to scope a failure, so the whole transaction goes. This also frees
+    the cursor name for a re-DECLARE, since an aborted transaction turns `CLOSE` into a no-op.
+    """
+    if connection.info.transaction_status == TransactionStatus.INERROR:
+        connection.rollback()
+
+
+def _libpq_rows_per_chunk() -> int:
+    """Rows per libpq chunk while streaming, or 1 where chunked delivery isn't available.
+
+    Chunked row mode arrived in libpq 17. On an older build `stream()` still streams correctly,
+    one row at a time — only the per-row overhead differs, never the memory profile.
+    """
+    return REDSHIFT_STREAM_ROWS_PER_CHUNK if pq.version() >= _LIBPQ_CHUNKED_ROWS_MIN_VERSION else 1
+
+
+def _stream_rows_as_arrow_batches(
+    cursor: psycopg.Cursor,
+    query: sql.Composed,
+    chunk_size: int,
+    arrow_schema: pa.Schema,
+) -> Iterator[pa.Table]:
+    """Yield one Arrow table per `chunk_size` rows, reading rows straight off the wire.
+
+    `stream()` puts libpq in single-row (or chunked-row) mode: no cursor is declared, so the
+    per-node cap on cursor data never applies, and no result set is buffered into the worker
+    either. Those were the two ways a large table could not be read.
+    """
+    column_names: list[str] = []
+    pending: list[Any] = []
+
+    def to_arrow(rows: list[Any]) -> pa.Table:
+        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+    for row in cursor.stream(query, size=_libpq_rows_per_chunk()):
+        if not column_names:
+            # Only described once the first result arrives, so it can't be read before the loop.
+            column_names = [column.name for column in cursor.description or []]
+        pending.append(row)
+        if len(pending) >= chunk_size:
+            yield to_arrow(pending)
+            pending = []
+
+    if pending:
+        yield to_arrow(pending)
+
+
 def _fetch_arrow_batches(
     cursor: psycopg.Cursor,
     chunk_size: int,
@@ -359,23 +428,38 @@ def _stream_arrow_batches(
 ) -> Iterator[pa.Table]:
     """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
 
-    Reads through a server-side cursor (`DECLARE`/`FETCH`), mirroring the sibling Postgres driver.
-    An unnamed psycopg cursor is client-side: `execute()` buffers the *entire* result set into the
-    worker before `fetchmany` returns its first batch, so `chunk_size` bounds nothing and any table
-    larger than the pod's memory kills it during extraction — before a single row is ever written.
-    Redshift instead materializes a cursor's result set on the leader node (spilling to disk when it
-    doesn't fit), which is what keeps the worker's footprint proportional to `chunk_size`.
+    Two ways to read, tried in order. Streaming (`stream()`) is preferred: libpq delivers rows as
+    the server produces them, so nothing is declared on the cluster and nothing is buffered in the
+    worker. The server-side cursor (`DECLARE`/`FETCH`) is the fallback, mirroring the sibling
+    Postgres driver.
 
-    Redshift constrains cursors in ways Postgres doesn't: cumulative result sets are capped per node
-    type, and single-node clusters reject a `FETCH FORWARD` above 1000 rows. The fetch cap is a
-    property of the cluster, not the table, so on a single-node cluster it rejects the *first* fetch
-    of every sync — the retry at `REDSHIFT_SINGLE_NODE_FETCH_LIMIT` is what keeps those clusters on
-    the server cursor at all. Anything else that makes the cursor unusable falls back to the
-    client-side read instead of failing the sync — no better than having no server cursor at all, but
-    no worse either. Once a batch has been yielded both recoveries are off the table: re-running the
-    query would re-emit rows the pipeline has already consumed, so later errors propagate.
+    Redshift constrains cursors in ways Postgres doesn't, which is why streaming leads. A cursor's
+    result set is materialized whole on the leader node under a per-node-type cap, so a table above
+    that cap can never be read through a cursor at any fetch size. Single-node clusters separately
+    reject a `FETCH FORWARD` above 1000 rows; that one is a property of the cluster rather than the
+    table, so the retry at `REDSHIFT_SINGLE_NODE_FETCH_LIMIT` recovers it.
+
+    Neither path buffers the whole result set, so there is no third attempt: an unnamed cursor would
+    pull the entire table into the worker and OOM the pod, taking every co-tenant extraction on it
+    down too. A table that neither path can read fails the sync instead.
+
+    Once a batch has been yielded every recovery is off the table: re-running the query would
+    re-emit rows the pipeline has already consumed, so later errors propagate.
     """
     yielded = False
+
+    try:
+        with connection.cursor() as stream_cursor:
+            for batch in _stream_rows_as_arrow_batches(stream_cursor, query, chunk_size, arrow_schema):
+                yielded = True
+                yield batch
+        return
+    except Exception as e:
+        if yielded:
+            raise
+        _rollback_if_aborted(connection)
+        logger.warning(f"Row streaming unusable ({e}); falling back to a server-side cursor", exc_info=e)
+
     fetch_sizes = [chunk_size]
     if chunk_size > REDSHIFT_SINGLE_NODE_FETCH_LIMIT:
         fetch_sizes.append(REDSHIFT_SINGLE_NODE_FETCH_LIMIT)
@@ -393,31 +477,29 @@ def _stream_arrow_batches(
         except Exception as e:
             if yielded:
                 raise
-
-            # A failed DECLARE/FETCH leaves the transaction aborted, and Redshift has no savepoints
-            # to scope it. Roll back so the next attempt isn't killed by `InFailedSqlTransaction` —
-            # and because that is also what frees `cursor_name` for a re-DECLARE, since an aborted
-            # transaction turns the block's `CLOSE` into a no-op.
-            if connection.info.transaction_status == TransactionStatus.INERROR:
-                connection.rollback()
+            _rollback_if_aborted(connection)
 
             is_last_attempt = attempt == len(fetch_sizes) - 1
             if not is_last_attempt and _is_fetch_size_error(e):
-                logger.debug(
+                logger.warning(
                     f"Server cursor rejected a {fetch_size}-row FETCH ({e}); "
                     f"retrying at {REDSHIFT_SINGLE_NODE_FETCH_LIMIT} rows per fetch"
                 )
                 continue
 
-            logger.debug(
-                f"Server-side cursor unusable ({e}); falling back to a client-side read of the full result set",
-                exc_info=e,
-            )
-            break
+            if _is_cursor_size_error(e):
+                # Classified, permanent for this table on this cluster: no fetch size gets under the
+                # cap, and streaming already failed. Retrying just repeats a materialization that
+                # takes over a minute to fail.
+                raise NonRetryableException(
+                    "This table is too large to read from this Redshift cluster. The cluster caps how "
+                    "much data a cursor can hold, and row streaming is unavailable, so PostHog cannot "
+                    "page through the result set. Sync fewer columns, add a row filter, or move to a "
+                    "multi-node cluster."
+                ) from e
 
-    with connection.cursor() as client_cursor:
-        client_cursor.execute(query)
-        yield from _fetch_arrow_batches(client_cursor, chunk_size, arrow_schema)
+            logger.warning(f"Server-side cursor unusable ({e})", exc_info=e)
+            raise
 
 
 class RedshiftColumn(Column):
