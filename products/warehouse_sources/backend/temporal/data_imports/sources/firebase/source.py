@@ -51,8 +51,10 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
     @property
     def connection_host_fields(self) -> list[str]:
         # The Realtime Database URL is where the minted Google access token gets sent, so
-        # retargeting it has to re-require the service account key.
-        return ["realtime_database_url"]
+        # retargeting it has to re-require the service account key. `database_id` selects which
+        # Firestore database the preserved key reads, so changing it retargets the credential at a
+        # different data scope even though the host is unchanged — gate it the same way.
+        return ["database_id", "realtime_database_url"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

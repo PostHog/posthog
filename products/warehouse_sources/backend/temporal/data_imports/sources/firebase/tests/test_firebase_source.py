@@ -81,8 +81,10 @@ class TestFirebaseSource:
             assert isinstance(field, SourceFieldInputConfig)
             assert field.required is False
 
-    def test_realtime_database_url_requires_credential_re_entry_when_changed(self) -> None:
-        assert self.source.connection_host_fields == ["realtime_database_url"]
+    def test_connection_target_fields_require_credential_re_entry_when_changed(self) -> None:
+        # Both the Realtime Database host and the Firestore database selector decide what the
+        # preserved service account key reads, so editing either has to force key file re-entry.
+        assert self.source.connection_host_fields == ["database_id", "realtime_database_url"]
 
     def test_auth_users_columns_are_documented(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
