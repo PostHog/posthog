@@ -243,7 +243,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> Subscripti
         reason=reason.key,
     )
     _capture_delivery_failed_event(subscription, Exception(reason.description))
-    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=True)(subscription, reason)
+    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return SubscriptionAbortInfo(
         failed_recipient=RecipientResult(
             recipient=subscription.target_value,

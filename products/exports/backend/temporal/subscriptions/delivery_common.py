@@ -72,7 +72,7 @@ async def auto_disable_and_return(
     # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
     # so a plain Exception conveys the same info without implying retry semantics.
     _capture_delivery_failed_event(subscription, Exception(reason.description))
-    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=True)(subscription, reason)
+    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
