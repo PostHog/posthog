@@ -11061,6 +11061,7 @@ export namespace Schemas {
     content_type?: string | undefined;
     storage_path: string;
     uploaded_at: string;
+    dismissed_at?: string | undefined;
   };
   export type TaskRunDetail = {
     id: string;
