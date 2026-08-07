@@ -83,6 +83,7 @@ import { QueryContext } from '~/queries/types'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { OrganizationMemberApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -645,7 +646,9 @@ export interface OrganizationMemberType extends BaseMemberType {
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
     /** Whether the member's email domain requires SSO, which means their identity provider handles 2FA. */
-    has_sso_enforcement?: boolean
+    // Optional here, unlike on the serializer, so the existing fixtures that build members by hand
+    // don't all have to set it.
+    has_sso_enforcement?: OrganizationMemberApi['has_sso_enforcement']
 }
 
 export interface OrganizationMemberScopedApiKeysResponse {
