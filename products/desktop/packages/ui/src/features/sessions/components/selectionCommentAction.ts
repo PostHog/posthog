@@ -97,9 +97,13 @@ export function commentActionAnchorRect<T extends CommentActionBox>(
   const boxes: T[] = [];
   for (let index = 0; index < rects.length; index++) {
     const rect = rects[index];
-    if (rect.width > 0 || rect.height > 0) boxes.push(rect);
+    if (rect.width > 0 || rect.height > 0) {
+      boxes.push(rect);
+    }
   }
-  if (boxes.length === 0) return fallback;
+  if (boxes.length === 0) {
+    return fallback;
+  }
   const EPSILON = 0.5;
   const area = (box: T) => box.width * box.height;
   const encloses = (outer: T, inner: T) =>
@@ -209,7 +213,9 @@ export function installSelectionSettleGate(
   };
 
   const cancelFrame = () => {
-    if (frame && view?.cancelAnimationFrame) view.cancelAnimationFrame(frame);
+    if (frame && view?.cancelAnimationFrame) {
+      view.cancelAnimationFrame(frame);
+    }
     frame = 0;
   };
   const settle = () => {
@@ -230,13 +236,17 @@ export function installSelectionSettleGate(
     target instanceof Element &&
     !!target.closest("[data-selection-comment-overlay]");
   const startGesture = () => {
-    if (selecting) return;
+    if (selecting) {
+      return;
+    }
     selecting = true;
     cancelFrame();
     callbacks.onGestureStart?.();
   };
   const cancelGesture = () => {
-    if (!selecting) return;
+    if (!selecting) {
+      return;
+    }
     selecting = false;
     keyGesture = false;
     cancelFrame();
@@ -245,35 +255,51 @@ export function installSelectionSettleGate(
 
   const onPointerDown = (event: Event) => {
     // Secondary buttons open menus; they don't select.
-    if (event instanceof MouseEvent && event.button > 0) return;
-    if (inActionUi(event.target)) return;
+    if (event instanceof MouseEvent && event.button > 0) {
+      return;
+    }
+    if (inActionUi(event.target)) {
+      return;
+    }
     startGesture();
   };
   // Catches drags whose pointerdown we never saw, and keyboard selections.
   const onSelectStart = (event: Event) => {
-    if (inActionUi(event.target)) return;
+    if (inActionUi(event.target)) {
+      return;
+    }
     startGesture();
   };
   const onPointerUp = (event: Event) => {
-    if (event instanceof MouseEvent && event.button > 0) return;
-    if (!selecting) return;
+    if (event instanceof MouseEvent && event.button > 0) {
+      return;
+    }
+    if (!selecting) {
+      return;
+    }
     selecting = false;
     keyGesture = false;
     settle();
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!isSelectionKey(event)) return;
+    if (!isSelectionKey(event)) {
+      return;
+    }
     keyGesture = true;
     startGesture();
   };
   const onKeyUp = () => {
-    if (!selecting || !keyGesture) return;
+    if (!selecting || !keyGesture) {
+      return;
+    }
     selecting = false;
     keyGesture = false;
     settle();
   };
   const onSelectionChange = () => {
-    if (selecting) return;
+    if (selecting) {
+      return;
+    }
     callbacks.onIdleSelectionChange?.();
   };
 
