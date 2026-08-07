@@ -218,6 +218,17 @@ describe('CDP Consumer loop', () => {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {
                         app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation_attributed',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
                         app_source_id: '_event_trigger',
                         count: 1,
                         metric_kind: 'billing',

@@ -311,6 +311,21 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                             timestamp: expect.any(String),
                         },
                     },
+                    // Companion attribution metric, keyed to the destination (not billed itself)
+                    {
+                        key: null,
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            instance_id: globals.event.uuid,
+                            count: 1,
+                            metric_kind: 'billing',
+                            metric_name: 'billable_invocation_attributed',
+                            team_id: team.id,
+                            timestamp: expect.any(String),
+                        },
+                    },
                     // Billing is per-event, not per-destination
                     {
                         key: null,
