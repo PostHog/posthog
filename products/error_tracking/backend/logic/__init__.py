@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, TypeVar, cast
 from urllib.parse import quote
@@ -177,7 +178,9 @@ def _clean_existing_external_context(integration: Integration, external_context:
     for field, expected_type in required_fields.items():
         value = external_context.get(field)
         # build_external_issue_url interpolates these into URLs, so enforce the identifier
-        # type each provider expects (digit strings are accepted for numeric identifiers).
+        # type each provider expects (digit strings are accepted for numeric identifiers),
+        # and restrict strings to URL-path-safe characters so a crafted value (e.g. a
+        # "repository" of "../../settings") cannot redirect the stored link.
         if isinstance(value, str):
             value = value.strip()
         if expected_type is int:
@@ -185,7 +188,7 @@ def _clean_existing_external_context(integration: Integration, external_context:
                 value = int(value)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise error
-        elif not isinstance(value, str) or value == "":
+        elif not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", value):
             raise error
         cleaned[field] = value
     return cleaned
