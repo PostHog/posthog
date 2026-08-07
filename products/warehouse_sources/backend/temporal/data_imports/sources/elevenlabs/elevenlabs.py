@@ -159,7 +159,11 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     if status == 200:
         return True, None
     if status == 401:
-        return False, "Invalid ElevenLabs API key"
+        return (
+            False,
+            "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
+            "ElevenLabs account settings, then try again.",
+        )
     if status == 403:
         if schema_name is None:
             return True, None
