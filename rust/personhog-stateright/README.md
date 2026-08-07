@@ -27,15 +27,21 @@ web explorer.
 
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
-minimum viable scale or not at all. Measured sizes (release mode):
+minimum viable scale or not at all.
+The suite explores ~83M states across 31 runs.
+Its long pole is the two-partition double-zombie pair, which is most of the wall clock on its own:
 
-| Configuration (writes=2, reads=1) | Unique states | Wall time |
+| Scenario | Unique states | Wall time |
 |---|---|---|
-| 2 pods / 2 routers / 1 partition, 1 failure | ~26k | 0.2s |
-| 2 pods / 2 routers / 1 partition, 2 failures | ~230k | 1.4s |
-| 2 pods / 2 routers / 2 partitions, 1 failure | ~900k | 9s |
-| 2 pods / 2 routers / 2 partitions, 2 failures | ~8.9M | 110s |
-| 3 pods / 2 routers / 2 partitions, 2 failures | ~24M | 300s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 39.3M | 55s |
+| `two_partitions_double_zombie_loses_acked_writes` | 29.8M | 39s |
+| `cancellation_with_live_owner_reaffirms_and_resumes` | 3.5M | 4.0s |
+| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 2.1M | 1.9s |
+| `current_two_partitions_single_zombie_is_safe` | 1.8M | 2.0s |
+| *everything else (26 runs)* | 6.9M | 7s |
+
+Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
+Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
 
 The test suite (twenty-odd scenarios; the heavy double-zombie pair dominates the runtime) runs the full
 verdict matrix — the 1-partition scenarios, the 2-partition cases
@@ -43,8 +49,19 @@ including both double-zombie verdicts, the 3-pod rejoin, and the
 reachability probes. Two partitions matter for the coordinator's
 cross-partition scheduling (rebalancing defers while any handoff is in
 flight); the safety invariants themselves are per-partition, which is
-why every violation class reproduces at one. The `--ignored`
-state-space report is the sizing tool for new configurations.
+why every violation class reproduces at one.
+
+### Judging a state-space change
+
+`STATERIGHT_REPORT=1` reports every scenario's explored size (see Usage), and those counts are the review gate for any change to how `SystemState` is encoded.
+Two kinds of change, two different expectations:
+
+- A change meant to cost nothing — skipping work, reordering guards, avoiding a clone — must leave every scenario's `unique` and `generated` **identical**.
+  A moved count means the transition relation changed, which was not the intent.
+- A deliberate collapse — dropping a field no guard or property reads back — must **shrink** `unique` while every verdict in `tests/model_tests.rs` stays as it was.
+  Each one needs an argument in its commit message for why forgetting that information is a bisimulation, because a collapse that is wrong does not fail loudly: it quietly stops exploring states where a bug could live.
+
+`generated / unique` is the duplicate-successor ratio, and `depth` is a racing maximum across checker threads, so it varies run to run and means nothing on its own.
 
 ## Coupling to production (drift prevention)
 
@@ -57,7 +74,7 @@ checker verifies, automatically:
 |---|---|
 | `pod::desired_state` + `DesiredState` | the pod's entire state machine — `Action::Converge` derives through the real function |
 | `protocol::freeze_quorum_met` / `drain_satisfied` / `warm_satisfied` | the phase-advancement rules (identity quorum, id-correlated acks, vacuous drain) — `Action::AdvancePhase` calls them |
-| `protocol::plan_rebalance` | the rebalance decision (placement via `StickyBalancedStrategy` + the move/fresh diff, old_owner from the current assignment) — `Action::Rebalance` calls it, as does the coordinator |
+| `protocol::plan_partial_rebalance` | the rebalance decision (placement via `StickyBalancedStrategy` + the move/fresh diff, old_owner from the current assignment, in-flight partitions pinned) — `Action::Rebalance` calls it, as does the coordinator |
 | `types::HandoffPhase` | used directly as the model's phase enum, so adding a phase breaks the model's exhaustive matches at compile time |
 
 What remains model-side is the *environment and effect application* —
@@ -154,9 +171,10 @@ two-party (old owner ↔ new owner, zombie ↔ successor).
 # Exhaustive checks with expected verdicts per scenario (~2min):
 cargo test -p personhog-stateright --release
 
-# State-space sizing report — run when adding a new configuration to
-# judge its tractability before wiring it into a test:
-cargo test -p personhog-stateright --release -- --ignored --nocapture
+# The same run, reporting the explored size of every scenario. This is
+# the sizing tool for a new configuration, and the review gate for any
+# change to how state is encoded — see "Judging a state-space change":
+STATERIGHT_REPORT=1 cargo test -p personhog-stateright --release -- --nocapture --test-threads=1
 
 # Interactive state-space explorer (http://localhost:3000), for
 # stepping through the double-zombie counterexample trace:
@@ -179,7 +197,7 @@ of the same actions); strong reads (stashing with writes, per the
 shipped design); two routers draining stashed FIFOs concurrently at
 cutover (thaw ordering); multi-partition rebalance gating; concurrent
 handoffs (probed reachable, safety checked throughout); the dual-role
-pod shape (probed unreachable — see Results).
+pod shape (probed reachable since partial rebalancing — see Results).
 
 The claim to serve is modeled apart from the lease (`Pod.claims_authority`,
 production's `AuthorityClock`), because in production the two diverge and
