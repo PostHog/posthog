@@ -3471,15 +3471,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // If required tables are specified (e.g. signals setup), skip the schema selection step
                 // entirely and create the source with only those tables, using their default sync settings
                 if (values.requiredTables) {
-                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
-                    if (requiredSchemas.length !== values.requiredTables.length) {
-                        const missingTables = values.requiredTables.filter(
-                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
-                        )
+                    // Multi-repo sources qualify their schema names (`owner/repo.endpoint`), so a
+                    // required table matches by suffix as well as exactly, and can resolve to one
+                    // row per repo. Mirrors ensureRequiredTableSyncing in signalSourcesLogic.
+                    const matchesRequiredTable = (tableName: string, requiredTable: string): boolean =>
+                        tableName === requiredTable || tableName.endsWith(`.${requiredTable}`)
+                    const missingTables = values.requiredTables.filter(
+                        (table: string) => !schemas.some((schema) => matchesRequiredTable(schema.table, table))
+                    )
+                    if (missingTables.length > 0) {
                         lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
                         actions.setIsLoading(false)
                         return
                     }
+                    const requiredSchemas = schemas.filter((schema) =>
+                        values.requiredTables!.some((table: string) => matchesRequiredTable(schema.table, table))
+                    )
 
                     actions.updateSource({
                         payload: {

@@ -946,4 +946,98 @@ describe('sourceWizardLogic', () => {
             }
         })
     })
+
+    // Signals setup passes requiredTables to skip the schema step and sync just those tables.
+    describe('requiredTables', () => {
+        const githubSource = {
+            name: 'Github',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        const apiSchema = (table: string): ExternalDataSourceSyncSchema =>
+            ({
+                table,
+                label: null,
+                rows: null,
+                should_sync: false,
+                sync_time_of_day: null,
+                incremental_field: null,
+                incremental_field_type: null,
+                sync_type: null,
+                incremental_fields: [],
+                incremental_available: false,
+                append_available: false,
+                supports_webhooks: false,
+                description: null,
+                should_sync_default: true,
+                primary_key_columns: null,
+                available_columns: [],
+                detected_primary_keys: null,
+                permission_error: null,
+                cdc_available: false,
+            }) as ExternalDataSourceSyncSchema
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('matches a required table against every repo-qualified schema row', async () => {
+            // Multi-repo sources name their rows `owner/repo.endpoint`, so an exact-match lookup
+            // for `issues` finds nothing and the wizard bails before creating the source.
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('posthog/posthog.issues'),
+                apiSchema('posthog/posthog-js.issues'),
+                apiSchema('posthog/posthog.commits'),
+            ] as ExternalDataSourceSyncSchema[])
+            const create = jest
+                .spyOn(api.externalDataSources, 'create')
+                .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
+
+            const logic = sourceWizardLogic({
+                availableSources: { Github: githubSource },
+                requiredTables: ['issues'],
+                onComplete: jest.fn(),
+            })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(githubSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
+                expect(create).toHaveBeenCalledTimes(1)
+                expect(create.mock.calls[0][0].payload?.schemas).toEqual([
+                    expect.objectContaining({ name: 'posthog/posthog.issues', should_sync: true }),
+                    expect.objectContaining({ name: 'posthog/posthog-js.issues', should_sync: true }),
+                ])
+            } finally {
+                unmount()
+            }
+        })
+
+        it('does not create the source when a required table is genuinely absent', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('posthog/posthog.commits'),
+            ] as ExternalDataSourceSyncSchema[])
+            const create = jest.spyOn(api.externalDataSources, 'create')
+
+            const logic = sourceWizardLogic({
+                availableSources: { Github: githubSource },
+                requiredTables: ['issues'],
+                onComplete: jest.fn(),
+            })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(githubSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
+                expect(create).not.toHaveBeenCalled()
+                expect(logic.values.isLoading).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+    })
 })
