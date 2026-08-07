@@ -237,6 +237,12 @@ def _validate_payload_conditions(raw: Any) -> list[dict[str, Any]]:
             raise serializers.ValidationError(
                 {"filters": f"Payload condition '{path}' needs `equals`: a string or a non-empty list of strings."}
             )
+        # A blank value can't equal any real payload leaf, so the condition would save and then
+        # never fire — the same silent dead end as a list-index path above.
+        if any(not item.strip() for item in values):
+            raise serializers.ValidationError(
+                {"filters": f"Payload condition '{path}' has a blank `equals` value, which would never match."}
+            )
         if len(values) > MAX_PAYLOAD_CONDITION_VALUES or any(len(item) > MAX_PAYLOAD_STRING_LENGTH for item in values):
             raise serializers.ValidationError(
                 {
