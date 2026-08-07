@@ -176,7 +176,9 @@ export interface aiObservabilitySentimentLogicActions {
     activate: () => {
         value: true
     }
-    loadGenerations: (payload?: { forceRefresh?: boolean }) => any
+    loadGenerations: ({ forceRefresh }?: { forceRefresh?: boolean }) => {
+        forceRefresh?: boolean
+    }
     loadGenerationsFailure: (
         error: string,
         errorObject?: any
@@ -186,10 +188,14 @@ export interface aiObservabilitySentimentLogicActions {
     }
     loadGenerationsSuccess: (
         generations: SentimentGeneration[],
-        payload?: any
+        payload?: {
+            forceRefresh?: boolean
+        }
     ) => {
         generations: SentimentGeneration[]
-        payload?: any
+        payload?: {
+            forceRefresh?: boolean
+        }
     }
     loadMoreGenerations: () => {
         value: true
@@ -369,8 +375,11 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
         generations: [
             [] as SentimentGeneration[],
             {
-                loadGenerations: async ({ forceRefresh }: { forceRefresh?: boolean } = {}) => {
+                loadGenerations: async ({ forceRefresh }: { forceRefresh?: boolean } = {}, breakpoint) => {
                     const page = await fetchSentimentGenerationsPage(values, 0, forceRefresh)
+                    // The query is slow enough that toggling filters twice can leave two requests in
+                    // flight — drop this one if a newer load started while it was running
+                    breakpoint()
                     lastPageHasMore = page.hasMore
                     nextGenerationsOffset = page.rawCount
                     return page.generations
