@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+import { emptySceneParams } from 'scenes/scenes'
+
 import { initKeaTests } from '~/test/init'
 
 import { evaluationsList } from '../generated/api'
@@ -53,7 +56,7 @@ describe('aiObservabilitySentimentLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockEvaluationsList.mockResolvedValue({ count: 0, results: [] })
-        mockFetchSentimentGenerationsPage.mockResolvedValue({ generations: [], rawCount: 0 })
+        mockFetchSentimentGenerationsPage.mockResolvedValue({ generations: [], rawCount: 0, hasMore: false })
         logic = null
         availabilityLogic = null
     })
@@ -76,6 +79,7 @@ describe('aiObservabilitySentimentLogic', () => {
         mockFetchSentimentGenerationsPage.mockResolvedValue({
             generations: [generationWithSentiment],
             rawCount: 1,
+            hasMore: false,
         })
         mountLogics()
 
@@ -92,11 +96,12 @@ describe('aiObservabilitySentimentLogic', () => {
         mockFetchSentimentGenerationsPage.mockResolvedValue({
             generations: [generationWithSentiment],
             rawCount: 200,
+            hasMore: true,
         })
         mountLogics()
 
         await expectLogic(logic!, () => {
-            logic!.actions.activate()
+            sceneLogic.actions.setScene('AIObservability', 'aiObservabilitySentiment', emptySceneParams)
         }).toFinishAllListeners()
 
         expect(mockFetchSentimentGenerationsPage).toHaveBeenCalledTimes(1)

@@ -6,13 +6,76 @@ jest.mock('lib/api')
 
 const mockApi = api as jest.Mocked<typeof api>
 
+const storedSentimentColumns = [
+    'trace_id',
+    'generation_id',
+    'label',
+    'score',
+    'scores',
+    'messages',
+    'message_count',
+    'evaluation_timestamp',
+]
+const candidateColumns = ['evaluation_id', 'trace_id', 'generation_id']
+const generationColumns = [
+    'uuid',
+    'trace_id',
+    'generation_id',
+    'model',
+    'distinct_id',
+    'generation_timestamp',
+    'ai_input',
+    'label',
+    'score',
+    'scores',
+    'messages',
+    'message_count',
+]
+
+const queryValues = {
+    dateFilter: { dateFrom: '-7d', dateTo: null },
+    shouldFilterTestAccounts: false,
+    propertyFilters: [],
+}
+
+function candidateRows(count: number, start: number = 0): unknown[][] {
+    return Array.from({ length: count }, (_, index) => {
+        const candidateIndex = start + index
+        return [`evaluation-${candidateIndex}`, `trace-${candidateIndex}`, `generation-${candidateIndex}`]
+    })
+}
+
+function generationRow(index: number): unknown[] {
+    return [
+        `generation-${index}`,
+        `trace-${index}`,
+        null,
+        'gpt-4.1',
+        `distinct-${index}`,
+        '2026-06-23T10:00:00Z',
+        JSON.stringify([{ role: 'user', content: 'this was great' }]),
+        'positive',
+        '0.91',
+        { positive: 0.91, neutral: 0.08, negative: 0.01 },
+        {
+            '0': {
+                label: 'positive',
+                score: 0.91,
+                scores: { positive: 0.91, neutral: 0.08, negative: 0.01 },
+            },
+        },
+        1,
+    ]
+}
+
 describe('sentimentQueries', () => {
     beforeEach(() => {
         jest.resetAllMocks()
     })
 
     it('reads stored generation sentiment from ai_events first', async () => {
-        jest.spyOn(mockApi, 'queryHogQL').mockResolvedValueOnce({
+        mockApi.queryHogQL.mockResolvedValueOnce({
+            columns: storedSentimentColumns,
             results: [
                 [
                     'trace-1',
@@ -31,7 +94,7 @@ describe('sentimentQueries', () => {
                     '2026-06-23T10:00:00Z',
                 ],
             ],
-        } as any)
+        })
 
         const results = await fetchStoredGenerationSentiments([
             {
@@ -56,9 +119,10 @@ describe('sentimentQueries', () => {
     })
 
     it('falls back to events when stored generation sentiment is missing from ai_events', async () => {
-        jest.spyOn(mockApi, 'queryHogQL')
-            .mockResolvedValueOnce({ results: [] } as any)
+        mockApi.queryHogQL
+            .mockResolvedValueOnce({ columns: storedSentimentColumns, results: [] })
             .mockResolvedValueOnce({
+                columns: storedSentimentColumns,
                 results: [
                     [
                         'trace-1',
@@ -77,7 +141,7 @@ describe('sentimentQueries', () => {
                         '2026-06-23T10:00:00Z',
                     ],
                 ],
-            } as any)
+            })
 
         const results = await fetchStoredGenerationSentiments([
             {
@@ -98,49 +162,24 @@ describe('sentimentQueries', () => {
     })
 
     it('builds sentiment tab rows from evaluated generations and ai_events input', async () => {
-        jest.spyOn(mockApi, 'query')
+        mockApi.queryHogQL
             .mockResolvedValueOnce({
-                results: [['evaluation-uuid', 'trace-1', 'generation-uuid']],
-            } as any)
+                columns: candidateColumns,
+                results: [['evaluation-0', 'trace-0', 'generation-0']],
+            })
             .mockResolvedValueOnce({
-                results: [
-                    [
-                        'generation-uuid',
-                        'trace-1',
-                        null,
-                        'gpt-4.1',
-                        'distinct-1',
-                        '2026-06-23T10:00:00Z',
-                        JSON.stringify([{ role: 'user', content: 'this was great' }]),
-                        'positive',
-                        '0.91',
-                        { positive: 0.91, neutral: 0.08, negative: 0.01 },
-                        {
-                            '0': {
-                                label: 'positive',
-                                score: 0.91,
-                                scores: { positive: 0.91, neutral: 0.08, negative: 0.01 },
-                            },
-                        },
-                        1,
-                    ],
-                ],
-            } as any)
+                columns: generationColumns,
+                results: [generationRow(0)],
+            })
 
-        const page = await fetchSentimentGenerationsPage(
-            {
-                dateFilter: { dateFrom: '-7d', dateTo: null },
-                shouldFilterTestAccounts: false,
-                propertyFilters: [],
-            },
-            0
-        )
+        const page = await fetchSentimentGenerationsPage(queryValues, 0)
 
         expect(page.rawCount).toBe(1)
+        expect(page.hasMore).toBe(false)
         expect(page.generations).toHaveLength(1)
         expect(page.generations[0]).toMatchObject({
-            uuid: 'generation-uuid',
-            traceId: 'trace-1',
+            uuid: 'generation-0',
+            traceId: 'trace-0',
             aiInput: JSON.stringify([{ role: 'user', content: 'this was great' }]),
             sentiment: {
                 label: 'positive',
@@ -148,42 +187,52 @@ describe('sentimentQueries', () => {
             },
         })
 
-        expect(mockApi.query).toHaveBeenCalledTimes(2)
-        const evaluationQuery = mockApi.query.mock.calls[0][0]
-        expect(evaluationQuery.kind).toBe('HogQLQuery')
-        expect((evaluationQuery as any).query).toContain('FROM events')
-        expect((evaluationQuery as any).query).toContain("event = '$ai_evaluation'")
-        expect((evaluationQuery as any).query).toContain("properties.$ai_evaluation_runtime = 'sentiment'")
-        expect((evaluationQuery as any).query).toContain('ORDER BY toFloat(score) DESC')
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
+        const [candidateQuery, , candidateOptions] = mockApi.queryHogQL.mock.calls[0]
+        expect(candidateQuery).toContain("JSONExtractFloat(scores, 'positive')")
+        expect(candidateQuery).toContain("JSONExtractFloat(scores, 'negative')")
+        expect(candidateQuery).toContain('toIntOrZero(message_count) > 0')
+        expect(candidateOptions?.queryParams?.filters).toEqual({
+            dateRange: { date_from: '-7d', date_to: null },
+        })
 
-        const hydrationQuery = mockApi.query.mock.calls[1][0]
-        expect(hydrationQuery.kind).toBe('HogQLQuery')
-        expect((hydrationQuery as any).query).toContain('FROM posthog.ai_events')
-        expect((hydrationQuery as any).query).toContain("event = '$ai_generation'")
-        expect((hydrationQuery as any).query).toContain("trace_id IN ['trace-1']")
+        const [, , hydrationOptions] = mockApi.queryHogQL.mock.calls[1]
+        expect(hydrationOptions?.queryParams?.filters).toEqual({
+            filterTestAccounts: false,
+            properties: [],
+        })
     })
 
     it('does not fall back to events when ai_events no longer retains a generation input', async () => {
-        jest.spyOn(mockApi, 'query')
+        mockApi.queryHogQL
             .mockResolvedValueOnce({
-                results: [['evaluation-uuid', 'trace-1', 'generation-uuid']],
-            } as any)
-            .mockResolvedValueOnce({ results: [] } as any)
+                columns: candidateColumns,
+                results: [['evaluation-0', 'trace-0', 'generation-0']],
+            })
+            .mockResolvedValueOnce({ columns: generationColumns, results: [] })
 
-        const page = await fetchSentimentGenerationsPage(
-            {
-                dateFilter: { dateFrom: '-7d', dateTo: null },
-                shouldFilterTestAccounts: false,
-                propertyFilters: [],
-            },
-            0
-        )
+        const page = await fetchSentimentGenerationsPage(queryValues, 0)
 
         expect(page.rawCount).toBe(1)
+        expect(page.hasMore).toBe(false)
         expect(page.generations).toEqual([])
-        expect(mockApi.query).toHaveBeenCalledTimes(2)
-        expect((mockApi.query.mock.calls[0][0] as any).query).toContain('FROM events')
-        expect((mockApi.query.mock.calls[1][0] as any).query).toContain('FROM posthog.ai_events')
-        expect(mockApi.queryHogQL).not.toHaveBeenCalled()
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
+    })
+
+    it('backfills candidates removed by generation filters', async () => {
+        mockApi.queryHogQL
+            .mockResolvedValueOnce({ columns: candidateColumns, results: candidateRows(200) })
+            .mockResolvedValueOnce({ columns: generationColumns, results: [] })
+            .mockResolvedValueOnce({ columns: candidateColumns, results: candidateRows(1, 200) })
+            .mockResolvedValueOnce({ columns: generationColumns, results: [generationRow(200)] })
+
+        const page = await fetchSentimentGenerationsPage(queryValues, 0)
+
+        expect(page.generations).toHaveLength(1)
+        expect(page.generations[0].uuid).toBe('generation-200')
+        expect(page.rawCount).toBe(201)
+        expect(page.hasMore).toBe(false)
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(4)
+        expect(mockApi.queryHogQL.mock.calls[2][0]).toContain('OFFSET 200')
     })
 })

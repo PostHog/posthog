@@ -306,10 +306,7 @@ export function AIObservabilitySentiment(): JSX.Element {
     return (
         <div data-attr="llma-sentiment-tab">
             <SentimentControls />
-            <p className="text-sm text-muted mb-3">
-                Sentiment evaluation results are ranked by score, with the strongest positive and negative results
-                first.
-            </p>
+            <p className="text-sm text-muted mb-3">Results are ranked by their strongest positive or negative score.</p>
 
             {generationsLoading && generations.length === 0 ? (
                 <div className="flex items-center justify-center py-20">

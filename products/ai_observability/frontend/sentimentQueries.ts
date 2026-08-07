@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
@@ -17,22 +17,32 @@ const EVALUATION_TARGET_ID_SELECT = `
     ifNull(nullIf(nullIf(toString(properties.$ai_target_event_id), ''), 'null'), '')
 `
 
-type StoredSentimentEvaluationQueryRow = [string, string, unknown, unknown, unknown, unknown, unknown, unknown]
-type SentimentEvaluationCandidateQueryRow = [string, string, string]
-type SentimentGenerationQueryRow = [
-    string,
-    string,
-    unknown,
-    unknown,
-    unknown,
-    unknown,
-    unknown,
-    unknown,
-    unknown,
-    unknown,
-    unknown,
-    unknown,
-]
+const STORED_SENTIMENT_COLUMNS = [
+    'trace_id',
+    'generation_id',
+    'label',
+    'score',
+    'scores',
+    'messages',
+    'message_count',
+] as const
+
+const SENTIMENT_EVALUATION_CANDIDATE_COLUMNS = ['evaluation_id', 'trace_id', 'generation_id'] as const
+
+const SENTIMENT_GENERATION_COLUMNS = [
+    'uuid',
+    'trace_id',
+    'generation_id',
+    'model',
+    'distinct_id',
+    'generation_timestamp',
+    'ai_input',
+    'label',
+    'score',
+    'scores',
+    'messages',
+    'message_count',
+] as const
 
 interface SentimentQuerySource {
     from: string
@@ -83,6 +93,7 @@ export interface SentimentGenerationsQueryValues {
 export interface SentimentGenerationsPage {
     generations: SentimentGeneration[]
     rawCount: number
+    hasMore: boolean
 }
 
 function normalizeString(value: unknown): string {
@@ -103,6 +114,32 @@ function uniqueNonEmpty(values: string[]): string[] {
     return Array.from(new Set(values.filter(Boolean)))
 }
 
+function buildQueryColumnIndexes(
+    columns: unknown[] | undefined,
+    requiredColumns: readonly string[]
+): Map<string, number> {
+    const availableColumns = (columns ?? []).map(normalizeString)
+    const indexes = new Map<string, number>()
+
+    for (const column of requiredColumns) {
+        const index = availableColumns.indexOf(column)
+        if (index === -1) {
+            throw new Error(`Query response is missing the ${column} column`)
+        }
+        indexes.set(column, index)
+    }
+
+    return indexes
+}
+
+function queryColumnValue(row: unknown[], columnIndexes: Map<string, number>, column: string): unknown {
+    const index = columnIndexes.get(column)
+    if (index === undefined) {
+        throw new Error(`Query response has no index for the ${column} column`)
+    }
+    return row[index]
+}
+
 function hasUsableInput(value: unknown): boolean {
     return value !== null && value !== undefined && value !== '' && value !== 'null'
 }
@@ -118,7 +155,7 @@ async function queryStoredGenerationSentiments(
         return new Map()
     }
 
-    const response = await api.queryHogQL<StoredSentimentEvaluationQueryRow[]>(
+    const response = await api.queryHogQL<unknown[][]>(
         hogql`
             SELECT
                 trace_id,
@@ -152,19 +189,20 @@ async function queryStoredGenerationSentiments(
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_generation_sentiment_lookup' }
     )
 
+    const columnIndexes = buildQueryColumnIndexes(response.columns, STORED_SENTIMENT_COLUMNS)
     const sentimentByTargetId = new Map<string, GenerationSentiment>()
-    for (const row of response?.results || []) {
-        const [, generationId, label, score, scores, messages, messageCount] = row
+    for (const row of response.results) {
+        const generationId = normalizeString(queryColumnValue(row, columnIndexes, 'generation_id'))
         const normalized = normalizeSentimentResult({
-            label,
-            score,
-            scores,
-            messages,
-            message_count: messageCount,
+            label: queryColumnValue(row, columnIndexes, 'label'),
+            score: queryColumnValue(row, columnIndexes, 'score'),
+            scores: queryColumnValue(row, columnIndexes, 'scores'),
+            messages: queryColumnValue(row, columnIndexes, 'messages'),
+            message_count: queryColumnValue(row, columnIndexes, 'message_count'),
         })
 
-        if (generationId && normalized) {
-            sentimentByTargetId.set(String(generationId), normalized)
+        if (generationId) {
+            sentimentByTargetId.set(generationId, normalized)
         }
     }
 
@@ -227,9 +265,8 @@ async function fetchSentimentEvaluationCandidates(
     values: SentimentGenerationsQueryValues,
     offset: number
 ): Promise<SentimentEvaluationCandidate[]> {
-    const query: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `
+    const response = await api.queryHogQL<unknown[][]>(
+        hogql`
             SELECT
                 evaluation_id,
                 trace_id,
@@ -237,10 +274,11 @@ async function fetchSentimentEvaluationCandidates(
             FROM (
                 SELECT
                     properties.$ai_trace_id AS trace_id,
-                    ${EVALUATION_TARGET_ID_SELECT} AS generation_id,
+                    ${hogql.raw(EVALUATION_TARGET_ID_SELECT)} AS generation_id,
                     argMax(toString(uuid), timestamp) AS evaluation_id,
                     argMax(toString(properties.$ai_sentiment_label), timestamp) AS label,
-                    argMax(toString(properties.$ai_sentiment_score), timestamp) AS score,
+                    argMax(toString(properties.$ai_sentiment_scores), timestamp) AS scores,
+                    argMax(toString(properties.$ai_sentiment_message_count), timestamp) AS message_count,
                     max(timestamp) AS evaluation_timestamp
                 FROM events
                 WHERE event = '$ai_evaluation'
@@ -253,26 +291,33 @@ async function fetchSentimentEvaluationCandidates(
               AND length(trace_id) > 0
               AND length(generation_id) > 0
               AND label IN ('positive', 'negative', 'neutral')
-            ORDER BY toFloat(score) DESC, evaluation_timestamp DESC, generation_id DESC
+              AND toIntOrZero(message_count) > 0
+            ORDER BY greatest(
+                JSONExtractFloat(scores, 'positive'),
+                JSONExtractFloat(scores, 'negative')
+            ) DESC, evaluation_timestamp DESC, generation_id DESC
             LIMIT ${GENERATIONS_PAGE_SIZE}
             OFFSET ${Math.max(0, Math.trunc(offset))}
         `,
-        filters: {
-            dateRange: {
-                date_from: values.dateFilter.dateFrom,
-                date_to: values.dateFilter.dateTo,
+        { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_evaluations' },
+        {
+            queryParams: {
+                filters: {
+                    dateRange: {
+                        date_from: values.dateFilter.dateFrom,
+                        date_to: values.dateFilter.dateTo,
+                    },
+                },
             },
-        },
-        tags: { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_evaluations' },
-    }
+        }
+    )
 
-    const response = await api.query(query)
+    const columnIndexes = buildQueryColumnIndexes(response.columns, SENTIMENT_EVALUATION_CANDIDATE_COLUMNS)
     const candidates: SentimentEvaluationCandidate[] = []
-    for (const row of (response?.results || []) as SentimentEvaluationCandidateQueryRow[]) {
-        const [evaluationIdRaw, traceIdRaw, generationIdRaw] = row
-        const evaluationId = normalizeString(evaluationIdRaw)
-        const traceId = normalizeString(traceIdRaw)
-        const generationId = normalizeString(generationIdRaw)
+    for (const row of response.results) {
+        const evaluationId = normalizeString(queryColumnValue(row, columnIndexes, 'evaluation_id'))
+        const traceId = normalizeString(queryColumnValue(row, columnIndexes, 'trace_id'))
+        const generationId = normalizeString(queryColumnValue(row, columnIndexes, 'generation_id'))
 
         if (evaluationId && traceId && generationId) {
             candidates.push({ evaluationId, traceId, generationId })
@@ -284,18 +329,17 @@ async function fetchSentimentEvaluationCandidates(
 async function hydrateSentimentGenerations(
     candidates: SentimentEvaluationCandidate[],
     values: SentimentGenerationsQueryValues
-): Promise<SentimentGeneration[]> {
+): Promise<Map<string, SentimentGeneration>> {
     const traceIds = uniqueNonEmpty(candidates.map((candidate) => candidate.traceId))
     const generationIds = uniqueNonEmpty(candidates.map((candidate) => candidate.generationId))
     const evaluationIds = uniqueNonEmpty(candidates.map((candidate) => candidate.evaluationId))
 
     if (traceIds.length === 0 || generationIds.length === 0 || evaluationIds.length === 0) {
-        return []
+        return new Map()
     }
 
-    const query: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: hogql`
+    const response = await api.queryHogQL<unknown[][]>(
+        hogql`
             SELECT
                 generation.uuid,
                 generation.trace_id,
@@ -340,76 +384,104 @@ async function hydrateSentimentGenerations(
                   AND trace_id IN ${traceIds}
                   AND toString(uuid) IN ${evaluationIds}
                 GROUP BY trace_id, generation_id
+                HAVING message_count != '0'
             ) AS sentiment
               ON generation.trace_id = sentiment.trace_id
              AND generation.uuid = sentiment.generation_id
             LIMIT ${generationIds.length}
         `,
-        filters: {
-            dateRange: {
-                date_from: values.dateFilter.dateFrom,
-                date_to: values.dateFilter.dateTo,
+        { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_generation_hydration' },
+        {
+            queryParams: {
+                filters: {
+                    filterTestAccounts: values.shouldFilterTestAccounts,
+                    properties: values.propertyFilters,
+                },
             },
-            filterTestAccounts: values.shouldFilterTestAccounts,
-            properties: values.propertyFilters,
-        },
-        tags: { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_generation_hydration' },
-    }
+        }
+    )
 
-    const response = await api.query(query)
+    const columnIndexes = buildQueryColumnIndexes(response.columns, SENTIMENT_GENERATION_COLUMNS)
     const generationById = new Map<string, SentimentGeneration>()
 
-    for (const row of (response?.results || []) as SentimentGenerationQueryRow[]) {
-        const [
-            uuidRaw,
-            traceIdRaw,
-            generationPropertyIdRaw,
-            model,
-            distinctId,
-            timestampRaw,
-            aiInput,
-            label,
-            score,
-            scores,
-            messages,
-            messageCount,
-        ] = row
-        const uuid = normalizeString(uuidRaw)
-        const traceId = normalizeString(traceIdRaw)
-        const timestamp = normalizeString(timestampRaw)
-        const sentiment = normalizeSentimentResult({ label, score, scores, messages, message_count: messageCount })
+    for (const row of response.results) {
+        const uuid = normalizeString(queryColumnValue(row, columnIndexes, 'uuid'))
+        const traceId = normalizeString(queryColumnValue(row, columnIndexes, 'trace_id'))
+        const timestamp = normalizeString(queryColumnValue(row, columnIndexes, 'generation_timestamp'))
+        const aiInput = queryColumnValue(row, columnIndexes, 'ai_input')
+        const sentiment = normalizeSentimentResult({
+            label: queryColumnValue(row, columnIndexes, 'label'),
+            score: queryColumnValue(row, columnIndexes, 'score'),
+            scores: queryColumnValue(row, columnIndexes, 'scores'),
+            messages: queryColumnValue(row, columnIndexes, 'messages'),
+            message_count: queryColumnValue(row, columnIndexes, 'message_count'),
+        })
 
-        if (!uuid || !traceId || !timestamp || !sentiment || !hasUsableInput(aiInput)) {
+        if (!uuid || !traceId || !timestamp || (sentiment.message_count ?? 0) <= 0 || !hasUsableInput(aiInput)) {
             continue
         }
 
         generationById.set(uuid, {
             uuid,
             traceId,
-            generationIds: uniqueNonEmpty([uuid, normalizeString(generationPropertyIdRaw)]),
+            generationIds: uniqueNonEmpty([
+                uuid,
+                normalizeString(queryColumnValue(row, columnIndexes, 'generation_id')),
+            ]),
             aiInput,
-            model: normalizeNullableString(model),
-            distinctId: normalizeString(distinctId),
+            model: normalizeNullableString(queryColumnValue(row, columnIndexes, 'model')),
+            distinctId: normalizeString(queryColumnValue(row, columnIndexes, 'distinct_id')),
             timestamp,
             createdAt: timestamp,
             sentiment,
         })
     }
 
-    return candidates
-        .map((candidate) => generationById.get(candidate.generationId))
-        .filter((generation): generation is SentimentGeneration => generation !== undefined)
+    return generationById
 }
 
 export async function fetchSentimentGenerationsPage(
     values: SentimentGenerationsQueryValues,
     offset: number
 ): Promise<SentimentGenerationsPage> {
-    const candidates = await fetchSentimentEvaluationCandidates(values, offset)
-    const generations = await hydrateSentimentGenerations(candidates, values)
+    const generations: SentimentGeneration[] = []
+    let rawCount = 0
+    let hasMore = false
+
+    while (generations.length < GENERATIONS_PAGE_SIZE) {
+        const candidates = await fetchSentimentEvaluationCandidates(values, offset + rawCount)
+        if (candidates.length === 0) {
+            break
+        }
+
+        const generationById = await hydrateSentimentGenerations(candidates, values)
+        let consumedCandidates = 0
+
+        for (const candidate of candidates) {
+            consumedCandidates++
+            const generation = generationById.get(candidate.generationId)
+            if (generation) {
+                generations.push(generation)
+            }
+            if (generations.length === GENERATIONS_PAGE_SIZE) {
+                break
+            }
+        }
+
+        rawCount += consumedCandidates
+        const consumedEntireBatch = consumedCandidates === candidates.length
+        if (generations.length === GENERATIONS_PAGE_SIZE) {
+            hasMore = !consumedEntireBatch || candidates.length === GENERATIONS_PAGE_SIZE
+            break
+        }
+        if (candidates.length < GENERATIONS_PAGE_SIZE) {
+            break
+        }
+    }
 
     return {
         generations,
-        rawCount: candidates.length,
+        rawCount,
+        hasMore,
     }
 }
