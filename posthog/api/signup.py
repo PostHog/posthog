@@ -716,6 +716,12 @@ class InviteSignupViewset(generics.CreateAPIView):
 
 # Social Signup
 # views & serializers
+
+# Shown when a social signup POST or session check lands without an active social login session on this
+# origin — most often a stale confirm-creation tab reopened on the other Cloud region after signing up.
+SOCIAL_SIGNUP_INACTIVE_SESSION_MESSAGE = "This signup session is no longer active. Please log in to continue."
+
+
 class SocialSignupSerializer(serializers.Serializer):
     """
     Signup serializer when the account is created using social authentication.
@@ -742,9 +748,7 @@ class SocialSignupSerializer(serializers.Serializer):
         request = self.context["request"]
 
         if not request.session.get("backend"):
-            raise serializers.ValidationError(
-                "Inactive social login session. Go to /login and log in before continuing."
-            )
+            raise serializers.ValidationError(SOCIAL_SIGNUP_INACTIVE_SESSION_MESSAGE)
 
         email = request.session.get("email")
         organization_name = validated_data["organization_name"]
@@ -785,6 +789,14 @@ class SocialSignupSerializer(serializers.Serializer):
 class SocialSignupViewset(generics.CreateAPIView):
     serializer_class = SocialSignupSerializer
     permission_classes = (CanCreateOrg,)
+
+    def get(self, request, *args, **kwargs):
+        """
+        Reports whether this origin has an active social signup session, so the confirm-creation page can
+        offer a submittable form only when a POST would actually succeed, instead of on any origin that
+        happens to carry the prefill query params.
+        """
+        return response.Response({"active": bool(request.session.get("backend"))})
 
 
 class TeamInviteSurrogate:

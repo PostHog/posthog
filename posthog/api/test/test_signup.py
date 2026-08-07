@@ -744,6 +744,23 @@ class TestSignupAPI(APIBaseTest):
             "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
         )  # page where user will create a new org
 
+    def test_social_signup_session_check_reports_inactive_without_backend(self):
+        # The confirm-creation page relies on this to avoid offering a submittable form on an origin
+        # (e.g. a stale tab on the other Cloud region) where a signup POST would fail.
+        response = self.client.get("/api/social_signup/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"active": False})
+
+    def test_social_signup_session_check_reports_active_with_backend(self):
+        session = self.client.session
+        session["backend"] = "google-oauth2"
+        session["email"] = "social@posthog.com"
+        session.save()
+
+        response = self.client.get("/api/social_signup/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"active": True})
+
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.skip_on_multitenancy

@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -22,9 +23,76 @@ export const scene: SceneExport = {
     logic: organizationLogic,
 }
 
+function SupportFooter(): JSX.Element {
+    return (
+        <div className="text-center terms-and-conditions-text mt-4 text-secondary">
+            Have questions?{' '}
+            <Link to="https://posthog.com/support" target="_blank" disableDocsPanel>
+                Visit support
+            </Link>{' '}
+            or{' '}
+            <Link to="https://posthog.com/docs" target="_blank" disableDocsPanel>
+                read our documentation
+            </Link>
+            .
+        </div>
+    )
+}
+
+// Shown when the confirm-creation page loads without an active social signup session on this origin —
+// most often a stale tab reopened on the other Cloud region after signing up. The form would 400 on
+// submit, so we offer a way back to login instead of a dead end.
+function InactiveSessionRecovery(): JSX.Element {
+    const { email } = useValues(confirmOrganizationLogic)
+
+    return (
+        <BridgePage view="org-creation-confirmation">
+            <h2>Log in to finish setting up</h2>
+            <p className="text-center">
+                {email ? (
+                    <>
+                        Your signup session for <strong>{email}</strong> isn't active here.
+                    </>
+                ) : (
+                    <>Your signup session isn't active here.</>
+                )}{' '}
+                Log in to pick up where you left off.
+            </p>
+            <OtherRegionHint />
+            <LemonButton
+                type="primary"
+                fullWidth
+                center
+                to={`/login${location.search}`}
+                disableClientSideRouting
+                data-attr="confirm-org-inactive-session-login"
+            >
+                Log in
+            </LemonButton>
+            <LemonDivider thick dashed className="my-6" />
+            <SupportFooter />
+        </BridgePage>
+    )
+}
+
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
+    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning, sessionState } =
+        useValues(confirmOrganizationLogic)
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+
+    if (sessionState === 'loading') {
+        return (
+            <BridgePage view="org-creation-confirmation">
+                <div className="flex justify-center py-8">
+                    <Spinner className="text-2xl" />
+                </div>
+            </BridgePage>
+        )
+    }
+
+    if (sessionState === 'inactive') {
+        return <InactiveSessionRecovery />
+    }
 
     return (
         <BridgePage view="org-creation-confirmation">
@@ -108,17 +176,7 @@ export function ConfirmOrganization(): JSX.Element {
                 .
             </div>
             <LemonDivider thick dashed className="my-6" />
-            <div className="text-center terms-and-conditions-text mt-4 text-secondary">
-                Have questions?{' '}
-                <Link to="https://posthog.com/support" target="_blank" disableDocsPanel>
-                    Visit support
-                </Link>{' '}
-                or{' '}
-                <Link to="https://posthog.com/docs" target="_blank" disableDocsPanel>
-                    read our documentation
-                </Link>
-                .
-            </div>
+            <SupportFooter />
         </BridgePage>
     )
 }

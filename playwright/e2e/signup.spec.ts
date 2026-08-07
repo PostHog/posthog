@@ -192,23 +192,16 @@ test.describe('Signup', () => {
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })
 
-    test('Can fill out all the fields on social login', async ({ page }) => {
+    test('Confirm-creation offers a recovery path without an active social session', async ({ page }) => {
+        // Reaching confirm-creation without an active social signup session (e.g. a stale tab reopened on
+        // the other Cloud region) must not show a submittable org-creation form — the POST would 400.
         await page.context().clearCookies()
         await page.goto('/')
         await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
 
-        await expect(page.locator('[name=email]')).toHaveValue('test@posthog.com')
-        await expect(page.locator('[name=first_name]')).toHaveValue('Test')
-        await page.locator('[name=organization_name]').fill('Hogflix SpinOff')
-        await expect(page.locator('[name=organization_name]')).toHaveValue('Hogflix SpinOff')
-        await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
-        await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
-        await page.locator('[type=submit]').click()
-        await expect(page.locator('.Toastify [data-attr="error-toast"]')).toContainText(
-            'Inactive social login session.'
-        )
+        await expect(page.locator('[data-attr=confirm-org-inactive-session-login]')).toBeVisible()
+        await expect(page.locator('[name=organization_name]')).toHaveCount(0)
     })
 
     test('Shows redirect notice if redirecting for maintenance', async ({ page }) => {
