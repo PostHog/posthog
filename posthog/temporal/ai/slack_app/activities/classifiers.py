@@ -27,22 +27,30 @@ logger = structlog.get_logger(__name__)
 
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
-# The routing classifiers — which model to run on, and which untagged replies to forward —
-# run on a reasoning model, which draws its reasoning from the same token budget as the
-# reply. The reply itself is one short JSON object; the headroom is for the thinking in
-# front of it, and a truncated turn reads as an unusable reply and falls back to the safe
-# answer.
-ROUTING_CLASSIFIER_MODEL = "gpt-5.6-luna"
-ROUTING_CLASSIFIER_MAX_TOKENS = 2048
-# The gateway client defaults to a 600s read and two retries of its own, which is the
-# right shape for a generation call and the wrong one here: these classifiers gate task
-# creation, and their answer is optional — any failure falls back to the safe answer. Left
-# unbounded they never get to fall back, because the activity's own 600s deadline expires
-# first and fails the mention outright. Bounding the retries matters as much as the
-# deadline: the activity is sync, so a thread Temporal has stopped waiting on keeps
-# blocking until the client itself returns. Measured mean is ~1.7s per call.
-ROUTING_CLASSIFIER_TIMEOUT_SECONDS = 10.0
-ROUTING_CLASSIFIER_MAX_RETRIES = 1
+
+
+# Both routing classifiers run on a reasoning model, which draws its reasoning from the
+# same token budget as the reply. The reply is one short JSON object; the headroom is for
+# the thinking in front of it, and a truncated turn falls back to the safe answer.
+#
+# The gateway client defaults to a 600s read and two retries, which is the right shape for
+# a generation call and the wrong one here. Left unbounded these never get to fall back,
+# because the activity's own deadline expires first. Bounding the retries matters as much
+# as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
+# blocking until the client itself returns.
+MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
+MODEL_OVERRIDE_MAX_TOKENS = 2048
+# One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
+MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
+MODEL_OVERRIDE_MAX_RETRIES = 1
+
+UNTAGGED_FOLLOWUP_CLASSIFIER_MODEL = "gpt-5.6-luna"
+UNTAGGED_FOLLOWUP_MAX_TOKENS = 2048
+# One call per reply in every thread the agent is working in, and its prompt carries the
+# thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
+# enough to a 10s ceiling that the tail would drop instructions rather than misread them.
+UNTAGGED_FOLLOWUP_TIMEOUT_SECONDS = 20.0
+UNTAGGED_FOLLOWUP_MAX_RETRIES = 1
 
 
 def classify_task_needs_repo(
@@ -180,9 +188,8 @@ def classify_posthog_code_task_needs_repo_activity(
 def _agent_directed_response_format() -> ResponseFormatJSONSchema:
     """A strict JSON schema pinning the reply to a single boolean.
 
-    The prompt asks for one decision, and the schema is what stops a reasoning model from
-    answering with its reasoning instead — a prose reply parses to nothing, which reads
-    the same as a refused call and silently drops the message.
+    The schema is what stops a reasoning model answering with its reasoning — prose parses
+    to nothing, which reads the same as a refused call and silently drops the message.
     """
     return {
         "type": "json_schema",
@@ -207,32 +214,25 @@ def classify_message_is_agent_directed(
     """Classify whether an untagged Slack thread reply is an instruction to the running
     PostHog Slack App, or people talking to each other.
 
-    Deliberately defensive. Waking the agent is not free and not private: it reacts in the
-    channel and spends a turn, so a thread of humans discussing the work watches the bot
-    interject on messages nobody addressed to it. A missed follow-up costs one ``@PostHog``
-    to recover, which is the same thing the author would have typed anyway.
-
-    So the bar is that the message reads as addressed to the agent — an instruction, an
-    order, or an answer to something it asked. Talking *about* the task, or about the
-    agent, is not talking *to* it, and that is the distinction the prompt is built around.
-    Any failure returns ``False`` for the same reason.
+    Deliberately defensive. Waking the agent is not private: it reacts in the channel, so a
+    thread of humans discussing the work watches it interject on messages nobody addressed
+    to it. A missed follow-up costs one ``@PostHog``, which the author would have typed
+    anyway. So the bar is that the message reads as addressed to the agent — talking
+    *about* the task, or about the agent, is not talking *to* it. Any failure returns
+    ``False`` for the same reason.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
     by ``collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
 
     Whether the prompt holds that line is measured by
-    ``products/slack_app/evals/eval_followup_classifier.py``; the unit tests around this
-    function cover the heuristic and the error path, not the judgement call.
+    ``products/slack_app/evals/eval_followup_classifier.py``.
     """
     stripped = event_text.strip()
-    # Emoji-only / reaction-only replies are never agent-directed; drop before
-    # paying for the model.
     if re.fullmatch(r"(?:\s*:[a-z0-9_+-]+:\s*)+", stripped):
         logger.info("classify_message_is_agent_directed_heuristic_emoji_only", event_text=event_text)
         return False
 
-    # Render the tail of the thread for context. Bound the number of lines and
-    # the per-line length to keep the prompt small and predictable.
+    # Bound the number of lines and the per-line length to keep the prompt predictable.
     recent = thread_history[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
     history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
 
@@ -273,18 +273,19 @@ def classify_message_is_agent_directed(
     )
     try:
         client = get_llm_client("slack_app_routing").with_options(
-            timeout=ROUTING_CLASSIFIER_TIMEOUT_SECONDS, max_retries=ROUTING_CLASSIFIER_MAX_RETRIES
+            timeout=UNTAGGED_FOLLOWUP_TIMEOUT_SECONDS, max_retries=UNTAGGED_FOLLOWUP_MAX_RETRIES
         )
         response = client.chat.completions.create(
-            model=ROUTING_CLASSIFIER_MODEL,
+            model=UNTAGGED_FOLLOWUP_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=ROUTING_CLASSIFIER_MAX_TOKENS,
+            max_tokens=UNTAGGED_FOLLOWUP_MAX_TOKENS,
             response_format=_agent_directed_response_format(),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
         # providers and does not honour a response format identically on every route, so
         # a reply that arrives fenced still lands rather than dropping the message.
         parsed = extract_json_object(response.choices[0].message.content or "") or {}
+        # Anything but the schema's boolean drops: a truthy string would invert the bias.
         return parsed.get("agent_directed") is True
     except Exception:
         logger.exception("classify_message_is_agent_directed_failed")
@@ -442,12 +443,12 @@ def classify_slack_app_model_override(
 
     try:
         client = get_llm_client("slack_app_routing").with_options(
-            timeout=ROUTING_CLASSIFIER_TIMEOUT_SECONDS, max_retries=ROUTING_CLASSIFIER_MAX_RETRIES
+            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
         )
         response = client.chat.completions.create(
-            model=ROUTING_CLASSIFIER_MODEL,
+            model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=ROUTING_CLASSIFIER_MAX_TOKENS,
+            max_tokens=MODEL_OVERRIDE_MAX_TOKENS,
             response_format=_model_override_response_format(choices),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
