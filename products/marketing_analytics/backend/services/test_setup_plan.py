@@ -219,8 +219,9 @@ class TestInvariants(SetupPlanTestCase):
 
         await get_setup_plan(self.team)
 
-        _, kwargs = self.mocks["suggest_utm_mappings"].await_args
-        proposals = kwargs.get("campaign_proposals")
+        await_args = self.mocks["suggest_utm_mappings"].await_args
+        assert await_args is not None, "suggest_utm_mappings was never awaited"
+        proposals = await_args.kwargs.get("campaign_proposals")
         assert proposals is not None, "campaign_proposals was not injected"
         # The same object the plan builds its own suggestions from, not an equal-looking copy.
         assert [p.raw_utm_campaign for p in proposals.proposals] == ["sprng_sale_2024"]
