@@ -1,4 +1,5 @@
-import { render, waitFor } from "@testing-library/react";
+import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   fetchNextPage: vi.fn(),
   hasNextPage: true,
   isFetchingNextPage: false,
+  items: [] as TaskActivityItem[],
+  markRead: vi.fn(),
+  commentsEnabled: true,
 }));
 
 vi.mock("@posthog/quill", () => ({
@@ -31,23 +35,39 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: null }),
 }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityView", () => ({
-  ActivityRow: () => <div>Activity row</div>,
+  ActivityRow: ({
+    item,
+    onOpen,
+  }: {
+    item: TaskActivityItem;
+    onOpen: (item: TaskActivityItem) => void;
+  }) => (
+    <button type="button" onClick={() => onOpen(item)}>
+      Activity row
+    </button>
+  ),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
-  useMarkTaskActivityRead: () => ({ mutate: vi.fn(), isPending: false }),
+  useMarkTaskActivityRead: () => ({
+    mutate: mocks.markRead,
+    isPending: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
   useTaskActivity: () => ({
-    items: [],
+    items: mocks.items,
     unreadCount: 0,
     isLoading: false,
     hasNextPage: mocks.hasNextPage,
     isFetchingNextPage: mocks.isFetchingNextPage,
     fetchNextPage: mocks.fetchNextPage,
   }),
+}));
+vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
+  useCommentsEnabled: () => mocks.commentsEnabled,
 }));
 vi.mock("@posthog/ui/primitives/hooks/useInView", () => ({
   useInView: () => [vi.fn(), true],
@@ -61,6 +81,8 @@ describe("ActivityHoverCard", () => {
     vi.clearAllMocks();
     mocks.hasNextPage = true;
     mocks.isFetchingNextPage = false;
+    mocks.items = [];
+    mocks.commentsEnabled = true;
   });
 
   it("loads the next page when the bottom sentinel is visible", async () => {
@@ -74,5 +96,54 @@ describe("ActivityHoverCard", () => {
     render(<ActivityHoverCard onClose={vi.fn()} />);
 
     await waitFor(() => expect(mocks.fetchNextPage).not.toHaveBeenCalled());
+  });
+
+  it("marks the exact comment activity as read", () => {
+    mocks.items = [
+      {
+        id: "activity-1",
+        taskId: "task-1",
+        activityAt: "2026-08-07T00:00:00Z",
+        activityKind: "owned_item_comment",
+        commentId: "comment-1",
+        isUnread: true,
+      } as TaskActivityItem,
+    ];
+
+    render(<ActivityHoverCard onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Activity row"));
+
+    expect(mocks.markRead).toHaveBeenCalledWith([
+      {
+        task_id: "task-1",
+        seen_before: "2026-08-07T00:00:00Z",
+        activity_id: "activity-1",
+      },
+    ]);
+  });
+
+  it("hides only comment-derived activity while comments are disabled", () => {
+    mocks.commentsEnabled = false;
+    mocks.items = [
+      {
+        id: "comment-activity",
+        taskId: "task-1",
+        activityAt: "2026-08-07T00:00:00Z",
+        activityKind: "mention",
+        commentId: "comment-1",
+        isUnread: true,
+      } as TaskActivityItem,
+      {
+        id: "task-activity",
+        taskId: "task-2",
+        activityAt: "2026-08-07T00:01:00Z",
+        activityKind: "mention",
+        isUnread: true,
+      } as TaskActivityItem,
+    ];
+
+    render(<ActivityHoverCard onClose={vi.fn()} />);
+
+    expect(screen.getAllByText("Activity row")).toHaveLength(1);
   });
 });

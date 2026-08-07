@@ -5389,7 +5389,7 @@
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "integer"
+                  "type": "string"
               },
               "source_type": {
                   "chain": null,
@@ -5400,6 +5400,46 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "access_method": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "access_method",
+                  "id": null,
+                  "name": "access_method",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "direct_query_enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "direct_query_enabled",
+                  "id": null,
+                  "name": "direct_query_enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "is_live_queryable": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_live_queryable",
+                  "id": null,
+                  "name": "is_live_queryable",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "api_version": {
                   "chain": null,
@@ -15241,7 +15281,7 @@
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "integer"
+                  "type": "string"
               },
               "source_type": {
                   "chain": null,
@@ -15252,6 +15292,46 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "access_method": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "access_method",
+                  "id": null,
+                  "name": "access_method",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "direct_query_enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "direct_query_enabled",
+                  "id": null,
+                  "name": "direct_query_enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "is_live_queryable": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_live_queryable",
+                  "id": null,
+                  "name": "is_live_queryable",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "api_version": {
                   "chain": null,

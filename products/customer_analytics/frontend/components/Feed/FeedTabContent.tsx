@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ReportCard } from 'scenes/inbox/components/cards/ReportCard'
 import { urls } from 'scenes/urls'
+
+import { ReportCard } from 'products/signals/frontend/inbox/components/cards/ReportCard'
 
 import { FeedFilterBar } from './FeedFilterBar'
 import { feedLogic } from './feedLogic'

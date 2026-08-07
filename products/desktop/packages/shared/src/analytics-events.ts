@@ -1271,6 +1271,23 @@ export interface LoopLinkCopiedProperties {
   visibility: "personal" | "team";
 }
 
+export interface AnnouncementProperties {
+  announcement_id: string;
+  announcement_kind: "announcement" | "required-update";
+  announcement_style: "banner" | "modal";
+}
+
+export interface AnnouncementCtaClickedProperties
+  extends AnnouncementProperties {
+  cta_type: "external" | "deeplink" | "update";
+}
+
+export interface AnnouncementAcknowledgedProperties
+  extends AnnouncementProperties {
+  /** "ok" = the ack button; "update" = an update action counted as the ack. */
+  ack_type: "ok" | "update";
+}
+
 // Event names as constants
 export const ANALYTICS_EVENTS = {
   // App lifecycle
@@ -1437,6 +1454,12 @@ export const ANALYTICS_EVENTS = {
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
+
+  // Remote in-app announcement events
+  ANNOUNCEMENT_SHOWN: "Announcement shown",
+  ANNOUNCEMENT_DISMISSED: "Announcement dismissed",
+  ANNOUNCEMENT_CTA_CLICKED: "Announcement CTA clicked",
+  ANNOUNCEMENT_ACKNOWLEDGED: "Announcement acknowledged",
 
   // Loops events
   LOOP_LIST_VIEWED: "Loop list viewed",
@@ -1610,6 +1633,12 @@ export type EventPropertyMap = {
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
+
+  // Remote in-app announcement events
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_DISMISSED]: AnnouncementProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_CTA_CLICKED]: AnnouncementCtaClickedProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_ACKNOWLEDGED]: AnnouncementAcknowledgedProperties;
 
   // Loops events
   [ANALYTICS_EVENTS.LOOP_LIST_VIEWED]: LoopListViewedProperties;
