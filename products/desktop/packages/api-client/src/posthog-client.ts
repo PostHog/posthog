@@ -3019,8 +3019,8 @@ export class PostHogAPIClient {
   }
 
   async warmTask(options: {
-    repository: string;
-    github_integration: number;
+    repository?: string | null;
+    github_integration?: number | null;
     branch?: string | null;
     runtime_adapter?: string | null;
     model?: string | null;
