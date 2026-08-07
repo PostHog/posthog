@@ -469,17 +469,21 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
 
     Permanent auth/permission failures raise a clean, user-actionable message
     that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
-    fast instead of burning retries. A momentary backend blip (see
-    ``_is_transient_error``) that has already exhausted its in-process retries is
-    tagged so ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering
-    failure out of error tracking once Temporal retries the activity, excluding
-    anything the shrink ladders can still act on, which ends at
-    ``_raise_shrink_exhausted_error`` instead. The raw response is appended for
-    debugging.
+    fast instead of burning retries. Throttling (see ``_is_rate_limit_error``) and
+    a momentary backend blip (see ``_is_transient_error``) that has already
+    exhausted its in-process retries are both tagged so
+    ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering failure out
+    of error tracking once Temporal retries the activity, excluding anything the
+    shrink ladders can still act on, which ends at ``_raise_shrink_exhausted_error``
+    instead. The raw response is appended for debugging.
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    if _is_rate_limit_error(response):
+        raise Exception(
+            f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
+        )
     if _is_transient_error(response) and not _should_shrink_request(response):
         raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")

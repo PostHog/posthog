@@ -1343,6 +1343,24 @@ class TestRetryableErrors:
             _raise_meta_api_error(_mock_response(500, body))
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
+    @pytest.mark.parametrize("code", sorted(meta_ads_module.META_RATE_LIMIT_ERROR_CODES))
+    def test_rate_limit_error_matches_retryable_pattern(self, code: int) -> None:
+        # Real-world Meta throttling response: code 17 "User request limit reached" with
+        # is_transient: false. It must be tagged retryable rather than falling through to the
+        # generic, unclassified message and getting reported to error tracking on every attempt.
+        body = {
+            "error": {
+                "message": "User request limit reached",
+                "type": "OAuthException",
+                "code": code,
+                "is_transient": False,
+            }
+        }
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(400, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
     def test_empty_body_500_matches_retryable_pattern(self) -> None:
         # Meta (or a fronting proxy) occasionally returns a bare 500 with an empty body — no
         # JSON, no error code to classify by. It must still be tagged retryable rather than
