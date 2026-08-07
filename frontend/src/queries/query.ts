@@ -65,6 +65,41 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 /**
+ * Query-schema fields that have been removed but still live in places a migration can't reach —
+ * bookmarked and shared `#q=` URL hashes, notebook content, and other persisted query payloads.
+ * The backend `QueryRequest` model is `extra="forbid"`, so a query still carrying one of these
+ * fails with a hard 400 ("Extra inputs are not permitted") and the whole surface breaks.
+ *
+ * We drop them on the way to the backend so a stale persisted query keeps working. When you remove
+ * a field from the query schema, add its name here in the same change (alongside any Postgres
+ * migration) so old links don't start 400-ing.
+ */
+const RETIRED_QUERY_KEYS: ReadonlySet<string> = new Set([
+    'usePresortedEventsTable', // removed when event presorting became automatic (#46333)
+])
+
+/** Recursively drop retired keys from a persisted query before it reaches the backend. Pure: never
+ * mutates the input. Leaves free-form `values` (HogQL variable substitutions) untouched, since those
+ * are arbitrary user data and could legitimately contain any key. */
+export function stripRetiredQueryFields<T>(node: T): T {
+    if (Array.isArray(node)) {
+        return node.map((value) => stripRetiredQueryFields(value)) as unknown as T
+    }
+    if (node === null || typeof node !== 'object') {
+        return node
+    }
+
+    const result: Record<string, any> = {}
+    for (const [key, value] of Object.entries(node as Record<string, any>)) {
+        if (RETIRED_QUERY_KEYS.has(key)) {
+            continue
+        }
+        result[key] = key === 'values' ? value : stripRetiredQueryFields(value)
+    }
+    return result as T
+}
+
+/**
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
  * "[ErrorDetail(string='Message', code='code')]"
@@ -239,6 +274,10 @@ export async function performQuery<N extends DataNode>(
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
+
+    // Bookmarked and shared queries can carry fields removed from the schema; drop them here so
+    // the extra="forbid" QueryRequest model doesn't reject the whole request with a 400.
+    queryNode = stripRetiredQueryFields(queryNode)
 
     try {
         if (isPersonsNode(queryNode)) {

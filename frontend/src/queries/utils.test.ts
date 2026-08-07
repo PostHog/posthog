@@ -185,7 +185,7 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
         } as DataVisualizationNode)
     })
 
-    it('preserves additional legacy table config when converting HogQL data table nodes', () => {
+    it('drops DataTableNode-only view props that the DataVisualizationNode schema forbids', () => {
         const convertedNode = convertDataTableNodeToDataVisualizationNode({
             kind: NodeKind.DataTableNode,
             source: {
@@ -195,9 +195,13 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
             full: true,
             embedded: true,
             showReload: true,
+            showDateRange: true,
+            showHogQLEditor: true,
             columns: ['event'],
         } as DataTableNode)
 
+        // Carrying these over produces a DataVisualizationNode that the extra="forbid" backend
+        // rejects with a 400 once the query is persisted (e.g. in a bookmarked `#q=` URL).
         expect(convertedNode).toEqual({
             kind: NodeKind.DataVisualizationNode,
             source: {
@@ -205,9 +209,6 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
                 query: 'select * from events limit 10',
             },
             display: ChartDisplayType.ActionsTable,
-            full: true,
-            embedded: true,
-            showReload: true,
             tableSettings: {
                 columns: [{ column: 'event' }],
             },

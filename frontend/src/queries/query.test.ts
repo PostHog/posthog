@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import {
+    performQuery,
+    pollForResults,
+    queryExportContext,
+    stripRetiredQueryFields,
+    waitForPageVisible,
+} from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -160,6 +166,59 @@ describe('query', () => {
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+    })
+
+    describe('stripRetiredQueryFields', () => {
+        it('drops retired keys from nested modifiers without touching the rest of the query', () => {
+            const cleaned = stripRetiredQueryFields({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['timestamp'],
+                    modifiers: {
+                        usePresortedEventsTable: true,
+                        personsOnEventsMode: 'person_id_override_properties_joined',
+                    },
+                },
+            })
+
+            expect(cleaned).toEqual({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['timestamp'],
+                    modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+                },
+            })
+        })
+
+        it('leaves free-form HogQL variable values untouched', () => {
+            const query = {
+                kind: NodeKind.HogQLQuery,
+                query: 'select 1',
+                values: { usePresortedEventsTable: 'a user-supplied value we must not drop' },
+            }
+            expect(stripRetiredQueryFields(query)).toEqual(query)
+        })
+    })
+
+    it('strips retired query fields before sending the request to the backend', async () => {
+        let sentBody: any
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    sentBody = await request.json()
+                    return [200, { results: [], is_cached: false }]
+                },
+            },
+        })
+        const q = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['timestamp'],
+            modifiers: { usePresortedEventsTable: true },
+        }) as EventsQuery
+        await performQuery(q)
+        expect(sentBody.query.modifiers).not.toHaveProperty('usePresortedEventsTable')
     })
 
     describe('waitForPageVisible', () => {

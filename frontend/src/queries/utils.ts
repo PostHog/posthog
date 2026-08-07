@@ -168,14 +168,7 @@ export function convertDataTableNodeToDataVisualizationNode(node: Node | null): 
         return node
     }
 
-    const {
-        kind: _kind,
-        source,
-        columns,
-        hiddenColumns: legacyHiddenColumns,
-        pinnedColumns: legacyPinnedColumns,
-        ...rest
-    } = node
+    const { source, columns, hiddenColumns: legacyHiddenColumns, pinnedColumns: legacyPinnedColumns } = node
     const hiddenColumns = new Set(legacyHiddenColumns ?? [])
     const visibleColumns = columns?.filter((column) => !hiddenColumns.has(column))
     const tableSettingsColumns = visibleColumns?.length ? visibleColumns.map((column) => ({ column })) : undefined
@@ -187,16 +180,21 @@ export function convertDataTableNodeToDataVisualizationNode(node: Node | null): 
                   ...(pinnedColumns?.length ? { pinnedColumns } : {}),
               }
             : undefined
+    // Only carry over fields the DataVisualizationNode schema declares. Spreading the rest of the
+    // DataTableNode would leak table-only view props (full, showDateRange, showHogQLEditor, …) onto
+    // a node that forbids them, and the persisted result then hard-fails the extra="forbid" backend.
+    const existingNode = node as unknown as Partial<DataVisualizationNode>
     const tableSettings = {
-        ...(rest as Partial<DataVisualizationNode>).tableSettings,
+        ...existingNode.tableSettings,
         ...mappedTableSettings,
     }
 
     return {
-        ...rest,
         kind: NodeKind.DataVisualizationNode,
         source: source as HogQLQuery,
         display: ChartDisplayType.ActionsTable,
+        ...(existingNode.chartSettings ? { chartSettings: existingNode.chartSettings } : {}),
+        ...(existingNode.version !== undefined ? { version: existingNode.version } : {}),
         ...(Object.keys(tableSettings).length ? { tableSettings } : {}),
     } as DataVisualizationNode
 }
