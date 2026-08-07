@@ -135,23 +135,24 @@ const AgentCard = memo(function AgentCard({
 
                 {/* eslint-disable-next-line react/no-unknown-property */}
                 <div className="flex flex-col items-end gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {/* One tag, not a stack: an off tool outranks dormancy, since it's why there's no data. */}
                     {toolOff ? (
                         <LemonTag type="warning" size="small">
                             Tool off
                         </LemonTag>
-                    ) : (
-                        <LemonTag type={statusTag.type} size="small">
-                            {statusTag.label}
-                        </LemonTag>
-                    )}
-                    {armed && dormantAfterDays !== null && (
+                    ) : armed && dormantAfterDays !== null ? (
                         <Tooltip
                             title={`${agent.label} hasn't received data in the last ${dormantAfterDays} days, so this source has nothing to find. Start sending data, or switch it off.`}
+                            placement="left"
                         >
                             <LemonTag type="warning" size="small">
                                 No data
                             </LemonTag>
                         </Tooltip>
+                    ) : (
+                        <LemonTag type={statusTag.type} size="small">
+                            {statusTag.label}
+                        </LemonTag>
                     )}
                     {loading ? (
                         <Spinner className="text-lg" />
