@@ -602,6 +602,60 @@ class TestLivingArtifacts(TestCase):
         mock_integration_for_mapping.assert_not_called()
         self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_caller_metadata_cannot_link_an_export_asset(self, mock_integration_for_mapping, _mock_flag):
+        # Anyone with task:write can pass metadata here, and the export link is what lets
+        # delivery mint an anonymous url for someone else's export. It lives in its own
+        # column, which caller metadata must never populate.
+        self._create_mapping_with_full_scopes()
+        mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="chart.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            metadata={"export_asset_id": 4321, "posthog_url": "http://localhost:8010/project/1/insights/abc"},
+        )
+
+        self.assertIsNone(artifact.export_asset_id)
+        self.assertEqual(artifact.metadata["posthog_url"], "http://localhost:8010/project/1/insights/abc")
+
+        # Nor by retrofitting one onto an artifact that already exists.
+        updated = edit_living_artifact(
+            artifact=artifact,
+            content_bytes=b"png-bytes-v2",
+            content_type="image/png",
+            metadata={"export_asset_id": 4321},
+        )
+        self.assertIsNone(updated.export_asset_id)
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_editing_a_chart_drops_its_export_link(self, mock_integration_for_mapping, _mock_flag):
+        # The export depicts the version it was rendered from, so a new version must not
+        # deliver the old picture.
+        self._create_mapping_with_full_scopes()
+        mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="chart.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            export_asset_id=321,
+        )
+        self.assertEqual(artifact.export_asset_id, 321)
+        self.assertNotIn("export_asset_id", artifact.metadata)
+
+        updated = edit_living_artifact(artifact=artifact, content_bytes=b"png-bytes-v2", content_type="image/png")
+
+        self.assertIsNone(updated.export_asset_id)
+
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=False)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_pending_file_delivery_skipped_when_flag_off(self, mock_integration_for_mapping, _mock_flag):

@@ -321,20 +321,6 @@ describe('RequestContext', () => {
             expect(ctx.cache).toBe(ctx.cache)
         })
 
-        it('keeps MCP session cache entries on the default 7 day TTL', async () => {
-            const redis = spyRedis()
-            const ctx = new RequestContext(redis, env, makeProps({ mcpSessionId: 'mcp-session-1' }))
-
-            await ctx.sessionCache.set('mcpClientName', 'claude-code')
-
-            expect(redis.set).toHaveBeenCalledWith(
-                expect.stringMatching(/^mcp:session:/),
-                JSON.stringify('claude-code'),
-                'EX',
-                7 * 24 * 60 * 60
-            )
-        })
-
         it('keeps token cache entries on the default 7 day TTL', async () => {
             const redis = spyRedis()
             const ctx = new RequestContext(redis, env, makeProps())

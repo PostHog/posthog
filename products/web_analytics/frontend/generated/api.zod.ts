@@ -115,6 +115,18 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Fetch a page URL server-side and report whether it allows being embedded in the live preview iframe, plus the HTTP status it returned. The live preview loads the customer's site directly in their browser, so a site that sends X-Frame-Options or a restrictive frame-ancestors will never render, and a 4xx or 5xx from the site's own host or CDN leaves an empty frame with no explanation. This endpoint makes both cases explainable. The fetch comes from PostHog's own network rather than from the screenshot renderer, so a host that varies its response by IP or user agent can answer this differently than it answers a screenshot render. Settled verdicts are cached briefly, so repeat checks for the same URL do not refetch it.
+ * @summary Check whether a page can back a heatmap
+ */
+export const SavedPreflightCreateBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .string()
+        .describe(
+            'Exact page URL to probe. Wildcards are not allowed. This is the URL that would be loaded in the live preview iframe, not the data URL used to look up heatmap events.'
+        ),
+})
+
+/**
  * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
  */
 export const savedPrewarmCreateBodyBlockConsentModalsDefault = false

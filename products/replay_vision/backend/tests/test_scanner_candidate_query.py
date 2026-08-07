@@ -17,14 +17,14 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
-    NULL_SURFACING_SCORE_FALLBACK,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
     surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
-    ESTIMATE_WINDOW_DAYS,
+    _ESTIMATE_SCAN_WINDOW_DAYS,
     estimate_scanner_session_volume,
+    project_monthly_observations,
 )
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
@@ -158,8 +158,10 @@ def test_surfacing_score_predicate_rejects_unknown_mode():
         surfacing_score_predicate("focussed")
 
 
-def test_null_fallback_stays_below_balanced_threshold():
-    assert NULL_SURFACING_SCORE_FALLBACK < BALANCED_SURFACING_THRESHOLD
+def test_unscored_fallback_passes_filtered_thresholds():
+    from posthog.session_recordings.queries.session_recording_list_from_query import UNSCORED_SURFACING_SCORE
+
+    assert UNSCORED_SURFACING_SCORE >= FOCUSED_SURFACING_THRESHOLD
 
 
 @pytest.mark.parametrize(
@@ -429,9 +431,9 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert estimate.matched_sessions == 1
 
     @pytest.mark.django_db
-    def test_volume_estimate_window_is_exactly_30_days(self, team) -> None:
-        # A relative "-30d" date_from truncates to start-of-day, counting up to 31 days against the /30 divisor.
-        bound = _NOW - dt.timedelta(days=ESTIMATE_WINDOW_DAYS)
+    def test_volume_estimate_window_is_exactly_the_scan_window(self, team) -> None:
+        # An exact-timestamp date_from keeps the boundary sharp: a relative form would truncate to start-of-day.
+        bound = _NOW - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
         self._produce(
             team.id,
             "same-day-but-outside",
@@ -452,15 +454,16 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert estimate.matched_sessions == 1
 
     @pytest.mark.django_db
-    def test_volume_estimate_divisor_stays_full_for_old_but_quiet_teams(self, team) -> None:
-        # The bounded earliest-recording probe must not shrink the divisor for teams older than the window.
+    def test_volume_estimate_projects_zero_for_old_but_quiet_teams(self, team) -> None:
+        # Recordings older than the probe fall back to the full scan-window divisor, which is inert: matched is 0.
         old = _NOW - dt.timedelta(days=40)
         self._produce(team.id, "old-session", old, old + dt.timedelta(seconds=60), active_milliseconds=30_000)
 
         estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
 
         assert estimate.matched_sessions == 0
-        assert estimate.effective_window_days == ESTIMATE_WINDOW_DAYS
+        assert estimate.effective_window_days == _ESTIMATE_SCAN_WINDOW_DAYS
+        assert project_monthly_observations(estimate, 1.0) == 0
 
     @pytest.mark.django_db
     def test_filter_test_accounts_excludes_internal_users(self, team) -> None:

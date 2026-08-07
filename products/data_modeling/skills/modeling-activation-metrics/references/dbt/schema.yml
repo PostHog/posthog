@@ -1,0 +1,20 @@
+version: 2
+
+models:
+    - name: dim_activation_criteria
+      description: The activation definition (action, threshold, window) as versioned data.
+      columns:
+          - name: action_event
+            data_tests: [not_null]
+          - name: min_count
+            data_tests: [not_null]
+          - name: window_days
+            data_tests: [not_null]
+
+    - name: fct_user_activation
+      description: One row per user with the activated flag and activated_at timestamp.
+      columns:
+          - name: person_id
+            data_tests: [unique, not_null]
+          - name: is_activated
+            data_tests: [not_null]

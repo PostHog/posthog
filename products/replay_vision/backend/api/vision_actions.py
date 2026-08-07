@@ -10,7 +10,13 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -22,10 +28,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
-from posthog.models.user import User
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
+from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
@@ -44,6 +51,7 @@ from products.replay_vision.backend.models.vision_action import (
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
 from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
+from products.replay_vision.backend.scanner_config import acting_user
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
@@ -425,11 +433,11 @@ class VisionActionSerializer(serializers.ModelSerializer):
         requested = [str(s) for s in (selection.get("scanner_ids") or ([scanner.id] if scanner else []))]
         if not requested:
             return
-        request = self.context.get("request")
-        if request is None or not getattr(request.user, "is_authenticated", False):
+        user = acting_user(self.context)
+        if user is None or not getattr(user, "is_authenticated", False):
             return
         team = self.context["get_team"]()
-        readable = set(readable_scanner_ids(request.user, team, requested))
+        readable = set(readable_scanner_ids(user, team, requested))
         if set(requested) - readable:
             raise serializers.ValidationError(
                 {"scanner": "You don't have access to one or more scanners this action targets."}
@@ -488,12 +496,22 @@ class VisionActionSerializer(serializers.ModelSerializer):
         name = attrs.get("name")
         if name is None:
             return
+        # A brand-new digest whose name is exactly the auto-derived one came from the one-click
+        # "Turn on daily digest" button, so create() makes it collision-safe instead of 400-ing.
+        # A user-typed name (even on a digest) still gets the explicit duplicate error below.
+        if self.instance is None and attrs.get("is_scanner_digest") and self._has_derived_digest_name(attrs):
+            return
         team = self.context["get_team"]()
         duplicates = VisionAction.objects.for_team(team.id).filter(name=name)
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
+
+    @staticmethod
+    def _has_derived_digest_name(attrs: dict[str, Any]) -> bool:
+        scanner = attrs.get("scanner")
+        return scanner is not None and attrs.get("name") == digest_name_for_scanner(scanner)
 
     def _validate_digest(self, attrs: dict[str, Any]) -> None:
         # The overview card renders the featured digest as a synthesized summary, so an alert can't
@@ -520,8 +538,8 @@ class VisionActionSerializer(serializers.ModelSerializer):
         demote.update(is_scanner_digest=False)
 
     def _authorize_demotions(self, actions: QuerySet[VisionAction]) -> None:
-        request = self.context.get("request")
-        if request is None or not getattr(request.user, "is_authenticated", False):
+        user = acting_user(self.context)
+        if user is None or not getattr(user, "is_authenticated", False):
             return
         # The bound scanner is the promotion target (already editor-checked upstream); the exposure is
         # each demoted digest's selection.scanner_ids, which _validate_scanner_access guards on a direct
@@ -533,7 +551,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if not requested:
             return
         team = self.context["get_team"]()
-        readable = set(readable_scanner_ids(request.user, team, list(requested)))
+        readable = set(readable_scanner_ids(user, team, list(requested)))
         if requested - readable:
             raise serializers.ValidationError(
                 {"is_scanner_digest": "You don't have access to a scanner the current digest reads from."}
@@ -541,9 +559,13 @@ class VisionActionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
-        user = cast(User, self.context["request"].user)
+        user = acting_user(self.context)
         if validated_data.get("is_scanner_digest"):
             self._demote_existing_digest(validated_data["scanner"])
+            if self._has_derived_digest_name(validated_data):
+                # Another action may already hold the derived name (a user-named action, or a digest
+                # demoted earlier), so dedupe to keep the (team, name) constraint from rejecting it.
+                validated_data["name"] = unique_digest_name(team.id, validated_data["name"])
         try:
             # for_team()'s filter doesn't propagate into create(), so team is still passed explicitly.
             return VisionAction.objects.for_team(team.id).create(team=team, created_by=user, **validated_data)
@@ -726,7 +748,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         archive_delivery(instance, team=self.team)
         super().perform_destroy(instance)
 
-    @extend_schema(request=None, responses={202: RunActionResponseSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            202: RunActionResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The summary run couldn't be started."
+            ),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],

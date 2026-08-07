@@ -1,8 +1,13 @@
-"""What each cadence tier of a DAG declares, and what its most recent run actually did.
+"""What each cadence tier of a DAG holds, and what its most recent run actually did.
 
 Answers "the daily tier holds N nodes — did they all run, and if not why not?" from Postgres
 alone. `DataModelingJob.parent_workflow_id` carries the tier's schedule id, so a run's job rows
 are attributable to the tier that produced them without asking Temporal.
+
+Tiers are grouped by *effective* cadence — the same propagation + source-floor clamp + bucketing
+the schedule reconciler runs — not by declared target. A declared-daily node above a 15min
+consumer runs under the 15min schedule; grouping by declared target would look it up in a daily
+run that never contains it and report it MISSING forever.
 
 This is deliberately *not* a check that a node is in the live schedule's `node_ids` — that lives
 in Temporal, encrypted. A node reported `MISSING` here is either absent from the live tier or was
@@ -15,9 +20,15 @@ from datetime import datetime, timedelta
 
 from django.db import models
 
-from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.freshness import format_cadence
-from products.data_modeling.backend.logic.node_frequency import get_declared_target
+from products.data_modeling.backend.logic.cohort_scheduling import (
+    Tier,
+    bucket_into_cadence_tiers,
+    format_tier,
+    tier_schedule_id,
+    tier_sort_key,
+)
+from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
+from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
@@ -75,15 +86,21 @@ class TierRun:
     nodes: list[NodeRun]
     # the matched run came from the DAG's pre-tier single schedule, not from this tier's own
     run_is_legacy: bool = False
+    anchor_minutes: int | None = None
 
     @property
     def label(self) -> str:
-        return format_cadence(self.interval)
+        return format_tier(Tier(self.interval, self.anchor_minutes))
 
     @property
     def seconds(self) -> int:
-        """Anchor-safe tier identifier; `schedule_id` carries a colon."""
         return int(self.interval.total_seconds())
+
+    @property
+    def slug(self) -> str:
+        """DOM-safe tier identifier, unique when a cadence splits into anchored and hash-spread
+        cohorts; `schedule_id` carries colons."""
+        return str(self.seconds) if self.anchor_minutes is None else f"{self.seconds}-{self.anchor_minutes}"
 
     @property
     def counts(self) -> dict[str, int]:
@@ -103,13 +120,13 @@ class TierRun:
 
 
 def build_tier_runs(dag: DAG) -> list[TierRun]:
-    """One TierRun per declared cadence on `dag`, finest cadence first."""
+    """One TierRun per effective cadence cohort on `dag`, finest cadence first."""
     nodes = _reportable_nodes(dag)
-    nodes_by_interval: dict[timedelta, list[Node]] = defaultdict(list)
-    for node in nodes:
-        target = get_declared_target(node)
-        if target is not None:
-            nodes_by_interval[target].append(node)
+    by_id = {str(node.id): node for node in nodes}
+    tiers = _desired_tiers(dag)
+    nodes_by_tier = {
+        tier: [by_id[node_id] for node_id in sorted(node_ids) if node_id in by_id] for tier, node_ids in tiers.items()
+    }
 
     downstream = _downstream_lookup(dag)
     # the runtime blocks on suspension DAG-wide, not per tier: get_dag_structure builds
@@ -118,14 +135,25 @@ def build_tier_runs(dag: DAG) -> list[TierRun]:
     suspensions = {str(node.id): _suspension_detail(node) for node in nodes}
     names = {str(node.id): node.name for node in nodes}
     return [
-        _build_tier(dag, interval, nodes_by_interval[interval], downstream, suspensions, names)
-        for interval in sorted(nodes_by_interval)
+        _build_tier(dag, tier, nodes_by_tier[tier], downstream, suspensions, names)
+        for tier in sorted(nodes_by_tier, key=tier_sort_key)
     ]
 
 
 def untargeted_nodes(dag: DAG) -> list[Node]:
-    """Nodes carrying no declared target — they belong to no tier, so no schedule fires them."""
-    return [node for node in _reportable_nodes(dag) if get_declared_target(node) is None]
+    """Nodes in no cohort — nothing gives them an effective cadence, so no schedule fires them."""
+    scheduled = {node_id for node_ids in _desired_tiers(dag).values() for node_id in node_ids}
+    return [node for node in _reportable_nodes(dag) if str(node.id) not in scheduled]
+
+
+def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
+    """The cohorts the reconciler would build, mirroring its propagation + clamp + bucketing."""
+    graph = build_frequency_graph(dag)
+    effective = compute_effective_cadences(
+        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+    )
+    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
 def _reportable_nodes(dag: DAG) -> list[Node]:
@@ -142,13 +170,13 @@ def _reportable_nodes(dag: DAG) -> list[Node]:
 
 def _build_tier(
     dag: DAG,
-    interval: timedelta,
+    tier: Tier,
     nodes: list[Node],
     downstream: dict[str, set[str]],
     suspensions: dict[str, str],
     names: dict[str, str],
 ) -> TierRun:
-    schedule_id = tier_schedule_id(str(dag.id), interval)
+    schedule_id = tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes)
     parent_workflow_id, started_at, run_is_legacy = _latest_run(dag.team_id, str(dag.id), schedule_id)
     jobs = _jobs_by_saved_query(dag.team_id, parent_workflow_id)
 
@@ -176,12 +204,13 @@ def _build_tier(
     ]
     runs.sort(key=lambda run: (STATUS_ORDER.index(run.status), run.name))
     return TierRun(
-        interval=interval,
+        interval=tier.interval,
         schedule_id=schedule_id,
         parent_workflow_id=parent_workflow_id,
         started_at=started_at,
         nodes=runs,
         run_is_legacy=run_is_legacy,
+        anchor_minutes=tier.anchor_minutes,
     )
 
 

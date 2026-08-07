@@ -32,7 +32,7 @@ class EventStreamTestMessageError(Exception):
 
 @dataclass(frozen=True)
 class AccountAssignment:
-    """A user assigned to an account role (CSM, account executive, account owner)."""
+    """A user assigned to an account relationship (CSM, account executive, ...)."""
 
     id: int
     email: str
@@ -65,14 +65,11 @@ class AccountRelationship:
 
 @dataclass(frozen=True)
 class AccountProperties:
-    """Typed account properties — assignment roles and external-system identifiers.
+    """Typed account properties — external-system identifiers.
 
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
-    csm: AccountAssignment | None = None
-    account_executive: AccountAssignment | None = None
-    account_owner: AccountAssignment | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -80,6 +77,7 @@ class AccountProperties:
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +128,8 @@ class AccountChannelSummaryView:
     period_end: datetime
     content: str
     message_count: int
+    # [{author, sent_at, permalink}] per covered message — metadata only, never text.
+    messages: list[dict]
     generated_at: datetime
 
 
@@ -394,6 +394,7 @@ class CustomPropertyDefinitionView:
     # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
     group_type_index: int | None = None
     is_big_number: bool = False
+    is_canonical: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None

@@ -1,17 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRevert, IconX } from '@posthog/icons'
-import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
-import { dayjsUtcToTimezone } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,8 +28,12 @@ import {
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
+import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
+
+// Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
+const SERVING_ENGINE = 'clickhouse'
 
 interface MaterializationStatusPanelProps {
     viewId: string
@@ -41,44 +45,45 @@ interface MaterializationStatusPanelProps {
     kind?: 'view' | 'endpoint'
 }
 
-const SYNC_FREQUENCY_OPTIONS = [
-    {
-        value: 'never' as OrNever,
-        label: ' No resync',
-    },
+const RESYNC_FREQUENCY_OPTIONS = [
     {
         value: '15min' as DataModelingSyncInterval,
-        label: ' Resync every 15 mins',
+        label: 'Resync every 15 mins',
     },
     {
         value: '30min' as DataModelingSyncInterval,
-        label: ' Resync every 30 mins',
+        label: 'Resync every 30 mins',
     },
     {
         value: '1hour' as DataModelingSyncInterval,
-        label: ' Resync every 1 hour',
+        label: 'Resync every 1 hour',
     },
     {
         value: '6hour' as DataModelingSyncInterval,
-        label: ' Resync every 6 hours',
+        label: 'Resync every 6 hours',
     },
     {
         value: '12hour' as DataModelingSyncInterval,
-        label: ' Resync every 12 hours',
+        label: 'Resync every 12 hours',
     },
     {
         value: '24hour' as DataModelingSyncInterval,
-        label: ' Resync Daily',
+        label: 'Resync daily',
     },
     {
         value: '7day' as DataModelingSyncInterval,
-        label: ' Resync Weekly',
+        label: 'Resync weekly',
     },
     {
         value: '30day' as DataModelingSyncInterval,
-        label: ' Resync Monthly',
+        label: 'Resync monthly',
     },
 ]
+
+// `never` stops an existing schedule, so it only makes sense once a view is materialized. The
+// server refuses it as the cadence to start at, which is why the pre-materialization picker
+// offers RESYNC_FREQUENCY_OPTIONS on its own.
+const SYNC_FREQUENCY_OPTIONS = [{ value: 'never' as OrNever, label: 'No resync' }, ...RESYNC_FREQUENCY_OPTIONS]
 
 function getMaterializationStatusMessage(
     rowsMaterialized: number,
@@ -137,10 +142,19 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         dataModelingJobsLoading,
         hasMoreJobsToLoad,
         startingMaterialization,
+        resumingMaterialization,
         savedQuery,
         savedQueryLoading,
+        initialSyncFrequency,
     } = useValues(jobsLogic)
-    const { loadDataModelingJobs, loadOlderDataModelingJobs, setStartingMaterialization } = useActions(jobsLogic)
+    const {
+        loadDataModelingJobs,
+        loadOlderDataModelingJobs,
+        setStartingMaterialization,
+        resumeMaterialization,
+        setInitialSyncFrequency,
+    } = useActions(jobsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const {
@@ -175,6 +189,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
 
+    // Prefer the serving engine's entry when several engines are suspended.
+    const suspension = savedQuery.suspended
+        ? (savedQuery.suspended[SERVING_ENGINE] ?? Object.values(savedQuery.suspended)[0])
+        : undefined
+    const showSuspendedBanner =
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
+        !!suspension &&
+        !!savedQuery.is_materialized
+
     return (
         <div className="overflow-auto" data-attr="materialization-status-panel">
             <div className="flex flex-col flex-1 gap-4">
@@ -188,12 +211,37 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                             </Tooltip>
                         )}
                     </div>
+                    {showSuspendedBanner && suspension && (
+                        <LemonBanner
+                            type="error"
+                            className="mt-2"
+                            action={{
+                                children: 'Resume',
+                                onClick: () => resumeMaterialization(),
+                                loading: resumingMaterialization,
+                                disabledReason: materializationAccessReason || undefined,
+                                tooltip: 'If the query keeps failing, it will pause again.',
+                            }}
+                        >
+                            <div data-attr="materialization-suspended-banner">
+                                <div>
+                                    Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
+                                    because materialization kept failing. Fix the query, then resume.
+                                </div>
+                                <Tooltip title={suspension.reason} interactive>
+                                    <div className="mt-1 text-xs font-normal line-clamp-2">
+                                        Paused {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
+                                    </div>
+                                </Tooltip>
+                            </div>
+                        </LemonBanner>
+                    )}
                     <div>
                         {savedQuery?.is_materialized ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
-                                ) : (
+                                ) : showSuspendedBanner ? null : (
                                     <div>
                                         <span>Materialization scheduled</span>
                                     </div>
@@ -282,15 +330,27 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     </Link>
                                     .
                                 </p>
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => materializeDataWarehouseSavedQuery(viewId)}
-                                    type="primary"
-                                    loading={updatingDataWarehouseSavedQuery}
-                                    disabledReason={materializationAccessReason}
-                                >
-                                    Materialize
-                                </LemonButton>
+                                <div className="flex gap-4">
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, initialSyncFrequency)}
+                                        type="primary"
+                                        loading={updatingDataWarehouseSavedQuery}
+                                        disabledReason={materializationAccessReason}
+                                    >
+                                        Materialize
+                                    </LemonButton>
+                                    {kind !== 'endpoint' && canEditSyncFrequency && (
+                                        <LemonSelect
+                                            className="h-9"
+                                            data-attr="initial-sync-frequency"
+                                            disabledReason={materializationAccessReason}
+                                            value={initialSyncFrequency}
+                                            onChange={(newValue) => setInitialSyncFrequency(newValue)}
+                                            options={RESYNC_FREQUENCY_OPTIONS}
+                                        />
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -371,23 +431,12 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                         {
                             title: 'Updated',
                             dataIndex: 'last_run_at',
-                            render: (_, { last_run_at }: DataModelingJob) => humanFriendlyDetailedTime(last_run_at),
+                            render: (_, { last_run_at }: DataModelingJob) =>
+                                last_run_at ? humanFriendlyDetailedTime(last_run_at) : '-',
                         },
                         {
                             title: 'Duration',
-                            render: (_, job: DataModelingJob) => {
-                                if (job.status === 'Running') {
-                                    return 'In progress'
-                                }
-                                const start = new Date(job.created_at).getTime()
-                                const end = new Date(job.last_run_at).getTime()
-
-                                if (start > end) {
-                                    return 'N/A'
-                                }
-
-                                return humanFriendlyDuration((end - start) / 1000)
-                            },
+                            render: (_, job: DataModelingJob) => computeJobDuration(job),
                         },
                     ]}
                     expandable={
@@ -404,15 +453,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                               hideLevelsFilter
                                               hideInstanceIdColumn
                                               defaultFilters={{
-                                                  instanceId: job.workflow_run_id,
-                                                  dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
-                                                      'YYYY-MM-DD HH:mm:ss'
-                                                  ),
-                                                  dateTo: job.last_run_at
-                                                      ? dayjsUtcToTimezone(job.last_run_at, timezone)
-                                                            .add(1, 'hour')
-                                                            .format('YYYY-MM-DD HH:mm:ss')
-                                                      : undefined,
+                                                  instanceId: job.workflow_run_id ?? undefined,
+                                                  ...jobLogsWindow(job, timezone),
                                                   levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
                                               }}
                                           />

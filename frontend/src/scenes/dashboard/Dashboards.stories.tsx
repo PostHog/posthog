@@ -1,16 +1,15 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { App } from 'scenes/App'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
-import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
+import { BaseMathType, EntityTypes } from '~/types'
 
 import __dashboard1 from './__mocks__/dashboard1.json'
 import __dashboard_template_schema from './__mocks__/dashboard_template_schema.json'
@@ -70,8 +69,7 @@ const insightFetchMock = ({ params }: MockResolverInfo): [number, any] => {
 }
 
 const BASE_DASHBOARD_ID = 1
-const SERVER_ERROR_DASHBOARD_ID = 2
-const NOT_FOUND_DASHBOARD_ID = 1000
+const DASHBOARD_STATE_ID = 2
 
 const meta: Meta = {
     component: App,
@@ -84,10 +82,6 @@ const meta: Meta = {
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,
                 [`/api/environments/:team_id/dashboards/${BASE_DASHBOARD_ID}/collaborators/`]: [],
-                [`/api/environments/:team_id/dashboards/${SERVER_ERROR_DASHBOARD_ID}/`]: [
-                    500,
-                    { detail: 'Server error' },
-                ],
                 '/api/projects/:team_id/dashboard_templates/': __dashboard_templates as any,
                 '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
                 '/api/environments/:team_id/dashboards/:dash_id/sharing/': {
@@ -117,9 +111,12 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
+const DASHBOARD_STATES = ['Loading', 'Not Found', 'Access Denied', 'Server Error', 'Empty'] as const
+type DashboardState = (typeof DASHBOARD_STATES)[number]
+
 export const List: Story = {}
 
-export const New: Story = {
+export const NewDashboardModal: Story = {
     render: () => {
         useAvailableFeatures([])
         useDelayedOnMountEffect(() => {
@@ -200,166 +197,50 @@ export const Show: Story = {
     },
 }
 
-// Multi-viewport snapshots of the dashboard scene from mobile to superwide, so we catch the header
-// layout (and any squishing) across breakpoints. `skipCanvasDraw` is re-declared because per-story
-// `testOptions` replaces the meta-level object rather than merging into it.
-export const ShowAcrossViewports: Story = {
-    parameters: {
-        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
-        testOptions: { skipCanvasDraw: true, viewportWidths: ['narrow', 'medium', 'wide', 'superwide'] },
+export const DashboardStates: StoryObj<{ state: DashboardState }> = {
+    args: {
+        state: 'Loading',
     },
-}
+    argTypes: {
+        state: {
+            control: 'select',
+            options: DASHBOARD_STATES,
+        },
+    },
+    render: ({ state }) => {
+        let response: any
 
-export const Edit: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => {
-            dashboardLogic({ id: BASE_DASHBOARD_ID }).mount()
-            dashboardLogic({ id: BASE_DASHBOARD_ID }).actions.setDashboardMode(
-                DashboardMode.Edit,
-                DashboardEventSource.Browser
-            )
+        switch (state) {
+            case 'Not Found':
+                response = [404, { detail: 'Not found.' }]
+                break
+            case 'Access Denied':
+                response = [403, { code: 'permission_denied', detail: 'You do not have access to this dashboard.' }]
+                break
+            case 'Server Error':
+                response = [500, { detail: 'Server error' }]
+                break
+            case 'Empty':
+                response = { ...dashboard, id: DASHBOARD_STATE_ID, name: 'Empty dashboard', tiles: [] }
+                break
+            case 'Loading':
+                response = async () => {
+                    await delay('infinite')
+                    return HttpResponse.json({})
+                }
+                break
+        }
+
+        useStorybookMocks({
+            get: {
+                [`/api/environments/:team_id/dashboards/${DASHBOARD_STATE_ID}/`]: response,
+            },
         })
 
-        return <App />
+        return <App key={state} />
     },
-    parameters: { pageUrl: urls.dashboard(BASE_DASHBOARD_ID) },
-}
-
-export const NotFound: Story = {
     parameters: {
-        pageUrl: urls.dashboard(NOT_FOUND_DASHBOARD_ID),
-    },
-}
-
-export const Erroring: Story = {
-    parameters: {
-        pageUrl: urls.dashboard(SERVER_ERROR_DASHBOARD_ID),
-    },
-}
-
-// Access Control Dashboard Stories
-const ACCESS_CONTROL_DASHBOARD_ID = 9999
-
-const accessControlDashboard = {
-    ...dashboard,
-    id: ACCESS_CONTROL_DASHBOARD_ID,
-    name: 'Access Control Demo Dashboard',
-    description: 'Dashboard demonstrating different insight access levels',
-    user_access_level: 'editor', // User has edit access to the dashboard
-    tiles: [
-        // Tile with no access insight
-        {
-            ...dashboard.tiles[0],
-            id: 1001,
-            insight: {
-                ...dashboard.tiles[0].insight,
-                id: 1001,
-                short_id: 'no-access',
-                name: 'Restricted Financial Data',
-                description: 'This insight contains sensitive financial information.',
-                user_access_level: 'none',
-            },
-        },
-        // Tile with viewer access insight
-        {
-            ...dashboard.tiles[1],
-            id: 1002,
-            insight: {
-                ...dashboard.tiles[1].insight,
-                id: 1002,
-                short_id: 'viewer-access',
-                name: 'Public Metrics',
-                description: 'General metrics available for viewing.',
-                user_access_level: 'viewer',
-            },
-        },
-        // Tile with editor access insight
-        {
-            ...dashboard.tiles[2],
-            id: 1003,
-            insight: {
-                ...dashboard.tiles[2].insight,
-                id: 1003,
-                short_id: 'editor-access',
-                name: 'Team Analytics',
-                description: 'Analytics that the team can edit.',
-                user_access_level: 'editor',
-            },
-        },
-        // Tile with legacy insight (no access control)
-        {
-            ...dashboard.tiles[3],
-            id: 1004,
-            insight: {
-                ...dashboard.tiles[3].insight,
-                id: 1004,
-                short_id: 'legacy-insight',
-                name: 'Legacy Report',
-                description: 'Old insight without access control.',
-                // user_access_level is intentionally undefined
-            },
-        },
-    ],
-}
-
-const accessControlInsightMocks = accessControlDashboard.tiles.reduce((acc: Record<string, any>, tile: any) => {
-    if (tile.insight) {
-        // Add both project and environment paths
-        acc[`/api/projects/:team_id/insights/${tile.insight.id}/`] = tile.insight
-        acc[`/api/environments/:team_id/insights/${tile.insight.id}/`] = tile.insight
-    }
-    return acc
-}, {})
-
-export const AccessControlDashboard: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                ...accessControlInsightMocks,
-                '/api/projects/:team_id/dashboards/': {
-                    count: 1,
-                    next: null,
-                    previous: null,
-                    results: [accessControlDashboard],
-                },
-                [`/api/projects/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID}/`]: accessControlDashboard,
-                [`/api/environments/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID}/`]: accessControlDashboard,
-                [`/api/environments/:team_id/insights/:id/`]: insightFetchMock,
-            },
-        }),
-    ],
-    parameters: {
-        pageUrl: urls.dashboard(ACCESS_CONTROL_DASHBOARD_ID),
-    },
-}
-
-// Dashboard with no access (user can't edit dashboard but can view some insights)
-const viewOnlyDashboard = {
-    ...accessControlDashboard,
-    id: ACCESS_CONTROL_DASHBOARD_ID + 1,
-    name: 'View Only Dashboard',
-    description: 'Dashboard where user has view access only',
-    user_access_level: 'viewer', // User can only view the dashboard
-}
-
-export const ViewOnlyDashboard: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                ...accessControlInsightMocks,
-                '/api/projects/:team_id/dashboards/': {
-                    count: 1,
-                    next: null,
-                    previous: null,
-                    results: [viewOnlyDashboard],
-                },
-                [`/api/projects/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID + 1}/`]: viewOnlyDashboard,
-                [`/api/environments/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID + 1}/`]: viewOnlyDashboard,
-                [`/api/environments/:team_id/insights/:id/`]: insightFetchMock,
-            },
-        }),
-    ],
-    parameters: {
-        pageUrl: urls.dashboard(ACCESS_CONTROL_DASHBOARD_ID + 1),
+        pageUrl: urls.dashboard(DASHBOARD_STATE_ID),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[aria-label="Loading dashboard"]' },
     },
 }

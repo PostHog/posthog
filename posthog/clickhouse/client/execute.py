@@ -355,14 +355,16 @@ def sync_execute(
     if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
         workload = Workload.OFFLINE
 
-    # Make sure we always have process_query_task on the online cluster.
+    # Make sure we always have app traffic through process_query_task on the online cluster.
+    # API-key traffic stays offline here too, so an async query lands on the same cluster its
+    # synchronous counterpart would.
     # Workload.LOGS is exempt: it pins queries to the dedicated logs cluster, which is the
     # only place the logs tables exist, so overriding it would send the query to a cluster
     # that cannot answer it.
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         if workload != Workload.LOGS:
-            workload = Workload.ONLINE
+            workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
@@ -570,6 +572,38 @@ def query_with_columns(
     return rows
 
 
+def _has_comment_marker_outside_strings(sql: str) -> bool:
+    """Whether the SQL contains a `--` or `/*` comment marker outside quoted spans.
+
+    A plain substring check false-positives on markers inside string literals (e.g. an
+    s3() glob like '.../*.csv') and sends comment-free queries through sqlparse, which
+    costs ~100ms on a multi-KB query. Quoted spans ('', "", ``) hide markers; ClickHouse
+    escapes quotes inside them with a backslash or by doubling, both handled below.
+    """
+    i, n = 0, len(sql)
+    while i < n - 1:
+        ch = sql[i]
+        if ch in ("'", '"', "`"):
+            quote = ch
+            i += 1
+            while i < n:
+                if sql[i] == "\\":
+                    i += 2
+                    continue
+                if sql[i] == quote:
+                    if i + 1 < n and sql[i + 1] == quote:
+                        i += 2
+                        continue
+                    break
+                i += 1
+        elif ch == "-" and sql[i + 1] == "-":
+            return True
+        elif ch == "/" and sql[i + 1] == "*":
+            return True
+        i += 1
+    return False
+
+
 def _prepare_query(
     query: str,
     args: QueryArgs,
@@ -612,7 +646,9 @@ def _prepare_query(
         # non-templated SQL
         rendered_sql = substitute_params(query, args)
 
-    if "--" in rendered_sql or "/*" in rendered_sql:
+    # Substring check first: it rejects the common comment-free case at C speed, so the
+    # per-character scan only runs when a marker exists somewhere in the SQL.
+    if ("--" in rendered_sql or "/*" in rendered_sql) and _has_comment_marker_outside_strings(rendered_sql):
         # This can take a very long time with e.g. large funnel queries
         formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
     else:

@@ -12,6 +12,7 @@ import struct
 
 import psycopg
 import psycopg.errors
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
 
@@ -39,6 +40,13 @@ _HOST_UNREACHABLE_MARKERS = (
     "no route to host",
 )
 
+# sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
+# can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
+# down, or its firewall blocks PostHog's IPs. Deterministic for the configured tunnel, so it's
+# non-retryable. Mirrors the non-retryable treatment on the batch path
+# (PostgresSource.get_non_retryable_errors's `_SSH_GATEWAY_SESSION_ERROR` entry).
+_SSH_GATEWAY_SESSION_ERROR_MARKER = "could not establish session to ssh gateway"
+
 
 def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     """Classify a single Postgres exception into a ``CDCErrorCategory``.
@@ -49,6 +57,12 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     # struct.error => the pgoutput binary stream couldn't be unpacked.
     if isinstance(exc, struct.error):
         return CDCErrorCategory.WAL_DECODE_ERROR
+
+    # sshtunnel's own exception, not a psycopg one — must be checked before the psycopg guard below.
+    if isinstance(exc, BaseSSHTunnelForwarderError):
+        if _SSH_GATEWAY_SESSION_ERROR_MARKER in str(exc).lower():
+            return CDCErrorCategory.SSH_TUNNEL_FAILED
+        return None
 
     # Guard all string-based checks: only psycopg exceptions carry these message patterns.
     # A non-psycopg exception whose message happens to contain e.g. "does not exist" would

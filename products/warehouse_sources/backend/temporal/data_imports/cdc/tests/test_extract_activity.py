@@ -2874,6 +2874,52 @@ class TestCDCBoundedReadLoop:
         assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
         assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_heartbeat_timeout_does_not_abort_the_read_loop(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        # The Temporal SDK relays a sync activity's heartbeat through the worker's event loop
+        # with its own short internal timeout, which can trip transiently under load. That must
+        # never fail an otherwise-healthy extraction.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        events = [_make_event(op="I", table="users", position="0/100")]
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+        mock_activity.heartbeat.side_effect = TimeoutError()
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        assert mock_activity.heartbeat.called
+        assert schema.status == "Completed"
+
 
 @pytest.mark.django_db
 class TestReconcileOrphanedPriorJobs:
@@ -2936,3 +2982,126 @@ class TestReconcileOrphanedPriorJobs:
         for untouched in (old_with_batch, current_run, too_recent, ancient):
             untouched.refresh_from_db()
             assert untouched.status == ExternalDataJob.Status.RUNNING
+
+
+@pytest.mark.django_db
+class TestFailureVisibilityCooldown:
+    """A source that stays unreachable re-fails on every tick, and the schedule retries each failed
+    tick at the workflow level on top of that. Without a cooldown one outage stamps the same row per
+    schema many times an hour, for days — burying the runs that actually differ."""
+
+    CONNECTION_FAILED = cdc_error_info(CDCErrorCategory.CONNECTION_FAILED).friendly_message
+    AUTH_FAILED = cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
+
+    @pytest.mark.parametrize(
+        "previous_status,previous_error,previous_rows_synced,previous_age_minutes,snapshot_run_since,expect_new_row",
+        [
+            # Nothing has changed since the last extraction row said exactly this — no new row.
+            pytest.param(
+                ExternalDataJob.Status.FAILED,
+                CONNECTION_FAILED,
+                0,
+                0,
+                False,
+                False,
+                id="identical_failure_within_cooldown",
+            ),
+            # A schema still snapshotting keeps running the regular per-schema pipeline; those rows
+            # say nothing about whether this failure has been reported, so they don't reopen it.
+            pytest.param(
+                ExternalDataJob.Status.FAILED,
+                CONNECTION_FAILED,
+                0,
+                0,
+                True,
+                False,
+                id="unrelated_snapshot_run_since",
+            ),
+            # Everything below is news, so the outage gets a fresh row.
+            pytest.param(
+                ExternalDataJob.Status.FAILED,
+                CONNECTION_FAILED,
+                0,
+                90,
+                False,
+                True,
+                id="identical_failure_past_cooldown",
+            ),
+            pytest.param(ExternalDataJob.Status.COMPLETED, None, 10, 0, False, True, id="extraction_succeeded_since"),
+            pytest.param(ExternalDataJob.Status.FAILED, AUTH_FAILED, 0, 0, False, True, id="different_error_since"),
+            pytest.param(
+                ExternalDataJob.Status.FAILED,
+                CONNECTION_FAILED,
+                10,
+                0,
+                False,
+                True,
+                id="previous_run_synced_rows_first",
+            ),
+        ],
+    )
+    def test_repeat_failure_rows_collapse_until_something_changes(
+        self,
+        previous_status,
+        previous_error,
+        previous_rows_synced,
+        previous_age_minutes,
+        snapshot_run_since,
+        expect_new_row,
+        team,
+    ):
+        source = ExternalDataSource.objects.create(
+            team_id=team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="Postgres",
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=team.pk,
+            source=source,
+            name="users",
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
+
+        previous = ExternalDataJob.objects.create(
+            team_id=team.pk,
+            pipeline_id=source.pk,
+            schema=schema,
+            status=previous_status,
+            rows_synced=previous_rows_synced,
+            latest_error=previous_error,
+            workflow_id=f"cdc-extraction-{source.pk}-2026-08-04T18:15:00Z",
+            workflow_run_id="run-1",
+            pipeline_version=ExternalDataJob.PipelineVersion.V3,
+        )
+        # created_at is auto_now_add; backdate via update to control the cooldown window.
+        ExternalDataJob.objects.filter(id=previous.id).update(
+            created_at=datetime.now(UTC) - timedelta(minutes=previous_age_minutes)
+        )
+
+        if snapshot_run_since:
+            ExternalDataJob.objects.create(
+                team_id=team.pk,
+                pipeline_id=source.pk,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=0,
+                workflow_id=f"{schema.pk}-2026-08-04T18:20:00Z",
+                workflow_run_id="run-snapshot",
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            )
+
+        activity_obj = CDCExtractActivity(CDCExtractInput(team_id=team.pk, source_id=source.pk))
+        activity_obj.log = MagicMock()
+        activity_obj.cdc_schemas = [schema]
+
+        with patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity:
+            mock_activity.info.return_value = MagicMock(
+                workflow_id=f"cdc-extraction-{source.pk}-2026-08-04T18:25:00Z", workflow_run_id="run-2"
+            )
+            activity_obj._create_failure_visibility_jobs(self.CONNECTION_FAILED)
+
+        rows_this_run = ExternalDataJob.objects.filter(schema=schema, workflow_run_id="run-2").count()
+        assert rows_this_run == (1 if expect_new_row else 0)

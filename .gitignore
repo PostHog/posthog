@@ -226,3 +226,6 @@ rust/cohort-stream-processor/cohort-store/
 
 # Local TLS certs (e.g. mkcert) — never commit private keys
 *.pem
+
+# Redis persistence snapshot dropped by a locally running redis-server
+dump.rdb

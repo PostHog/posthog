@@ -64,10 +64,6 @@ from posthog.temporal.dlq_replay import (
     ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
     WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
 )
-from posthog.temporal.ducklake import (
-    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
-    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
-)
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
@@ -91,10 +87,6 @@ from posthog.temporal.ingestion_acceptance_test import (
 from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-)
-from posthog.temporal.messaging import (
-    ACTIVITIES as MESSAGING_ACTIVITIES,
-    WORKFLOWS as MESSAGING_WORKFLOWS,
 )
 from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
@@ -217,6 +209,10 @@ from products.logs.backend.facade.temporal import (
 from products.logs.backend.temporal.retention_entitlements import (
     ACTIVITIES as LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
+)
+from products.managed_warehouse.backend.facade.temporal import (
+    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
+    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
@@ -375,8 +371,12 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS,
-        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES + PULSE_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS + SYNC_EVENTS_RETENTION_WORKFLOWS,
+        EXPORT_ACTIVITIES
+        + SUBSCRIPTION_ACTIVITIES
+        + ALERT_ACTIVITIES
+        + PULSE_ACTIVITIES
+        + SYNC_EVENTS_RETENTION_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
@@ -446,15 +446,13 @@ _task_queue_specs = [
         REPLAY_VISION_WORKFLOWS,
         REPLAY_VISION_ACTIVITIES,
     ),
-    (
-        settings.MESSAGING_TASK_QUEUE,
-        MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
-        MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
-    ),
+    # The web-analytics digests share this queue with the PostHog-wide weekly digest: both are
+    # weekly crons with the same shape, and the messaging queue they used to sit on has no other
+    # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES,
+        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
