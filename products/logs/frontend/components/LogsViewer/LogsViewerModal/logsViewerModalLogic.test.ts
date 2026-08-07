@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { logsViewerModalLogic } from './logsViewerModalLogic'
 
@@ -112,6 +113,36 @@ describe('logsViewerModalLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.closeLogsViewerModal()
             }).toMatchValues({ initialFilters: null })
+        })
+    })
+
+    describe('viewer scope', () => {
+        const pinnedFilters: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    key: 'trace_id',
+                    type: PropertyFilterType.Log,
+                    operator: PropertyOperator.Exact,
+                    value: ['abc'],
+                },
+            ],
+        }
+
+        it('keeps the scope the opening viewer was embedded with', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            }).toMatchValues({ pinnedFilters, personId: 'a-person-uuid' })
+        })
+
+        it('drops the scope when reopened from an unscoped entry point', async () => {
+            logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.closeLogsViewerModal()
+
+            await expectLogic(logic, () => {
+                logic.actions.openLogsViewerModal({ id: 'modal' })
+            }).toMatchValues({ pinnedFilters: null, personId: null })
         })
     })
 
