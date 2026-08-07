@@ -2,8 +2,9 @@ import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounte
 import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Properties } from '~/plugin-scaffold'
+import { InternalPerson } from '~/types'
 
-import { applyEventPropertyUpdates, extractEventOps, foldOps, refineEventOps } from './person-update'
+import { EventOps, applyEventPropertyUpdates, extractEventOps, foldOps, refineEventOps } from './person-update'
 
 // The scenarios below exercise the extract → refine pair end to end, the
 // same composition the Postgres store runs per event.
@@ -708,18 +709,126 @@ describe('person-update', () => {
         })
     })
 
+    describe('fold equivalence', () => {
+        // Deterministic PRNG (mulberry32): the sweep must reproduce
+        // identically on every run.
+        const mulberry32 = (seed: number) => (): number => {
+            seed = (seed + 0x6d2b79f5) | 0
+            let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+        }
+
+        const KEYS = ['k1', 'k2', 'k3']
+
+        const randomProps = (rand: () => number): Record<string, string> =>
+            Object.fromEntries(KEYS.filter(() => rand() < 0.4).map((k) => [k, `v${Math.floor(rand() * 4)}`]))
+
+        const randomOps = (rand: () => number): EventOps => {
+            const set = randomProps(rand)
+            const setOnce = Object.fromEntries(Object.entries(randomProps(rand)).filter(([k]) => !(k in set)))
+            return {
+                set,
+                // extractEventOps guarantees an event's set_once keys are
+                // not among its set keys; the generator upholds the same
+                // invariant so the sweep covers reachable shapes only.
+                setOnce,
+                unset: KEYS.filter(() => rand() < 0.25),
+                denied: false,
+                shouldForceUpdate: false,
+                isIdentified: rand() < 0.2 ? true : undefined,
+                lastSeenAtMs: rand() < 0.3 ? 3_600_000 * (1 + Math.floor(rand() * 3)) : undefined,
+                eventName: '$set',
+            }
+        }
+
+        const personWith = (properties: Record<string, string>): InternalPerson =>
+            ({ properties, is_identified: false }) as unknown as InternalPerson
+
+        // This is the algebra the personhog store stakes its correctness
+        // on: folding a person's ops across a batch and refining the
+        // fold once must land on the same state as refining each event
+        // sequentially against evolving state, for every interleaving of
+        // set, set_once, and unset over shared keys.
+        it('folding into segments then refining each matches refining every op sequentially', () => {
+            const rand = mulberry32(20260807)
+            let segmentedRounds = 0
+            for (let round = 0; round < 500; round++) {
+                const baseProps = randomProps(rand)
+                const opsList = Array.from({ length: 2 + Math.floor(rand() * 4) }, () => randomOps(rand))
+
+                let sequential = personWith({ ...baseProps })
+                let seqIdentified = false
+                let seqLastSeen: number | null = null
+                for (const o of opsList) {
+                    const refined = refineEventOps(o, sequential.properties, false)
+                    ;[sequential] = applyEventPropertyUpdates(refined, sequential)
+                    seqIdentified = seqIdentified || o.isIdentified === true
+                    if (o.lastSeenAtMs !== undefined) {
+                        seqLastSeen = Math.max(seqLastSeen ?? 0, o.lastSeenAtMs)
+                    }
+                }
+
+                // Exactly the store's lane discipline: fold onto the last
+                // segment, cut a new one when the composition is not
+                // representable, ship segments in order.
+                const segments: EventOps[] = [opsList[0]]
+                for (const o of opsList.slice(1)) {
+                    const folded = foldOps(segments[segments.length - 1], o)
+                    if (folded === null) {
+                        segments.push(o)
+                    } else {
+                        segments[segments.length - 1] = folded
+                    }
+                }
+                if (segments.length > 1) {
+                    segmentedRounds++
+                }
+
+                let candidate = personWith({ ...baseProps })
+                let candIdentified = false
+                let candLastSeen: number | null = null
+                for (const seg of segments) {
+                    const refined = refineEventOps(seg, candidate.properties, false)
+                    ;[candidate] = applyEventPropertyUpdates(refined, candidate)
+                    candIdentified = candIdentified || seg.isIdentified === true
+                    if (seg.lastSeenAtMs !== undefined) {
+                        candLastSeen = Math.max(candLastSeen ?? 0, seg.lastSeenAtMs)
+                    }
+                }
+
+                const context = { round, baseProps, opsList }
+                expect({ ...context, out: candidate.properties }).toEqual({
+                    ...context,
+                    out: sequential.properties,
+                })
+                expect(candIdentified).toBe(seqIdentified)
+                expect(candLastSeen).toBe(seqLastSeen)
+            }
+            // The sweep must actually exercise the segmentation path, or
+            // the null branch is dead weight it never validates.
+            expect(segmentedRounds).toBeGreaterThan(0)
+        })
+    })
+
     describe('foldOps', () => {
         const eventOps = (properties: Record<string, unknown>, event = '$set') =>
             extractEventOps({ event, properties } as any)
+
+        const fold = (existing: EventOps, incoming: EventOps): EventOps => {
+            const folded = foldOps(existing, incoming)
+            expect(folded).not.toBeNull()
+            return folded!
+        }
 
         it('preserves sequential semantics per key across folded events', () => {
             // set shadows a pending set_once; among set_onces the first
             // wins; an unset clears both lanes; a set_once after an unset
             // becomes an unconditional set.
             let acc = eventOps({ $set_once: { plan: 'first', keep: 'kept' } })
-            acc = foldOps(acc, eventOps({ $set: { plan: 'shadowing' }, $set_once: { keep: 'second-loses' } }))
-            acc = foldOps(acc, eventOps({ $unset: ['gone', 'revived'] }))
-            acc = foldOps(acc, eventOps({ $set_once: { revived: 'promoted' } }))
+            acc = fold(acc, eventOps({ $set: { plan: 'shadowing' }, $set_once: { keep: 'second-loses' } }))
+            acc = fold(acc, eventOps({ $unset: ['gone', 'revived'] }))
+            acc = fold(acc, eventOps({ $set_once: { revived: 'promoted' } }))
 
             expect(acc.set).toEqual({ plan: 'shadowing', revived: 'promoted' })
             expect(acc.setOnce).toEqual({ keep: 'kept' })
@@ -727,9 +836,38 @@ describe('person-update', () => {
         })
 
         it('a later set supersedes a pending unset for its key', () => {
-            const acc = foldOps(eventOps({ $unset: ['a'] }), eventOps({ $set: { a: 'back' } }))
+            const acc = fold(eventOps({ $unset: ['a'] }), eventOps({ $set: { a: 'back' } }))
             expect(acc.set).toEqual({ a: 'back' })
             expect(acc.unset).toEqual([])
+        })
+
+        it('a same-event value and unset pair rides the fold whole', () => {
+            // The pair's outcome is snapshot-dependent (present resolves
+            // to gone, absent to the value), so both lanes must survive
+            // for refinement to decide — dropping either loses one branch.
+            const acc = fold(eventOps({ $set: { other: 'x' } }), eventOps({ $set_once: { k: 'v' }, $unset: ['k'] }))
+            expect(acc.setOnce).toEqual({ k: 'v' })
+            expect(acc.unset).toEqual(['k'])
+        })
+
+        it('a pair over pending value state resolves to a plain unset', () => {
+            // Pending state guarantees the key present at refinement, so
+            // the pair's present branch (gone) is the only reachable one.
+            const acc = fold(eventOps({ $set: { k: 'pending' } }), eventOps({ $set_once: { k: 'v' }, $unset: ['k'] }))
+            expect(acc.set).toEqual({})
+            expect(acc.setOnce).toEqual({})
+            expect(acc.unset).toEqual(['k'])
+        })
+
+        it.each([
+            ['a set_once', { $set_once: { k: 'later' } }],
+            ['another pair', { $set_once: { k: 'later' }, $unset: ['k'] }],
+        ])('%s over a pending pair cuts a segment', (_label, later) => {
+            // "Present resolves one way, absent another with a different
+            // value" has no lane representation; the caller must ship the
+            // accumulated ops and fold onward from the incoming event.
+            const pair = eventOps({ $set_once: { k: 'v' }, $unset: ['k'] })
+            expect(foldOps(pair, eventOps(later))).toBeNull()
         })
 
         it('identity ORs and last-seen max-merges, mirroring the leader', () => {
@@ -739,7 +877,7 @@ describe('person-update', () => {
             const second = eventOps({})
             second.lastSeenAtMs = 3_600_000
 
-            const acc = foldOps(first, second)
+            const acc = fold(first, second)
             expect(acc.isIdentified).toBe(true)
             expect(acc.lastSeenAtMs).toEqual(7_200_000)
         })
@@ -749,6 +887,20 @@ describe('person-update', () => {
             const real = eventOps({ $set: { b: '2' } })
             expect(foldOps(real, denied)).toEqual(real)
             expect(foldOps(denied, real)).toEqual(real)
+        })
+
+        it('a denied event still contributes its identity and last-seen scalars', () => {
+            // The denylist gates property writes only; both stores and
+            // the leader advance the scalars regardless of event kind.
+            const denied = eventOps({ $set: { a: '1' } }, '$exception')
+            denied.lastSeenAtMs = 7_200_000
+            denied.isIdentified = true
+            const real = eventOps({ $set: { b: '2' } })
+
+            const acc = fold(real, denied)
+            expect(acc.set).toEqual(real.set)
+            expect(acc.isIdentified).toBe(true)
+            expect(acc.lastSeenAtMs).toBe(7_200_000)
         })
     })
 })

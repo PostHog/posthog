@@ -1,10 +1,11 @@
 import { create } from '@bufbuild/protobuf'
-import { Client } from '@connectrpc/connect'
+import { Client, Code, ConnectError } from '@connectrpc/connect'
 
 import {
     GetOrCreatePersonByDistinctIdRequestSchema,
     PersonHogIdentity,
 } from '~/common/generated/personhog/personhog/identity/v1/identity_pb'
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
 
@@ -49,26 +50,45 @@ export class PersonhogIdentityOperations {
         entry: GetOrCreatePersonEntry,
         callerTag?: string
     ): Promise<{ person: InternalPerson; created: boolean }> {
-        const response = await this.client.getOrCreatePersonByDistinctId(
-            create(GetOrCreatePersonByDistinctIdRequestSchema, {
-                entry: {
-                    teamId: BigInt(entry.teamId),
-                    distinctId: entry.distinctId,
-                    extraDistinctIds: entry.extraDistinctIds ?? [],
-                    eventName: entry.eventName,
-                    setProperties: encodeJsonBytes(entry.setProperties ?? {}),
-                    setOnceProperties: encodeJsonBytes(entry.setOnceProperties ?? {}),
-                    createdAt: BigInt(entry.createdAtMs),
-                    isIdentified: entry.isIdentified ?? false,
-                },
-            }),
-            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
-        )
-        if (!response.person) {
-            throw new Error(
-                `identity get-or-create returned no person for team ${entry.teamId} distinct_id ${entry.distinctId}`
+        try {
+            const response = await this.client.getOrCreatePersonByDistinctId(
+                create(GetOrCreatePersonByDistinctIdRequestSchema, {
+                    entry: {
+                        teamId: BigInt(entry.teamId),
+                        distinctId: entry.distinctId,
+                        extraDistinctIds: entry.extraDistinctIds ?? [],
+                        eventName: entry.eventName,
+                        setProperties: encodeJsonBytes(entry.setProperties ?? {}),
+                        setOnceProperties: encodeJsonBytes(entry.setOnceProperties ?? {}),
+                        createdAt: BigInt(entry.createdAtMs),
+                        isIdentified: entry.isIdentified ?? false,
+                    },
+                }),
+                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )
+            if (!response.person) {
+                throw new Error(
+                    `identity get-or-create returned no person for team ${entry.teamId} distinct_id ${entry.distinctId}`
+                )
+            }
+            return { person: protoPersonToDomain(response.person), created: response.created }
+        } catch (error) {
+            // A size rejection must surface as the domain error the
+            // create service already handles — it emits the customer
+            // ingestion warning and stops retrying. Left untranslated,
+            // the raw gRPC error matches no non-retriable class and the
+            // batch redelivers the same oversized event forever.
+            if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
+                if (error.rawMessage.includes('size limit')) {
+                    throw new PersonPropertiesSizeViolationError(
+                        error.rawMessage,
+                        entry.teamId,
+                        undefined,
+                        entry.distinctId
+                    )
+                }
+            }
+            throw error
         }
-        return { person: protoPersonToDomain(response.person), created: response.created }
     }
 }

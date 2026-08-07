@@ -40,7 +40,13 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { PersonOutputs } from './person-context'
-import { EventOps, applyEventPropertyUpdates, getMetricKey, refineEventOps } from './person-update'
+import {
+    EventOps,
+    applyEventPropertyUpdates,
+    computeOpsScalarUpdates,
+    getMetricKey,
+    refineEventOps,
+} from './person-update'
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -1331,17 +1337,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // intents refine here too — identification only transitions
         // false→true, last-seen only advances.
         const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
-
-        const otherUpdates: Partial<InternalPerson> = {}
-        if (ops.isIdentified && !person.is_identified) {
-            otherUpdates.is_identified = true
-        }
-        if (ops.lastSeenAtMs !== undefined) {
-            const candidate = DateTime.fromMillis(ops.lastSeenAtMs, { zone: 'utc' })
-            if (!person.last_seen_at || candidate > person.last_seen_at) {
-                otherUpdates.last_seen_at = candidate
-            }
-        }
+        const otherUpdates = computeOpsScalarUpdates(ops, person)
 
         if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
             const [updatedPerson] = applyEventPropertyUpdates(refined, person)

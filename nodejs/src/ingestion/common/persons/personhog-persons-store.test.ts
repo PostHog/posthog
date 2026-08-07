@@ -41,7 +41,8 @@ describe('PersonhogPersonsStore', () => {
         }
         repository = {
             fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
-            updatePersonProperties: jest.fn().mockResolvedValue({ person, updated: true }),
+            // An applied write bumps the version, as the leader does.
+            updatePersonProperties: jest.fn().mockResolvedValue({ person: { ...person, version: 2 }, updated: true }),
             getDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             getOrCreatePersonByDistinctId: jest.fn().mockResolvedValue({ person, created: true }),
         } as unknown as jest.Mocked<PersonHogPersonWriteRepository>
@@ -87,6 +88,20 @@ describe('PersonhogPersonsStore', () => {
         const results = await bound.flush()
         expect(repository.updatePersonProperties).not.toHaveBeenCalled()
         expect(results).toEqual([])
+    })
+
+    it('a denied event still ships its scalars, without its properties', async () => {
+        const bound = store.forBatch(0)
+        const denied = ops({ $set: { a: '1' } }, '$exception')
+        denied.lastSeenAtMs = 7_200_000
+        const [projected] = await bound.applyEventOps(person, denied, 'd1')
+        expect(projected.last_seen_at?.toMillis()).toBe(7_200_000)
+        expect(projected.properties).toEqual({ plan: 'free' })
+
+        await bound.flush()
+        const sent = repository.updatePersonProperties.mock.calls[0][0]
+        expect(sent.lastSeenAtMs).toBe(7_200_000)
+        expect(sent.setProperties).toEqual({})
     })
 
     it('memoizes strong fetches per batch', async () => {
@@ -155,6 +170,86 @@ describe('PersonhogPersonsStore', () => {
         expect(results).toEqual([])
     })
 
+    it('publishes on a version advance even when the response says no change', async () => {
+        // A retried call whose lost first attempt landed replays into
+        // the leader's no-change fast path; the version floor is what
+        // still tells the truth.
+        repository.updatePersonProperties.mockResolvedValue({ person: { ...person, version: 5 }, updated: false })
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        const results = await bound.flush()
+        expect(results).toHaveLength(1)
+    })
+
+    it('a later segment failing on a domain error still publishes what earlier segments applied', async () => {
+        const bound = store.forBatch(0)
+        const pair = ops({ $set_once: { k: 'v' }, $unset: ['k'] })
+        const cutter = ops({ $set_once: { k: 'later' } })
+        await bound.applyEventOps(person, pair, 'd1')
+        await bound.applyEventOps(person, cutter, 'd1')
+
+        repository.updatePersonProperties
+            .mockResolvedValueOnce({ person: { ...person, version: 2 }, updated: true })
+            .mockRejectedValueOnce(new PersonhogPropertiesSizeError('too big', 1, '7'))
+        const results = await bound.flush()
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+        expect(results).toHaveLength(1)
+    })
+
+    it('pending state is visible through every distinct id of the person', async () => {
+        const bound = store.forBatch(0)
+        await bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            {},
+            {},
+            {},
+            1,
+            null,
+            false,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            [{ distinctId: 'd2' }]
+        )
+        const viaD1 = await bound.fetchForUpdate(1, 'd1')
+        await bound.applyEventOps(viaD1!, ops({ $set: { a: '1' } }), 'd1')
+
+        const viaD2 = await bound.fetchForUpdate(1, 'd2')
+        expect(viaD2?.properties).toMatchObject({ a: '1' })
+        expect(repository.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+    })
+
+    it('pending ops are visible to later fetches and compose across events', async () => {
+        repository.fetchPersonsByDistinctIds.mockResolvedValue([{ ...person, distinct_id: 'd1' }])
+        const bound = store.forBatch(0)
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+        await bound.applyEventOps(fetched!, ops({ $set: { a: '1' } }), 'd1')
+
+        const refetched = await bound.fetchForUpdate(1, 'd1')
+        expect(refetched?.properties).toEqual({ plan: 'free', a: '1' })
+        expect(repository.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+
+        const [afterSecond] = await bound.applyEventOps(refetched!, ops({ $set: { b: '2' } }), 'd1')
+        expect(afterSecond.properties).toEqual({ plan: 'free', a: '1', b: '2' })
+    })
+
+    it('releaseBatch frees the batch memo so later fetches hit the service again', async () => {
+        repository.fetchPersonsByDistinctIds.mockResolvedValue([{ ...person, distinct_id: 'd1' }])
+        const bound = store.forBatch(0)
+        await bound.fetchForUpdate(1, 'd1')
+        store.releaseBatch(0)
+        await bound.fetchForUpdate(1, 'd1')
+        expect(repository.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(2)
+    })
+
+    it('releaseBatch drops an unflushed lane so nothing ships for the batch', async () => {
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        store.releaseBatch(0)
+        const results = await bound.flush()
+        expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+        expect(results).toEqual([])
+    })
+
     it('runs transactions as a passthrough over the store itself', async () => {
         const bound = store.forBatch(0)
         const result = await bound.inTransaction('test', (tx) => {
@@ -211,7 +306,7 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.unsetProperties).toEqual(['gone'])
         expect(sent.isIdentified).toBe(true)
         expect(sent.lastSeenAtMs).toBe(7_200_000)
-        expect(updated).toBe(person)
+        expect(updated).toEqual({ ...person, version: 2 })
         expect(messages).toHaveLength(1)
     })
 

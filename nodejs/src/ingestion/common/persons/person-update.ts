@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
 import {
     eventToPersonProperties,
@@ -113,10 +115,32 @@ export function extractEventOps(event: PluginEvent, updateAllProperties: boolean
  * a snapshot-based store — the personhog path never calls it; the leader
  * refines authoritatively on its side.
  */
+/**
+ * The scalar half of an op against current person state: identity ORs
+ * (never reverts) and last-seen max-advances — the same merge the
+ * leader performs. Returns only the fields that change, so callers can
+ * both gate on "anything to write" and apply the delta. Deliberately
+ * indifferent to `ops.denied`: the denylist gates property writes only.
+ */
+export function computeOpsScalarUpdates(ops: EventOps, person: InternalPerson): Partial<InternalPerson> {
+    const updates: Partial<InternalPerson> = {}
+    if (ops.isIdentified && !person.is_identified) {
+        updates.is_identified = true
+    }
+    if (ops.lastSeenAtMs !== undefined) {
+        const candidate = DateTime.fromMillis(ops.lastSeenAtMs, { zone: 'utc' })
+        if (!person.last_seen_at || candidate > person.last_seen_at) {
+            updates.last_seen_at = candidate
+        }
+    }
+    return updates
+}
+
 export function refineEventOps(
     ops: EventOps,
     personProperties: Properties,
-    updateAllProperties: boolean = false
+    updateAllProperties: boolean = false,
+    recordOutcomes: boolean = true
 ): PropertyUpdates {
     if (ops.denied) {
         return { hasChanges: false, toSet: {}, toUnset: [], shouldForceUpdate: false }
@@ -172,8 +196,11 @@ export function refineEventOps(
         }
     })
 
-    // Track person profile update outcomes at event level (skip when updateAllProperties is enabled)
-    if (!updateAllProperties) {
+    // Track person profile update outcomes at event level (skip when
+    // updateAllProperties is enabled, or when the caller is projecting
+    // rather than deciding a write — a projection re-refining the same
+    // event must not double-count the outcome).
+    if (!updateAllProperties && recordOutcomes) {
         const hasPropertyChanges = Object.keys(toSet).length > 0 || toUnset.length > 0
         if (hasPropertyChanges) {
             if (hasNonFilteredChanges) {
@@ -194,49 +221,103 @@ export function refineEventOps(
 
 /**
  * Folds a later event's ops onto accumulated ops for the same person,
- * preserving sequential semantics per key: a set shadows any pending
- * set_once (the server applies set_once first, then set); among
- * set_onces the first wins; an unset clears both pending lanes; a set
- * after an unset supersedes it. Identity ORs and last-seen max-merges,
- * mirroring the leader's own merge rules.
+ * preserving sequential semantics per key: a set wins over any prior
+ * state; among set_onces the first wins; an unset clears prior pending
+ * lanes; a value after an unset applies unconditionally (the key is
+ * definitely absent). Identity ORs and last-seen max-merges, mirroring
+ * the leader's own merge rules.
+ *
+ * One event may pair an unset with a set or set_once on the same key.
+ * The pair's outcome is snapshot-dependent — refinement drops an unset
+ * of an absent key and a set_once of a present one, so present means
+ * gone and absent means the value lands. The fold keeps both lanes for
+ * such a key (the refinement engines on both sides resolve the pair the
+ * same way for a folded op as for a single event), which makes the
+ * accumulator's per-key state one of: a value, an unset, or a
+ * snapshot-dependent pair.
+ *
+ * Returns null when composition would lose information: a later
+ * set_once — alone or in a pair — over a key already in the pair state
+ * needs "present resolves one way, absent another with a different
+ * value", which no lane combination expresses. The caller cuts a
+ * segment: ship the accumulated ops as their own leader call and fold
+ * onward from the incoming event, so authoritative refinement happens
+ * between the two — exactly sequential semantics, paid only on this
+ * vanishing case.
  */
-export function foldOps(existing: EventOps, incoming: EventOps): EventOps {
-    if (incoming.denied) {
-        return existing
-    }
-    if (existing.denied) {
-        return incoming
+export function foldOps(existing: EventOps, incoming: EventOps): EventOps | null {
+    if (incoming.denied || existing.denied) {
+        // The denylist gates property writes only — identity and
+        // last-seen advance regardless, matching both stores and the
+        // leader. A denied op contributes its scalars and nothing else.
+        const base = incoming.denied ? existing : incoming
+        return {
+            ...base,
+            isIdentified: existing.isIdentified || incoming.isIdentified ? true : undefined,
+            lastSeenAtMs: mergeLastSeenMs(existing.lastSeenAtMs, incoming.lastSeenAtMs),
+        }
     }
 
     const set = { ...existing.set }
     const setOnce = { ...existing.setOnce }
     const unset = new Set(existing.unset)
 
-    Object.entries(incoming.setOnce).forEach(([key, value]) => {
-        if (key in set || key in setOnce) {
-            return
-        }
-        if (unset.has(key)) {
-            // After an unset the key is definitely absent, so the
-            // set_once becomes an unconditional set.
+    const hasValue = (key: string) => key in set || key in setOnce
+    const isPair = (key: string) => unset.has(key) && hasValue(key)
+
+    const incomingUnset = new Set(incoming.unset)
+    const keys = new Set([...Object.keys(incoming.set), ...Object.keys(incoming.setOnce), ...incoming.unset])
+
+    for (const key of keys) {
+        const inSet = key in incoming.set
+        const inOnce = key in incoming.setOnce
+        const inUnset = incomingUnset.has(key)
+
+        if (inUnset && (inSet || inOnce)) {
+            // A simultaneous pair: after pending state that guarantees
+            // the key present, it resolves to gone; after a pending
+            // unset, its value applies unconditionally; over nothing it
+            // rides in whole; over another pair, segment.
+            if (isPair(key)) {
+                return null
+            }
+            if (hasValue(key)) {
+                delete set[key]
+                delete setOnce[key]
+                unset.add(key)
+            } else if (unset.has(key)) {
+                unset.delete(key)
+                set[key] = inSet ? incoming.set[key] : incoming.setOnce[key]
+            } else {
+                if (inSet) {
+                    set[key] = incoming.set[key]
+                } else {
+                    setOnce[key] = incoming.setOnce[key]
+                }
+                unset.add(key)
+            }
+        } else if (inSet) {
+            set[key] = incoming.set[key]
+            delete setOnce[key]
             unset.delete(key)
-            set[key] = value
-            return
+        } else if (inOnce) {
+            if (isPair(key)) {
+                return null
+            }
+            if (hasValue(key)) {
+                // First value wins.
+            } else if (unset.has(key)) {
+                unset.delete(key)
+                set[key] = incoming.setOnce[key]
+            } else {
+                setOnce[key] = incoming.setOnce[key]
+            }
+        } else {
+            unset.add(key)
+            delete set[key]
+            delete setOnce[key]
         }
-        setOnce[key] = value
-    })
-
-    Object.entries(incoming.set).forEach(([key, value]) => {
-        set[key] = value
-        delete setOnce[key]
-        unset.delete(key)
-    })
-
-    incoming.unset.forEach((key) => {
-        unset.add(key)
-        delete set[key]
-        delete setOnce[key]
-    })
+    }
 
     return {
         set,
@@ -245,12 +326,16 @@ export function foldOps(existing: EventOps, incoming: EventOps): EventOps {
         denied: false,
         shouldForceUpdate: existing.shouldForceUpdate || incoming.shouldForceUpdate,
         isIdentified: existing.isIdentified || incoming.isIdentified ? true : undefined,
-        lastSeenAtMs:
-            existing.lastSeenAtMs !== undefined || incoming.lastSeenAtMs !== undefined
-                ? Math.max(existing.lastSeenAtMs ?? -Infinity, incoming.lastSeenAtMs ?? -Infinity)
-                : undefined,
+        lastSeenAtMs: mergeLastSeenMs(existing.lastSeenAtMs, incoming.lastSeenAtMs),
         eventName: incoming.eventName,
     }
+}
+
+function mergeLastSeenMs(a: number | undefined, b: number | undefined): number | undefined {
+    if (a === undefined && b === undefined) {
+        return undefined
+    }
+    return Math.max(a ?? -Infinity, b ?? -Infinity)
 }
 
 /**
