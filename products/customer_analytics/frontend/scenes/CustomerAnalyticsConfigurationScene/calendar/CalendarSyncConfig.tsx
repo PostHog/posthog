@@ -53,7 +53,7 @@ export function CalendarSyncConfig(): JSX.Element {
                                     type="secondary"
                                     icon={<IconRefresh />}
                                     loading={isSyncing}
-                                    disabledReason={isSyncing ? 'A sync is already running' : undefined}
+                                    disabledReason={isSyncing ? 'A sync is already running' : restrictedReason}
                                     onClick={() => syncNow(integration.id)}
                                 >
                                     Sync now

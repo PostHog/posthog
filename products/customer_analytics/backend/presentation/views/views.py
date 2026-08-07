@@ -35,7 +35,7 @@ from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scopes, is_service_auth
+from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes, is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
@@ -1653,6 +1653,8 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
 
     scope_object = "account"
     scope_object_read_actions = ["list"]
+    # Same gate as IntegrationViewSet: any member can read status, starting a run needs admin.
+    permission_classes = [TeamMemberStrictManagementPermission]
     serializer_class = CalendarSyncTriggerSerializer
     pagination_class = None  # a team connects a handful of calendars — nothing to paginate
     queryset = None  # no model — state lives in integration config, reached through the facade

@@ -2667,9 +2667,14 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
 
 
 class TestCalendarSyncViewSet(APIBaseTest):
+    def _become_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
         from posthog.models.integration import Integration
 
+        self._become_admin()
         integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
         with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
             mock_connect.return_value.start_workflow.return_value = _immediate_future()
@@ -2725,6 +2730,7 @@ class TestCalendarSyncViewSet(APIBaseTest):
     def test_sync_now_404s_for_another_teams_integration(self):
         from posthog.models.integration import Integration
 
+        self._become_admin()
         other_team = Team.objects.create(organization=self.organization, name="other")
         integration = Integration.objects.create(team=other_team, kind="google-calendar", integration_id="sub-2")
         response = self.client.post(
@@ -2732,6 +2738,16 @@ class TestCalendarSyncViewSet(APIBaseTest):
             {"integration_id": integration.id},
         )
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_sync_now_requires_project_admin(self):
+        from posthog.models.integration import Integration
+
+        integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-3")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+            {"integration_id": integration.id},
+        )
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
 
 
 def _immediate_future():
