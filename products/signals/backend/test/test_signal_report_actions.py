@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -61,6 +62,30 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
             body,
             format="json",
             headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == expected_status
+        assert not SignalReportAction.objects.filter(report=report).exists()
+
+    @parameterized.expand(
+        [
+            ("viewed", None, status.HTTP_204_NO_CONTENT),
+            ("feedback", {"sentiment": "positive"}, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.signals.backend.views.is_impersonated_session", return_value=True)
+    def test_an_impersonated_session_records_no_action(
+        self, action_path: str, body: dict | None, expected_status: int, _mock_impersonated: MagicMock
+    ) -> None:
+        # Staff impersonation passes the session check while request.user is the customer, so
+        # without the impersonation guard a support investigation would write consumption evidence
+        # in that customer's name and rescue a scout nobody on their team read.
+        report = self._create_report()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/{action_path}/",
+            body,
+            format="json",
         )
 
         assert response.status_code == expected_status

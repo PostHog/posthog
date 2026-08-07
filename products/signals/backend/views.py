@@ -747,8 +747,17 @@ def _is_person_at_the_ui(request: Request) -> bool:
     belongs to. Admitting only a browser session keeps automation — including a scout calling
     the API on its own reports — from manufacturing the engagement that exempts it from the
     inactivity sweep.
+
+    Staff impersonation is excluded for the same reason: it is a browser session, but
+    ``request.user`` is the impersonated customer, so a support investigation would otherwise
+    write consumption evidence in that customer's name and rescue a scout nobody on their team
+    read. (Read-only impersonation can't reach these POSTs at all; read-write can.)
     """
-    return isinstance(request.successful_authenticator, SessionAuthentication) and isinstance(request.user, User)
+    return (
+        isinstance(request.successful_authenticator, SessionAuthentication)
+        and isinstance(request.user, User)
+        and not is_impersonated_session(request)
+    )
 
 
 @extend_schema_view(
