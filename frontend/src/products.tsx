@@ -411,6 +411,7 @@ export const productRedirects: Record<
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/traces': '/tracing',
     '/user_interviews': '/user_research',
 }
 
