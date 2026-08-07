@@ -7,6 +7,7 @@ import {
     buildBulkEnablePayloads,
     clonePayloadPreservingFiles,
     isSensitiveCredentialField,
+    isTerminalJobsPollError,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
     schemasEligibleForSync,
@@ -270,5 +271,31 @@ describe('runBulkSchemaAction', () => {
         const failed = await runBulkSchemaAction(schemas, action)
         expect(failed).toBe(1)
         expect(action).toHaveBeenCalledTimes(3)
+    })
+})
+
+describe('isTerminalJobsPollError', () => {
+    // Guards the poll-loop stop: only permanent auth/not-found statuses are terminal, so a
+    // regression that widens or narrows this set would either resume the 403 spam or stall on a blip.
+    it.each([
+        [401, true],
+        [403, true],
+        [404, true],
+        [408, false],
+        [500, false],
+        [502, false],
+        [503, false],
+        [504, false],
+    ])('classifies status %s as terminal=%s', (status, expected) => {
+        expect(isTerminalJobsPollError({ status })).toBe(expected)
+    })
+
+    it.each([
+        ['null', null],
+        ['undefined', undefined],
+        ['no status field', {}],
+        ['a plain Error', new Error('boom')],
+    ])('treats a non-status error (%s) as non-terminal', (_label, error) => {
+        expect(isTerminalJobsPollError(error)).toBe(false)
     })
 })

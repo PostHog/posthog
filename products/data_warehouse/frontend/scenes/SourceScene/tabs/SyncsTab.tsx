@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
@@ -37,7 +37,7 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
     const logic = sourceSettingsLogic({ id, availableSources: {} })
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(logic)
+    const { source, jobs, jobsLoading, jobsAccessDenied, canLoadMoreJobs, selectedSchemas } = useValues(logic)
     const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
@@ -70,6 +70,15 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
 
         void loadJobs()
     }, [loadJobs, source])
+
+    if (jobsAccessDenied) {
+        return (
+            <LemonBanner type="warning">
+                You don't have access to this source's sync history. Ask an admin to grant you access if you need to see
+                it.
+            </LemonBanner>
+        )
+    }
 
     const schemaOptions = [...(source?.schemas ?? [])]
         .sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name))

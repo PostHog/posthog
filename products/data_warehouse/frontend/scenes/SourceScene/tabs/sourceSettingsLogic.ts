@@ -67,10 +67,18 @@ const REFRESH_INTERVAL = 5000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
 const JOBS_POLL_MAX_BACKOFF_MS = 60000
 const JOBS_POLL_TRANSIENT_STATUSES = new Set([408, 502, 503, 504])
+// Statuses that will never succeed on retry: the user lacks (or lost) access to the source, or it's
+// gone. Retrying just re-fires the same exception every poll, so we stop and show an access state.
+const JOBS_POLL_TERMINAL_STATUSES = new Set([401, 403, 404])
 
 function isTransientGatewayError(error: unknown): boolean {
     const status = (error as { status?: number } | null | undefined)?.status
     return typeof status === 'number' && JOBS_POLL_TRANSIENT_STATUSES.has(status)
+}
+
+export function isTerminalJobsPollError(error: unknown): boolean {
+    const status = (error as { status?: number } | null | undefined)?.status
+    return typeof status === 'number' && JOBS_POLL_TERMINAL_STATUSES.has(status)
 }
 
 function nextJobsPollDelay(softFailureCount: number): number {
@@ -365,6 +373,7 @@ export interface sourceSettingsLogicValues {
     isSourceConfigSubmitting: boolean
     isSourceConfigValid: boolean
     jobs: ExternalDataJob[]
+    jobsAccessDenied: boolean
     jobsLoading: boolean
     pollPauseCount: number
     refreshingSchemas: boolean
@@ -541,6 +550,9 @@ export interface sourceSettingsLogicActions {
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean
     }
+    setJobsAccessDenied: (denied: boolean) => {
+        denied: boolean
+    }
     setRefreshingSchemas: (refreshing: boolean) => {
         refreshing: boolean
     }
@@ -704,6 +716,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
         pausePolling: true,
         resumePolling: true,
+        setJobsAccessDenied: (denied: boolean) => ({ denied }),
     }),
     loaders(({ actions, values, cache }) => ({
         source: [
@@ -754,6 +767,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         cache.jobsPollSoftFailureCount = 0
                         return result
                     } catch (error) {
+                        // A permanent authorization/not-found status will never succeed on retry, so
+                        // stop polling and surface a "no access" state instead of re-firing the same
+                        // request every 5s (loadJobsSuccess skips rescheduling when access is denied).
+                        if (isTerminalJobsPollError(error)) {
+                            actions.setJobsAccessDenied(true)
+                            return values.jobs
+                        }
                         // Gateway timeouts / transient upstream errors are expected when the jobs
                         // query is slow. Swallow them here so the 5s poll doesn't become a source
                         // of error-tracking noise; loadJobsSuccess reschedules with backoff.
@@ -810,6 +830,15 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 setCanLoadMoreJobs: (_, { canLoadMoreJobs }) => canLoadMoreJobs,
                 setSourceId: () => true,
+            },
+        ],
+        // Set when the jobs endpoint returns a permanent authorization/not-found status. Drives the
+        // "no access" state and stops the poll loop from re-firing the same failed request.
+        jobsAccessDenied: [
+            false as boolean,
+            {
+                setJobsAccessDenied: (_, { denied }) => denied,
+                setSourceId: () => false,
             },
         ],
         isProjectTime: [
@@ -1373,6 +1402,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadJobs()
             },
             loadJobsSuccess: () => {
+                // Access denied is terminal — don't re-arm the poll, it would just re-fail forever.
+                if (values.jobsAccessDenied) {
+                    return
+                }
                 const delay = nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0)
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
