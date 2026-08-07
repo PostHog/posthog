@@ -12,6 +12,7 @@ import { DEFAULT_CURRENCY } from 'lib/utils/currency'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { objectsEqual } from 'lib/utils/objects'
 import {
     type ProductCrossSellProperties,
     type ProductIntentProperties,
@@ -361,6 +362,8 @@ export const teamLogic = kea<teamLogicType>([
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
 
+                    const previousTeam = values.currentTeam
+
                     // session replay config is nested, so we need to make sure we don't overwrite config
                     if (payload.session_replay_config) {
                         payload.session_replay_config = {
@@ -388,6 +391,39 @@ export const teamLogic = kea<teamLogicType>([
 
                     // We need to reload current org (which lists its teams) in organizationLogic
                     actions.loadCurrentOrganization()
+
+                    // A 2xx doesn't guarantee the write stuck. A field can be rejected or stripped
+                    // server-side while the PATCH still returns 200 — e.g. field-level access control on a
+                    // nested config like marketing_analytics_config. Detect the case where we asked to change
+                    // a field but the server's value never moved, and surface an honest error instead of
+                    // "updated successfully". Comparing against the prior value (not just the request) keeps
+                    // legitimate server-side normalization from reading as a dropped write.
+                    const droppedAttributes = Object.keys(payload).filter((key) => {
+                        // Renames go through /api/projects and are reflected on patchedTeam by construction.
+                        if (key === 'name') {
+                            return false
+                        }
+                        const requested = payload[key as keyof TeamType]
+                        const before = previousTeam[key as keyof TeamType]
+                        const after = (patchedTeam as Partial<TeamType>)[key as keyof TeamType]
+                        // Only trust the check for fields the response actually echoes; write-only fields
+                        // (absent from the representation) would otherwise always read as dropped.
+                        if (after === undefined) {
+                            return false
+                        }
+                        return !objectsEqual(requested, before) && objectsEqual(after, before)
+                    })
+                    if (droppedAttributes.length > 0) {
+                        const attributeNames = droppedAttributes
+                            .map((key) => parseUpdatedAttributeName(key as keyof TeamType))
+                            .join(', ')
+                        lemonToast.error(
+                            `${attributeNames} wasn't saved. You might not have permission to change it, or the value was rejected.`
+                        )
+                        // Return the server's team so currentTeam (and anything reconciling off it) reflects
+                        // reality rather than the optimistic value the caller assumed.
+                        return patchedTeam
+                    }
 
                     /* Notify user the update was successful  */
                     const updatedAttribute =

@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -135,6 +137,58 @@ describe('teamLogic', () => {
             // The stale team's intents must not be grafted onto the team that is now active.
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
+        })
+    })
+
+    describe('updateCurrentTeam round-trip verification', () => {
+        beforeEach(() => {
+            initKeaTests()
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('errors instead of confirming success when a field is silently dropped on a 200', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            // Server returns 200 but echoes the config unchanged: the write was dropped server-side.
+            useMocks({ patch: { '/api/environments/:id': () => [200, { ...MOCK_DEFAULT_TEAM }] } })
+            const successSpy = jest.spyOn(lemonToast, 'success')
+            const errorSpy = jest.spyOn(lemonToast, 'error')
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeam({
+                    marketing_analytics_config: { custom_source_mappings: { MetaAds: ['ig'] } },
+                })
+            }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+            expect(errorSpy).toHaveBeenCalledTimes(1)
+            expect(successSpy).not.toHaveBeenCalled()
+        })
+
+        it('confirms success when the field round-trips', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) },
+                    ],
+                },
+            })
+            const successSpy = jest.spyOn(lemonToast, 'success')
+            const errorSpy = jest.spyOn(lemonToast, 'error')
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeam({
+                    marketing_analytics_config: { custom_source_mappings: { MetaAds: ['ig'] } },
+                })
+            }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+            expect(successSpy).toHaveBeenCalledTimes(1)
+            expect(errorSpy).not.toHaveBeenCalled()
         })
     })
 

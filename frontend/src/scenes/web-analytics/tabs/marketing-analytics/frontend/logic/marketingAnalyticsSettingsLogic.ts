@@ -90,6 +90,13 @@ export interface marketingAnalyticsSettingsLogicValues {
 export interface marketingAnalyticsSettingsLogicActions {
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
+    updateCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: Partial<TeamType>
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: Partial<TeamType>
+    } // teamLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
     }
@@ -222,7 +229,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSources'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam', 'addProductIntent']],
+        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'addProductIntent']],
     })),
     actions({
         updateSourceMapping: (
@@ -384,6 +391,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, campaign_field_preferences: campaignFieldPreferences }
                 },
+                // Reconcile the optimistic config against what the team PATCH actually persisted. Every write
+                // here dispatches updateCurrentTeam, and a field can be dropped server-side on a 200 — without
+                // this, a dropped write stays visible until the next remount, so the UI confirms a change that
+                // never saved. teamLogic surfaces the error toast; this reverts the optimistic value.
+                updateCurrentTeamSuccess: (state: MarketingAnalyticsConfig | null, { currentTeam }) =>
+                    currentTeam?.marketing_analytics_config ?? state,
             },
         ],
         savedMarketingAnalyticsConfig: [
