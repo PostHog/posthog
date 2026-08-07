@@ -49,6 +49,7 @@ export const AccountsEvents = {
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
     UsageSeriesToggled: 'customer analytics account usage series toggled',
+    UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
     RelatedUserClicked: 'customer analytics account related user clicked',
     OpportunityClicked: 'customer analytics account opportunity clicked',
     SummaryCadenceChanged: 'customer analytics account summary cadence changed',

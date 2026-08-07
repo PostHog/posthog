@@ -48,10 +48,13 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    detection.
 
 4. **Add remaining metrics above the bar.** Propose any other metric that was asked for or that you
-   have seen reused at least twice. Give each a clear `description` (the load-bearing field), a `unit`,
-   and a definition when one exists. A definition can be an executable query, or - when the
-   calculation needs judgment or steps that don't reduce to a single query - an agent-calculated
-   markdown definition (`{kind: 'MarkdownDefinition', markdown: '<numbered steps>'}`).
+   have seen reused at least twice. Give each a `description` (the load-bearing field) of 1-3 sentences
+   stating what the metric means and what it serves - the business meaning plus any load-bearing
+   inclusions/exclusions or grain, never a narration of the query. Query rationale goes in `reasoning`,
+   the mechanics in the definition. Also give a `unit`, and a definition when one exists. A definition
+   can be an executable query, or - when the calculation needs judgment or steps that don't reduce to a
+   single query - an agent-calculated markdown definition
+   (`{kind: 'MarkdownDefinition', markdown: '<numbered steps>'}`).
 
 ## Flow 2 — Maintenance (reviewing the queue)
 

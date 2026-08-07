@@ -1,4 +1,5 @@
 import json
+import hashlib
 from typing import Literal, get_args
 
 import posthoganalytics
@@ -48,6 +49,35 @@ def vm_sandbox_default_base_origin_products(payload: object) -> set[str]:
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return {item for item in value if isinstance(item, str)}
     return set()
+
+
+def vm_sandbox_origin_rollout_percentages(payload: object) -> dict[str, float]:
+    payload = _decode_vm_sandbox_payload(payload)
+    value = payload.get("origin_product_rollout_percentages") if isinstance(payload, dict) else None
+    if not isinstance(value, dict):
+        return {}
+
+    return {
+        origin: float(percentage)
+        for origin, percentage in value.items()
+        if isinstance(origin, str)
+        and isinstance(percentage, int | float)
+        and not isinstance(percentage, bool)
+        and 0 <= percentage <= 100
+    }
+
+
+def vm_sandbox_origin_in_rollout(origin_product: str | None, run_id: str, percentages: dict[str, float]) -> bool:
+    origin_key = origin_product or ""
+    percentage = percentages.get(origin_key, 0)
+    if percentage <= 0:
+        return False
+    if percentage >= 100:
+        return True
+
+    digest = hashlib.sha256(f"{origin_key}:{run_id}".encode()).digest()
+    bucket = int.from_bytes(digest[:8], "big") / 2**64 * 100
+    return bucket < percentage
 
 
 # Published Modal image name of the prebaked PostHog dev-stack VM image. Unlike
