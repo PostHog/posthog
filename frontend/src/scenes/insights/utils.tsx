@@ -69,9 +69,9 @@ import {
 
 import { insightLogic } from './insightLogic'
 
-export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
+export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null | undefined): boolean => {
     return (
-        filter !== null &&
+        filter != null &&
         filter.type === EntityTypes.EVENTS &&
         filter.id === null &&
         (!filter.name || filter.name === 'All events')

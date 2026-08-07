@@ -8,6 +8,7 @@ import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
+    isAllEventsEntityFilter,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -43,6 +44,14 @@ describe('getDisplayNameFromEntityFilter()', () => {
         it(`expect "${expected}" for Filter<custom_name="${filter.custom_name}", name="${filter.name}", id="${filter.id}">`, () => {
             expect(getDisplayNameFromEntityFilter(filter, isCustom)).toEqual(expected)
         })
+    })
+})
+
+describe('isAllEventsEntityFilter()', () => {
+    // Formula series omit `action`, so this helper receives `undefined`; it must not throw (blanks the whole chart)
+    it('returns false for a missing filter without throwing', () => {
+        expect(isAllEventsEntityFilter(undefined)).toBe(false)
+        expect(isAllEventsEntityFilter(null)).toBe(false)
     })
 })
 
