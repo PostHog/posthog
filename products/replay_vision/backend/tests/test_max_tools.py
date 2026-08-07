@@ -1087,7 +1087,7 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         "summarize_replay_vision_summaries": False,
         "draft_replay_vision_scanner_prompt": False,
         "label_replay_vision_observation": False,
-        "analyze_replay_vision_impact": False,
+        "analyze_replay_vision_impact": None,  # only when it creates a cohort
         "suggest_replay_vision_tags": False,
         "read_replay_vision_actions": False,
         # Argument-dependent, so they override is_dangerous_operation rather than the flag.
@@ -1120,7 +1120,7 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
                 # Argument-dependent tools decide per call; covered by their own tests.
                 assert "is_dangerous_operation" in vars(cls), f"{name} was expected to decide per call"
                 continue
-            assert cls.spends_credits is expected, name
+            assert cls.needs_confirmation is expected, name
 
 
 class TestReplayVisionLifecycleTools(BaseTest):
