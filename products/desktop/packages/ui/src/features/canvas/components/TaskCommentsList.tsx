@@ -477,12 +477,6 @@ export function TaskCommentsList({
       : (sourceOptions.find((option) => option.key === effectiveSourceFilter)
           ?.label ?? "All sources");
 
-  useEffect(() => {
-    if (sourceFilter !== effectiveSourceFilter) {
-      setSourceFilter(effectiveSourceFilter);
-    }
-  }, [effectiveSourceFilter, sourceFilter]);
-
   // Follow the artifact on screen until the reader picks a source themselves;
   // after that the filter is theirs, not the pane's.
   useEffect(() => {

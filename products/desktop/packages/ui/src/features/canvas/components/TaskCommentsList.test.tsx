@@ -612,6 +612,31 @@ describe("TaskCommentsList", () => {
     expect(emptySourceOption).toHaveTextContent("0");
   });
 
+  it("follows an active artifact once its run data arrives", () => {
+    mocks.runs = [];
+    mocks.activeArtifactId = "late";
+    const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);
+
+    expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
+      "All sources",
+    );
+
+    mocks.runs = [
+      run([
+        outputFile({
+          id: "late",
+          name: "late.md",
+          storage_path: "runs/1/late.md",
+        }),
+      ]),
+    ];
+    rerender(<TaskCommentsList task={task} timeline={[]} />);
+
+    expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
+      "late.md",
+    );
+  });
+
   it("resumes following the main pane after All sources is selected", () => {
     mocks.activeArtifactId = "b";
     const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);
