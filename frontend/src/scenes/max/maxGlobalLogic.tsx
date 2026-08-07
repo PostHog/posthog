@@ -226,11 +226,11 @@ export interface maxGlobalLogicActions {
     registerTool: (tool: ToolRegistration) => {
         tool: ToolRegistration
     }
-    setPhaiViewMode: (mode: PhaiViewMode) => {
-        mode: PhaiViewMode
-    }
     setConversationHistorySearchQuery: (query: string) => {
         query: string
+    }
+    setPhaiViewMode: (mode: PhaiViewMode) => {
+        mode: PhaiViewMode
     }
 }
 

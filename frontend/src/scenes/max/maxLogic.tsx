@@ -209,9 +209,6 @@ export interface maxLogicActions {
     deleteConversation: (id: string) => {
         id: string
     } // maxGlobalLogic
-    setConversationHistorySearchQuery: (query: string) => {
-        query: string
-    } // maxGlobalLogic
     loadConversationHistory: (
         _?:
             | {
@@ -236,6 +233,9 @@ export interface maxLogicActions {
     } // maxGlobalLogic
     prependOrReplaceConversation: (conversation: Conversation | ConversationDetail) => {
         conversation: Conversation | ConversationDetail
+    } // maxGlobalLogic
+    setConversationHistorySearchQuery: (query: string) => {
+        query: string
     } // maxGlobalLogic
     setChatDraftForTab: (
         tabId: string | undefined,
