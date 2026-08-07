@@ -94,21 +94,15 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                 showCustomRangeOptions={activeTab !== 'sentiment'}
             />
             {!hidePropertyFilters && (
-                <>
-                    <PropertyFilters
-                        propertyFilters={propertyFilters}
-                        taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
-                        onChange={setPropertyFilters}
-                        pageKey="llm-analytics"
-                    />
-                    <div className="flex-1" />
-                    <TestAccountFilterSwitch
-                        checked={shouldFilterTestAccounts}
-                        onChange={setShouldFilterTestAccounts}
-                    />
-                </>
+                <PropertyFilters
+                    propertyFilters={propertyFilters}
+                    taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                    onChange={setPropertyFilters}
+                    pageKey="llm-analytics"
+                />
             )}
-            {hidePropertyFilters && <div className="flex-1" />}
+            <div className="flex-1" />
+            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
             {activeTab === 'dashboard' && selectedDashboardId && (
                 <AccessControlAction
                     resourceType={AccessControlResourceType.LlmAnalytics}
@@ -562,7 +556,8 @@ function AIObservabilitySceneContent(): JSX.Element {
         label: 'Sentiment',
         content: (
             <>
-                <Filters />
+                {/* Sentiment filters evaluation results, not generations, so the generation property filters don't apply */}
+                <Filters hidePropertyFilters />
                 <AIObservabilitySentiment />
             </>
         ),
