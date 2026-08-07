@@ -65,7 +65,7 @@ describe('ticketUtils', () => {
     describe('composeTicketBody', () => {
         it.each([
             [
-                'note leads with summary attached under a bare delimiter, so the summary heading is not repeated',
+                'note leads with summary attached',
                 'It still repros in prod',
                 SUMMARY,
                 `It still repros in prod\n\n----\n${SUMMARY}`,
