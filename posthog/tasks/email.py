@@ -963,23 +963,23 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     # Failed views report the most recent FAILED job even if a later run recovered, so the
     # error and timestamp describe the failure rather than the recovery that would hide it.
     failed_jobs: dict[str, DataModelingJob] = {}
-    for job in (
+    for failed_job in (
         DataModelingJob.objects.filter(saved_query_id__in=failed_query_ids, status=DataModelingJob.Status.FAILED)
         .exclude(engine=DataModelingJobEngine.DUCKGRES)
         .order_by("saved_query_id", "-last_run_at")
         .distinct("saved_query_id")
     ):
-        failed_jobs[str(job.saved_query_id)] = job
+        failed_jobs[str(failed_job.saved_query_id)] = failed_job
 
     # Paused views don't retry; their latest job carries the last run time.
     paused_jobs: dict[str, DataModelingJob] = {}
-    for job in (
+    for paused_job in (
         DataModelingJob.objects.filter(saved_query_id__in=paused_query_ids)
         .exclude(engine=DataModelingJobEngine.DUCKGRES)
         .order_by("saved_query_id", "-last_run_at")
         .distinct("saved_query_id")
     ):
-        paused_jobs[str(job.saved_query_id)] = job
+        paused_jobs[str(paused_job.saved_query_id)] = paused_job
 
     views = []
     for qid, paused in [(qid, False) for qid in failed_query_ids] + [(qid, True) for qid in paused_query_ids]:
