@@ -167,7 +167,12 @@ export class DecompressionWorkerManager {
             }
 
             try {
-                this.worker!.postMessage(message, { transfer: [compressedData.buffer] })
+                // Don't transfer the buffer. Transferring detaches it on our side, so when the
+                // worker path fails, decompressWithFallback would hand decompressMainThread an
+                // empty, detached array and the WASM decode would throw. Structured-cloning the
+                // buffer keeps our copy intact for the fallback (and for accurate failure
+                // telemetry); the copy is cheap next to a recording that never loads.
+                this.worker!.postMessage(message)
             } catch (error) {
                 clearTimeout(timeout)
                 this.pendingRequests.delete(id)
