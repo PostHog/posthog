@@ -640,7 +640,7 @@ export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe("Exclusive upper bound of the window; clamped server-side to the scanner's sweep watermark."),
+        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
 })
 
 /**
@@ -662,7 +662,7 @@ export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.obj
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe("Exclusive upper bound of the window; clamped server-side to the scanner's sweep watermark."),
+        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
 })
 
 /**

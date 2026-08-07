@@ -1122,9 +1122,9 @@ export interface ReplayScannerBackfillApi {
     readonly status: BackfillStatusEnumApi
     /** Inclusive lower bound of the historical window to scan. */
     readonly window_start: string
-    /** Exclusive upper bound of the window; clamped to the scanner's sweep watermark at creation. */
+    /** Exclusive upper bound of the window; clamped to now at creation. */
     readonly window_end: string
-    /** Exact candidate enumeration at creation; the cost ceiling is total_count x credits_per_observation. */
+    /** Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation. */
     readonly total_count: number
     readonly dispatched_count: number
     /** Per-observation credit price frozen at creation from the snapshot model. */
@@ -1158,14 +1158,14 @@ export interface PaginatedReplayScannerBackfillListApi {
 export interface BackfillWindowApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to the scanner's sweep watermark. */
+    /** Exclusive upper bound of the window; clamped server-side to now. */
     window_end: string
 }
 
 export interface BackfillEstimateResponseApi {
-    /** Exact number of eligible sessions the backfill would dispatch, after sampling and quality filters. */
+    /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
     total_sessions: number
-    /** Exact cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. Actual spend can only come in under it (already-scanned, expired, or failed sessions are not billed). */
+    /** Cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. Actual spend lands under it: sessions already tried, expired recordings, and failures are not billed. */
     total_credits: number
     /** Per-observation credit price at the scanner's current model. */
     credits_per_observation: number
@@ -1178,7 +1178,7 @@ export interface BackfillEstimateResponseApi {
     projected_monthly_credits: number
     /** The window lower bound the estimate covered. */
     window_start: string
-    /** The window upper bound after clamping to the scanner's sweep watermark. */
+    /** The window upper bound after clamping to now. */
     window_end: string
 }
 
