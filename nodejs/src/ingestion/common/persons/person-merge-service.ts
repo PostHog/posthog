@@ -310,6 +310,11 @@ export class PersonMergeService {
                         this.context.distinctId
                     )
                     if (!(await tx.isPersonLive(existingPerson, this.context.distinctId))) {
+                        // Purge the stale cache entries so the promiseRetry attempt
+                        // re-fetches from Postgres instead of replaying the cached,
+                        // now-tombstoned person into the same failure.
+                        this.context.personStore.removeDistinctIdFromCache(teamId, otherPersonDistinctId)
+                        this.context.personStore.removeDistinctIdFromCache(teamId, mergeIntoDistinctId)
                         throw new TargetPersonNotFoundError(
                             'Person was deleted before the merge could add a distinct id'
                         )

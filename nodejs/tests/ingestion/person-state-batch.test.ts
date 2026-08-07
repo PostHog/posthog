@@ -3969,6 +3969,57 @@ describe('PersonState.processEvent()', () => {
             expect(targetDistinctIds).toEqual([firstUserDistinctId])
         })
 
+        it('tombstone-mode merge retries past a cached tombstoned person instead of failing', async () => {
+            const person = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+
+            const mergeService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: secondUserDistinctId,
+                    properties: { alias: firstUserDistinctId },
+                    uuid: new UUIDT().toString(),
+                },
+                hub,
+                personRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                undefined,
+                undefined,
+                true
+            )
+
+            // Warm the batch cache with the live person, then tombstone it and its
+            // mapping out-of-band: the cache is now stale about liveness, and only a
+            // purge-on-throw lets the retry see the fresh state.
+            await mergeService.getContext().personStore.fetchForUpdate(teamId, firstUserDistinctId)
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_person SET is_deleted = true, version = version + 1 WHERE team_id = $1 AND id = $2',
+                [teamId, person.id],
+                'testTombstonePerson'
+            )
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_persondistinctid SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND distinct_id = $2',
+                [teamId, firstUserDistinctId],
+                'testTombstoneDistinctId'
+            )
+
+            const result = await mergeService.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+
+            // The purged retry re-fetches, finds neither distinct id live, and
+            // recreates the person instead of exhausting retries on the cached row.
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            expect(result.person).toBeDefined()
+        })
+
         describe('SYNC mode with batch processing', () => {
             it('merges all distinct IDs when batch size is larger than total distinct IDs', async () => {
                 const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
