@@ -297,6 +297,16 @@ export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.
+ * @summary Sync a connected calendar now
+ */
+export const CalendarSyncSyncNowCreateBody = /* @__PURE__ */ zod
+    .object({
+        integration_id: zod.number().describe('Id of the google-calendar integration to sync.'),
+    })
+    .describe('Request body of the calendar sync-now trigger.')
+
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
 export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`

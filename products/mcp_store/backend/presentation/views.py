@@ -1,8 +1,10 @@
 import re
 import json
 import time
+import uuid
 import hashlib
 import secrets
+from collections import Counter
 from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, cast
@@ -554,24 +556,34 @@ def _installation_display_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
-def _unique_server_slug(name: str, url: str, used: set[str]) -> str:
-    """A short lowercase identifier callers use to namespace tool names.
-
-    Stable across requests because callers iterate installations in id order, and
-    unique within a response because two connections can legitimately share a
-    display name (for example a personal and a shared install of one server).
-    """
+def _server_slug_base(name: str, url: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     if not base:
         base = re.sub(r"[^a-z0-9]+", "-", (urlparse(url).hostname or "server").lower()).strip("-")
-    slug = base or "server"
-    if slug in used:
-        suffix = 2
-        while f"{slug}-{suffix}" in used:
-            suffix += 1
-        slug = f"{slug}-{suffix}"
-    used.add(slug)
-    return slug
+    return base or "server"
+
+
+def _disambiguated_server_slug(base: str, installation_id: uuid.UUID) -> str:
+    """Suffix a slug with a stable fragment of its installation id.
+
+    Two connections can legitimately share a display name — a personal and a shared
+    install of one server. Numbering them by position (`linear`, `linear-2`) would
+    reshuffle whenever one becomes unavailable, so a tool name an agent read from
+    `search` could resolve to a *different* connection on a later command. Keying the
+    suffix to the installation makes a namespaced name mean one connection for good.
+
+    The `--` separator keeps a disambiguated slug from ever colliding with a bare base:
+    `_server_slug_base` collapses every run of non-alphanumerics to a single `-`, so no
+    base can contain `--`. Without that, a connection named to match a generated slug
+    (say `linear--abcdef`) would produce that exact bare slug and route another user's
+    gateway call — resolved by first match — to the wrong server.
+
+    The fragment comes from the tail of the id, not the head: ids are UUIDv7, whose
+    leading hex is a millisecond timestamp shared by every install created in the same
+    ~4.6h window. Two same-named connections would collide on `hex[:6]`; the trailing
+    hex is the random component that actually tells them apart.
+    """
+    return f"{base}--{installation_id.hex[-6:]}"
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -654,7 +666,10 @@ class AvailableToolsResponseSerializer(serializers.Serializer):
 
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
-    scope_object_read_actions = ["list", "retrieve", "authorize", "list_tools"]
+    # An action in neither list derives no scope, and APIScopePermission rejects
+    # personal-API-key and OAuth callers outright for those — so an agent surface would
+    # get a 403 that session-authenticated tests never see.
+    scope_object_read_actions = ["list", "retrieve", "authorize", "list_tools", "available_tools"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -1965,7 +1980,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             .order_by("id")
         )
 
-        used_slugs: set[str] = set()
+        # Decide slug ambiguity over every connection the caller can address, ignoring
+        # whether each is reachable today. Availability changes constantly — a token
+        # expires, an admin flips a server off — and if it fed this decision, a
+        # namespaced tool name could point at a different connection after a refresh.
+        # This set only moves when someone adds or removes a connection.
+        namespace_rows = (
+            MCPServerInstallation.objects.filter(team_id=self.team_id)
+            .filter(Q(user=user) | Q(scope="shared"))
+            .select_related("template")
+        )
+        base_slug_counts: Counter[str] = Counter(
+            _server_slug_base(_installation_display_name(row), row.url) for row in namespace_rows
+        )
+
         servers: list[dict[str, Any]] = []
         for installation in installations:
             # The same credential check `call_tool` runs, so the list can never
@@ -1995,11 +2023,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 continue
 
             name = _installation_display_name(installation)
+            base = _server_slug_base(name, installation.url)
             servers.append(
                 {
                     "installation_id": installation.id,
                     "name": name,
-                    "slug": _unique_server_slug(name, installation.url, used_slugs),
+                    "slug": _disambiguated_server_slug(base, installation.id) if base_slug_counts[base] > 1 else base,
                     "tools": sorted(tools, key=lambda t: t["name"]),
                 }
             )

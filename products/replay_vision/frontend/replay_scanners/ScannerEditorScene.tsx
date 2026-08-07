@@ -232,10 +232,14 @@ function ConfigureStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <LemonField name="name" label="Name">
-                <LemonInput placeholder="e.g. Confused checkout flow" />
+                <LemonInput placeholder="e.g. Checkout friction" />
             </LemonField>
 
-            <LemonField name="description" label="Description (optional)">
+            <LemonField
+                name="description"
+                label="Description (optional)"
+                help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
+            >
                 <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
             </LemonField>
 
