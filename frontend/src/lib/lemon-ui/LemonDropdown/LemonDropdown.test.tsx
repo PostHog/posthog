@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { LemonDropdown } from './LemonDropdown'
 
@@ -9,6 +10,25 @@ describe('LemonDropdown', () => {
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+    })
+
+    // Regression: pressing the trigger registers as a floating-ui outside press unless the trigger is
+    // the reference, so an open click-triggered dropdown used to dismiss itself immediately (every
+    // `More` ellipsis menu looked dead). The trigger click must open the menu and leave it open, then
+    // a second click must close it.
+    it('opens on a trigger click, stays open, and closes on a second click', async () => {
+        render(
+            <LemonDropdown overlay={<div>Menu</div>}>
+                <button>Open</button>
+            </LemonDropdown>
+        )
+        const trigger = screen.getByText('Open')
+
+        await userEvent.click(trigger)
+        expect(screen.getByText('Menu')).toBeInTheDocument()
+
+        await userEvent.click(trigger)
+        await waitFor(() => expect(screen.queryByText('Menu')).not.toBeInTheDocument())
     })
 
     it('delays opening a hover dropdown when configured', () => {
