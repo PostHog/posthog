@@ -8,9 +8,7 @@ export const template: HogFunctionTemplate = {
     name: 'Intercom',
     description: 'Update contacts in Intercom',
     icon_url: '/static/services/intercom.png',
-    category: [
-        'Customer Success',
-    ],
+    category: ['Customer Success'],
     code_language: 'hog',
     code: `
 if (empty(inputs.email)) {
@@ -126,7 +124,8 @@ if (res.status >= 400) {
             key: 'include_all_properties',
             type: 'boolean',
             label: 'Include all properties as attributes',
-            description: 'If set, all person properties will be included. Individual attributes can be overridden below.',
+            description:
+                'If set, all person properties will be included. Individual attributes can be overridden below.',
             default: false,
             secret: false,
             required: true,
@@ -137,7 +136,7 @@ if (res.status >= 400) {
             label: 'Default property mapping',
             description: 'Map of Intercom properties and their values.',
             default: {
-                name: '{f\'{person.properties.first_name} {person.properties.last_name}\' == \' \' ? null : f\'{person.properties.first_name} {person.properties.last_name}\'}',
+                name: "{f'{person.properties.first_name} {person.properties.last_name}' == ' ' ? null : f'{person.properties.first_name} {person.properties.last_name}'}",
                 phone: '{person.properties.phone}',
                 last_seen_at: '{toUnixTimestamp(event.timestamp)}',
             },
@@ -148,7 +147,8 @@ if (res.status >= 400) {
             key: 'customProperties',
             type: 'dictionary',
             label: 'Custom property mapping',
-            description: 'Map of custom properties and their values. Check out this page for more details: https://www.intercom.com/help/en/articles/179-create-and-track-custom-data-attributes-cdas',
+            description:
+                'Map of custom properties and their values. Check out this page for more details: https://www.intercom.com/help/en/articles/179-create-and-track-custom-data-attributes-cdas',
             default: {},
             secret: false,
             required: false,

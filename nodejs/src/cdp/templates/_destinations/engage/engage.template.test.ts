@@ -1,5 +1,6 @@
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './engage.template'
+
 const createInputs = (overrides: Record<string, any> = {}): Record<string, any> => ({
     public_key: 'PUBLIC_KEY',
     private_key: 'PRIVATE_KEY',

@@ -65,7 +65,6 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
             label: 'API token',
             secret: true,
             required: true,
-            hint: 'Enter your Zendesk API Token',
         },
         {
             key: 'email',
@@ -74,7 +73,6 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
             default: '{person.properties.email}',
             secret: false,
             required: true,
-            hint: 'The email of the user you want to create or update.',
         },
         {
             key: 'name',
@@ -83,7 +81,6 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
             default: '{person.properties.name}',
             secret: false,
             required: true,
-            hint: 'The name of the user you want to create or update.',
         },
         {
             key: 'attributes',

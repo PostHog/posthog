@@ -58,7 +58,7 @@ Consequences that shape the plan:
 - **Bytecode compilation stays in Python either way.** Node ships the `code` string only;
   `HogFunctionTemplate.save()` calls `compile_hog`. Nothing about that changes.
 - **`sha` is content-derived**, from `{id, code, code_language, inputs_schema, status, mapping_templates,
-  filters, icon_url, masking}`. Change any of those and the sync writes a new row rather than updating.
+filters, icon_url, masking}`. Change any of those and the sync writes a new row rather than updating.
 
 ## Scope
 
@@ -88,6 +88,13 @@ Treat these as the acceptance criteria for every PR in phases 1 and 2.
 
 A template with no `mapping_templates` (all 42 destinations) that satisfies 1–4 will produce an identical `sha`
 and not even write a new DB row.
+
+One exception to 3 is allowed.
+Python typed `inputs_schema` as `list[dict]`, so a template could carry a key nothing reads, and Node's `HogFunctionInputSchemaType` is closed.
+`template-zendesk` carried `hint` on three fields — absent from `InputsSchemaItemSerializer`, from the frontend, and from the generated schemas, so it rendered nowhere.
+Dropping it changes that template's `sha` but nothing a user sees.
+Those three fields have help text that has never displayed; converting them to `description` would fix that, but it is a visible change and belongs in its own PR.
+`cdp_template_to_ts.py` warns when it meets another such key.
 
 ## Phase 0 — prerequisites
 
@@ -220,7 +227,7 @@ cd nodejs && npx jest src/cdp/templates/_destinations/<vendor>
    Two harness traps to expect:
 
    - **Schema defaults containing single quotes do not render.** `compileInputs` in `test/test-helpers.ts`
-     compiles each input as `` compileHog(`return f'${value}'`) ``, and an embedded `'` terminates that f-string
+     compiles each input as ``compileHog(`return f'${value}'`)``, and an embedded `'` terminates that f-string
      early. Production compiles inputs through `parse_string_template` instead, so the default is fine in
      production and only misrenders under test. Pass the input explicitly rather than snapshotting the broken
      value. `template-slack`'s default `text` hits this.
@@ -292,15 +299,15 @@ Only after phases 1 and 2 are complete and the parity check shows an empty Pytho
 
 **Keep** — general hog function machinery, not template-owned:
 
-| File | Why it stays |
-| --- | --- |
-| `posthog/cdp/templates/hog_function_template.py` | `HogFunctionTemplateDC` + `sync_template_to_db`, used by the 25 warehouse-source webhook templates |
-| `posthog/cdp/validation.py` | `compile_hog`, input/filter serializers — used by hog functions, workflows, AI observability |
-| `posthog/cdp/filters.py` | filter → HogQL → bytecode, used on live `HogFunction` rows |
-| `posthog/cdp/site_functions.py` | transpiles saved HogFunctions; reads the `HogFunction` row, never a template |
-| `posthog/cdp/legacy_plugins.py`, `posthog/cdp/migrations.py` | resolve `plugin-*` templates from the DB |
-| `products/cdp/backend/models/hog_function_template.py` | the model, the sha, the bytecode compilation |
-| `products/cdp/backend/api/hog_function_template.py` | the viewsets the frontend reads |
+| File                                                         | Why it stays                                                                                       |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `posthog/cdp/templates/hog_function_template.py`             | `HogFunctionTemplateDC` + `sync_template_to_db`, used by the 25 warehouse-source webhook templates |
+| `posthog/cdp/validation.py`                                  | `compile_hog`, input/filter serializers — used by hog functions, workflows, AI observability       |
+| `posthog/cdp/filters.py`                                     | filter → HogQL → bytecode, used on live `HogFunction` rows                                         |
+| `posthog/cdp/site_functions.py`                              | transpiles saved HogFunctions; reads the `HogFunction` row, never a template                       |
+| `posthog/cdp/legacy_plugins.py`, `posthog/cdp/migrations.py` | resolve `plugin-*` templates from the DB                                                           |
+| `products/cdp/backend/models/hog_function_template.py`       | the model, the sha, the bytecode compilation                                                       |
+| `products/cdp/backend/api/hog_function_template.py`          | the viewsets the frontend reads                                                                    |
 
 **Check** that `posthog/test/playwright_setup_functions.py` still seeds the template rows the E2E tests need —
 Playwright CI never runs the sync command, so it creates `HogFunctionTemplate` rows directly and will not
@@ -320,65 +327,65 @@ notice a template that stopped existing in Python.
 
 ### Phase 1 — destinations (42)
 
-| ✓ | sha? | Template | Python source | Status | Test LOC | Migrator |
-| --- | --- | --- | --- | --- | --- | --- |
-| ✅ | ✅ | `template-customerio` | `customerio/template_customerio.py` | stable | 240 | yes |
-| ✅ | ✅ | `template-slack` | `slack/template_slack.py` | stable | 62 | — |
-| ✅ | ✅ | `template-activecampaign` | `activecampaign/template_activecampaign.py` | beta | 51 | — |
-| ✅ | ✅ | `template-airtable` | `airtable/template_airtable.py` | beta | 61 | — |
-| ✅ | ✅ | `template-attio` | `attio/template_attio.py` | beta | 62 | — |
-| ☐ | ☐ | `template-avo` | `avo/template_avo.py` | beta | 231 | yes |
-| ✅ | ✅ | `template-aws-kinesis` | `aws_kinesis/template_aws_kinesis.py` | beta | 44 | — |
-| ✅ | ✅ | `template-braze` | `braze/template_braze.py` | beta | 47 | — |
-| ✅ | ✅ | `template-brevo` | `brevo/template_brevo.py` | stable | 41 | — |
-| ✅ | ✅ | `template-clearbit` | `clearbit/template_clearbit.py` | beta | 91 | — |
-| ✅ | ✅ | `template-discord` | `discord/template_discord.py` | stable | 64 | — |
-| ✅ | ✅ | `template-engage-so` | `engage/template_engage.py` | beta | 32 | yes |
-| ✅ | ✅ | `template-gleap` | `gleap/template_gleap.py` | beta | 77 | — |
-| ✅ | ✅ | `template-google-cloud-storage` | `google_cloud_storage/template_google_cloud_storage.py` | beta | 107 | yes |
-| ✅ | ✅ | `template-google-pubsub` | `google_pubsub/template_google_pubsub.py` | beta | 119 | yes |
-| ☐ | ☐ | `template-hubspot` | `hubspot/template_hubspot.py` | stable | 443 | yes |
-| ☐ | ☐ | `template-hubspot-event` | `hubspot/template_hubspot.py` | stable | ↑ | yes |
-| ✅ | ✅ | `template-intercom` | `intercom/template_intercom.py` | stable | 390 | — |
-| ✅ | ✅ | `template-intercom-event` | `intercom/template_intercom.py` | stable | ↑ | — |
-| ✅ | ✅ | `template-june` | `june/template_june.py` | stable | 330 | — |
-| ☐ | ☐ | `template-klaviyo-event` | `klaviyo/template_klaviyo.py` | stable | 197 | — |
-| ☐ | ☐ | `template-klaviyo-user` | `klaviyo/template_klaviyo.py` | stable | ↑ | — |
-| ✅ | ✅ | `template-knock` | `knock/template_knock.py` | beta | 108 | — |
-| ✅ | ✅ | `template-kudosity-sms` | `kudosity/template_kudosity.py` | beta | 117 | — |
-| ☐ | ☐ | `template-loops` | `loops/template_loops.py` | stable | 175 | yes |
-| ☐ | ☐ | `template-loops-event` | `loops/template_loops.py` | stable | ↑ | yes |
-| ☐ | ☐ | `template-mailgun-send-email` | `mailgun/template_mailgun.py` | beta | 103 | — |
-| ☐ | ☐ | `template-mailjet-create-contact` | `mailjet/template_mailjet.py` | beta | 50 | — |
-| ☐ | ☐ | `template-mailjet-update-contact-list` | `mailjet/template_mailjet.py` | beta | ↑ | — |
-| ✅ | ✅ | `template-make` | `make/template_make.py` | stable | 63 | — |
-| ☐ | ☐ | `template-meta-ads` | `meta_ads/template_meta_ads.py` | alpha | 169 | — |
-| ✅ | ✅ | `template-microsoft-teams` | `microsoft_teams/template_microsoft_teams.py` | stable | 98 | — |
-| ✅ | ✅ | `template-onesignal` | `onesignal/template_onesignal.py` | beta | 64 | — |
-| ☐ | ☐ | `template-posthog-replicator` | `posthog/template_posthog.py` | stable | 110 | yes |
-| ☐ | ☐ | `template-rudderstack` | `rudderstack/template_rudderstack.py` | beta | 133 | yes |
-| ☐ | ☐ | `template-salesforce-create` | `salesforce/template_salesforce.py` | beta | 162 | dead |
-| ☐ | ☐ | `template-salesforce-update` | `salesforce/template_salesforce.py` | beta | ↑ | dead |
-| ☐ | ☐ | `template-sendgrid` | `sendgrid/template_sendgrid.py` | beta | 180 | yes |
-| ☐ | ☐ | `template-userlist` | `userlist/template_userlist.py` | beta | 290 | — |
-| ✅ | ✅ | `template-zapier` | `zapier/template_zapier.py` | stable | 59 | — (needs 0.3) |
-| ✅ | ✅ | `template-zendesk` | `zendesk/template_zendesk.py` | beta | 58 | — |
-| ☐ | ☐ | `template-mailchimp` | `mailchimp/template_mailchimp.py` | deprecated | 103 | — (delete instead?) |
+| ✓   | sha? | Template                               | Python source                                           | Status     | Test LOC | Migrator            |
+| --- | ---- | -------------------------------------- | ------------------------------------------------------- | ---------- | -------- | ------------------- |
+| ✅  | ✅   | `template-customerio`                  | `customerio/template_customerio.py`                     | stable     | 240      | yes                 |
+| ✅  | ✅   | `template-slack`                       | `slack/template_slack.py`                               | stable     | 62       | —                   |
+| ✅  | ✅   | `template-activecampaign`              | `activecampaign/template_activecampaign.py`             | beta       | 51       | —                   |
+| ✅  | ✅   | `template-airtable`                    | `airtable/template_airtable.py`                         | beta       | 61       | —                   |
+| ✅  | ✅   | `template-attio`                       | `attio/template_attio.py`                               | beta       | 62       | —                   |
+| ☐   | ☐    | `template-avo`                         | `avo/template_avo.py`                                   | beta       | 231      | yes                 |
+| ✅  | ✅   | `template-aws-kinesis`                 | `aws_kinesis/template_aws_kinesis.py`                   | beta       | 44       | —                   |
+| ✅  | ✅   | `template-braze`                       | `braze/template_braze.py`                               | beta       | 47       | —                   |
+| ✅  | ✅   | `template-brevo`                       | `brevo/template_brevo.py`                               | stable     | 41       | —                   |
+| ✅  | ✅   | `template-clearbit`                    | `clearbit/template_clearbit.py`                         | beta       | 91       | —                   |
+| ✅  | ✅   | `template-discord`                     | `discord/template_discord.py`                           | stable     | 64       | —                   |
+| ✅  | ✅   | `template-engage-so`                   | `engage/template_engage.py`                             | beta       | 32       | yes                 |
+| ✅  | ✅   | `template-gleap`                       | `gleap/template_gleap.py`                               | beta       | 77       | —                   |
+| ✅  | ✅   | `template-google-cloud-storage`        | `google_cloud_storage/template_google_cloud_storage.py` | beta       | 107      | yes                 |
+| ✅  | ✅   | `template-google-pubsub`               | `google_pubsub/template_google_pubsub.py`               | beta       | 119      | yes                 |
+| ☐   | ☐    | `template-hubspot`                     | `hubspot/template_hubspot.py`                           | stable     | 443      | yes                 |
+| ☐   | ☐    | `template-hubspot-event`               | `hubspot/template_hubspot.py`                           | stable     | ↑        | yes                 |
+| ✅  | ✅   | `template-intercom`                    | `intercom/template_intercom.py`                         | stable     | 390      | —                   |
+| ✅  | ✅   | `template-intercom-event`              | `intercom/template_intercom.py`                         | stable     | ↑        | —                   |
+| ✅  | ✅   | `template-june`                        | `june/template_june.py`                                 | stable     | 330      | —                   |
+| ☐   | ☐    | `template-klaviyo-event`               | `klaviyo/template_klaviyo.py`                           | stable     | 197      | —                   |
+| ☐   | ☐    | `template-klaviyo-user`                | `klaviyo/template_klaviyo.py`                           | stable     | ↑        | —                   |
+| ✅  | ✅   | `template-knock`                       | `knock/template_knock.py`                               | beta       | 108      | —                   |
+| ✅  | ✅   | `template-kudosity-sms`                | `kudosity/template_kudosity.py`                         | beta       | 117      | —                   |
+| ☐   | ☐    | `template-loops`                       | `loops/template_loops.py`                               | stable     | 175      | yes                 |
+| ☐   | ☐    | `template-loops-event`                 | `loops/template_loops.py`                               | stable     | ↑        | yes                 |
+| ☐   | ☐    | `template-mailgun-send-email`          | `mailgun/template_mailgun.py`                           | beta       | 103      | —                   |
+| ☐   | ☐    | `template-mailjet-create-contact`      | `mailjet/template_mailjet.py`                           | beta       | 50       | —                   |
+| ☐   | ☐    | `template-mailjet-update-contact-list` | `mailjet/template_mailjet.py`                           | beta       | ↑        | —                   |
+| ✅  | ✅   | `template-make`                        | `make/template_make.py`                                 | stable     | 63       | —                   |
+| ☐   | ☐    | `template-meta-ads`                    | `meta_ads/template_meta_ads.py`                         | alpha      | 169      | —                   |
+| ✅  | ✅   | `template-microsoft-teams`             | `microsoft_teams/template_microsoft_teams.py`           | stable     | 98       | —                   |
+| ✅  | ✅   | `template-onesignal`                   | `onesignal/template_onesignal.py`                       | beta       | 64       | —                   |
+| ☐   | ☐    | `template-posthog-replicator`          | `posthog/template_posthog.py`                           | stable     | 110      | yes                 |
+| ☐   | ☐    | `template-rudderstack`                 | `rudderstack/template_rudderstack.py`                   | beta       | 133      | yes                 |
+| ☐   | ☐    | `template-salesforce-create`           | `salesforce/template_salesforce.py`                     | beta       | 162      | dead                |
+| ☐   | ☐    | `template-salesforce-update`           | `salesforce/template_salesforce.py`                     | beta       | ↑        | dead                |
+| ☐   | ☐    | `template-sendgrid`                    | `sendgrid/template_sendgrid.py`                         | beta       | 180      | yes                 |
+| ☐   | ☐    | `template-userlist`                    | `userlist/template_userlist.py`                         | beta       | 290      | —                   |
+| ✅  | ✅   | `template-zapier`                      | `zapier/template_zapier.py`                             | stable     | 59       | — (needs 0.3)       |
+| ✅  | ✅   | `template-zendesk`                     | `zendesk/template_zendesk.py`                           | beta       | 58       | —                   |
+| ☐   | ☐    | `template-mailchimp`                   | `mailchimp/template_mailchimp.py`                       | deprecated | 103      | — (delete instead?) |
 
 ### Phase 2 — site templates (10), blocked on 0.2
 
-| ✓ | sha? | Template | Python source | Type | Test LOC | Mappings |
-| --- | --- | --- | --- | --- | --- | --- |
-| ☐ | ☐ | `template-reddit-pixel` | `reddit/template_reddit_pixel.py` | site_destination | 232 | yes |
-| ☐ | ☐ | `template-snapchat-pixel` | `snapchat_ads/template_pixel.py` | site_destination | none | yes |
-| ☐ | ☐ | `template-tiktok-pixel` | `tiktok_ads/template_tiktok_pixel.py` | site_destination | none | yes |
-| ☐ | ☐ | `template-blank-site-destination` | `_internal/template_blank.py` | site_destination | none | yes |
-| ☐ | ☐ | `template-blank-site-app` | `_internal/template_blank.py` | site_app | none | — |
-| ☐ | ☐ | `template-notification-bar` | `_siteapps/template_notification_bar.py` | site_app | none | — |
-| ☐ | ☐ | `template-pineapple-mode` | `_siteapps/template_pineapple_mode.py` | site_app | none | — |
-| ☐ | ☐ | `template-early-access-features` | `_siteapps/template_early_access_features.py` | site_app | none | — |
-| ☐ | ☐ | `template-hogdesk` | `_siteapps/template_hogdesk.py` | site_app | none | — |
-| ☐ | ☐ | `template-debug-posthog-js` | `_siteapps/template_debug_posthog.py` | site_app | none | — |
+| ✓   | sha? | Template                          | Python source                                 | Type             | Test LOC | Mappings |
+| --- | ---- | --------------------------------- | --------------------------------------------- | ---------------- | -------- | -------- |
+| ☐   | ☐    | `template-reddit-pixel`           | `reddit/template_reddit_pixel.py`             | site_destination | 232      | yes      |
+| ☐   | ☐    | `template-snapchat-pixel`         | `snapchat_ads/template_pixel.py`              | site_destination | none     | yes      |
+| ☐   | ☐    | `template-tiktok-pixel`           | `tiktok_ads/template_tiktok_pixel.py`         | site_destination | none     | yes      |
+| ☐   | ☐    | `template-blank-site-destination` | `_internal/template_blank.py`                 | site_destination | none     | yes      |
+| ☐   | ☐    | `template-blank-site-app`         | `_internal/template_blank.py`                 | site_app         | none     | —        |
+| ☐   | ☐    | `template-notification-bar`       | `_siteapps/template_notification_bar.py`      | site_app         | none     | —        |
+| ☐   | ☐    | `template-pineapple-mode`         | `_siteapps/template_pineapple_mode.py`        | site_app         | none     | —        |
+| ☐   | ☐    | `template-early-access-features`  | `_siteapps/template_early_access_features.py` | site_app         | none     | —        |
+| ☐   | ☐    | `template-hogdesk`                | `_siteapps/template_hogdesk.py`               | site_app         | none     | —        |
+| ☐   | ☐    | `template-debug-posthog-js`       | `_siteapps/template_debug_posthog.py`         | site_app         | none     | —        |
 
 ### Phase 3 — teardown
 

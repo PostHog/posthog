@@ -33,6 +33,28 @@ KEY_ORDER = [
 
 MAPPING_KEY_ORDER = ["name", "include_by_default", "use_all_events_by_default", "filters", "inputs", "inputs_schema"]
 
+# Python typed inputs_schema as list[dict], so templates could carry keys nothing reads.
+# Node's HogFunctionInputSchemaType is closed, so flag them here rather than at tsc time.
+INPUT_SCHEMA_KEYS = {
+    "type",
+    "key",
+    "label",
+    "choices",
+    "searchable",
+    "required",
+    "default",
+    "secret",
+    "hidden",
+    "description",
+    "integration",
+    "integration_key",
+    "requires_field",
+    "integration_field",
+    "platform",
+    "requiredScopes",
+    "templating",
+}
+
 
 class Unsupported(Exception):
     pass
@@ -141,7 +163,24 @@ def ts_value(v: Any, indent: int = 4) -> str:
     raise Unsupported(f"value of type {type(v)}")
 
 
+def check_input_schema_keys(fields: dict[str, Any]) -> None:
+    unknown: set[str] = set()
+    for item in fields.get("inputs_schema") or []:
+        if isinstance(item, dict):
+            unknown |= set(item) - INPUT_SCHEMA_KEYS
+    for mapping in fields.get("mapping_templates") or []:
+        for item in mapping.get("inputs_schema") or []:
+            if isinstance(item, dict):
+                unknown |= set(item) - INPUT_SCHEMA_KEYS
+    if unknown:
+        sys.stderr.write(
+            f"warning: {fields.get('id')} has inputs_schema keys Node's type does not accept: "
+            f"{sorted(unknown)}. Check whether anything reads them before dropping.\n"
+        )
+
+
 def render(fields: dict[str, Any]) -> str:
+    check_input_schema_keys(fields)
     lines = ["import { HogFunctionTemplate } from '~/cdp/types'", "", "export const template: HogFunctionTemplate = {"]
     for key in KEY_ORDER:
         if key not in fields:

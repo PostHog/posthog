@@ -8,9 +8,7 @@ export const template: HogFunctionTemplate = {
     name: 'Intercom',
     description: 'Send events to Intercom',
     icon_url: '/static/services/intercom.png',
-    category: [
-        'Customer Success',
-    ],
+    category: ['Customer Success'],
     code_language: 'hog',
     code: `
 if (empty(inputs.email)) {
@@ -129,7 +127,8 @@ if (res.status >= 400) {
             key: 'include_all_properties',
             type: 'boolean',
             label: 'Include all properties as attributes',
-            description: 'If set, all person properties will be included. Individual attributes can be overridden below.',
+            description:
+                'If set, all person properties will be included. Individual attributes can be overridden below.',
             default: false,
             secret: false,
             required: true,
@@ -138,7 +137,8 @@ if (res.status >= 400) {
             key: 'properties',
             type: 'dictionary',
             label: 'Property mapping',
-            description: 'Map of Intercom properties and their values. You can use the filters section to filter out unwanted events.',
+            description:
+                'Map of Intercom properties and their values. You can use the filters section to filter out unwanted events.',
             default: {
                 revenue: '{event.properties.price}',
                 currency: '{event.properties.currency}',

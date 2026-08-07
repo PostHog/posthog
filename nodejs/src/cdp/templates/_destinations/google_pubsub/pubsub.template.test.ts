@@ -1,5 +1,6 @@
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './pubsub.template'
+
 const createInputs = (overrides: Record<string, any> = {}): Record<string, any> => ({
     auth: { access_token: 'ACCESS_TOKEN' },
     topicId: 'projects/posthog/topics/events',
