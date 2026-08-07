@@ -431,6 +431,7 @@ class AssistantTool(StrEnum):
     RETRY_REPLAY_VISION_OBSERVATION = "retry_replay_vision_observation"
     GET_REPLAY_VISION_QUOTA = "get_replay_vision_quota"
     CREATE_REPLAY_VISION_SCANNER = "create_replay_vision_scanner"
+    UPDATE_REPLAY_VISION_SCANNER = "update_replay_vision_scanner"
     CREATE_REPLAY_VISION_ACTION = "create_replay_vision_action"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"

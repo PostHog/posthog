@@ -838,6 +838,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating the scanner...'
         },
     },
+    update_replay_vision_scanner: {
+        name: 'Update a scanner',
+        description: 'Update a scanner: turn it on or off, rename it, reword it, or change its sampling',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Updated the scanner'
+            }
+            return 'Updating the scanner...'
+        },
+    },
     create_replay_vision_action: {
         name: 'Summarize a scanner',
         description: 'Summarize a scanner on a recurring schedule',

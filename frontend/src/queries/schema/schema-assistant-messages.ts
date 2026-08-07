@@ -524,6 +524,7 @@ export type AssistantTool =
     | 'retry_replay_vision_observation'
     | 'get_replay_vision_quota'
     | 'create_replay_vision_scanner'
+    | 'update_replay_vision_scanner'
     | 'create_replay_vision_action'
     | 'upsert_account'
     | 'upsert_account_notebook'

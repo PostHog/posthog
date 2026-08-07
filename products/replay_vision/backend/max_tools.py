@@ -1336,3 +1336,171 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
             "'Summaries and alerts' tab, and you can add Slack or webhook delivery there.",
             {"vision_action_id": str(action.id)},
         )
+
+
+def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: float) -> str:
+    """Projected monthly cost of running a scanner, which is what enabling actually commits to.
+
+    A per-recording price understates a schedule. The estimate is the same number the UI shows before
+    saving; when it hasn't been computed yet, say so rather than imply a small one-off charge.
+    """
+    observations = scanner.estimated_monthly_observations
+    if observations is None:
+        return "Its monthly volume hasn't been estimated yet, so the cost isn't known up front."
+    # The stored estimate is for the scanner's saved rate; rescale when the rate is changing.
+    if scanner.sampling_rate:
+        observations = round(observations * sampling_rate / scanner.sampling_rate)
+    cost = observation_credits_for_model(scanner.model) * observations
+    remaining = compute_quota_snapshot(team.organization_id).remaining
+    projected = f"about {observations} recordings a month, {cost} credits (${cost / CREDITS_PER_DOLLAR:,.2f})"
+    if remaining is None:
+        return f"That's {projected}. This project has no monthly credit limit set."
+    return f"That's {projected}, against the {remaining} you have left this month."
+
+
+UPDATE_SCANNER_TOOL_DESCRIPTION = """
+Use this tool to change a saved Replay Vision scanner: turn it on or off, rename it, reword its prompt,
+or change how much of the matching traffic it samples.
+
+# When to use
+- The user wants to enable a scanner they created earlier, or pause one that's running
+- The user wants to reword what a scanner looks for, or dial its sampling up or down
+
+# Cost
+Enabling a scanner starts a sweep that runs every 5 minutes and spends credits on each matching
+recording, so enabling asks the user to confirm and shows the projected monthly spend. Raising the
+sampling rate on a scanner that is already running does the same, because it widens what gets scanned.
+Turning a scanner off, renaming it, or rewording its prompt spends nothing and doesn't ask.
+
+Rewording the prompt does not rescan anything already observed; it applies to recordings scanned from
+then on.
+"""
+
+
+class UpdateScannerArgs(BaseModel):
+    scanner_id: str = Field(description="The scanner to change.")
+    enabled: bool | None = Field(
+        default=None,
+        description="True to start its schedule, false to pause it. Leave unset to keep it as it is.",
+    )
+    name: str | None = Field(default=None, description="New name. Leave unset to keep the current one.")
+    prompt: str | None = Field(
+        default=None,
+        description="New instruction for the scanner. Leave unset to keep the current one.",
+    )
+    sampling_rate: float | None = Field(
+        default=None,
+        description="New fraction of matching recordings to scan, 0 to 1. Leave unset to keep the current one.",
+    )
+
+
+class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
+    name: str = "update_replay_vision_scanner"
+    description: str = UPDATE_SCANNER_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = UpdateScannerArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("replay_scanner", "editor"), ("session_recording", "viewer")]
+
+    async def is_dangerous_operation(
+        self, scanner_id: str = "", enabled: bool | None = None, sampling_rate: float | None = None, **kwargs
+    ) -> bool:
+        # Argument-dependent, so the mixin's `spends_credits` doesn't decide it. Only two edits commit
+        # the project to spend: starting the schedule, and widening what a running schedule scans.
+        # Pausing, renaming and rewording all cost nothing.
+        return await self._starts_or_widens_spending(scanner_id, enabled, sampling_rate)
+
+    @database_sync_to_async
+    def _starts_or_widens_spending(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None) -> bool:
+        if enabled is True:
+            return True
+        scanner = self._editable_scanner(scanner_id)
+        if scanner is None or enabled is False:
+            return False
+        return sampling_rate is not None and scanner.enabled and sampling_rate > scanner.sampling_rate
+
+    def _editable_scanner(self, scanner_id: str) -> ReplayScanner | None:
+        """A saved scanner this user may change. Configured only, like the scan tool: an inline scan's
+        scanner is a throwaway the reaper may collect."""
+        if not is_uuid(scanner_id):
+            return None
+        scanner = ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first()
+        if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
+            return None
+        return scanner
+
+    async def format_dangerous_operation_preview(
+        self, scanner_id: str = "", enabled: bool | None = None, sampling_rate: float | None = None, **kwargs
+    ) -> str:
+        return await self._preview(scanner_id, enabled, sampling_rate)
+
+    @database_sync_to_async
+    def _preview(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None) -> str:
+        scanner = self._editable_scanner(scanner_id)
+        if scanner is None:
+            return f"Update scanner {scanner_id}"
+        rate = sampling_rate if sampling_rate is not None else scanner.sampling_rate
+        action = "**Turn on**" if enabled is True else "**Widen**"
+        return (
+            f"{action} scanner '{scanner.name}'. It sweeps every 5 minutes, scanning "
+            f"{rate:.0%} of matching recordings, and keeps spending until it's turned off. "
+            f"{_monthly_spend_sentence(self._team, scanner, rate)}"
+        )
+
+    async def _arun_impl(
+        self,
+        scanner_id: str,
+        enabled: bool | None = None,
+        name: str | None = None,
+        prompt: str | None = None,
+        sampling_rate: float | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        is_on, consent = await self._gates()
+        if not is_on:
+            return self._not_enabled()
+        # The serializer refuses to enable without consent, so answer rather than raise.
+        if enabled is True and not consent:
+            return self._no_ai_consent()
+        return await self._update(scanner_id, enabled, name, prompt, sampling_rate)
+
+    @database_sync_to_async
+    def _update(
+        self,
+        scanner_id: str,
+        enabled: bool | None,
+        name: str | None,
+        prompt: str | None,
+        sampling_rate: float | None,
+    ) -> tuple[str, dict[str, Any]]:
+        scanner = self._editable_scanner(scanner_id)
+        if scanner is None:
+            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        data: dict[str, Any] = {}
+        if enabled is not None:
+            data["enabled"] = enabled
+        if name is not None:
+            data["name"] = name.strip()
+        if sampling_rate is not None:
+            data["sampling_rate"] = sampling_rate
+        if prompt is not None:
+            # Merged, not replaced: the rest of the config (tags, scale, length) belongs to its type.
+            data["scanner_config"] = {**scanner.scanner_config, "prompt": prompt.strip()}
+        if not data:
+            return "Nothing to change. Say what you want to update.", {"error": "no_changes"}
+        # Through the serializer so the sampling floor, the unique-name race, the estimate refresh on
+        # enable and the version bump all hold, exactly as they do for a UI edit.
+        serializer = ReplayScannerSerializer(
+            scanner,
+            data=data,
+            partial=True,
+            context={"get_team": lambda: self._team, "user": self._user},
+        )
+        if not serializer.is_valid():
+            return _first_error(serializer.errors), {"error": "invalid_config"}
+        updated = serializer.save()
+        state = "It's running now." if updated.enabled else "It's turned off, so it isn't scanning or spending."
+        return f"Updated the scanner. {state}", {
+            "scanner_id": str(updated.id),
+            "enabled": updated.enabled,
+            "changed": sorted(data),
+        }

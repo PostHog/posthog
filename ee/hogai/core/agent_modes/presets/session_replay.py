@@ -108,6 +108,7 @@ class SessionReplayAgentToolkit(AgentToolkit):
             RetryReplayVisionObservationTool,
             ScanReplayVisionSessionsTool,
             SearchReplayVisionObservationsTool,
+            UpdateReplayVisionScannerTool,
         )
 
         tools: list[type[MaxTool]] = [
@@ -119,6 +120,7 @@ class SessionReplayAgentToolkit(AgentToolkit):
             GetReplayVisionQuotaTool,
             CreateReplayVisionScannerTool,
             CreateReplayVisionActionTool,
+            UpdateReplayVisionScannerTool,
         ]
         return tools
 
