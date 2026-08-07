@@ -110,6 +110,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsDismissRequestSerializer,
+    TaskRunArtifactsDismissResponseSerializer,
     TaskRunArtifactsFinalizeUploadRequestSerializer,
     TaskRunArtifactsFinalizeUploadResponseSerializer,
     TaskRunArtifactsPrepareUploadRequestSerializer,
@@ -838,6 +840,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=WarmTaskResponseSerializer,
                 description="Warm Run provisioned (`task_id`/`run_id` to activate on submit), or an empty body when the feature is off, capped, or the integration didn't resolve.",
             ),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
         },
         summary="Warm a task sandbox",
         description=(
@@ -858,16 +863,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if user_id is None:
             return Response(status=status.HTTP_200_OK)
 
-        github_integration_id = tasks_facade.resolve_team_github_integration_id(
-            self.team_id, request.validated_data["github_integration"]
-        )
-        if github_integration_id is None:
-            return Response(status=status.HTTP_200_OK)
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
+
+        github_integration_id = request.validated_data.get("github_integration")
+        if github_integration_id is not None:
+            github_integration_id = tasks_facade.resolve_team_github_integration_id(self.team_id, github_integration_id)
+            if github_integration_id is None:
+                return Response(status=status.HTTP_200_OK)
 
         result = tasks_facade.warm_task_sandbox(
             self.team_id,
             user_id,
-            repository=request.validated_data["repository"],
+            repository=request.validated_data.get("repository"),
             github_integration_id=github_integration_id,
             branch=request.validated_data.get("branch"),
             runtime_adapter=request.validated_data.get("runtime_adapter"),
@@ -1662,6 +1670,46 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": 3600})
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsDismissRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsDismissResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Dismiss or restore task run artifacts",
+        description=(
+            "Hides artifacts from clients without deleting them from storage, so a file dismissed "
+            "by mistake can be restored."
+        ),
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/dismiss",
+        required_scopes=["task:write"],
+    )
+    def artifacts_dismiss(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        manifest, error = tasks_facade.set_task_run_artifacts_dismissed(
+            pk,
+            task_id,
+            self.team_id,
+            artifact_ids=request.validated_data["artifact_ids"],
+            dismissed=request.validated_data["dismissed"],
+        )
+        if error == "not_found":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if manifest is None:
+            raise NotFound()
+        return Response(TaskRunArtifactsDismissResponseSerializer({"artifacts": manifest}).data)
 
     @validated_request(
         request_serializer=TaskRunArtifactPresignRequestSerializer,

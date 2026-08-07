@@ -85,6 +85,8 @@ import type {
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactsDismissRequestApi,
+    TaskRunArtifactsDismissResponseApi,
     TaskRunArtifactsFinalizeUploadRequestApi,
     TaskRunArtifactsFinalizeUploadResponseApi,
     TaskRunArtifactsPrepareUploadRequestApi,
@@ -1687,6 +1689,32 @@ export const tasksRunsArtifactsCreate = async (
     })
 }
 
+export const getTasksRunsArtifactsDismissCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/dismiss/`
+}
+
+/**
+ * Hides artifacts from clients without deleting them from storage, so a file dismissed by mistake can be restored.
+ * @summary Dismiss or restore task run artifacts
+ */
+export const tasksRunsArtifactsDismissCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsDismissRequestApi: TaskRunArtifactsDismissRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsDismissResponseApi> => {
+    return apiMutator<TaskRunArtifactsDismissResponseApi>(
+        getTasksRunsArtifactsDismissCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsDismissRequestApi),
+        }
+    )
+}
+
 export const getTasksRunsArtifactsDownloadCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/download/`
 }
@@ -2479,7 +2507,7 @@ export const getTasksWarmCreateUrl = (projectId: string) => {
  */
 export const tasksWarmCreate = async (
     projectId: string,
-    warmTaskRequestApi: WarmTaskRequestApi,
+    warmTaskRequestApi?: WarmTaskRequestApi,
     options?: RequestInit
 ): Promise<WarmTaskResponseApi> => {
     return apiMutator<WarmTaskResponseApi>(getTasksWarmCreateUrl(projectId), {
