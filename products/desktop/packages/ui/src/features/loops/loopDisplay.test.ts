@@ -156,6 +156,52 @@ describe("describeTrigger", () => {
       }),
     ).toBe(expected);
   });
+
+  it.each([
+    // No keywords means every message in the channel fires the loop, which is the widest
+    // thing you can save. It has to read differently from a filtered trigger.
+    [
+      { channel_ids: ["C0123ABCDEF"] },
+      "Slack · 1 channel · every message · anyone on your team",
+    ],
+    [
+      {
+        channel_ids: ["C0123ABCDEF", "C0456DEFGHI"],
+        filters: { keywords: ["incident", "sev1"] },
+      },
+      "Slack · 2 channels · incident, sev1 · anyone on your team",
+    ],
+    // The poster mode decides whose message spends the loop owner's credentials, so the
+    // detail view names it rather than leaving it implied.
+    [
+      {
+        channel_ids: ["C0123ABCDEF"],
+        filters: { keywords: ["deploy"] },
+        allowed_posters: { mode: "loop_owner" as const },
+      },
+      "Slack · 1 channel · deploy · only you",
+    ],
+    [
+      {
+        channel_ids: ["C0123ABCDEF"],
+        allowed_posters: {
+          mode: "slack_user_ids" as const,
+          slack_user_ids: ["B0INCIDENT"],
+        },
+      },
+      "Slack · 1 channel · every message · specific people or apps",
+    ],
+  ])(
+    "describes a slack trigger's scope and who can fire it",
+    (config, expected) => {
+      expect(
+        describeTrigger({
+          type: "slack",
+          config: { slack_integration_id: 3, ...config },
+        }),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("summarizeNotificationDestinations", () => {
@@ -233,5 +279,23 @@ describe("summarizeTrigger", () => {
         },
       }),
     ).toBe("Daily at 4:08 PM (EDT) · Next run Thu, Jul 23, 4:08 PM");
+  });
+
+  it.each([
+    [["incident", "sev1"], "Slack (incident, sev1)"],
+    // The review list is where someone notices they built a catch-all by accident, so an
+    // unfiltered trigger must not summarize as though it were scoped.
+    [undefined, "Slack (every message)"],
+  ])("names what a slack trigger listens for", (keywords, expected) => {
+    expect(
+      summarizeTrigger({
+        type: "slack",
+        config: {
+          slack_integration_id: 3,
+          channel_ids: ["C0123ABCDEF"],
+          ...(keywords ? { filters: { keywords } } : {}),
+        },
+      }),
+    ).toBe(expected);
   });
 });
