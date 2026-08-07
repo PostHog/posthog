@@ -1,4 +1,4 @@
-// AI event type names, shared by the ai lane and the ingestion steps that route AI events.
+// AI event type names accepted by the ai lane.
 // The Python query-routing list in posthog/hogql_queries/ai/ai_table_resolver.py
 // intentionally lists only the core types: ai_events lacks full history for the
 // meta-events, so their queries must stay on the shared events table to avoid the
