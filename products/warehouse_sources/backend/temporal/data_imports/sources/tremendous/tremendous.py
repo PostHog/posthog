@@ -137,10 +137,10 @@ def tremendous_source(
         }
         incremental_value = db_incremental_field_last_value
 
-    resource: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+    endpoint_resource: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     row_map = ROW_MAPS.get(endpoint)
     if row_map is not None:
-        resource["data_map"] = row_map
+        endpoint_resource["data_map"] = row_map
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -152,7 +152,7 @@ def tremendous_source(
             "allow_redirects": False,
         },
         "resource_defaults": {},
-        "resources": [resource],
+        "resources": [endpoint_resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
