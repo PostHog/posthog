@@ -65,6 +65,16 @@ export function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerCon
   return { github_integration_id: 0, repository: "", events: [] };
 }
 
+export function emptyLoopSlackTriggerConfig(): LoopSchemas.LoopSlackTriggerConfig {
+  return {
+    slack_integration_id: 0,
+    channel_ids: [],
+    // Anyone with access to the project, which is the loosest default that still keeps a
+    // stranger from steering a run holding the owner's credentials.
+    allowed_posters: { mode: "org_members" },
+  };
+}
+
 export function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
   return {};
 }
@@ -162,6 +172,40 @@ export function withGithubTriggerFilters(
   return { ...config, filters };
 }
 
+/** Same empty-key pruning as `withGithubTriggerFilters`, for the slack trigger's own
+ * filter set. An empty `keywords` list means "every message in the channel", so leaving
+ * `{keywords: []}` behind would be indistinguishable from a deliberate catch-all. */
+export function withSlackTriggerFilters(
+  config: LoopSchemas.LoopSlackTriggerConfig,
+  patch: Partial<LoopSchemas.LoopSlackTriggerFilters>,
+): LoopSchemas.LoopSlackTriggerConfig {
+  const merged = { ...config.filters, ...patch };
+  const filters = Object.fromEntries(
+    Object.entries(merged).filter(
+      ([, value]) => !Array.isArray(value) || value.length > 0,
+    ),
+  ) as LoopSchemas.LoopSlackTriggerFilters;
+  return { ...config, filters };
+}
+
+/** Sets the poster mode, dropping the ID list whenever the mode doesn't use one so a
+ * stale allowlist can't come back if someone switches modes and back again. */
+export function withSlackTriggerPosterMode(
+  config: LoopSchemas.LoopSlackTriggerConfig,
+  mode: LoopSchemas.LoopSlackPosterModeEnum,
+): LoopSchemas.LoopSlackTriggerConfig {
+  if (mode !== "slack_user_ids") {
+    return { ...config, allowed_posters: { mode } };
+  }
+  return {
+    ...config,
+    allowed_posters: {
+      mode,
+      slack_user_ids: config.allowed_posters?.slack_user_ids ?? [],
+    },
+  };
+}
+
 export function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
   const off = { enabled: false, events: [], params: {} };
   return { push: { ...off }, email: { ...off }, slack: { ...off } };
@@ -224,7 +268,9 @@ export function defaultLoopTriggerOfType(
     config:
       type === "github"
         ? emptyLoopGithubTriggerConfig()
-        : emptyLoopApiTriggerConfig(),
+        : type === "slack"
+          ? emptyLoopSlackTriggerConfig()
+          : emptyLoopApiTriggerConfig(),
   };
 }
 
@@ -322,7 +368,11 @@ export function formValuesToLoopWrite(
           ? withNormalizedPayloadConditions(
               trigger.config as LoopSchemas.LoopGithubTriggerConfig,
             )
-          : trigger.config,
+          : trigger.type === "slack"
+            ? withNormalizedSlackConfig(
+                trigger.config as LoopSchemas.LoopSlackTriggerConfig,
+              )
+            : trigger.config,
     })),
     behaviors: values.behaviors,
     notifications: values.notifications,
@@ -363,7 +413,66 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
       (config.filters?.payload ?? []).every(isPayloadConditionValid)
     );
   }
+  if (trigger.type === "slack") {
+    const config = trigger.config as LoopSchemas.LoopSlackTriggerConfig;
+    const posters = config.allowed_posters;
+    return (
+      config.slack_integration_id > 0 &&
+      config.channel_ids.length > 0 &&
+      config.channel_ids.every(isSlackChannelId) &&
+      (posters?.mode !== "slack_user_ids" ||
+        (posters.slack_user_ids ?? []).length > 0) &&
+      (config.filters?.payload ?? []).every(isPayloadConditionValid)
+    );
+  }
   return true;
+}
+
+/** Slack sends only IDs on message events, so a channel *name* would save and then never
+ * match anything. Mirrors the backend's check so the form blocks rather than 400ing. */
+export function isSlackChannelId(value: string): boolean {
+  return /^[CGD][A-Z0-9]{2,30}$/.test(value.trim().toUpperCase());
+}
+
+export function isSlackActorId(value: string): boolean {
+  return /^[UWBA][A-Z0-9]{2,30}$/.test(value.trim().toUpperCase());
+}
+
+/** IDs are matched exactly against what Slack sends, which is upper case, and keywords are
+ * matched against a lowercased message — so both are normalized here rather than relying on
+ * whatever casing was pasted in. */
+function withNormalizedSlackConfig(
+  config: LoopSchemas.LoopSlackTriggerConfig,
+): LoopSchemas.LoopSlackTriggerConfig {
+  const keywords = config.filters?.keywords?.flatMap((keyword) => {
+    const value = keyword.trim().toLowerCase();
+    return value ? [value] : [];
+  });
+  const conditions = config.filters?.payload?.map((condition) => ({
+    path: condition.path.trim(),
+    equals: payloadConditionValues(condition),
+  }));
+  const posters = config.allowed_posters;
+  return {
+    ...config,
+    channel_ids: config.channel_ids.map((id) => id.trim().toUpperCase()),
+    filters: {
+      ...(keywords?.length ? { keywords } : {}),
+      ...(conditions?.length ? { payload: conditions } : {}),
+    },
+    allowed_posters: posters
+      ? {
+          mode: posters.mode,
+          ...(posters.mode === "slack_user_ids"
+            ? {
+                slack_user_ids: (posters.slack_user_ids ?? []).map((id) =>
+                  id.trim().toUpperCase(),
+                ),
+              }
+            : {}),
+        }
+      : undefined,
+  };
 }
 
 /** Each accepted value is its own chip in the editor, never a delimited string. An earlier

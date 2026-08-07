@@ -13,7 +13,7 @@ import type { ApiClient, Method } from "./generated";
 export namespace LoopSchemas {
   export type LoopVisibilityEnum = "personal" | "team";
   export type LoopOverlapPolicyEnum = "skip" | "allow" | "cancel_previous";
-  export type LoopTriggerTypeEnum = "schedule" | "github" | "api";
+  export type LoopTriggerTypeEnum = "schedule" | "github" | "slack" | "api";
   export type LoopScheduleSyncStatusEnum = "pending" | "synced" | "failed";
   export type LoopRuntimeAdapterEnum = "claude" | "codex";
   export type LoopReasoningEffortEnum = EffortLevel;
@@ -144,11 +144,40 @@ export namespace LoopSchemas {
     filters?: LoopGithubTriggerFilters;
   };
 
+  export type LoopSlackPosterModeEnum =
+    | "org_members"
+    | "loop_owner"
+    | "slack_user_ids";
+
+  /** Who may fire the loop by posting a matching message. `slack_user_ids` is the
+   * only mode that can fire on a message an app or bot posted, and it matches the
+   * message's user, bot or app ID. */
+  export type LoopSlackAllowedPosters = {
+    mode: LoopSlackPosterModeEnum;
+    slack_user_ids?: Array<string>;
+  };
+
+  export type LoopSlackTriggerFilters = {
+    /** Case-insensitive substring match against the message text plus its
+     * attachments and blocks. Any one keyword matching is enough; omitting them
+     * runs the loop on every message in the channel. */
+    keywords?: Array<string>;
+    payload?: Array<LoopGithubTriggerPayloadFilter>;
+  };
+
+  export type LoopSlackTriggerConfig = {
+    slack_integration_id: number;
+    channel_ids: Array<string>;
+    filters?: LoopSlackTriggerFilters;
+    allowed_posters?: LoopSlackAllowedPosters;
+  };
+
   export type LoopApiTriggerConfig = Record<string, never>;
 
   export type LoopTriggerConfig =
     | LoopScheduleTriggerConfig
     | LoopGithubTriggerConfig
+    | LoopSlackTriggerConfig
     | LoopApiTriggerConfig;
 
   export type LoopTrigger = {
