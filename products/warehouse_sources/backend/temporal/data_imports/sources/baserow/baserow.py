@@ -221,7 +221,14 @@ def list_tables(base_url: Optional[str], database_token: str) -> list[dict[str, 
         f"{base}/api/database/tables/all-tables/", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
-    tables = response.json()
+    try:
+        tables = response.json()
+    except requests.exceptions.JSONDecodeError:
+        # A user-supplied host can answer 2xx (or a redirect the no-redirect session leaves
+        # unfollowed) with an empty or HTML body; surface a clear reason, not a raw decode error.
+        raise ValueError(
+            "Baserow returned an unexpected response when listing tables. Check that the instance URL points to your Baserow API."
+        )
     if not isinstance(tables, list):
         raise ValueError("Unexpected response from Baserow when listing tables")
     return tables

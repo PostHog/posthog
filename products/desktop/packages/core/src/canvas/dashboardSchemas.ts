@@ -73,6 +73,11 @@ export const createDashboardInput = z.object({
 
 export const dashboardIdInput = z.object({ id: z.string().min(1) });
 
+export const canvasBuildsInput = z.object({
+  id: z.string().min(1),
+  versionId: z.string().min(1).optional(),
+});
+
 export const canvasSourceInput = z.object({
   id: z.string().min(1),
   // Read a historical version's files instead of the head.
