@@ -12,6 +12,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
 import { MESSAGING_CHANNEL_TYPES } from './channelTypes'
+import type { ChannelType } from './channelTypes'
 
 export type { ChannelType } from './channelTypes'
 
