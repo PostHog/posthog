@@ -1,10 +1,12 @@
 import { isPostHogCodeDeeplink } from "@posthog/shared";
+import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
 import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { List, ListItem } from "@posthog/ui/primitives/List";
+import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import { handleShareLinkClick } from "@posthog/ui/utils/shareLinks";
 import { Blockquote, Checkbox, Code, Kbd, Text } from "@radix-ui/themes";
 import { memo, useMemo } from "react";
@@ -37,6 +39,53 @@ const HeadingText = ({ children }: { children: React.ReactNode }) => (
     <strong>{children}</strong>
   </Text>
 );
+
+/** A link that leaves the app, with the trailing external-link glyph. */
+function ExternalMarkdownLink({
+  href,
+  children,
+}: {
+  href: string | undefined;
+  children: React.ReactNode;
+}) {
+  const isDeeplink = isPostHogCodeDeeplink(href);
+  return (
+    <a
+      href={href}
+      onClick={(event) => {
+        if (handleShareLinkClick(href, event)) return;
+        if (!isDeeplink || !href) return;
+        event.preventDefault();
+        openExternalUrl(href);
+      }}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="markdown-link inline-flex items-center gap-[2px]"
+    >
+      {children}
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 12 12"
+        fill="none"
+        // Radix accent vars don't reach portalled surfaces (quill dialogs);
+        // without the fallback the glyph draws invisibly, leaving a blank
+        // icon-sized gap after the link.
+        stroke="var(--accent-11, currentColor)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-label="external link icon"
+        role="img"
+        className="ml-1 shrink-0"
+      >
+        <path d="M4.5 1.5H2.25C1.836 1.5 1.5 1.836 1.5 2.25V9.75C1.5 10.164 1.836 10.5 2.25 10.5H9.75C10.164 10.5 10.5 10.164 10.5 9.75V7.5" />
+        <path d="M7.5 1.5H10.5V4.5" />
+        <path d="M5.25 6.75L10.5 1.5" />
+      </svg>
+    </a>
+  );
+}
 
 export const baseComponents: Components = {
   h1: ({ children }) => <HeadingText>{children}</HeadingText>,
@@ -75,6 +124,20 @@ export const baseComponents: Components = {
     <del className="text-(--gray-9) line-through">{children}</del>
   ),
   a: ({ href, children }) => {
+    const artifactTarget = parseArtifactLink(href);
+    if (artifactTarget && href) {
+      return (
+        <ArtifactRefChip
+          target={artifactTarget}
+          href={href}
+          fallback={
+            <ExternalMarkdownLink href={href}>{children}</ExternalMarkdownLink>
+          }
+        >
+          {children}
+        </ArtifactRefChip>
+      );
+    }
     const githubRef = href ? parseGithubIssueUrl(href) : null;
     if (githubRef) {
       const isAutoLink = typeof children === "string" && children === href;
@@ -87,43 +150,7 @@ export const baseComponents: Components = {
         </GithubRefChip>
       );
     }
-    const isDeeplink = isPostHogCodeDeeplink(href);
-    return (
-      <a
-        href={href}
-        onClick={(event) => {
-          if (handleShareLinkClick(href, event)) return;
-          if (!isDeeplink || !href) return;
-          event.preventDefault();
-          openExternalUrl(href);
-        }}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="markdown-link inline-flex items-center gap-[2px]"
-      >
-        {children}
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 12 12"
-          fill="none"
-          // Radix accent vars don't reach portalled surfaces (quill dialogs);
-          // without the fallback the glyph draws invisibly, leaving a blank
-          // icon-sized gap after the link.
-          stroke="var(--accent-11, currentColor)"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-label="external link icon"
-          role="img"
-          className="ml-1 shrink-0"
-        >
-          <path d="M4.5 1.5H2.25C1.836 1.5 1.5 1.836 1.5 2.25V9.75C1.5 10.164 1.836 10.5 2.25 10.5H9.75C10.164 10.5 10.5 10.164 10.5 9.75V7.5" />
-          <path d="M7.5 1.5H10.5V4.5" />
-          <path d="M5.25 6.75L10.5 1.5" />
-        </svg>
-      </a>
-    );
+    return <ExternalMarkdownLink href={href}>{children}</ExternalMarkdownLink>;
   },
   kbd: ({ children }) => <Kbd>{children}</Kbd>,
   ul: ({ children }) => (
