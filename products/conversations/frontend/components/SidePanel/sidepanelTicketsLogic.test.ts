@@ -177,8 +177,18 @@ describe('sidepanelTicketsLogic', () => {
     // A generic CTA on a billing page counts as a billing question even though it passes no
     // `billing_issue`. Routed through `canCreateTicket`, so it holds for CTAs that never open the
     // composer too — those don't reach `startTicketFromSupportForm`, where the sticky grant happens.
-    it('treats a generic CTA fired from a billing page as a billing question', async () => {
-        window.history.replaceState(null, '', '/organization/billing')
+    // The section route has to match as a child of the billing path, and the prefix-sharing route
+    // must not: a loose `startsWith` would hand an exemption to any page whose name starts the same.
+    const billingPageCases: [string, boolean][] = [
+        ['/organization/billing', true],
+        ['/organization/billing/overview', true],
+        ['/billing/authorization_status', true],
+        ['/organization/billing-history', false],
+        ['/project/2/insights', false],
+    ]
+
+    it.each(billingPageCases)('treats a generic CTA on %s as a billing question: %s', async (pathname, expected) => {
+        window.history.replaceState(null, '', pathname)
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -189,22 +199,7 @@ describe('sidepanelTicketsLogic', () => {
             supportLogic.actions.openSupportForm({ kind: 'bug', target: 'sidePanel' })
         }).toFinishAllListeners()
 
-        expect(logic.values.canCreateTicket).toBe(true)
-    })
-
-    // Segment match, not substring — a path that merely contains the word must not qualify
-    it('does not treat an unrelated page as a billing question', async () => {
-        window.history.replaceState(null, '', '/project/2/insights')
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        setSubscriptionLevel('free')
-
-        await expectLogic(logic, () => {
-            supportLogic.actions.openSupportForm({ kind: 'bug', target: 'sidePanel' })
-        }).toFinishAllListeners()
-
-        expect(logic.values.canCreateTicket).toBe(false)
+        expect(logic.values.canCreateTicket).toBe(expected)
     })
 
     // The error boundary offers to "email an engineer" on a crash. Blocking that on plan would break a

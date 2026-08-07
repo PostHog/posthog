@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -65,12 +66,15 @@ function getSessionReplayLink(): string {
 }
 
 // Billing questions are answered on every plan, and a support CTA fired from a billing page is
-// almost always one — so treat it as such even when the caller doesn't say so. Segment match rather
-// than substring: every billing route carries it as its own segment (/organization/billing,
-// /organization/billing/:section, /billing/authorization_status), so a URL that merely contains the
-// word doesn't qualify.
+// almost always one — so treat it as such even when the caller doesn't say so. Paths come from
+// `urls` so a route move carries over instead of quietly making this return false. Exact-or-child
+// match, which covers `organizationBillingSection` as a child of `organizationBilling` while a path
+// that merely shares a prefix does not qualify.
 function isOnBillingPage(): boolean {
-    return window.location.pathname.split('/').includes('billing')
+    const { pathname } = window.location
+    return [urls.organizationBilling(), urls.billingAuthorizationStatus()].some(
+        (path) => pathname === path || pathname.startsWith(`${path}/`)
+    )
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
