@@ -238,6 +238,46 @@ export const Empty: Story = {
     ],
 }
 
+// A search that returns nothing while the "my accounts" filter is active is the reported
+// dead end. The empty state must name the active filter and offer a one-click escape that
+// keeps the search, instead of reading as "this account doesn't exist".
+export const EmptyWithActiveFilter: Story = {
+    render: () => <App />,
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="accounts-clear-filters"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery([]),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const myAccounts = await canvas.findByText('My accounts', {}, { timeout: 15000 })
+        await userEvent.click(myAccounts)
+        // The empty state names the active filter and offers the escape hatch.
+        await canvas.findByText(/Filters applied: My accounts/, {}, { timeout: 15000 })
+        const clearButton = canvasElement.querySelector<HTMLElement>('[data-attr="accounts-clear-filters"]')
+        if (!clearButton) {
+            throw new Error('Clear filters button did not render in the empty state')
+        }
+        await userEvent.click(clearButton)
+        // Clearing the filter drops the escape hatch and re-runs the same (still empty) search.
+        await waitFor(
+            () => {
+                if (canvasElement.querySelector('[data-attr="accounts-clear-filters"]')) {
+                    throw new Error('Clear filters button still present after clearing')
+                }
+            },
+            { timeout: 15000 }
+        )
+    },
+}
+
 // CUSTOMER_ANALYTICS must stay enabled (the outer scene gate) so we get past it;
 // without CUSTOMER_ANALYTICS_CSP the accounts URL is treated as a 404.
 export const FeatureGateOff: Story = {

@@ -355,6 +355,44 @@ describe('accountsLogic', () => {
         })
     })
 
+    describe('narrowingFilterLabels and clearFilters', () => {
+        const CURRENT_USER_ID = 42
+
+        beforeEach(() => {
+            userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+        })
+
+        it('names the "My accounts" filter that silently hides searched-for accounts', () => {
+            logic.actions.setSearchQuery('acme')
+            logic.actions.setAssignedToCurrentUser(true)
+            // The reported dead end: a search combined with the persisted "my accounts"
+            // filter returns nothing, so the empty state must name that filter.
+            expect(logic.values.narrowingFilterLabels).toEqual(['My accounts'])
+        })
+
+        it('lists every active narrowing filter but not the search term', () => {
+            logic.actions.setSearchQuery('acme')
+            logic.actions.setTagsFilter(['enterprise'])
+            logic.actions.setAssignedToFilter([7, 9])
+            expect(logic.values.narrowingFilterLabels).toEqual(['Tags', 'Assigned to'])
+        })
+
+        it('clearFilters drops the narrowing filters but keeps the search term', async () => {
+            logic.actions.setSearchQuery('acme')
+            logic.actions.setTagsFilter(['enterprise'])
+            logic.actions.setAssignedToCurrentUser(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.clearFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.searchQuery).toBe('acme')
+            expect(logic.values.tagsFilter).toEqual([])
+            expect(logic.values.assignedToFilter).toEqual([])
+            expect(logic.values.narrowingFilterLabels).toEqual([])
+        })
+    })
+
     describe('sortOrder', () => {
         it('starts unset and produces no orderBy on the AccountsQuery', () => {
             expect(logic.values.sortOrder).toBeNull()

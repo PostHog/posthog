@@ -215,6 +215,7 @@ export interface accountsLogicValues {
     isTagsSaving: (accountId: string) => boolean
     listPaginated: boolean
     metricsQuery: AccountsQuery | null
+    narrowingFilterLabels: string[]
     relationshipOverrides: Record<string, number[]>
     savingRoles: Record<string, true>
     savingTags: Record<string, true>
@@ -300,6 +301,9 @@ export interface accountsLogicActions {
     } // userLogic
     addTagToFilter: (tag: string) => {
         tag: string
+    }
+    clearFilters: () => {
+        value: true
     }
     openAccount: (
         accountId: string,
@@ -416,6 +420,13 @@ export interface accountsLogicMeta {
             assignedToFilter: RoleFilterValue,
             customPropertyFilters: AccountCustomPropertyFilter[]
         ) => number
+        narrowingFilterLabels: (
+            tagsFilter: string[],
+            allRolesUnassigned: boolean,
+            assignedToCurrentUser: boolean,
+            assignedToFilter: RoleFilterValue,
+            customPropertyFilters: AccountCustomPropertyFilter[]
+        ) => string[]
         viewUrlState: (
             searchQuery: string,
             tagsFilter: string[],
@@ -569,6 +580,10 @@ export const accountsLogic = kea<accountsLogicType>([
         // Restrict the list to a single account by id — drives the `/accounts/:accountId/:tab`
         // path route. null clears it (back to the full list).
         setAccountIdFilter: (accountId: string | null) => ({ accountId }),
+        // Drop every filter that narrows the list (tags, assigned-to/unassigned, custom
+        // properties) while keeping the search term. Lets the empty state escape a hidden
+        // filter — e.g. the persisted "my accounts" toggle — that is excluding a searched-for account.
+        clearFilters: true,
     }),
     reducers({
         searchInput: [
@@ -723,6 +738,40 @@ export const accountsLogic = kea<accountsLogicType>([
                     assignedToFilter.length > 0,
                     customPropertyFilters.length > 0,
                 ].filter(Boolean).length,
+        ],
+        // Human-readable names of the filters (other than the search term) currently
+        // narrowing the list, so the empty state can name what is hiding results.
+        narrowingFilterLabels: [
+            (s) => [
+                s.tagsFilter,
+                s.allRolesUnassigned,
+                s.assignedToCurrentUser,
+                s.assignedToFilter,
+                s.customPropertyFilters,
+            ],
+            (
+                tagsFilter: string[],
+                allRolesUnassigned: boolean,
+                assignedToCurrentUser: boolean,
+                assignedToFilter: RoleFilterValue,
+                customPropertyFilters: AccountCustomPropertyFilter[]
+            ): string[] => {
+                const labels: string[] = []
+                if (tagsFilter.length > 0) {
+                    labels.push('Tags')
+                }
+                if (allRolesUnassigned) {
+                    labels.push('Unassigned only')
+                } else if (assignedToCurrentUser) {
+                    labels.push('My accounts')
+                } else if (assignedToFilter.length > 0) {
+                    labels.push('Assigned to')
+                }
+                if (customPropertyFilters.length > 0) {
+                    labels.push('Custom properties')
+                }
+                return labels
+            },
         ],
         viewUrlState: [
             (s) => [
@@ -997,6 +1046,27 @@ export const accountsLogic = kea<accountsLogicType>([
                 !values.allRolesUnassigned
             ) {
                 actions.setAssignedToFilter([values.currentUserId])
+            }
+        },
+        // Reset every narrowing filter, keeping the search term. Reports each cleared
+        // filter through the existing per-type action so the analytics stay consistent.
+        clearFilters: () => {
+            if (values.tagsFilter.length > 0) {
+                actions.setTagsFilter([])
+                actions.reportFilterChange('tag')
+            }
+            if (values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(false)
+                actions.reportFilterChange('unassigned_only')
+            }
+            if (values.assignedToFilter.length > 0) {
+                const wasMine = values.assignedToCurrentUser
+                actions.setAssignedToFilter([])
+                actions.reportFilterChange(wasMine ? 'my_accounts' : 'assigned_to')
+            }
+            if (values.customPropertyFilters.length > 0) {
+                actions.setCustomPropertyFilters([])
+                actions.reportFilterChange('custom_property')
             }
         },
         toggleSort: ({ column }) => {

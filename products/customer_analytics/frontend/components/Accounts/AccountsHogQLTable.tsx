@@ -615,7 +615,8 @@ function AccountsHogQLSkeleton(): JSX.Element {
 }
 
 export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
+    const { hogqlQuery, accountsQuerySource, sortedRowsTransformer, narrowingFilterLabels } = useValues(accountsLogic)
+    const { clearFilters } = useActions(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
@@ -624,6 +625,10 @@ export function AccountsHogQLTable(): JSX.Element {
     if ((responseLoading || !accountsQuerySource) && !response) {
         return <AccountsHogQLSkeleton />
     }
+    // When filters are active, an empty result usually means a filter is excluding the
+    // account rather than that it doesn't exist. Name the active filters and offer a
+    // one-click reset that keeps the search term.
+    const hasNarrowingFilters = narrowingFilterLabels.length > 0
     return (
         <div className="@container">
             <DataTable
@@ -637,8 +642,24 @@ export function AccountsHogQLTable(): JSX.Element {
                     expandable,
                     dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                    emptyStateHeading: 'There are no matching accounts for this query',
-                    emptyStateDetail: 'Try adjusting the filters or refreshing',
+                    emptyStateHeading: hasNarrowingFilters
+                        ? 'No accounts match the current filters'
+                        : 'There are no matching accounts for this query',
+                    emptyStateDetail: hasNarrowingFilters ? (
+                        <span className="flex flex-col items-center gap-2">
+                            <span>Filters applied: {narrowingFilterLabels.join(', ')}.</span>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={clearFilters}
+                                data-attr="accounts-clear-filters"
+                            >
+                                Clear filters
+                            </LemonButton>
+                        </span>
+                    ) : (
+                        'Try adjusting the filters or refreshing'
+                    ),
                 }}
                 readOnly
             />
