@@ -1,4 +1,5 @@
 import datetime
+from urllib.parse import urlencode
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
@@ -127,6 +128,22 @@ class UserAdmin(DjangoUserAdmin):
         "date_joined",
     ]
     ordering = ("email",)
+
+    def changelist_view(self, request, extra_context=None):
+        # Let tools that only know a customer's email (not their user ID) deep-link straight to
+        # the user's change page, where "Log in as" and the ticket-prefilled reason live. Only
+        # redirect on an unambiguous single match — email uniqueness is case-sensitive at the DB
+        # level, so `iexact` can match more than one row; when it does (or matches none), fall
+        # through to the normal changelist so a human disambiguates. The `ticket` param is carried
+        # through and pre-filled on the change page (see admin/posthog/user/change_form.html).
+        ticket = request.GET.get("ticket")
+        query = request.GET.get("q")
+        if ticket and query and self.has_view_or_change_permission(request):
+            matches = list(User.objects.filter(email__iexact=query.strip())[:2])
+            if len(matches) == 1:
+                change_url = reverse("admin:posthog_user_change", args=[matches[0].pk])
+                return HttpResponseRedirect(f"{change_url}?{urlencode({'ticket': ticket})}")
+        return super().changelist_view(request, extra_context=extra_context)
 
     @admin.display(description="Current Team")
     def current_team_link(self, user: User):
