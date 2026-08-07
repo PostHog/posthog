@@ -806,7 +806,7 @@ export class PostgresPersonRepository
         const personIds = [...personById.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
 
         try {
-            const locked = await this.postgres.query<{ id: string }>(
+            const live = await this.postgres.query<{ id: string }>(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 `SELECT id FROM posthog_person
                  WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
@@ -814,11 +814,11 @@ export class PostgresPersonRepository
                 [teamId, personIds],
                 'tombstonePersonsPrecheck'
             )
-            if (locked.rows.length === 0) {
+            if (live.rows.length === 0) {
                 // Already tombstoned or gone — same outcome as an empty DELETE.
                 return []
             }
-            const lockedIds = locked.rows.map((row) => row.id)
+            const liveIds = live.rows.map((row) => row.id)
 
             const { rows } = await this.postgres.query<{ id: string; version: string }>(
                 tx ?? PostgresUse.PERSONS_WRITE,
@@ -834,11 +834,11 @@ export class PostgresPersonRepository
                        WHERE d.team_id = $1 AND d.person_id = p.id AND d.is_deleted = false
                    )
                  RETURNING id, version`,
-                [teamId, lockedIds],
+                [teamId, liveIds],
                 'tombstonePersons'
             )
 
-            if (rows.length < lockedIds.length) {
+            if (rows.length < liveIds.length) {
                 throw new PersonTombstoneBlockedError('Live distinct ids still point at the person', teamId)
             }
 
