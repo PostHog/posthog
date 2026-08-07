@@ -72,6 +72,19 @@ describe('wizardSyncUiLogic inline panel refcount', () => {
             expect(logic.values.handoffDoc).toBeNull()
         })
 
+        // While a surface shows the run inline (the onboarding install step), the app-wide auto-open
+        // would land on top of it. It must stand down — but not mark the run seen, or the user loses
+        // the report for good once that surface goes away.
+        it('stands down while a run is shown inline, then opens once nothing shows it', () => {
+            logic.actions.claimInlinePanel('local')
+            logic.actions.handoffDocReceived({ key: 'run-inline', text: '# report', startedByEmail: null })
+            expect(logic.values.handoffDoc).toBeNull()
+
+            logic.actions.releaseInlinePanel('local')
+            logic.actions.handoffDocReceived({ key: 'run-inline', text: '# report', startedByEmail: null })
+            expect(logic.values.handoffDoc).toEqual({ key: 'run-inline', text: '# report' })
+        })
+
         it("does not auto-open for a teammate's run", () => {
             userLogic.mount()
             userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)

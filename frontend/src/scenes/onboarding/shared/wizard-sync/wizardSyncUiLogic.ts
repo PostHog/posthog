@@ -101,7 +101,10 @@ export type wizardSyncUiLogicType = MakeLogicType<
  *   - `handoffDoc`: the markdown handoff doc dialog currently showing (content is fed by whichever
  *     source announced or opened it). `seenHandoffDocKeys` (persisted) makes the announce-driven
  *     open a strictly once-per-run event: SSE replays, remounts, and reloads re-announce the same
- *     doc, and only the first announcement may pop the dialog. The button reopens it at will.
+ *     doc, and only the first announcement may pop the dialog. The button reopens it at will. The
+ *     auto-open also stands down while a surface shows the run inline (`inlinePanelMounted`), so the
+ *     report never lands on top of the install step; that suppression isn't marked seen, so it can
+ *     still auto-open later once nothing is showing it inline.
  *
  * The widget itself owns no run data; the per-mode inner components feed it the normalized progress.
  */
@@ -193,6 +196,13 @@ export const wizardSyncUiLogic = kea<wizardSyncUiLogicType>([
             // Not marked seen, so the doc can still auto-open for the teammate who did run it.
             const ownEmail = values.user?.email
             if (startedByEmail && ownEmail && startedByEmail !== ownEmail) {
+                return
+            }
+            // A surface is already showing this run's progress inline (the onboarding install step),
+            // so popping the report app-wide would land on top of what the user is watching. Stand
+            // down and leave it behind that surface's "View report" button. Not marked seen, so the
+            // report can still auto-open once nothing is showing it inline.
+            if (values.inlinePanelMounted) {
                 return
             }
             actions.openHandoffDoc({ key, text })
