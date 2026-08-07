@@ -116,9 +116,10 @@ class TestForwardPendingUserMessage(TestCase):
         assert "pending_user_message" not in run.state
         assert "pending_user_message_id" not in run.state
 
+    @patch("products.tasks.backend.logic.services.sandbox_usage.measure_task_run_cpu_attribution")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    def test_successful_delivery_attributes_sandbox_usage(self, mock_send, mock_token):
+    def test_successful_delivery_attributes_sandbox_usage(self, mock_send, mock_token, mock_measure):
         run = self._make_run(
             state={
                 "await_user_message": True,
@@ -135,13 +136,21 @@ class TestForwardPendingUserMessage(TestCase):
             ttl_seconds=3600,
             ttl_expires_at=timezone.now() + timedelta(seconds=3600),
         )
-        mock_send.return_value = _command_result(success=True, status_code=200)
+        measured_at = timezone.now()
+        calls = []
+        mock_measure.side_effect = lambda *args: calls.append("measure") or {"sb-fwd": (1_234_567, measured_at)}
+        mock_send.side_effect = lambda *args, **kwargs: (
+            calls.append("send") or _command_result(success=True, status_code=200)
+        )
 
         forward_pending_user_message(str(run.id))
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-fwd")
         assert session.user_attributed_at is not None
         assert session.last_user_activity_at is not None
+        assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_cpu_usage_attribution_measured_at == measured_at
+        assert calls == ["measure", "send"]
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")

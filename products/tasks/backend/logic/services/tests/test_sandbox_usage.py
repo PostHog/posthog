@@ -17,6 +17,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
+    measure_task_run_cpu_attribution,
     open_sandbox_session,
     record_task_run_user_activity,
 )
@@ -86,10 +87,10 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=True))
         Task.objects.filter(id=run.task_id).update(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
 
-        sandbox = patch.object(Sandbox, "get_by_id")
-        with sandbox as get_by_id:
+        with patch.object(Sandbox, "get_by_id") as get_by_id:
             get_by_id.return_value.read_cpu_usage_usec.return_value = 2_345_678
-            record_task_run_user_activity(run.id, self.team.id)
+            cpu_attribution = measure_task_run_cpu_attribution(run.id, self.team.id)
+        record_task_run_user_activity(run.id, self.team.id, cpu_attribution)
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm-claim")
         assert session.user_attributed_at is not None
@@ -106,7 +107,8 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         Task.objects.filter(id=run.task_id).update(client_provenance=None)
 
         with patch.object(Sandbox, "get_by_id", side_effect=RuntimeError("unavailable")):
-            record_task_run_user_activity(run.id, self.team.id)
+            cpu_attribution = measure_task_run_cpu_attribution(run.id, self.team.id)
+        record_task_run_user_activity(run.id, self.team.id, cpu_attribution)
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm-snapshot")
         assert session.user_attributed_at is not None
@@ -257,7 +259,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
         assert SandboxSession.objects.unscoped().get(sandbox_id="sb-scoped").user_attributed_at is None
 
-    def test_facade_signal_attributes_claimed_warm_run(self):
+    def test_facade_signal_leaves_attribution_to_delivery(self):
         from products.tasks.backend.facade import api as tasks_facade
 
         run = self._run(state={"await_user_message": True, "prewarmed": True})
@@ -269,7 +271,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
                 run.id, run.task_id, self.team.id, content="hi", artifact_ids=[]
             )
 
-        assert SandboxSession.objects.unscoped().get(sandbox_id="sb-claim").user_attributed_at is not None
+        assert SandboxSession.objects.unscoped().get(sandbox_id="sb-claim").user_attributed_at is None
 
 
 class TestSandboxUsageAggregation(SandboxUsageBase):

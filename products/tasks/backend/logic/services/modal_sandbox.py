@@ -1595,9 +1595,12 @@ class ModalSandbox(SandboxBase):
             )
 
     def read_cpu_usage_usec(self) -> int | None:
-        result = self.execute("awk '$1 == \"usage_usec\" {print $2}' /sys/fs/cgroup/cpu.stat", timeout_seconds=10)
-        value = result.stdout.strip()
-        return int(value) if value else None
+        cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        for line in cpu_stat.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "usage_usec":
+                return int(value)
+        return None
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING
