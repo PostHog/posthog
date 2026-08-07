@@ -139,15 +139,10 @@ def runtime_adapter_for(model: str | None) -> str | None:
     deriving it is what keeps a `(runtime_adapter, model)` pair from ever disagreeing.
     `None` for a model the tasks product has no runtime for.
     """
-    from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter  # noqa: PLC0415
+    from products.tasks.backend.facade.run_config import get_runtime_adapter_for_model  # noqa: PLC0415
 
-    if not model:
-        return None
-    normalized = model.strip().lower()
-    for adapter in RuntimeAdapter:
-        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
-            return adapter.value
-    return None
+    adapter = get_runtime_adapter_for_model(model)
+    return adapter.value if adapter else None
 
 
 def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, effort: str | None) -> str | None:

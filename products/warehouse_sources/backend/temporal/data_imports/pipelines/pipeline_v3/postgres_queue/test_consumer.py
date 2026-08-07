@@ -154,6 +154,8 @@ class TestProcessSingle:
             "20009.59457503306999908717 is too large to store in a Decimal128 of precision 24.",
             "Primary key required for incremental syncs",
             "Source column type changed: 'price' has values that no longer fit its stored type int64",
+            "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
+            "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
         ],
     )
     @pytest.mark.asyncio
@@ -191,6 +193,13 @@ class TestProcessSingle:
             ("ExternalDataSchema matching query does not exist.", False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
+            # Storage backend out of disk space is an operational condition operators need to
+            # act on, not a customer-caused error — it must keep going to error tracking.
+            (
+                "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
+                "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
+                True,
+            ),
         ],
     )
     @pytest.mark.asyncio
