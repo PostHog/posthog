@@ -1,3 +1,4 @@
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
@@ -5,8 +6,12 @@ import {
     PersonData,
     createPersonFilter,
     getFilterIdentifier,
+    getTraceDeepLinkTimestamp,
     getTracesUrlWithPersonFilter,
 } from './aiObservabilityColumnRenderers'
+
+const eventsQuery = (select: string[]): DataTableNode =>
+    ({ kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select } }) as DataTableNode
 
 describe('aiObservabilityColumnRenderers', () => {
     describe('getFilterIdentifier', () => {
@@ -141,6 +146,26 @@ describe('aiObservabilityColumnRenderers', () => {
 
             expect(url).toContain('date_from=2024-01-01')
             expect(url).not.toContain('date_to')
+        })
+    })
+
+    describe('getTraceDeepLinkTimestamp', () => {
+        // Guards the trace-not-found regression: dropping the row timestamp here sends the deep
+        // link back to the hardcoded date floor instead of centering the lookup on the event.
+        const select = ['uuid', 'properties.$ai_trace_id', 'timestamp']
+
+        it('returns the row timestamp with the trace lookup offset applied', () => {
+            const record = ['uuid-1', 'trace-1', '2026-08-07T12:00:00.000Z']
+            expect(getTraceDeepLinkTimestamp(record, eventsQuery(select))).toBe('2026-08-07T11:55:00Z')
+        })
+
+        it.each<[string, unknown, DataTableNode | undefined]>([
+            ['record is not an array', { timestamp: '2026-08-07T12:00:00.000Z' }, eventsQuery(select)],
+            ['query is missing', ['uuid-1', 'trace-1', '2026-08-07T12:00:00.000Z'], undefined],
+            ['timestamp column is absent', ['uuid-1', 'trace-1'], eventsQuery(['uuid', 'properties.$ai_trace_id'])],
+            ['timestamp value is not parseable', ['uuid-1', 'trace-1', 'not-a-date'], eventsQuery(select)],
+        ])('returns null when %s', (_label, record, query) => {
+            expect(getTraceDeepLinkTimestamp(record, query)).toBeNull()
         })
     })
 })

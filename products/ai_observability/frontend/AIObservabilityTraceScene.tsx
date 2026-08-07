@@ -501,7 +501,10 @@ function TraceSceneWrapper(): JSX.Element {
             ) : responseError ? (
                 <InsightErrorState />
             ) : !trace ? (
-                <NotFound object="trace" />
+                <NotFound
+                    object="trace"
+                    caption="This trace ID doesn't match a trace we can load. It may have aged past the 30-day retention window, or the ID might be wrong. Double-check the ID, or pick another trace from the list."
+                />
             ) : (
                 <div className="AIObservabilityTraceScene__wrapper relative flex flex-col gap-3">
                     <div className="flex flex-col gap-4">

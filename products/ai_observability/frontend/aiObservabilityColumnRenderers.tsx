@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -28,7 +29,7 @@ import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
-import { parseJSONPreview } from './utils'
+import { getTraceTimestamp, parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -225,6 +226,21 @@ function getStringColumnValue(record: unknown[], columns: string[], column: stri
 
     const value = record[index]
     return typeof value === 'string' && value ? value : null
+}
+
+// The deep link into a trace needs the row's timestamp so the trace lookup can center its date
+// window on the event instead of scanning from a hardcoded floor date. Mirrors the anchor the
+// generation ID link already passes.
+export function getTraceDeepLinkTimestamp(
+    record: unknown,
+    query?: DataTableNode | DataVisualizationNode
+): string | null {
+    if (!Array.isArray(record) || !query || !isDataTableNode(query) || !isEventsQuery(query.source)) {
+        return null
+    }
+    const columns = query.source.select ?? []
+    const timestamp = getStringColumnValue(record, columns, 'timestamp')
+    return timestamp && dayjs(timestamp).isValid() ? getTraceTimestamp(timestamp) : null
 }
 
 function getGenerationSentimentLookup(record: unknown, query: DataTableNode): GenerationSentimentLookup | null {
@@ -461,16 +477,20 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
     },
     'properties.$ai_trace_id': {
         title: 'Trace ID',
-        render: ({ value }) => {
+        render: ({ value, record, query }) => {
             if (!value || typeof value !== 'string') {
                 return null
             }
 
             const visualValue = truncateValue(value)
+            const timestamp = getTraceDeepLinkTimestamp(record, query)
 
             return (
                 <Tooltip title={value}>
-                    <Link to={urls.aiObservabilityTrace(value)} data-attr="generation-trace-link">
+                    <Link
+                        to={combineUrl(urls.aiObservabilityTrace(value), timestamp ? { timestamp } : {}).url}
+                        data-attr="generation-trace-link"
+                    >
                         {visualValue}
                     </Link>
                 </Tooltip>

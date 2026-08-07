@@ -316,12 +316,13 @@ export function ConversationMessagesDisplay({
             />
             {raisedError && errorData && (
                 <div className="mt-4">
-                    <h4 className="flex items-center justify-between text-xs font-semibold mb-2">
+                    <h4 className="flex items-center justify-between text-xs font-semibold mb-1">
                         <div className="flex items-center gap-x-1.5">
                             <IconExclamation className="text-base text-danger" />
-                            Error {httpStatus ? `(${httpStatus})` : ''}
+                            Error reported by your app{httpStatus ? ` (HTTP ${httpStatus})` : ''}
                         </div>
                     </h4>
+                    <p className="text-xs text-muted mb-2">PostHog recorded this error from your app's LLM call.</p>
                     <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
                         {isObject(errorData) ? (
                             <HighlightedJSONViewer src={errorData} collapsed={4} searchQuery={searchQuery} />

@@ -60,6 +60,10 @@ export interface AIObservabilityTraceDataNodeLogicParams {
 }
 
 const EXCEPTION_LOOKUP_WINDOW_MINUTES = 20
+// Forward span of a deep-linked trace lookup. The linked timestamp anchors the start of the
+// window, so this has to cover a whole trace's duration. Agent traces can stay open for hours,
+// and a 10-minute window silently truncated the long ones into a "Trace not found".
+const TRACE_DEEP_LINK_WINDOW_HOURS = 24
 
 export function getDataNodeLogicProps({
     traceId,
@@ -686,7 +690,9 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                         ? // dateFrom is a minimum timestamp of an event for a trace.
                           {
                               date_from: dateRange.dateFrom,
-                              date_to: dateRange?.dateTo || dayjs(dateRange.dateFrom).add(10, 'minutes').toISOString(),
+                              date_to:
+                                  dateRange?.dateTo ||
+                                  dayjs(dateRange.dateFrom).add(TRACE_DEEP_LINK_WINDOW_HOURS, 'hours').toISOString(),
                           }
                         : // By default will look for traces from the beginning.
                           {
