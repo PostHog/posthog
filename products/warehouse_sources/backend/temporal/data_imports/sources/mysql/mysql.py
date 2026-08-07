@@ -119,6 +119,7 @@ class MySQLUnavoidableFilesortError(Exception):
     def __init__(self, message: str = UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR) -> None:
         super().__init__(message)
 
+
 # pymysql error code for "Can't connect to MySQL server on '...'" — raised at
 # connect time when the socket connect can't be established. The parenthesised
 # suffix carries the underlying cause (a timeout vs. a refused connection vs. a
