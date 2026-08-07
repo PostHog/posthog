@@ -322,9 +322,23 @@ class DeltaWriter:
             # An object-store listing can lag a write another run committed moments earlier, so
             # `get_delta_table` can report "no table" for a table that exists (observed on
             # S3-compatible dev/CI stores). Trusting that here routes chunk 0 to an overwrite that
-            # destroys the earlier run's commits. Opening with mode="ignore" reconciles: a version
-            # above 0 proves the table pre-existed, so the write must take the merge path.
+            # destroys the earlier run's commits. Opening with mode="ignore" reconciles — but the
+            # create can hit the same stale listing and hand back a fresh version-0 handle, so a
+            # version of 0 is re-checked with a short backoff: after our own create, a re-listing
+            # converges (it shows our commit or the pre-existing log, either of which replays to a
+            # version above 0 when prior commits exist).
             delta_table = await self._create_or_open_table(data.schema, use_partitioning)
+            if delta_table.version() == 0:
+                for delay in (0.3, 0.7, 1.5):
+                    await asyncio.sleep(delay)
+                    self._table.get_delta_table.cache_clear()
+                    refreshed = await self._table.get_delta_table()
+                    if refreshed is not None and refreshed.version() > 0:
+                        delta_table = refreshed
+                        break
+                # The retry fetches cached a pre-write handle; drop it so the re-fetch after the
+                # write below sees the committed state instead of this stale snapshot.
+                self._table.get_delta_table.cache_clear()
             if delta_table.version() > 0:
                 await self._logger.awarning(
                     "write: listing reported no delta table but it exists on storage - using the merge path"
