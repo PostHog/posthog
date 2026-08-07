@@ -114,7 +114,9 @@ function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): 
     }).current
 
     // Derive the effective phase: prefer cloud progress when available, fall back to the logic phase.
-    const effectivePhase: NavInstallationPhase = cloudPhase ?? logicPhase
+    // Gated on the handle because `cloudPhase` is parent state and `CloudRunPhaseReporter` unmounts
+    // without clearing it, so a dismissed run's terminal phase would otherwise keep colouring the dot.
+    const effectivePhase: NavInstallationPhase = activeCloudRun ? (cloudPhase ?? logicPhase) : logicPhase
 
     // Elapsed time — only meaningful for cloud runs (we have the kickoff timestamp). Freezes once
     // the run goes terminal (cloudEndedAt set): the persisted handle survives up to 24h past
