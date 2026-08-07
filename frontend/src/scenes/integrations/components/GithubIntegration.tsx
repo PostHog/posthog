@@ -17,13 +17,17 @@ import { Integration, useIntegrations } from './Integration'
 export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { linkedGithubInstallationLoading, githubAvailableInstallations } = useValues(integrationsLogic)
-    const { linkExistingGithubInstallation, loadGithubAvailableInstallations } = useActions(integrationsLogic)
+    const { linkExistingGithubInstallation, loadGithubAvailableInstallations, loadIntegrations } =
+        useActions(integrationsLogic)
     const githubIntegrations = useIntegrations('github')
 
     // integrationsLogic is a singleton mounted from dozens of unrelated surfaces, so this fetch
-    // hangs off the GitHub setup UI instead of the shared integrations load.
+    // hangs off the GitHub setup UI instead of the shared integrations load. Revalidate the shared
+    // list too: it's loaded once on app mount and never refreshed, so a connection made in another
+    // tab or during the GitHub App install redirect would otherwise leave callers on a stale cache.
     useOnMountEffect(() => {
         loadGithubAvailableInstallations()
+        loadIntegrations()
     })
 
     const settingsPath = next ?? urls.settings('environment-integrations')

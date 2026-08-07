@@ -7,11 +7,10 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
 export function ConnectionsSection(): JSX.Element {
-    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
 
     const githubIntegrations = getIntegrationsByKind(['github'])
-    const hasGithubIntegration = githubIntegrations.length > 0
-    const isConnected = hasGithubIntegration && !integrationsLoading
+    const isConnected = githubIntegrations.length > 0
 
     return (
         <div className="flex items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
@@ -38,7 +37,7 @@ export function ConnectionsSection(): JSX.Element {
                 sideIcon={<IconChevronRight />}
                 to={urls.settings('environment-integrations', 'integration-github')}
             >
-                {hasGithubIntegration ? 'Manage' : 'Connect'}
+                {isConnected ? 'Manage' : 'Connect'}
             </LemonButton>
         </div>
     )

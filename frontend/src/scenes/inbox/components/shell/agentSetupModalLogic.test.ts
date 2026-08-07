@@ -1,4 +1,7 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -36,5 +39,17 @@ describe('agentSetupModalLogic', () => {
 
         expect(router.values.location.pathname).toBe(callbackPath)
         expect(router.values.searchParams).toEqual({ source: 'saved-filter' })
+    })
+
+    it('revalidates the shared integrations cache when the GitHub modal closes', async () => {
+        router.actions.push('/inbox/config', { setup: 'github' })
+        logic = agentSetupModalLogic()
+        logic.mount()
+
+        // The shared list is loaded once on app mount and never refreshed; closing the GitHub
+        // modal must reload it so a connection made during the round-trip isn't shown as missing.
+        await expectLogic(logic, () => {
+            logic.actions.closeSetupModal()
+        }).toDispatchActions([integrationsLogic.actionTypes.loadIntegrations])
     })
 })
