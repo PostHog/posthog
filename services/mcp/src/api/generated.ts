@@ -33625,11 +33625,49 @@ export namespace Schemas {
       ServiceName: 'service_name',
     } as const;
 
-    export type FeatureFlagFilters = { [key: string]: unknown };
-
     export type FeatureFlagSurveys = { [key: string]: unknown };
 
     export type FeatureFlagFeatures = { [key: string]: unknown };
+
+    export interface FeatureFlagMultivariateVariantSchema {
+      /** Unique key for this variant. */
+      key: string;
+      /** Human-readable name for this variant. */
+      name?: string;
+      /** Variant rollout percentage. */
+      rollout_percentage: number;
+    }
+
+    export interface FeatureFlagMultivariateSchema {
+      /** Variant definitions for multivariate feature flags. */
+      variants: FeatureFlagMultivariateVariantSchema[];
+    }
+
+    /**
+     * Optional payload values keyed by variant key.
+     */
+    export type FeatureFlagFiltersSchemaPayloads = {[key: string]: string};
+
+    export interface FeatureFlagFiltersSchema {
+      /** Release condition groups for the feature flag. */
+      groups?: FeatureFlagConditionGroupSchema[];
+      /** Multivariate configuration for variant-based rollouts. */
+      multivariate?: FeatureFlagMultivariateSchema | null;
+      /**
+         * Group type index for group-based feature flags.
+         * @nullable
+         */
+      aggregation_group_type_index?: number | null;
+      /** Optional payload values keyed by variant key. */
+      payloads?: FeatureFlagFiltersSchemaPayloads;
+      /**
+         * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+         * @nullable
+         */
+      feature_enrollment?: boolean | null;
+      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+      early_exit?: boolean;
+    }
 
     export interface FeatureFlagExperimentSetMetadata {
       /** ID of the experiment linked to this flag. */
@@ -33669,7 +33707,8 @@ export namespace Schemas {
       name?: string;
       /** @maxLength 400 */
       key: string;
-      filters?: FeatureFlagFilters;
+      /** Feature flag targeting configuration: release condition groups, multivariate variants, and payloads. */
+      filters?: FeatureFlagFiltersSchema;
       deleted?: boolean;
       active?: boolean;
       /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
@@ -33773,46 +33812,6 @@ export namespace Schemas {
       variant: string | null;
       /** Analysis of each property in this condition */
       properties: FeatureFlagConditionPropertyAnalysis[];
-    }
-
-    export interface FeatureFlagMultivariateVariantSchema {
-      /** Unique key for this variant. */
-      key: string;
-      /** Human-readable name for this variant. */
-      name?: string;
-      /** Variant rollout percentage. */
-      rollout_percentage: number;
-    }
-
-    export interface FeatureFlagMultivariateSchema {
-      /** Variant definitions for multivariate feature flags. */
-      variants: FeatureFlagMultivariateVariantSchema[];
-    }
-
-    /**
-     * Optional payload values keyed by variant key.
-     */
-    export type FeatureFlagFiltersSchemaPayloads = {[key: string]: string};
-
-    export interface FeatureFlagFiltersSchema {
-      /** Release condition groups for the feature flag. */
-      groups?: FeatureFlagConditionGroupSchema[];
-      /** Multivariate configuration for variant-based rollouts. */
-      multivariate?: FeatureFlagMultivariateSchema | null;
-      /**
-         * Group type index for group-based feature flags.
-         * @nullable
-         */
-      aggregation_group_type_index?: number | null;
-      /** Optional payload values keyed by variant key. */
-      payloads?: FeatureFlagFiltersSchemaPayloads;
-      /**
-         * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
-         * @nullable
-         */
-      feature_enrollment?: boolean | null;
-      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
-      early_exit?: boolean;
     }
 
     export interface FeatureFlagCreateRequestSchema {
