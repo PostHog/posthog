@@ -11,11 +11,11 @@ import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
+import { MESSAGING_CHANNEL_TYPES } from './channelTypes'
+
+export type { ChannelType } from './channelTypes'
 
 const HedgehogReporter = pngHoggie(reporterPng)
-
-const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns'] as const
-export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 
 export function MessageChannels(): JSX.Element {
     const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =

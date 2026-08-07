@@ -26,7 +26,7 @@ import type {
     GitHubRepoApi,
     IntegrationKindEnumApi,
 } from 'products/integrations/frontend/generated/api.schemas'
-import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
+import type { ChannelType } from 'products/workflows/frontend/Channels/channelTypes'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
 import type { PreflightStatus, UserBasicType } from '../../types'
