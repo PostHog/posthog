@@ -8,7 +8,6 @@ from .avo.template_avo import (
     TemplateAvoMigrator,
     template as avo,
 )
-from .braze.template_braze import template as braze
 from .brevo.template_brevo import template as brevo
 from .clearbit.template_clearbit import template as clearbit
 from .discord.template_discord import template as discord
@@ -83,7 +82,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     avo,
-    braze,
     brevo,
     clearbit,
     discord,
