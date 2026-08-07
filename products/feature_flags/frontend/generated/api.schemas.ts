@@ -354,207 +354,6 @@ export interface EvaluationContextSuggestionResponseApi {
 }
 
 /**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-export interface FeatureFlagExperimentSetMetadataApi {
-    /** ID of the experiment linked to this flag. */
-    id: number
-    /** Name of the experiment linked to this flag. */
-    name: string
-    /** Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag. */
-    is_running: boolean
-}
-
-/**
- * * `feature_flags` - feature_flags
- * * `experiments` - experiments
- * * `surveys` - surveys
- * * `early_access_features` - early_access_features
- * * `web_experiments` - web_experiments
- * * `product_tours` - product_tours
- */
-export type FeatureFlagCreationContextEnumApi =
-    (typeof FeatureFlagCreationContextEnumApi)[keyof typeof FeatureFlagCreationContextEnumApi]
-
-export const FeatureFlagCreationContextEnumApi = {
-    FeatureFlags: 'feature_flags',
-    Experiments: 'experiments',
-    Surveys: 'surveys',
-    EarlyAccessFeatures: 'early_access_features',
-    WebExperiments: 'web_experiments',
-    ProductTours: 'product_tours',
-} as const
-
-/**
- * * `server` - Server
- * * `client` - Client
- * * `all` - All
- */
-export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
-
-export const EvaluationRuntimeEnumApi = {
-    Server: 'server',
-    Client: 'client',
-    All: 'all',
-} as const
-
-/**
- * * `distinct_id` - User ID (default)
- * * `device_id` - Device ID
- */
-export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
-
-export const BucketingIdentifierEnumApi = {
-    DistinctId: 'distinct_id',
-    DeviceId: 'device_id',
-} as const
-
-export type FeatureFlagApiFilters = { [key: string]: unknown }
-
-export type FeatureFlagApiSurveys = { [key: string]: unknown }
-
-export type FeatureFlagApiFeatures = { [key: string]: unknown }
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface FeatureFlagApi {
-    readonly id: number
-    /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
-    name?: string
-    /** @maxLength 400 */
-    key: string
-    filters?: FeatureFlagApiFilters
-    deleted?: boolean
-    active?: boolean
-    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
-    archived?: boolean
-    readonly created_by: UserBasicApi
-    created_at?: string
-    /** @nullable */
-    readonly updated_at: string | null
-    version?: number
-    readonly last_modified_by: UserBasicApi
-    /** @nullable */
-    ensure_experience_continuity?: boolean | null
-    readonly experiment_set: readonly number[]
-    readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataApi[]
-    readonly surveys: FeatureFlagApiSurveys
-    readonly features: FeatureFlagApiFeatures
-    readonly can_edit: boolean
-    tags?: unknown[]
-    evaluation_contexts?: unknown[]
-    readonly usage_dashboard: number
-    analytics_dashboards?: number[]
-    /** @nullable */
-    has_enriched_analytics?: boolean | null
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
-     *
-     * * `feature_flags` - feature_flags
-     * * `experiments` - experiments
-     * * `surveys` - surveys
-     * * `early_access_features` - early_access_features
-     * * `web_experiments` - web_experiments
-     * * `product_tours` - product_tours */
-    creation_context?: FeatureFlagCreationContextEnumApi
-    /** @nullable */
-    is_remote_configuration?: boolean | null
-    /** @nullable */
-    has_encrypted_payloads?: boolean | null
-    readonly status: string
-    /** Specifies where this feature flag should be evaluated
-     *
-     * * `server` - Server
-     * * `client` - Client
-     * * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
-    /** Identifier used for bucketing users into rollout and variants
-     *
-     * * `distinct_id` - User ID (default)
-     * * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
-    /**
-     * Last time this feature flag was called (from $feature_flag_called events)
-     * @nullable
-     */
-    last_called_at?: string | null
-    _create_in_folder?: string
-    _should_create_usage_dashboard?: boolean
-    /** Check if this feature flag is used in any team's session recording linked flag setting. */
-    readonly is_used_in_replay_settings: boolean
-    /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
-    readonly is_eligible_for_experiment: boolean
-}
-
-export interface PaginatedFeatureFlagListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FeatureFlagApi[]
-}
-
-/**
  * * `cohort` - cohort
  * * `person` - person
  * * `group` - group
@@ -982,6 +781,206 @@ export interface FeatureFlagFiltersSchemaApi {
     feature_enrollment?: boolean | null
     /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
     early_exit?: boolean
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface FeatureFlagExperimentSetMetadataApi {
+    /** ID of the experiment linked to this flag. */
+    id: number
+    /** Name of the experiment linked to this flag. */
+    name: string
+    /** Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag. */
+    is_running: boolean
+}
+
+/**
+ * * `feature_flags` - feature_flags
+ * * `experiments` - experiments
+ * * `surveys` - surveys
+ * * `early_access_features` - early_access_features
+ * * `web_experiments` - web_experiments
+ * * `product_tours` - product_tours
+ */
+export type FeatureFlagCreationContextEnumApi =
+    (typeof FeatureFlagCreationContextEnumApi)[keyof typeof FeatureFlagCreationContextEnumApi]
+
+export const FeatureFlagCreationContextEnumApi = {
+    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
+    Surveys: 'surveys',
+    EarlyAccessFeatures: 'early_access_features',
+    WebExperiments: 'web_experiments',
+    ProductTours: 'product_tours',
+} as const
+
+/**
+ * * `server` - Server
+ * * `client` - Client
+ * * `all` - All
+ */
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+
+export const EvaluationRuntimeEnumApi = {
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
+} as const
+
+/**
+ * * `distinct_id` - User ID (default)
+ * * `device_id` - Device ID
+ */
+export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
+
+export const BucketingIdentifierEnumApi = {
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
+} as const
+
+export type FeatureFlagApiSurveys = { [key: string]: unknown }
+
+export type FeatureFlagApiFeatures = { [key: string]: unknown }
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface FeatureFlagApi {
+    readonly id: number
+    /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    /** Feature flag targeting configuration: release condition groups, multivariate variants, and payloads. */
+    filters?: FeatureFlagFiltersSchemaApi
+    deleted?: boolean
+    active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
+    readonly created_by: UserBasicApi
+    created_at?: string
+    /** @nullable */
+    readonly updated_at: string | null
+    version?: number
+    readonly last_modified_by: UserBasicApi
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    readonly experiment_set: readonly number[]
+    readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataApi[]
+    readonly surveys: FeatureFlagApiSurveys
+    readonly features: FeatureFlagApiFeatures
+    readonly can_edit: boolean
+    tags?: unknown[]
+    evaluation_contexts?: unknown[]
+    readonly usage_dashboard: number
+    analytics_dashboards?: number[]
+    /** @nullable */
+    has_enriched_analytics?: boolean | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
+     *
+     * * `feature_flags` - feature_flags
+     * * `experiments` - experiments
+     * * `surveys` - surveys
+     * * `early_access_features` - early_access_features
+     * * `web_experiments` - web_experiments
+     * * `product_tours` - product_tours */
+    creation_context?: FeatureFlagCreationContextEnumApi
+    /** @nullable */
+    is_remote_configuration?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    readonly status: string
+    /** Specifies where this feature flag should be evaluated
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
+    /** Identifier used for bucketing users into rollout and variants
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
+    /**
+     * Last time this feature flag was called (from $feature_flag_called events)
+     * @nullable
+     */
+    last_called_at?: string | null
+    _create_in_folder?: string
+    _should_create_usage_dashboard?: boolean
+    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    readonly is_used_in_replay_settings: boolean
+    /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
+    readonly is_eligible_for_experiment: boolean
+}
+
+export interface PaginatedFeatureFlagListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FeatureFlagApi[]
 }
 
 export interface FeatureFlagCreateRequestSchemaApi {
