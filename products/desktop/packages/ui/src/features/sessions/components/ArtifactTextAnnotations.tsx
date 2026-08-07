@@ -39,30 +39,43 @@ export function textHighlightLabel(comment: ResourceComment): string {
   return `Open comment from ${author}`;
 }
 
-function rangeFromOffsets(
-  root: HTMLElement,
+type TextNodeIndex = {
+  text: string;
+  entries: Array<{ node: Text; start: number; end: number }>;
+};
+
+export function buildTextNodeIndex(root: HTMLElement): TextNodeIndex {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const entries: TextNodeIndex["entries"] = [];
+  let text = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const textNode = node as Text;
+    const start = text.length;
+    text += textNode.data;
+    entries.push({ node: textNode, start, end: text.length });
+  }
+  return { text, entries };
+}
+
+export function rangeFromOffsets(
+  index: TextNodeIndex,
   start: number,
   end: number,
 ): Range | null {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let offset = 0;
   let startNode: Text | null = null;
   let endNode: Text | null = null;
   let startOffset = 0;
   let endOffset = 0;
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const text = node as Text;
-    const next = offset + text.data.length;
-    if (!startNode && start >= offset && start <= next) {
-      startNode = text;
-      startOffset = start - offset;
+  for (const entry of index.entries) {
+    if (!startNode && start >= entry.start && start <= entry.end) {
+      startNode = entry.node;
+      startOffset = start - entry.start;
     }
-    if (end >= offset && end <= next) {
-      endNode = text;
-      endOffset = end - offset;
+    if (end >= entry.start && end <= entry.end) {
+      endNode = entry.node;
+      endOffset = end - entry.start;
       break;
     }
-    offset = next;
   }
   if (!startNode || !endNode) return null;
   const range = document.createRange();
@@ -168,7 +181,8 @@ export function ArtifactTextAnnotations({
     const root = rootRef.current;
     const container = containerRef.current;
     if (!root || !container) return;
-    const text = root.textContent ?? "";
+    const textIndex = buildTextNodeIndex(root);
+    const text = textIndex.text;
     const containerBox = container.getBoundingClientRect();
     const nextRects: HighlightRect[] = [];
     const resolutions = new Map<string, HighlightResolution>();
@@ -182,7 +196,7 @@ export function ArtifactTextAnnotations({
         continue;
       }
       resolutions.set(comment.id, resolved.status);
-      const range = rangeFromOffsets(root, resolved.start, resolved.end);
+      const range = rangeFromOffsets(textIndex, resolved.start, resolved.end);
       if (!range) continue;
       for (const box of dedupeClientRects(range.getClientRects())) {
         nextRects.push({
@@ -249,13 +263,11 @@ export function ArtifactTextAnnotations({
     const comment = rootComments.find(({ id }) => id === locateRequest.id);
     const context = comment ? readCommentContext(comment) : null;
     if (!root || context?.anchor.kind !== "text") return;
-    const resolved = resolveTextCommentAnchor(
-      root.textContent ?? "",
-      context.anchor,
-    );
+    const textIndex = buildTextNodeIndex(root);
+    const resolved = resolveTextCommentAnchor(textIndex.text, context.anchor);
     if (!resolved) return;
     handledLocateNonce.current = locateRequest.nonce;
-    const range = rangeFromOffsets(root, resolved.start, resolved.end);
+    const range = rangeFromOffsets(textIndex, resolved.start, resolved.end);
     const target = range?.startContainer.parentElement;
     target?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [locateRequest, rootComments, rootRef]);
