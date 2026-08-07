@@ -14,7 +14,8 @@ use common::{
     unique_team_id, CHANGELOG_TOPIC, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
-use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache};
+use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
+use personhog_leader::emitted::EmittedVersions;
 use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::PgFallback;
@@ -75,6 +76,7 @@ struct FenceHarness {
     bootstrap: String,
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
+    emitted_versions: Arc<EmittedVersions>,
     _cancel: CancellationToken,
     _mock_cluster:
         rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
@@ -92,8 +94,9 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
     let person_id = seed.id;
     let partition = partition_for_person(team_id, person_id, NUM_PARTITIONS);
 
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let inflight = Arc::new(InflightTracker::new());
+    let emitted_versions = Arc::new(EmittedVersions::new(1_000_000));
     // Recovery consumes the same mock cluster so a post-death cache miss
     // can recover the death document.
     let service = PersonHogLeaderService::new(
@@ -111,7 +114,7 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         Arc::new(DashMap::new()),
         None,
         None,
-        Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
+        Arc::clone(&emitted_versions),
     );
 
     cache.create_partition(partition);
@@ -141,6 +144,7 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         bootstrap,
         cache,
         inflight,
+        emitted_versions,
         _cancel: cancel,
         _mock_cluster: mock_cluster,
     }
@@ -452,6 +456,135 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .await
         .expect("duplicate release is idempotent");
     assert_eq!(changelog_records(&harness).len(), records_before);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup");
+}
+
+/// A pre-fence write with an indeterminate produce outcome spends a
+/// version the cache never learned of. The seal must cover it: sealed
+/// below the spent version, the death document would derive at a version
+/// that may already be live in the changelog.
+#[tokio::test]
+async fn the_seal_covers_versions_emitted_without_an_outcome() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+
+    let spent = test_cached_person().version + 4;
+    harness.emitted_versions.raise_for_test(
+        partition,
+        PersonCacheKey { team_id, person_id },
+        spent,
+    );
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &Uuid::now_v7()),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    assert_eq!(
+        sealed.version, spent,
+        "the seal must cover the emitted floor, not just the cache's version"
+    );
+}
+
+/// The release-side counterpart: a post-seal write that slipped through an
+/// unfenced window (leader amnesia after a handoff) with an indeterminate
+/// outcome raises the floor without touching the cache. The death version
+/// must clear that floor, or the death document lands at the same version
+/// as a record that may already be in the changelog.
+#[tokio::test]
+async fn a_committed_release_derives_the_death_version_above_the_emitted_floor() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+
+    let spent = sealed.version + 3;
+    harness.emitted_versions.raise_for_test(
+        partition,
+        PersonCacheKey { team_id, person_id },
+        spent,
+    );
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sealed.version),
+                created_at: sealed.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+
+    let records = changelog_records(&harness);
+    let death = records.last().expect("death document produced");
+    assert!(death.is_deleted);
+    assert_eq!(
+        death.version,
+        spent + 1,
+        "the death version must clear the emitted floor, not just the seal"
+    );
 
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
         .bind(op)
@@ -967,7 +1100,7 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
     use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 
     let team_id = unique_team_id();
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
@@ -991,7 +1124,9 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
     let (first_id, second_id) = (5000, 5001);
     for id in [first_id, second_id] {
         let partition = partition_for_person(team_id, id, NUM_PARTITIONS);
-        cache.create_partition(partition);
+        if !cache.has_partition(partition) {
+            cache.create_partition(partition);
+        }
         seed_person(
             &cache,
             partition,

@@ -1173,7 +1173,11 @@ impl PersonHogLeader for PersonHogLeaderService {
         // The seal: the newest cached state, captured under the same lock
         // that admits writes — no gap for a write to sneak into. Fencing
         // produces nothing and does not advance the version; the sealed
-        // version is the person's current one, made final by the fence. A
+        // version is the person's current one raised to the emitted
+        // floor, made final by the fence. The floor matters because a
+        // pre-fence write with an indeterminate outcome leaves a version
+        // spent above the cache's — sealing below it would derive the
+        // death document at a version that may already be live. A
         // same-op re-fence takes this path too, re-sealing with fresh
         // state (the saga's seal step is safe to repeat).
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
@@ -1181,11 +1185,16 @@ impl PersonHogLeader for PersonHogLeaderService {
             return Err(Status::not_found("person is destroyed"));
         }
 
+        let mut sealed = cached_person_to_proto(&person);
+        sealed.version = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+
         self.fences.insert(cache_key, FenceState { op_id, op_type });
         counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
 
         Ok(Response::new(FencePersonResponse {
-            sealed: Some(cached_person_to_proto(&person)),
+            sealed: Some(sealed),
         }))
     }
 
@@ -1333,17 +1342,23 @@ impl PersonHogLeader for PersonHogLeaderService {
                 }
                 // The death version: sealed + 1 per the RFC — the fence
                 // makes the sealed version final. The max over the current
-                // version is defense in depth until broker producer
-                // fencing lands (a deposed leader's produce could
-                // otherwise still advance the version); a cold leader with
-                // no state falls back to the sealed version carried by the
+                // version and the emitted floor is defense in depth until
+                // broker producer fencing lands (a deposed leader's
+                // produce could otherwise still advance the version, and
+                // an indeterminate one leaves a version spent that the
+                // cache never learned of); a cold leader with no state
+                // falls back to the sealed version carried by the
                 // request, reproducing the death document
                 // deterministically.
-                let base_version = current
-                    .as_ref()
-                    .map(|p| p.version)
-                    .unwrap_or(0)
-                    .max(sealed_version);
+                let base_version = self.emitted_versions.floor_for(
+                    partition,
+                    &cache_key,
+                    current
+                        .as_ref()
+                        .map(|p| p.version)
+                        .unwrap_or(0)
+                        .max(sealed_version),
+                );
                 let death_version = base_version.checked_add(1).ok_or_else(|| {
                     Status::invalid_argument("sealed_version leaves no room for the death version")
                 })?;
