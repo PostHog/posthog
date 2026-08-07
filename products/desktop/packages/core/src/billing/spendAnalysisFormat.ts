@@ -1,6 +1,7 @@
 import type {
   SpendAnalysisDayModelRow,
   SpendAnalysisDayRow,
+  SpendAnalysisFilledDay,
 } from "./spendAnalysisTypes";
 
 export function formatUsd(amount: number): string {
@@ -42,15 +43,6 @@ export function formatWindow(fromIso: string, toIso: string): string {
 
 const DAY_MS = 86_400_000;
 const MAX_FILLED_DAYS = 100;
-
-export interface SpendAnalysisFilledDay {
-  day: string;
-  event_count: number;
-  cost_usd: number;
-  input_tokens: number;
-  output_tokens: number;
-  models: SpendAnalysisDayModelRow[];
-}
 
 export function fillSpendDays(
   items: SpendAnalysisDayRow[],

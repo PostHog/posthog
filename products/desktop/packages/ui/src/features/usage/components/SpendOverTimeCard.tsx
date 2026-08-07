@@ -2,8 +2,8 @@ import { ChartBar } from "@phosphor-icons/react";
 import {
   formatTokens,
   formatUsd,
-  type SpendAnalysisFilledDay,
 } from "@posthog/core/billing/spendAnalysisFormat";
+import type { SpendAnalysisFilledDay } from "@posthog/core/billing/spendAnalysisTypes";
 import {
   type Series,
   TimeSeriesComboChart,

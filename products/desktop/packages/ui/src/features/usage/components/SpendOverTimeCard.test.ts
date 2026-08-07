@@ -1,4 +1,4 @@
-import type { SpendAnalysisFilledDay } from "@posthog/core/billing/spendAnalysisFormat";
+import type { SpendAnalysisFilledDay } from "@posthog/core/billing/spendAnalysisTypes";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/quill-charts", () => ({

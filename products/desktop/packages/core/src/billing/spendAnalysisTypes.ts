@@ -47,6 +47,15 @@ export interface SpendAnalysisDayModelRow {
   generation_count: number;
 }
 
+export interface SpendAnalysisFilledDay {
+  day: string;
+  event_count: number;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  models: SpendAnalysisDayModelRow[];
+}
+
 export interface SpendAnalysisBreakdown<TRow> {
   items: TRow[];
   truncated: boolean;
