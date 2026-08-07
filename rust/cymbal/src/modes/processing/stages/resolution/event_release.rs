@@ -2,13 +2,13 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use moka::future::{Cache, CacheBuilder};
 use serde_json::Value;
-use sqlx::{Executor, Postgres};
+use sqlx::{Executor, PgPool, Postgres};
 use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
     frames::releases::{mobile_release_hash_id, ReleaseRecord},
-    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLVER_OPERATOR},
+    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLUTION, EVENT_RELEASE_RESOLVER_OPERATOR},
     stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         exception_event::{ExceptionEvent, Parsed},
@@ -99,20 +99,20 @@ fn record_cache_outcome(cache_type: &'static str, cache_miss: bool) {
     metrics::counter!(ANCILLARY_CACHE, "type" => cache_type, "outcome" => outcome).increment(1);
 }
 
-/// Resolves the event-level release without going through the per-frame symbol-set join, so the
-/// release is independent of which chunks resolved the stack. Runs inside `ResolutionStage` after
-/// `resolve_batch`, so a future fallback for legacy events (which carry neither `$release_id` nor
-/// app metadata) can read the resolved frames' symbol sets.
+/// Resolves the single release an event reports as `$exception_release`. Runs inside
+/// `ResolutionStage` after `resolve_batch`, because its last source is what resolution found.
 ///
-/// Two sources, in order of preference:
+/// Three sources, in order of preference:
 ///   1. `$release_id` — web builds inject the release row's id, which the SDK emits verbatim. Direct
 ///      foreign-key lookup.
 ///   2. app metadata — mobile SDKs inject nothing, but every event already carries `$app_namespace`,
 ///      `$app_version`, and `$app_build`, which the CLI hashed into the release when it uploaded the
 ///      dSYMs. We reconstruct that hash and look the release up by it.
+///   3. the releases bound to the symbol sets resolution used, which covers events that carry
+///      neither. One id per exception comes back on the wire; the newest wins, so an event whose
+///      stack mixes symbol sets from several releases reports the latest.
 ///
-/// When neither resolves, the event release stays unset and `$exception_release` is omitted;
-/// there is no per-frame fallback yet.
+/// When none resolve, the event release stays unset and `$exception_release` is omitted.
 #[derive(Clone, Default)]
 pub struct EventReleaseResolver;
 
@@ -131,28 +131,66 @@ impl ValueOperator for EventReleaseResolver {
         mut evt: ExceptionEvent<Parsed>,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
-        let release_id = evt
-            .properties()
-            .get("$release_id")
-            .and_then(Value::as_str)
-            .and_then(|id| Uuid::parse_str(id).ok());
+        let record = select_release(
+            &ctx.posthog_pool,
+            &ctx.release_cache,
+            evt.team_id(),
+            evt.properties(),
+            evt.symbol_set_release_ids(),
+        )
+        .await?;
 
-        if let Some(release_id) = release_id {
-            let record = ctx
-                .release_cache
-                .for_id(&ctx.posthog_pool, release_id, evt.team_id())
-                .await?;
-            evt.set_event_release(record);
-        } else if let Some(hash_id) = mobile_release_hash_from_props(evt.properties()) {
-            let record = ctx
-                .release_cache
-                .for_hash(&ctx.posthog_pool, &hash_id, evt.team_id())
-                .await?;
-            evt.set_event_release(record);
-        }
+        evt.set_event_release(record);
 
         Ok(Ok(evt))
     }
+}
+
+async fn select_release(
+    pool: &PgPool,
+    cache: &ReleaseCache,
+    team_id: TeamId,
+    props: &HashMap<String, Value>,
+    symbol_set_release_ids: &[Uuid],
+) -> Result<Option<ReleaseRecord>, UnhandledError> {
+    let release_id = props
+        .get("$release_id")
+        .and_then(Value::as_str)
+        .and_then(|id| Uuid::parse_str(id).ok());
+
+    let (record, source) = if let Some(release_id) = release_id {
+        (cache.for_id(pool, release_id, team_id).await?, "release_id")
+    } else if let Some(hash_id) = mobile_release_hash_from_props(props) {
+        (
+            cache.for_hash(pool, &hash_id, team_id).await?,
+            "mobile_hash",
+        )
+    } else {
+        (None, "none")
+    };
+
+    if let Some(record) = record {
+        record_release_source(source);
+        return Ok(Some(record));
+    }
+
+    // Reached when the event carries no release identifier, and also when the one it carries
+    // points at a release that no longer exists.
+    let mut candidates = Vec::new();
+    for id in symbol_set_release_ids {
+        candidates.extend(cache.for_id(pool, *id, team_id).await?);
+    }
+    let record = ReleaseRecord::latest(candidates);
+    record_release_source(if record.is_some() {
+        "symbol_set"
+    } else {
+        "none"
+    });
+    Ok(record)
+}
+
+fn record_release_source(source: &'static str) {
+    metrics::counter!(EVENT_RELEASE_RESOLUTION, "source" => source).increment(1);
 }
 
 /// Rebuild the release `hash_id` from a mobile event's app metadata. Returns `None` for events that
@@ -210,5 +248,84 @@ mod tests {
             mobile_release_hash_from_props(&props(json!({"$app_version": "1.0"}))),
             None
         );
+    }
+
+    const TEAM_ID: TeamId = 1;
+
+    async fn insert_release(pool: &PgPool, hash_id: &str, created_secs: i64) -> Uuid {
+        let id = Uuid::now_v7();
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_errortrackingrelease (id, team_id, hash_id, created_at, version, project)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(id)
+        .bind(TEAM_ID)
+        .bind(hash_id)
+        .bind(chrono::DateTime::from_timestamp(created_secs, 0).unwrap())
+        .bind(format!("1.0.{created_secs}"))
+        .bind("my-app")
+        .execute(pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn select(
+        pool: &PgPool,
+        properties: Value,
+        symbol_set_release_ids: &[Uuid],
+    ) -> Option<ReleaseRecord> {
+        // A fresh cache per call: these cases assert selection, not cache behavior.
+        let cache = ReleaseCache::new(64, Duration::from_secs(60));
+        select_release(
+            pool,
+            &cache,
+            TEAM_ID,
+            &props(properties),
+            symbol_set_release_ids,
+        )
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn symbol_set_releases_only_fill_the_gap_left_by_the_event_level_sources(pool: PgPool) {
+        let event_release = insert_release(&pool, "event-hash", 100).await;
+        let older = insert_release(&pool, "older-hash", 200).await;
+        let newer = insert_release(&pool, "newer-hash", 5_000).await;
+        let symbol_set_ids = [newer, older];
+
+        let selected = select(
+            &pool,
+            json!({ "$release_id": event_release.to_string() }),
+            &symbol_set_ids,
+        )
+        .await;
+        assert_eq!(
+            selected.map(|r| r.id),
+            Some(event_release),
+            "the event's own release outranks the symbol sets', even when theirs is newer"
+        );
+
+        let selected = select(&pool, json!({}), &symbol_set_ids).await;
+        assert_eq!(
+            selected.map(|r| r.id),
+            Some(newer),
+            "with no event-level release, the newest symbol-set release wins regardless of order"
+        );
+
+        // A `$release_id` for a release that has since been deleted resolves to nothing, so the
+        // fallback still applies.
+        let selected = select(
+            &pool,
+            json!({ "$release_id": Uuid::now_v7().to_string() }),
+            &[older],
+        )
+        .await;
+        assert_eq!(selected.map(|r| r.id), Some(older));
+
+        assert!(select(&pool, json!({}), &[]).await.is_none());
     }
 }

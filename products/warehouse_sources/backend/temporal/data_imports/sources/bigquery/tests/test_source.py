@@ -1579,6 +1579,28 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
     assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_bigquery_get_primary_keys_for_table_retries_transient_job_not_found(mock_sleep):
+    """The primary-key probe hits BigQuery's job-metadata race the same as the other queries in this
+    file; it must retry with a fresh job instead of crashing the whole sync."""
+    table = mock.MagicMock()
+    table.schema = [SimpleNamespace(name="id")]
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+
+    client = mock.MagicMock()
+    ok_job = mock.MagicMock()
+    ok_job.result.return_value = iter([{"column_name": "id"}])
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc"), ok_job]
+
+    primary_keys = _get_primary_keys_for_table(table, client)
+
+    assert primary_keys == ["id"]
+    assert client.query.call_count == 2
+    mock_sleep.assert_called_once()
+
+
 def test_run_destination_query_passes_job_retry():
     """The copy-into-temp-table query — where the production sync crashed on a transient per-second
     rate quota — must run under the extended job retry so it waits the rate limit out in place

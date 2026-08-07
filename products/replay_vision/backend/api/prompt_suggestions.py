@@ -25,7 +25,6 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
-from products.replay_vision.backend.api.scanners import _scanner_config_error_message
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -48,6 +47,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     labels_fingerprint,
 )
 from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
@@ -366,7 +366,7 @@ class ReplayScannerPromptSuggestionViewSet(
                 config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
             # Same validation as the scanner edit endpoint: an oversized or malformed LLM rewrite
             # must not land in the config that every future observation snapshots.
-            message = _scanner_config_error_message(ScannerType(scanner.scanner_type), config)
+            message = scanner_config_error(ScannerType(scanner.scanner_type), config)
             if message:
                 raise ValidationError(f"This recommendation can't be applied: {message}")
             scanner.scanner_config = config
@@ -406,7 +406,7 @@ class ReplayScannerPromptSuggestionViewSet(
         # A malformed edited config must be rejected before it charges credits on runs that can't succeed,
         # matching the validation apply runs before it writes the config.
         if edited_config is not None:
-            message = _scanner_config_error_message(ScannerType(scanner.scanner_type), edited_config)
+            message = scanner_config_error(ScannerType(scanner.scanner_type), edited_config)
             if message:
                 raise ValidationError(f"This config can't be tested: {message}")
         rated_count = self._rated_count(scanner)
