@@ -43,7 +43,7 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     const response = await api.query<HogQLQuery>(
         {
             kind: NodeKind.HogQLQuery,
-            query: hogql`SELECT 1 FROM events WHERE event LIKE '$ai_%' AND timestamp > now() - toIntervalDay(${AI_STALE_EVENT_DAYS}) LIMIT 1`,
+            query: hogql`SELECT 1 FROM events WHERE startsWith(event, ${AI_EVENT_PREFIX}) AND timestamp > now() - toIntervalDay(${AI_STALE_EVENT_DAYS}) LIMIT 1`,
             tags: { productKey: ProductKey.AI_OBSERVABILITY },
         },
         { refresh: 'force_blocking' }
