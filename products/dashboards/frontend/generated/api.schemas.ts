@@ -5733,6 +5733,8 @@ export interface ExperimentMeanMetricApi {
     /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
     uuid?: string | null
+    /** When set, the metric result is additionally split by the values of this property on the metric event (effect decomposition). Unlike `breakdownFilter`, every split keeps the full exposure denominator, so the per-value means sum back to the overall mean. Splits are computed from raw values: with CUPED active they decompose the raw mean, which can differ from the variance-reduced headline. Only valid for 'total' (count) and 'sum' math, and cannot be combined with breakdownFilter, winsorization, or threshold. High-cardinality properties are capped at the top 20 values by total contribution, with the remainder rolled into an "Other" bucket. */
+    value_breakdown_property?: string | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }

@@ -41,6 +41,7 @@ import {
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
+import { ExperimentMetricValueBreakdown } from './ExperimentMetricValueBreakdown'
 import { EXPOSURE_DEFAULT_EVENT, isDefaultExposureConfig } from './exposureContract'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
@@ -379,13 +380,15 @@ export function ExperimentMetricForm({
                                     ...metric,
                                     threshold: value,
                                     /**
-                                     * Setting a threshold disables outlier handling, so clear any stale
-                                     * bounds to keep the metric consistent with the UI and pass validation.
+                                     * Setting a threshold disables outlier handling and value-breakdown, so clear
+                                     * any stale bounds / split property to keep the metric consistent with the UI
+                                     * and pass validation.
                                      */
                                     ...(value !== undefined && {
                                         lower_bound_percentile: undefined,
                                         upper_bound_percentile: undefined,
                                         ignore_zeros: undefined,
+                                        value_breakdown_property: undefined,
                                     }),
                                 })
                             }
@@ -668,6 +671,8 @@ export function ExperimentMetricForm({
             {isExperimentMeanMetric(metric) && (
                 <>
                     <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                    <ExperimentMetricValueBreakdown metric={metric} handleSetMetric={handleSetMetric} />
                     <SceneDivider />
                 </>
             )}

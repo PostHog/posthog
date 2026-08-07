@@ -22,6 +22,7 @@ import {
     ExperimentMetric,
     ExperimentStatsBaseValidated,
     NewExperimentQueryResponse,
+    isExperimentMeanMetric,
 } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
@@ -202,6 +203,15 @@ function CollapsibleBreakdownSection({
                                             size="small"
                                         />
                                     ))}
+                                    {/* Value breakdown is configured on the metric itself, so the tag
+                                        is not closable here — remove it in the metric editor. */}
+                                    {isExperimentMeanMetric(metric) && metric.value_breakdown_property && (
+                                        <BreakdownTag
+                                            breakdown={metric.value_breakdown_property}
+                                            breakdownType="event"
+                                            size="small"
+                                        />
+                                    )}
                                 </div>
                             ),
                             // Render no content (non-expandable disabled header) when recalculating (stale
@@ -1196,8 +1206,10 @@ export function MetricRowGroup({
                 )
             })}
 
-            {/* Collapsible Breakdown Section. */}
-            {(metric.breakdownFilter?.breakdowns?.length ?? 0) > 0 && (
+            {/* Collapsible Breakdown Section. Also hosts value-breakdown (effect decomposition)
+                splits, which arrive through the same breakdown_results field. */}
+            {((metric.breakdownFilter?.breakdowns?.length ?? 0) > 0 ||
+                (isExperimentMeanMetric(metric) && !!metric.value_breakdown_property)) && (
                 <CollapsibleBreakdownSection
                     breakdownResults={result.breakdown_results ?? []}
                     metric={metric}
