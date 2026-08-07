@@ -3265,21 +3265,21 @@ export class PostHogAPIClient {
         exclude_emoji_reactions: true,
         cursor,
       };
-      let page;
-      try {
-        page = await this.api.get("/api/projects/{project_id}/comments/", {
+      const page = await this.api
+        .get("/api/projects/{project_id}/comments/", {
           path: { project_id: String(teamId) },
           query,
+        })
+        .catch((error: unknown) => {
+          if (comments.length === 0) throw error;
+          log.warn("getTaskComments failed after loading partial results", {
+            taskId,
+            returned: comments.length,
+            error: String(error),
+          });
+          return null;
         });
-      } catch (error) {
-        if (comments.length === 0) throw error;
-        log.warn("getTaskComments failed after loading partial results", {
-          taskId,
-          returned: comments.length,
-          error: String(error),
-        });
-        return comments;
-      }
+      if (!page) return comments;
       comments.push(...page.results);
       cursor = page.next
         ? (new URL(page.next).searchParams.get("cursor") ?? undefined)
