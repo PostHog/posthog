@@ -5,6 +5,7 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
     AuditableScope,
     Change,
     describe_change,
@@ -88,10 +89,17 @@ class TeatActivityLog(TestCase):
         self.assertEqual(dict_changes_between(cast(AuditableScope, "DashboardTile"), previous, new), [])
 
 
-class TestGetActivityPage(SimpleTestCase):
-    # Paginator works on any sequence, so a plain list exercises the out-of-range branch without a DB.
+class TestGetActivityPage(TestCase):
+    def _make_logs(self, count: int) -> None:
+        ActivityLog.objects.bulk_create(
+            ActivityLog(team_id=424242, scope="Insight", activity="updated", item_id=str(i)) for i in range(count)
+        )
+
     def test_page_past_the_end_returns_empty_terminator_not_error(self) -> None:
-        page = get_activity_page(list(range(3)), limit=10, page=99)
+        self._make_logs(3)
+        query = ActivityLog.objects.filter(team_id=424242, scope="Insight").order_by("item_id")
+
+        page = get_activity_page(query, limit=10, page=99)
 
         self.assertEqual(page.results, [])
         self.assertEqual(page.total_count, 3)
@@ -99,9 +107,12 @@ class TestGetActivityPage(SimpleTestCase):
         self.assertTrue(page.has_previous)
 
     def test_valid_last_page_still_returns_its_rows(self) -> None:
-        page = get_activity_page(list(range(15)), limit=10, page=2)
+        self._make_logs(15)
+        query = ActivityLog.objects.filter(team_id=424242, scope="Insight").order_by("item_id")
 
-        self.assertEqual(page.results, [10, 11, 12, 13, 14])
+        page = get_activity_page(query, limit=10, page=2)
+
+        self.assertEqual(len(page.results), 5)
         self.assertEqual(page.total_count, 15)
         self.assertFalse(page.has_next)
         self.assertTrue(page.has_previous)
