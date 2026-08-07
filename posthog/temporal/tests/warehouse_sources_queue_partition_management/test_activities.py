@@ -396,6 +396,9 @@ def _patched_terminalize_collaborators():
         patch("products.warehouse_sources.backend.facade.pipelines.BatchQueue") as batch_queue,
         patch("products.warehouse_sources.backend.facade.pipelines.mark_job_failed_if_not_terminal") as mark_failed,
         patch("products.warehouse_sources.backend.facade.pipelines.release_v3_pipeline_lock") as release_lock,
+        # _terminalize_stranded_runs closes any open django DB connections
+        # pytest-django re-uses django connections, so we mock this to avoid closing them.
+        patch("django.db.close_old_connections"),
     ):
         batch_queue.fail_batches_for_job_sync.return_value = 2
         yield batch_queue, mark_failed, release_lock
