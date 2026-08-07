@@ -58198,12 +58198,12 @@ export namespace Schemas {
     export interface PatchedSurveySerializerCreateUpdateOnlySchema {
       readonly id?: string;
       /**
-         * Survey name.
+         * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
          * @minLength 1
          * @maxLength 400
          */
       name?: string;
-      /** Survey description. */
+      /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
       description?: string;
       /** Survey type.
        *
@@ -59981,6 +59981,26 @@ export namespace Schemas {
       status: number;
       /** The target project's response body, passed through. */
       data: unknown;
+    }
+
+    export interface PostHogConnectionTarget {
+      /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+      project_id: number;
+      /** Name of the connected project. */
+      project_name: string;
+      /** Id of the organization the connected project belongs to. */
+      organization_id: string;
+      /** Name of the organization the connected project belongs to. */
+      organization_name: string;
+      /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+      region: string;
+      /** Base URL requests through this connection are sent to. */
+      base_url: string;
+    }
+
+    export interface PostHogConnectionTargetError {
+      /** Why the connected project's context could not be read. */
+      error: string;
     }
 
     /**
@@ -73381,12 +73401,12 @@ export namespace Schemas {
     export interface SurveySerializerCreateUpdateOnlySchema {
       readonly id: string;
       /**
-         * Survey name.
+         * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
          * @minLength 1
          * @maxLength 400
          */
       name: string;
-      /** Survey description. */
+      /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
       description?: string;
       /** Survey type.
        *
