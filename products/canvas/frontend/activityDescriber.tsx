@@ -34,41 +34,22 @@ export function describeCapabilitiesChange(change: ActivityChange): Description[
     const after = posthogCapabilities(change.after)
     const parts: Description[] = []
 
+    const pushDiff = (verb: string, noun: string, items: string[]): void => {
+        if (items.length > 0) {
+            parts.push(
+                <>
+                    {verb} {noun}
+                    {items.length === 1 ? '' : 's'} <strong>{items.join(', ')}</strong>
+                </>
+            )
+        }
+    }
     const insights = listDiff(before.insights, after.insights)
-    if (insights.added.length > 0) {
-        parts.push(
-            <>
-                declared {insights.added.length === 1 ? 'insight' : 'insights'}{' '}
-                <strong>{insights.added.join(', ')}</strong>
-            </>
-        )
-    }
-    if (insights.removed.length > 0) {
-        parts.push(
-            <>
-                removed {insights.removed.length === 1 ? 'insight' : 'insights'}{' '}
-                <strong>{insights.removed.join(', ')}</strong>
-            </>
-        )
-    }
-
+    pushDiff('declared', 'insight', insights.added)
+    pushDiff('removed', 'insight', insights.removed)
     const events = listDiff(before.captureEvents, after.captureEvents)
-    if (events.added.length > 0) {
-        parts.push(
-            <>
-                declared capture {events.added.length === 1 ? 'event' : 'events'}{' '}
-                <strong>{events.added.join(', ')}</strong>
-            </>
-        )
-    }
-    if (events.removed.length > 0) {
-        parts.push(
-            <>
-                removed capture {events.removed.length === 1 ? 'event' : 'events'}{' '}
-                <strong>{events.removed.join(', ')}</strong>
-            </>
-        )
-    }
+    pushDiff('declared', 'capture event', events.added)
+    pushDiff('removed', 'capture event', events.removed)
 
     if (!!before.inlineQueries !== !!after.inlineQueries) {
         parts.push(after.inlineQueries ? <>enabled inline queries</> : <>disabled inline queries</>)
@@ -83,6 +64,17 @@ const BUILD_ACTIVITY_COPY: Record<string, string> = {
     build_unpin: 'unpinned a build of',
     build_cancel: 'canceled a build of',
 }
+
+const inlineOrList = (parts: Description[]): JSX.Element =>
+    parts.length === 1 ? (
+        <> {parts[0]}</>
+    ) : (
+        <ul className="bullet-list">
+            {parts.map((part, index) => (
+                <li key={index}>{part}</li>
+            ))}
+        </ul>
+    )
 
 const canvasUpdateFieldCopy = (change: ActivityChange): Description | null => {
     if (change.field === 'name') {
@@ -113,33 +105,13 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'published') {
         const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
         const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
-        if (parts.length === 0) {
-            return {
-                description: (
-                    <>
-                        {actor} published canvas {canvasName}
-                    </>
-                ),
-            }
-        }
-        if (parts.length === 1) {
-            return {
-                description: (
-                    <>
-                        {actor} published canvas {canvasName} and {parts[0]}
-                    </>
-                ),
-            }
-        }
         return {
             description: (
                 <>
-                    {actor} published canvas {canvasName} and changed its declared capabilities:
-                    <ul className="bullet-list">
-                        {parts.map((part, index) => (
-                            <li key={index}>{part}</li>
-                        ))}
-                    </ul>
+                    {actor} published canvas {canvasName}
+                    {parts.length === 1 ? <> and</> : null}
+                    {parts.length > 1 ? <> and changed its declared capabilities:</> : null}
+                    {parts.length > 0 ? inlineOrList(parts) : null}
                 </>
             ),
         }
@@ -156,32 +128,12 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'updated') {
-        const parts: Description[] = []
-        for (const change of logItem.detail.changes || []) {
-            const part = canvasUpdateFieldCopy(change)
-            if (part) {
-                parts.push(part)
-            }
-        }
-        if (parts.length === 1) {
+        const parts = (logItem.detail.changes || []).map(canvasUpdateFieldCopy).filter(Boolean) as Description[]
+        if (parts.length > 0) {
             return {
                 description: (
                     <>
-                        {actor} updated canvas {canvasName}: {parts[0]}
-                    </>
-                ),
-            }
-        }
-        if (parts.length > 1) {
-            return {
-                description: (
-                    <>
-                        {actor} updated canvas {canvasName}:
-                        <ul className="bullet-list">
-                            {parts.map((part, index) => (
-                                <li key={index}>{part}</li>
-                            ))}
-                        </ul>
+                        {actor} updated canvas {canvasName}:{inlineOrList(parts)}
                     </>
                 ),
             }

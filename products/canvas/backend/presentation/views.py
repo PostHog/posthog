@@ -164,19 +164,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             generation_task_id=self._sandbox_task_id(request),
         )
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
-        if user:
-            report_user_action(
-                user,
-                "canvas created",
-                {
-                    "canvas_id": str(canvas.id),
-                    "channel_id": str(channel_id),
-                    "template_id": canvas.template_id,
-                    "is_sandbox_created": canvas.generation_task_id is not None,
-                },
-                team=self.team,
-                request=request,
-            )
+        self._report_canvas_action(
+            "canvas created",
+            canvas,
+            template_id=canvas.template_id,
+            is_sandbox_created=canvas.generation_task_id is not None,
+        )
         return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -192,31 +185,26 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         data = payload.validated_data
         update_fields = ["updated_at"]
         changes: list[Change] = []
+
+        def record(field: str, before: Any = None, after: Any = None) -> None:
+            changes.append(Change(type="Canvas", action="changed", field=field, before=before, after=after))
+
         if "name" in data:
             if data["name"] != canvas.name:
-                changes.append(
-                    Change(type="Canvas", action="changed", field="name", before=canvas.name, after=data["name"])
-                )
+                record("name", canvas.name, data["name"])
             canvas.name = data["name"]
             update_fields.append("name")
         if "context" in data:
             # The author-context markdown is content, not configuration — record
             # that it changed without copying it into the audit trail.
             if data["context"] != canvas.context:
-                changes.append(Change(type="Canvas", action="changed", field="context"))
+                record("context")
             canvas.context = data["context"]
             update_fields.append("context")
         if "pinned" in data:
-            if data["pinned"] != (canvas.pinned_at is not None):
-                changes.append(
-                    Change(
-                        type="Canvas",
-                        action="changed",
-                        field="pinned",
-                        before=canvas.pinned_at is not None,
-                        after=data["pinned"],
-                    )
-                )
+            was_pinned = canvas.pinned_at is not None
+            if data["pinned"] != was_pinned:
+                record("pinned", was_pinned, data["pinned"])
             canvas.pinned_at = timezone.now() if data["pinned"] else None
             update_fields.append("pinned_at")
         if "generation_task_id" in data:
@@ -237,15 +225,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.deleted = True
         instance.save(update_fields=["deleted", "updated_at"])
         self._log_canvas_activity(instance, "deleted", Detail(name=instance.name))
-        user = self._request_user()
-        if user:
-            report_user_action(
-                user,
-                "canvas deleted",
-                {"canvas_id": str(instance.id), "channel_id": str(instance.channel_id)},
-                team=self.team,
-                request=self.request,
-            )
+        self._report_canvas_action("canvas deleted", instance)
 
     @extend_schema(
         operation_id="canvases_source_retrieve",
@@ -438,10 +418,6 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         user = self._request_user()
         task_id = self._sandbox_task_id(request)
-        # The pre-publish head's declared capabilities, read before the head
-        # moves so the audit trail can diff them. None for versions that
-        # predate the snapshot (unknown, not empty).
-        previous_capabilities = canvas.current_source_version.capabilities if canvas.current_source_version_id else None
         try:
             canvas, version, _build, first_publish = build_service.publish_source_project(
                 canvas,
@@ -451,7 +427,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 has_expected_version=has_expected_version,
                 expected_version_id=expected_version_id,
                 task_id=task_id,
-                created_by_id=user.id if user else None,
+                created_by=user,
+                was_impersonated=is_impersonated(request),
             )
         except build_service.CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
@@ -466,39 +443,19 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if first_publish:
             self._announce_canvas_created(task_id, user, canvas)
 
-        new_capabilities = project.get("capabilities") or {}
-        changes = None
-        if previous_capabilities != new_capabilities:
-            changes = [
-                Change(
-                    type="Canvas",
-                    action="changed",
-                    field="capabilities",
-                    before=previous_capabilities,
-                    after=new_capabilities,
-                )
-            ]
-        self._log_canvas_activity(canvas, "published", Detail(name=canvas.name, changes=changes))
-        if user:
-            posthog_capabilities = new_capabilities.get("posthog") or {}
-            report_user_action(
-                user,
-                "canvas published",
-                {
-                    "canvas_id": str(canvas.id),
-                    "channel_id": str(canvas.channel_id),
-                    "version_id": str(version.id),
-                    "first_publish": first_publish,
-                    "file_count": len(project.get("files") or {}),
-                    "source_size_bytes": version.source_size,
-                    "insight_capability_count": len(posthog_capabilities.get("insights") or []),
-                    "capture_event_capability_count": len(posthog_capabilities.get("captureEvents") or []),
-                    "inline_queries_capability": bool(posthog_capabilities.get("inlineQueries")),
-                    "is_sandbox_publish": task_id is not None,
-                },
-                team=self.team,
-                request=request,
-            )
+        posthog_capabilities = (version.capabilities or {}).get("posthog") or {}
+        self._report_canvas_action(
+            "canvas published",
+            canvas,
+            version_id=str(version.id),
+            first_publish=first_publish,
+            file_count=len(project.get("files") or {}),
+            source_size_bytes=version.source_size,
+            insight_capability_count=len(posthog_capabilities.get("insights") or []),
+            capture_event_capability_count=len(posthog_capabilities.get("captureEvents") or []),
+            inline_queries_capability=bool(posthog_capabilities.get("inlineQueries")),
+            is_sandbox_publish=task_id is not None,
+        )
 
         return Response(
             {
@@ -522,12 +479,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canvas = self.get_object()
         payload = CanvasRevertSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
         try:
             canvas, build = build_service.revert_to_version(
                 canvas,
                 payload.validated_data["version_id"],
                 payload.validated_data["expected_current_version_id"],
+                user=self._request_user(),
+                was_impersonated=is_impersonated(request),
             )
         except build_service.CanvasVersionConflict as conflict:
             return _conflict_response(conflict)
@@ -535,35 +493,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return _capacity_response()
         except CanvasSourceVersion.DoesNotExist:
             return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
-        self._log_canvas_activity(
-            canvas,
-            "reverted",
-            Detail(
-                name=canvas.name,
-                changes=[
-                    Change(
-                        type="Canvas",
-                        action="changed",
-                        field="current_source_version",
-                        before=previous_head_id,
-                        after=str(payload.validated_data["version_id"]),
-                    )
-                ],
-            ),
-        )
-        user = self._request_user()
-        if user:
-            report_user_action(
-                user,
-                "canvas reverted",
-                {
-                    "canvas_id": str(canvas.id),
-                    "channel_id": str(canvas.channel_id),
-                    "version_id": str(payload.validated_data["version_id"]),
-                },
-                team=self.team,
-                request=request,
-            )
+        self._report_canvas_action("canvas reverted", canvas, version_id=str(payload.validated_data["version_id"]))
         return Response(CanvasBuildSerializer(build).data)
 
     @extend_schema(
@@ -666,6 +596,17 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             activity=activity,
             detail=detail,
         )
+
+    def _report_canvas_action(self, event: str, canvas: Canvas, **extra: Any) -> None:
+        user = self._request_user()
+        if user:
+            report_user_action(
+                user,
+                event,
+                {"canvas_id": str(canvas.id), "channel_id": str(canvas.channel_id), **extra},
+                team=self.team,
+                request=self.request,
+            )
 
     def _request_user(self) -> User | None:
         """The requesting real user, or None for anonymous/service principals."""

@@ -428,45 +428,34 @@ export function FreeformCanvasView({
   // runtimeError in the callbacks would change their identity on every
   // error set/clear, and the warm-frame pool assumes stable callbacks.
   const lastRuntimeErrorRef = useRef<string | null>(null);
+  const canvasTrackProps = useMemo(
+    () => ({
+      channel_id: channelId || undefined,
+      dashboard_id: dashboardId,
+      build_id: pinnedArtifact?.buildId,
+    }),
+    [channelId, dashboardId, pinnedArtifact?.buildId],
+  );
   const onError = useCallback(
     (message: string) => {
       if (message !== lastRuntimeErrorRef.current) {
         lastRuntimeErrorRef.current = message;
         track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
-          channel_id: channelId || undefined,
-          dashboard_id: dashboardId,
-          build_id: pinnedArtifact?.buildId,
+          ...canvasTrackProps,
           error_message: message.slice(0, 512),
         });
       }
       setRuntimeError(threadId, message);
     },
-    [
-      threadId,
-      setRuntimeError,
-      channelId,
-      dashboardId,
-      pinnedArtifact?.buildId,
-    ],
+    [threadId, setRuntimeError, canvasTrackProps],
   );
   const onRendered = useCallback(() => {
     // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
     onArtifactReady();
     lastRuntimeErrorRef.current = null;
     setRuntimeError(threadId, null);
-    track(ANALYTICS_EVENTS.CANVAS_RENDERED, {
-      channel_id: channelId || undefined,
-      dashboard_id: dashboardId,
-      build_id: pinnedArtifact?.buildId,
-    });
-  }, [
-    threadId,
-    setRuntimeError,
-    onArtifactReady,
-    channelId,
-    dashboardId,
-    pinnedArtifact?.buildId,
-  ]);
+    track(ANALYTICS_EVENTS.CANVAS_RENDERED, canvasTrackProps);
+  }, [threadId, setRuntimeError, onArtifactReady, canvasTrackProps]);
   const clearHistoricalArtifactError = useCallback(() => {
     onHistoricalArtifactReady();
     setRuntimeError(threadId, null);

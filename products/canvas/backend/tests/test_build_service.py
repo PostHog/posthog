@@ -63,7 +63,7 @@ class BuildServiceBaseTest(APIBaseTest):
             has_expected_version=False,
             expected_version_id=None,
             task_id=None,
-            created_by_id=None,
+            created_by=None,
         )
         self.canvas.refresh_from_db()
         return build
@@ -317,7 +317,7 @@ class TestLegacySourcePreservation(BuildServiceBaseTest):
             has_expected_version=True,
             expected_version_id=None,
             task_id=None,
-            created_by_id=None,
+            created_by=None,
         )
 
         head = CanvasSourceVersion.objects.unscoped().get(pk=version.id)
