@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
-import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -159,14 +159,16 @@ function VerifyEmail(): JSX.Element {
                                 <div className="max-w-60 mb-12">
                                     <HedgehogShocked className="w-full h-full" />
                                 </div>
-                                <p className="mb-6">Seems like that link isn't quite right. Try again?</p>
-
-                                <SupportButtons />
-
-                                <p className="text-xs text-muted mt-6">
-                                    If you've already verified your email, then{' '}
-                                    <Link to={urls.login()}>log in here</Link>.
+                                <p className="mb-6">
+                                    This link isn't valid anymore. If you've already verified your email, just log in.
                                 </p>
+
+                                <LemonButton type="primary" size="large" to={urls.login()} className="mb-6">
+                                    Log in
+                                </LemonButton>
+
+                                <p className="text-xs text-muted mb-2">Link expired or never verified?</p>
+                                <SupportButtons />
                             </>
                         ) : (
                             <Spinner className="text-4xl" />

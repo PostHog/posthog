@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -169,6 +170,13 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     } catch (e: any) {
                         const user = (values as any).user
                         if (user?.is_email_verified) {
+                            // Logged-in user clicking an already-used link: their address is verified,
+                            // so treat it as a success and send them on their way.
+                            posthog.capture('email verification token rejected', {
+                                error_code: e.code,
+                                recovered: true,
+                                logged_in: true,
+                            })
                             actions.setView('success')
                             await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
                             const nextUrl = getRelativeNextPath(
@@ -180,6 +188,13 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             location.href = nextUrl || resolvePostVerifyDefault(values)
                             return { success: true, token, uuid }
                         }
+                        // Logged-out user hitting an invalid or already-used link: the invalid view
+                        // points them at login, which is the recovery path they can't see otherwise.
+                        posthog.capture('email verification token rejected', {
+                            error_code: e.code,
+                            recovered: false,
+                            logged_in: false,
+                        })
                         actions.setView('invalid')
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
@@ -201,6 +216,11 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             lemonToast.error(
                                 'You have requested a new verification link too many times. Please try again later.'
                             )
+                            return false
+                        }
+                        if (e.code === 'already_verified') {
+                            lemonToast.info('Your email is already verified. Log in to continue.')
+                            router.actions.push(urls.login())
                             return false
                         }
                         lemonToast.error(
