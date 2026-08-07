@@ -4156,7 +4156,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
-                cache.abortController.abort()
+                // Abort with a named AbortError so cancellations stay recognized by shouldCancelQuery,
+                // but carry a descriptive message instead of the browser default ("signal is aborted
+                // without reason") — that generic message otherwise floods error tracking and hides
+                // genuine failures behind benign supersede-a-refresh cancellations.
+                cache.abortController.abort(new DOMException('Dashboard refresh superseded', 'AbortError'))
                 cache.abortController = null
             }
         },

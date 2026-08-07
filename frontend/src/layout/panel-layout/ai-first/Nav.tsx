@@ -10,7 +10,6 @@ import { Suspense, useEffect, useRef } from 'react'
 import { IconApps, IconChat, IconChevronRight, IconPlusSmall } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -133,7 +132,6 @@ export function Nav(): JSX.Element {
         visitedNavTabs,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { toggleCommand } = useActions(commandLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
@@ -205,12 +203,7 @@ export function Nav(): JSX.Element {
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        {!showNavSearchBar && (
-                            <NavSearchButton
-                                isLayoutNavCollapsed={isLayoutNavCollapsed}
-                                toggleCommand={toggleCommand}
-                            />
-                        )}
+                        {!showNavSearchBar && <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} />}
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
@@ -253,7 +246,7 @@ export function Nav(): JSX.Element {
 
                 {showNavSearchBar && (
                     <div className="px-2 py-1">
-                        <NavSearchBar toggleCommand={toggleCommand} />
+                        <NavSearchBar />
                     </div>
                 )}
 

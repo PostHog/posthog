@@ -13,7 +13,17 @@ export function droppedFramesForDelta(deltaMs: number): number {
     return Math.max(0, Math.round(deltaMs / EXPECTED_FRAME_TIME_MS) - 1)
 }
 
-export function startFramerateTracking(posthog: Capturable): void {
+// posthog-js can re-run its `loaded` callback whenever the SDK re-initializes. Each call used to
+// spin up its own rAF loop that ran forever, so a long-lived tab accumulated trackers that all
+// reported at once — collapsing measurement windows and dragging down frame health. Tracking is a
+// page-global concern, so keep a single loop and hand every caller the same teardown.
+let activeTeardown: (() => void) | null = null
+
+export function startFramerateTracking(posthog: Capturable): () => void {
+    if (activeTeardown) {
+        return activeTeardown
+    }
+
     let rafId: number | null = null
     let captureIntervalId: number | null = null
     let previousTimestamp: number | null = null
@@ -103,15 +113,22 @@ export function startFramerateTracking(posthog: Capturable): void {
         }
     }
 
+    function teardown(): void {
+        capture()
+        stop()
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+        window.removeEventListener('beforeunload', teardown)
+        activeTeardown = null
+    }
+
     document.addEventListener('visibilitychange', onVisibilityChange)
 
     if (!document.hidden) {
         start()
     }
 
-    window.addEventListener('beforeunload', () => {
-        capture()
-        stop()
-        document.removeEventListener('visibilitychange', onVisibilityChange)
-    })
+    window.addEventListener('beforeunload', teardown)
+
+    activeTeardown = teardown
+    return teardown
 }
