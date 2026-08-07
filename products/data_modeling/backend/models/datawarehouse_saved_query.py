@@ -30,6 +30,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.logic.column_names import validate_unique_column_names
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
@@ -367,7 +368,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         The single chokepoint for persisting columns: the caller passes an ordered dict (SELECT /
         ClickHouse output order), and both the jsonb payload and the ordered names are set here so
         they can never drift. Never assign ``self.columns`` directly at a persist site.
+
+        Raises ``ConflictingColumnNamesError`` when the names cannot back a schema, so the author
+        finds out while saving rather than when a downstream query or materialization fails.
         """
+        validate_unique_column_names(list(columns.keys()))
         self.columns = columns
         self.column_order = list(columns.keys())
 

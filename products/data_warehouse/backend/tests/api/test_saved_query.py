@@ -379,6 +379,21 @@ class TestSavedQuery(APIBaseTest):
 
             mock_get_columns.assert_not_called()
 
+    def test_create_rejects_conflicting_column_names_with_a_specific_message(self):
+        # ClickHouse qualifies the unaliased copy when two select items share a name, so the
+        # generic "Failed to retrieve types" handler must not swallow the actionable message.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "duplicate_column_view",
+                "query": {"kind": "HogQLQuery", "query": "select e.event, e.event from events as e"},
+                "types": [["e.event", "Nullable(String)"], ["event", "Nullable(String)"]],
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "more than one column named 'event'" in response.json()["detail"]
+
     def test_column_order_survives_postgres_roundtrip(self):
         # Columns are stored in a jsonb object, which does not preserve key insertion order. Names
         # are chosen so jsonb reorders them (by length then bytes -> a, mm, zebra) away from the

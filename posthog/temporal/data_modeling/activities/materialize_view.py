@@ -1,7 +1,6 @@
 import uuid
 import typing
 import asyncio
-import collections
 import dataclasses
 
 from django.conf import settings
@@ -32,6 +31,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
+from products.data_modeling.backend.facade.api import validate_materializable_column_names
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
@@ -57,35 +57,6 @@ _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIE
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
-
-
-class UnmaterializableColumnNamesError(Exception):
-    pass
-
-
-def validate_materializable_column_names(column_names: typing.Sequence[str]) -> None:
-    """Reject result column names a materialized table cannot represent.
-
-    When two select items share a result name, ClickHouse keeps the qualified dotted
-    name (`table.column`) for the unaliased one, so counting by the bare last segment
-    catches both plain duplicates and collision-qualified names. Dotted names also
-    break the Arrow-cast rewrap in `hogql_table`, which references columns by name.
-    """
-    bare_name_counts = collections.Counter(name.rsplit(".", 1)[-1] for name in column_names)
-    duplicates = sorted({name for name, count in bare_name_counts.items() if count > 1})
-    if duplicates:
-        quoted = ", ".join(f"'{name}'" for name in duplicates)
-        raise UnmaterializableColumnNamesError(
-            f"The view's query returns more than one column named {quoted}. "
-            "Give each column a unique alias, then materialize the view again."
-        )
-    dotted = sorted(name for name in column_names if "." in name)
-    if dotted:
-        quoted = ", ".join(f"'{name}'" for name in dotted)
-        raise UnmaterializableColumnNamesError(
-            f"Column names that contain dots can't be materialized. Rename {quoted} with an alias, "
-            "then materialize the view again."
-        )
 
 
 class InvalidNodeTypeException(Exception):

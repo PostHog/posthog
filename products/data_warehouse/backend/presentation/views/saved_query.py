@@ -47,6 +47,7 @@ from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
+from products.data_modeling.backend.facade.api import ConflictingColumnNamesError
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -550,6 +551,8 @@ class DataWarehouseSavedQuerySerializer(
                     view.set_columns(columns)
 
                 view.external_tables = view.s3_tables
+            except ConflictingColumnNamesError as e:
+                raise serializers.ValidationError(str(e))
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -739,6 +742,8 @@ class DataWarehouseSavedQuerySerializer(
                         view.set_columns(columns)
 
                     view.external_tables = view.s3_tables
+                except ConflictingColumnNamesError as e:
+                    raise serializers.ValidationError(str(e))
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception as e:

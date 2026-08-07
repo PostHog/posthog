@@ -10,6 +10,9 @@ name on first access keeps this module off the ``django.setup()`` path.
 _B = "products.data_modeling.backend."
 
 _LAZY = {
+    "ConflictingColumnNamesError": "logic.column_names",
+    "validate_materializable_column_names": "logic.column_names",
+    "validate_unique_column_names": "logic.column_names",
     "UnsatisfiableFrequencyError": "logic.freshness",
     "UnsupportedFrequencyTargetError": "logic.freshness",
     "HasDependentsError": "logic.saved_query_dag_sync",

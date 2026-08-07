@@ -32,14 +32,12 @@ from posthog.temporal.data_modeling.activities import (
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
     InvalidNodeTypeException,
-    UnmaterializableColumnNamesError,
     _get_aws_storage_options,
     get_s3_client,
     hogql_table,
-    validate_materializable_column_names,
 )
 
-from products.data_modeling.backend.facade.api import compute_enrichment_hash
+from products.data_modeling.backend.facade.api import ConflictingColumnNamesError, compute_enrichment_hash
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -1253,20 +1251,5 @@ class TestHogqlTableColumnNameValidation:
         with unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
-            with pytest.raises(UnmaterializableColumnNamesError, match="more than one column named 'source_url'"):
+            with pytest.raises(ConflictingColumnNamesError, match="more than one column named 'source_url'"):
                 [batch async for batch in hogql_table("SELECT 1 AS source_url", ateam, LOGGER.bind())]
-
-    @pytest.mark.parametrize(
-        "column_names,expected_error",
-        [
-            (["a", "b", "a"], "more than one column named 'a'"),
-            (["source_url", "sales.source_url"], "more than one column named 'source_url'"),
-            (["a", "t.b"], "'t.b'"),
-        ],
-    )
-    def test_conflicting_column_names_are_rejected(self, column_names, expected_error):
-        with pytest.raises(UnmaterializableColumnNamesError, match=expected_error):
-            validate_materializable_column_names(column_names)
-
-    def test_unique_column_names_pass(self):
-        validate_materializable_column_names(["a", "b", "c"])
