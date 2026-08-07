@@ -29,12 +29,6 @@ logger = structlog.get_logger(__name__)
 # killing the attempt first.
 RESUME_SNAPSHOT_TIMEOUT_SECONDS = 4 * 60
 
-# The pruned directory-snapshot retry runs inside the same 5-minute activity budget as the
-# failed first attempt, so it gets a tighter per-call timeout: prune (~90s) + this retry must
-# stay comfortably under the budget so the in-activity graceful degrade runs before Temporal
-# kills the attempt.
-PRUNED_RETRY_SNAPSHOT_TIMEOUT_SECONDS = 2 * 60
-
 PENDING_USER_STATE_KEYS = [
     "pending_user_message",
     "pending_user_artifact_ids",
@@ -99,11 +93,9 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         else:
             external_id = sandbox.create_snapshot(timeout_seconds=RESUME_SNAPSHOT_TIMEOUT_SECONDS)
     except SnapshotFileLimitExceededError as e:
-        # Modal caps snapshots at 1M files and a directory snapshot of the workspace can exceed
-        # it once install trees and caches pile up. Prune those reproducible directories and
-        # retry once — the resume sandbox reinstalls them, so this costs a reinstall, not the
-        # run's own work. Only the directory snapshot supports the targeted prune; a full
-        # filesystem snapshot has no mount path to shrink, so it just degrades to a fresh start.
+        # Modal caps snapshots at 1M files and a directory snapshot of the workspace can exceed it
+        # once install trees and caches pile up. Only the directory snapshot has a mount path to
+        # shrink; a full filesystem snapshot does not, so it degrades to a fresh start.
         if snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
             outcome = "file_limit_exceeded"
             logger.warning("create_resume_snapshot_file_limit_exceeded", sandbox_id=input.sandbox_id, error=str(e))
@@ -111,55 +103,30 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
             return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(e))
 
+        # Prune the reproducible trees (node_modules, virtualenvs, caches) in the live sandbox,
+        # then let Temporal retry the whole activity: the next attempt snapshots the now-smaller
+        # tree in a fresh 5-minute budget. Doing the prune here and re-raising a transient error —
+        # rather than snapshotting again inline — keeps each attempt to a single snapshot, so the
+        # activity's timeout can't pre-empt the recovery. If pruning does not bring the tree under
+        # the cap, retries exhaust and both callers treat the failed snapshot as non-fatal (the run
+        # starts fresh). The resume sandbox reinstalls the pruned trees, so this costs a reinstall.
+        outcome = "file_limit_exceeded_pruned"
         logger.warning(
-            "create_resume_snapshot_file_limit_exceeded_retrying_pruned",
+            "create_resume_snapshot_file_limit_exceeded_pruning",
             sandbox_id=input.sandbox_id,
             error=str(e),
         )
-        try:
-            # Tighter per-call timeout: this retry runs after the failed first attempt inside the
-            # same 5-minute activity budget, so keep prune + retry snapshot well under it.
-            external_id = sandbox.create_directory_snapshot(
-                snapshot_mount_path, prune_heavy_dirs=True, timeout_seconds=PRUNED_RETRY_SNAPSHOT_TIMEOUT_SECONDS
-            )
-        except SnapshotTimeoutError as retry_error:
-            # Transient failure on the retry. The prune already ran against the live sandbox, so a
-            # Temporal activity retry re-runs the first (now-cheaper) snapshot against the shrunk
-            # tree — re-raise instead of forfeiting that recovery to a fresh start.
-            outcome = "transient_error"
-            logger.warning(
-                "create_resume_snapshot_transient_error_after_prune",
-                sandbox_id=input.sandbox_id,
-                error=str(retry_error),
-            )
-            increment_snapshot_create(snapshot_kind, outcome)
-            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-            raise
-        except SnapshotFileLimitExceededError as retry_error:
-            # Pruning did not bring the tree under the cap. Nothing more to try — degrade to a
-            # fresh start rather than crash the run.
-            outcome = "file_limit_exceeded"
-            logger.warning(
-                "create_resume_snapshot_file_limit_exceeded_after_prune",
-                sandbox_id=input.sandbox_id,
-                error=str(retry_error),
-            )
-            increment_snapshot_create(snapshot_kind, outcome)
-            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-            return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(retry_error))
-        except Exception as retry_error:
-            outcome = "failed"
-            logger.warning(
-                "create_resume_snapshot_snapshot_failed_after_prune",
-                sandbox_id=input.sandbox_id,
-                error=str(retry_error),
-            )
-            increment_snapshot_create(snapshot_kind, outcome)
-            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-            return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(retry_error))
-        outcome = "created_after_prune"
+        sandbox.prune_snapshot_heavy_dirs(snapshot_mount_path)
         increment_snapshot_create(snapshot_kind, outcome)
         record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+        # capture=False: the original SnapshotFileLimitExceededError already carried the signal;
+        # this transient wrapper only drives the Temporal retry.
+        raise SnapshotTimeoutError(
+            f"Pruned workspace over Modal's file-count cap; retrying snapshot: {e}",
+            {"sandbox_id": input.sandbox_id, "snapshot_mount_path": snapshot_mount_path},
+            cause=e,
+            capture=False,
+        )
     except SnapshotTimeoutError as e:
         outcome = "transient_error"
         logger.warning("create_resume_snapshot_transient_error", sandbox_id=input.sandbox_id, error=str(e))

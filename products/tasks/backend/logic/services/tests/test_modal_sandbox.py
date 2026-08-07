@@ -866,27 +866,21 @@ class TestModalSandboxAgentServer:
         with pytest.raises(SnapshotTimeoutError):
             self._trigger_snapshot(mock_sandbox, snapshot_method, quota_error)
 
-    def test_directory_snapshot_prunes_heavy_dirs_before_snapshotting(self, mock_sandbox: Any) -> None:
-        mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-pruned")
+    def test_prune_snapshot_heavy_dirs_targets_reproducible_trees(self, mock_sandbox: Any) -> None:
         with patch.object(ModalSandbox, "execute") as execute:
-            result = mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR, prune_heavy_dirs=True)
+            mock_sandbox.prune_snapshot_heavy_dirs(DEFAULT_SANDBOX_WORKING_DIR)
 
-        assert result == "im-pruned"
         prune_command = execute.call_args_list[0].args[0]
         assert "node_modules" in prune_command
         assert ".venv" in prune_command
         assert DEFAULT_SANDBOX_WORKING_DIR in prune_command
 
-    def test_prune_failure_does_not_block_snapshot(self, mock_sandbox: Any) -> None:
-        # _prune_snapshot_heavy_dirs is best-effort: a failed prune must not skip the snapshot.
-        mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-after-failed-prune")
+    def test_prune_snapshot_heavy_dirs_is_best_effort(self, mock_sandbox: Any) -> None:
+        # A failed or timed-out prune must not raise — the caller decides what to do next.
         with patch.object(
             ModalSandbox, "execute", side_effect=SandboxExecutionError("prune timed out", {}, cause=RuntimeError())
         ):
-            result = mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR, prune_heavy_dirs=True)
-
-        assert result == "im-after-failed-prune"
-        mock_sandbox._sandbox.snapshot_directory.assert_called_once()
+            mock_sandbox.prune_snapshot_heavy_dirs(DEFAULT_SANDBOX_WORKING_DIR)
 
 
 class TestModalSandboxProvisionDiagnostics:

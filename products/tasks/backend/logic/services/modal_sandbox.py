@@ -1578,9 +1578,10 @@ class ModalSandbox(SandboxBase):
             timeout_seconds=timeout_seconds if timeout_seconds is not None else FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS
         )
 
-    def _prune_snapshot_heavy_dirs(self, path: str) -> None:
-        """Delete reproducible package/cache trees under ``path`` so a re-snapshot fits under
-        Modal's file-count cap. Best-effort: a failure here must not mask the snapshot retry.
+    def prune_snapshot_heavy_dirs(self, path: str) -> None:
+        """Delete reproducible package/cache trees under ``path`` so a later snapshot fits under
+        Modal's file-count cap. Best-effort: a failure here must not crash the caller — a partial
+        prune may already have shrunk the tree enough, and the caller decides what to do next.
         """
         quoted_path = shlex.quote(path)
         name_predicate = " -o ".join(f"-name {shlex.quote(name)}" for name in SNAPSHOT_PRUNE_DIR_NAMES)
@@ -1589,15 +1590,11 @@ class ModalSandbox(SandboxBase):
         )
         try:
             self.execute(prune_command, timeout_seconds=SNAPSHOT_PRUNE_TIMEOUT_SECONDS)
-            logger.info(f"Pruned heavy directories under {path} for sandbox {self.id} before snapshot retry")
+            logger.info(f"Pruned heavy directories under {path} for sandbox {self.id}")
         except Exception as e:
-            # Best-effort: a failed or timed-out prune must not skip the snapshot retry. A partial
-            # prune may already have shrunk the tree enough for the retry to fit under the cap.
             logger.warning(f"Best-effort prune of heavy directories under {path} failed for sandbox {self.id}: {e}")
 
-    def create_directory_snapshot(
-        self, path: str, *, prune_heavy_dirs: bool = False, timeout_seconds: int | None = None
-    ) -> str:
+    def create_directory_snapshot(self, path: str) -> str:
         if not self.is_running():
             raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
@@ -1613,14 +1610,10 @@ class ModalSandbox(SandboxBase):
                 cause=RuntimeError("modal.Sandbox.snapshot_directory is unavailable"),
             )
 
-        if prune_heavy_dirs:
-            self._prune_snapshot_heavy_dirs(path)
-
-        snapshot_timeout = timeout_seconds if timeout_seconds is not None else DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS
         try:
             quoted_path = shlex.quote(path)
             self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
-            image = snapshot_directory(path, timeout=snapshot_timeout, ttl=None)
+            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
             snapshot_id = image.object_id
 
             logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")
@@ -1631,7 +1624,7 @@ class ModalSandbox(SandboxBase):
             if _is_snapshot_file_cap_error(e):
                 # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. This is permanent,
                 # not transient — retrying the same tree cannot succeed — so classify it separately
-                # (the caller prunes and retries) instead of letting it become a generic captured issue.
+                # (the caller prunes the tree and retries) instead of misclassifying it as a generic error.
                 logger.warning(f"Directory snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
                 raise SnapshotFileLimitExceededError(
                     f"Directory snapshot exceeds Modal's file-count cap: {e}",
