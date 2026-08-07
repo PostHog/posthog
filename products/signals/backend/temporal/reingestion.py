@@ -63,7 +63,7 @@ class SoftDeleteReportSignalsInput:
 @close_db_connections
 async def soft_delete_report_signals_activity(input: SoftDeleteReportSignalsInput) -> None:
     """Soft-delete all ClickHouse signals for a report by re-emitting with metadata.deleted=True."""
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     await sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
         report_id=input.report_id,
         team_id=input.team_id,
@@ -113,7 +113,7 @@ class ReingestSignalsInput:
 @close_db_connections
 async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
     """Re-emit all signals via emit_signal() through the active Signals pipeline."""
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
     for signal in input.signals:
         await emit_signal(
@@ -171,7 +171,7 @@ class DeleteTeamReportsInput:
 @scoped_temporal()
 @close_db_connections
 async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInput) -> ProcessTeamSignalsBatchOutput:
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
     result = await execute_hogql_query_with_retry(
         query_type="SignalsFetchTeamBatchForReingestion",

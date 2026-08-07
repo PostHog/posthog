@@ -255,7 +255,7 @@ class FetchSignalTypeExamplesOutput:
 async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInput) -> FetchSignalTypeExamplesOutput:
     """Fetch one example signal per unique (source_product, source_type) pair from ClickHouse."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
         query = f"""
             SELECT -- Grab the latest unique example of each signal type
@@ -339,7 +339,7 @@ class RunSignalSemanticSearchOutput:
 async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
     """Run a nearest neighbor query against the signal embeddings in ClickHouse."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
         query = f"""
             SELECT
@@ -503,7 +503,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     from django.utils import timezone
 
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     inserted_at_threshold = timezone.now() - timedelta(minutes=30)
     max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
 
@@ -626,7 +626,7 @@ class FetchSignalsForReportOutput:
 @close_db_connections
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
         result = await execute_hogql_query_with_retry(
             query_type="SignalsFetchForReport",

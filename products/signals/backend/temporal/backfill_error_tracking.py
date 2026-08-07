@@ -85,7 +85,7 @@ async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> None:
 
     from products.signals.backend.facade.api import emit_signal
 
-    team = await Team.objects.aget(id=input.team_id)
+    team = await Team.objects.select_related("organization").aget(id=input.team_id)
 
     description = (
         f"New error tracking issue created - this particular exception was observed for the first time:\n"
