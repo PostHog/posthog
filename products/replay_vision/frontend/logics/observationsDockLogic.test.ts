@@ -57,6 +57,14 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ scannersLoading: false })
     })
 
+    // Regression guard: the list loaded only once on mount, so a scanner created in the "create one"
+    // tab never showed up in the picker on return. Opening the picker must refetch it.
+    it('refetches the scanner list each time the picker opens', async () => {
+        await expectLogic(visionScannersListLogic, () => {
+            logic.actions.setScannerPickerOpen(true)
+        }).toDispatchActions(['loadScanners'])
+    })
+
     it('starts one observation when the same scanner row is clicked twice', async () => {
         // The picker rows disable while observing, but both click events can land before React re-renders,
         // and the duplicate-scanner guard can't see a run that has no observation row yet. Two POSTs mean a

@@ -65,7 +65,14 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                         ) : scanners.length === 0 ? (
                             // Opens in a new tab so the recording stays put behind it — this dropdown is
                             // reached mid-recording and a same-tab navigation would abandon that context.
-                            <Link to={urls.replayVision()} target="_blank" className="block px-2 py-3 text-sm">
+                            // Close on click so the picker isn't stuck open on return, where the next click
+                            // would toggle it shut instead of reopening it against the refreshed list.
+                            <Link
+                                to={urls.replayVision()}
+                                target="_blank"
+                                onClick={() => setScannerPickerOpen(false)}
+                                className="block px-2 py-3 text-sm"
+                            >
                                 No scanners yet — create one
                             </Link>
                         ) : filteredScanners.length === 0 ? (
