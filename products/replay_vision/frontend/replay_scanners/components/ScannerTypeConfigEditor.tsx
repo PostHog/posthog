@@ -33,7 +33,7 @@ export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length
 function ScannerPromptField({
     scannerId,
     placeholder,
-    label = 'Prompt',
+    label = 'Prompt and additional context',
     caption,
 }: {
     scannerId: string
@@ -225,8 +225,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                 <ScannerPromptField
                     scannerId={scannerId}
                     label="Additional context"
-                    caption="The core summarizer prompt is built in. Use this field to add product context or steer summaries — for example, what the ideal user flow looks like."
-                    placeholder="e.g. This is a B2B analytics tool. Users usually come to build a dashboard — call out where they get stuck in that flow."
+                    caption="The agent already knows how to summarize. Use this field to add product context or steer summaries, for example what the ideal user flow looks like."
+                    placeholder="Describe your product and what users usually come to do. Call out anything the summaries should focus on, like where users get stuck."
                 />
                 <LemonField name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton className="max-w-full overflow-x-auto" options={SUMMARIZER_LENGTH_OPTIONS} />
@@ -241,6 +241,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                 <ScannerPromptField
                     scannerId={scannerId}
                     placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
+                    caption="Your prompt is the condition to check each session for. Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.allow_inconclusive">
                     {({ value, onChange }) => (
@@ -265,7 +266,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Categorize this session by its primary user intent."
+                    placeholder="Categorize this session by what the user came to do: first-time setup, regular work, exploring features, or troubleshooting a problem. If they did several, tag the one they spent the most time on."
+                    caption="Your prompt tells the agent how to decide which of your tags fit each session. Include anything the agent should know about your product or this flow."
                 />
                 <ClassifierTagsField scannerId={scannerId} />
                 <LemonField name="scanner_config.multi_label">
@@ -303,7 +305,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Rate how frustrated the user appeared during this session."
+                    placeholder="Rate how frustrated the user appeared during this session. Smooth progress scores low. Rage clicks, repeated retries, and giving up mid-task score high."
+                    caption="Your prompt is what the agent scores each session on, using the scale below. Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.scale">
                     {({ value, onChange, error }) => {
