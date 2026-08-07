@@ -1,10 +1,10 @@
 from posthog.test.base import BaseTest
 
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.test.template_fixtures import zapier_template
 from posthog.management.commands.migrate_hooks import migrate_hooks
 
 from products.actions.backend.models.action import Action
-from products.cdp.backend.api.hooks import ZAPIER_TEMPLATE_ID
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hook import Hook
 
@@ -34,24 +34,8 @@ class TestMigrateHooks(BaseTest):
         )
 
         # The Zapier template lives in the Node service, which these tests do not run,
-        # so seed the row the migration resolves by template_id.
-        self.zapier_template = HogFunctionTemplate.objects.create(
-            template_id=ZAPIER_TEMPLATE_ID,
-            name="Zapier",
-            description="Trigger Zaps in Zapier based on PostHog events.",
-            type="destination",
-            status="stable",
-            free=True,
-            icon_url="/static/services/zapier.png",
-            category=["Custom"],
-            code_language="hog",
-            code="let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {'method': 'POST', 'body': inputs.body})",
-            inputs_schema=[
-                {"key": "hook", "type": "string", "required": True},
-                {"key": "body", "type": "json", "required": False},
-                {"key": "debug", "type": "boolean", "required": False},
-            ],
-        )
+        # so seed the row resolved by template_id.
+        self.zapier_template = sync_template_to_db(zapier_template)
 
     def test_dry_run(self):
         migrate_hooks(hook_ids=[], team_ids=[], dry_run=True)
