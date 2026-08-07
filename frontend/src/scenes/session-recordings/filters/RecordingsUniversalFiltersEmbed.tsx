@@ -1019,11 +1019,10 @@ export const ReplayFiltersTab = ({
                             <LemonButton
                                 id="replay-filters-feedback-button"
                                 type="tertiary"
-                                status="danger"
                                 size="small"
                                 data-attr="replay-filters-feedback-button"
                             >
-                                Unexpected filter results?
+                                Share feedback on filters
                             </LemonButton>
                         )}
                         <div className="flex gap-2 ml-auto">

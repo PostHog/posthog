@@ -269,6 +269,23 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         selectedRecordingOutsideFilters: true,
                     })
             })
+
+            it('clears once a later fetch returns the selected recording as matching', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId(outsideFiltersRecording.id))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ selectedRecordingOutsideFilters: true })
+
+                // A subsequent paginated response returns the same recording, now matching the filters.
+                // The merge must refresh the existing entry rather than keep the stale matches_filters: false.
+                logic.actions.loadSessionRecordingsSuccess({
+                    results: [{ ...outsideFiltersRecording, matches_filters: true }],
+                    has_next: false,
+                    order: 'start_time',
+                    order_direction: 'DESC',
+                })
+
+                await expectLogic(logic).toMatchValues({ selectedRecordingOutsideFilters: false })
+            })
         })
 
         describe('nextSessionRecording', () => {

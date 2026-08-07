@@ -7,14 +7,33 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
-    const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { hiddenRecordingsCount, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic)
+    const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <>
             <h3 className="title text-secondary mb-0">No matching recordings</h3>
             <div className="flex flex-col deprecated-space-y-2">
+                {totalFiltersCount > 0 && (
+                    <p className="text-secondary mb-0">
+                        Filters are applied, including any saved from a previous visit. Reset them to see all
+                        recordings.
+                    </p>
+                )}
                 <ul className="deprecated-space-y-1">
+                    {totalFiltersCount > 0 && (
+                        <li>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
+                                data-attr="replay-empty-state-troubleshooting-reset-filters"
+                                onClick={() => resetFilters()}
+                            >
+                                Reset filters
+                            </LemonButton>
+                        </li>
+                    )}
                     {hiddenRecordingsCount > 0 && (
                         <li>
                             <LemonButton

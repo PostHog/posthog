@@ -534,11 +534,13 @@ export interface sessionRecordingsPlaylistLogicActions {
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
-        defaultDurationFilter: RecordingDurationFilter
+        defaultDurationFilter: RecordingDurationFilter,
+        recordingCount: number
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        recordingCount: number
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
         filterType: SessionRecordingFilterType
@@ -995,7 +997,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
+                    actions.reportRecordingsListFetched(
+                        loadTimeMs,
+                        values.filters,
+                        defaultRecordingDurationFilter,
+                        response.results.length
+                    )
 
                     breakpoint()
 
@@ -1135,8 +1142,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const mergedResults: SessionRecordingType[] = [...state]
 
                     sessionRecordingsResponse.results.forEach((recording) => {
-                        if (!state.find((r) => r.id === recording.id)) {
+                        const existingIndex = mergedResults.findIndex((r) => r.id === recording.id)
+                        if (existingIndex === -1) {
                             mergedResults.push(recording)
+                        } else {
+                            // Refresh the existing entry so fields like matches_filters reflect the latest
+                            // response - a recording can come back as matching on a later page.
+                            mergedResults[existingIndex] = recording
                         }
                     })
 

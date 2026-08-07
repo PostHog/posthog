@@ -135,11 +135,13 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
-        defaultDurationFilter: RecordingDurationFilter
+        defaultDurationFilter: RecordingDurationFilter,
+        recordingCount: number
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        recordingCount: number
     }
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
         filterType: SessionRecordingFilterType
@@ -167,11 +169,13 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingsListFetched: (
             loadTime: number,
             filters: RecordingUniversalFilters,
-            defaultDurationFilter: RecordingDurationFilter
+            defaultDurationFilter: RecordingDurationFilter,
+            recordingCount: number
         ) => ({
             loadTime,
             filters,
             defaultDurationFilter,
+            recordingCount,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
@@ -220,7 +224,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter, recordingCount }) => {
             metricHistogram('replay_list_load_ms', loadTime, 'ms')
             try {
                 const filterValues = filtersFromUniversalFilterGroups(filters)
@@ -248,6 +252,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                     load_time: loadTime,
                     listing_version: '3',
                     filters,
+                    recording_count: recordingCount,
                     ...filterBreakdown,
                 })
             } catch (e) {

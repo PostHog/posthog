@@ -320,9 +320,9 @@ export function Playlist({
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
                         {selectedRecordingOutsideFilters && (
-                            <LemonBanner type="warning" className="m-2">
-                                The recording you have open doesn't match the current filters. It stays in the list
-                                until you close it.
+                            <LemonBanner type="info" className="m-2" onClose={() => setSelectedRecordingId(null)}>
+                                The recording you have open doesn't match the current filters. Close it to dismiss this
+                                message.
                             </LemonBanner>
                         )}
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
