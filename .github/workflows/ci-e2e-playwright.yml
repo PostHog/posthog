@@ -7,7 +7,7 @@ name: E2E CI Playwright
 on:
     pull_request:
         # Draft PRs skip E2E entirely — the broad path filter below matches nearly
-        # every code PR, and a full ~25-minute stack boot per draft push is the
+        # every code PR, and a full stack boot per draft push is the
         # remaining big per-PR cost. The ready-for-review full run is the merge
         # gate; use workflow_dispatch to force a run on a draft.
         types: [opened, synchronize, reopened, ready_for_review]
@@ -170,7 +170,7 @@ jobs:
                         - '!ee/**/conftest.py'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
-            # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
+            # approval. Re-running the full E2E stack for that bot push is pure waste;
             # the `playwright_tests` aggregator treats the resulting skip as success. Key
             # off the push delta (this push's commits), not the whole-PR diff the filter reports,
             # so it fires even when the PR also carries real code changes.
@@ -267,7 +267,7 @@ jobs:
             - name: Compute schema cache keys
               id: schema-key
               # Both PRs and master pushes restore the schema dump ci-backend saves on
-              # master push, skipping the ~10-min replay of the full migration history —
+              # master push, skipping the replay of the full migration history —
               # the migrate step in the heavy job still layers on anything newer. On a PR
               # the migration-set key is the merge-base's; on a master push it's HEAD's.
               # ci-backend already validates the full history on every master push (it's
@@ -518,7 +518,7 @@ jobs:
                   # GITHUB_TOKEN in .git/config where that code could read it — the report step
                   # below receives the token explicitly via its GITHUB_TOKEN env instead.
                   persist-credentials: false
-            # Fail fast (seconds, before the ~10-min stack boot) when the spec-selection
+            # Fail fast (seconds, before the stack boot) when the spec-selection
             # map has drifted: a target pointing at a renamed/deleted spec, or a new spec
             # no map entry reaches. Without this gate the selector silently falls open to
             # permanent full runs and the selection savings evaporate unnoticed. The
@@ -640,7 +640,7 @@ jobs:
             - name: Install the working version of hogql-parser
               if: needs.changes.outputs.shouldRun == 'true' && steps.hogql-parser-diff.outputs.changed == 'true'
               shell: bash
-              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
