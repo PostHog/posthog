@@ -234,7 +234,7 @@ const shouldHideFieldName = (fieldName: string): boolean => {
     return fieldName === 'team_id'
 }
 
-const shouldUseDirectConnectionTree = (connectionId: string | null): boolean => {
+const shouldUseDirectConnectionTree = (connectionId: string | null): connectionId is string => {
     return !!connectionId && connectionId !== POSTHOG_WAREHOUSE
 }
 
@@ -390,6 +390,30 @@ const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataIt
         onClick: onRetry,
         record: {
             type: 'schema-load-retry',
+        },
+    },
+]
+
+const createDirectConnectionEmptyNodes = (connectionId: string): TreeDataItem[] => [
+    {
+        id: 'direct-connection-empty/',
+        name: 'No queryable tables',
+        displayName: <>No queryable tables</>,
+        icon: <IconDatabase />,
+        disableSelect: true,
+        type: 'node',
+        record: {
+            type: 'direct-connection-empty',
+        },
+    },
+    {
+        id: 'direct-connection-configure/',
+        name: 'Configure tables',
+        displayName: <>Configure tables</>,
+        icon: <IconPlus />,
+        onClick: () => newInternalTab(urls.dataWarehouseSource(`managed-${connectionId}`, 'schemas')),
+        record: {
+            type: 'direct-connection-configure',
         },
     },
 ]
@@ -1812,7 +1836,10 @@ export interface queryDatabaseLogicMeta {
                 | {
                       job_inputs?: Record<string, any>
                   }
-                | undefined
+                | undefined,
+            databaseLoading: boolean,
+            databaseLoadError: string | null,
+            allTablesMap: Record<string, DatabaseSchemaTable>
         ) => TreeDataItem[]
         activeExpandedFolderIds: (
             searchTerm: string,
@@ -2868,13 +2895,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         displayedTreeData: [
-            (s) => [s.searchTerm, s.searchTreeData, s.treeData, s.connectionId, s.selectedDirectSource],
+            (s) => [
+                s.searchTerm,
+                s.searchTreeData,
+                s.treeData,
+                s.connectionId,
+                s.selectedDirectSource,
+                s.databaseLoading,
+                s.databaseLoadError,
+                s.allTablesMap,
+            ],
             (
                 searchTerm: string,
                 searchTreeData: TreeDataItem[],
                 treeData: TreeDataItem[],
                 connectionId: string | null,
-                selectedDirectSource: { job_inputs?: Record<string, any> } | undefined
+                selectedDirectSource: { job_inputs?: Record<string, any> } | undefined,
+                databaseLoading: boolean,
+                databaseLoadError: string | null,
+                allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeDataItem[] => {
                 const sourceData = searchTerm ? searchTreeData : treeData
 
@@ -2917,6 +2956,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     additionalItems.push(item)
                 })
+
+                const hasLoadedTables = Object.keys(allTablesMap).length > 0
+                if (!databaseLoading && databaseLoadError) {
+                    return [
+                        ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
+                        ...additionalItems,
+                    ]
+                }
+                if (!databaseLoading && !hasLoadedTables) {
+                    return [...createDirectConnectionEmptyNodes(connectionId), ...additionalItems]
+                }
 
                 return [
                     ...groupDirectConnectionTableNodesBySchema(flattenedTables, !!searchTerm, defaultSchemaName),
