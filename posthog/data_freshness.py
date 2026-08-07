@@ -41,6 +41,11 @@ LOOKBACK_DAYS = 30
 # Shorter than the lookback, so a stale project can still say roughly how long it has been quiet.
 QUIET_AFTER_DAYS = 7
 
+# Postgres reports a statement cancelled by `statement_timeout` as SQLSTATE 57014. psycopg2 exposes
+# it as `pgcode` and psycopg3 as `sqlstate`, and Django re-raises either as its own OperationalError,
+# so both attribute names are checked on the error and on its cause.
+_QUERY_CANCELED_SQLSTATE = "57014"
+
 CACHE_TTL_SECONDS = 10 * 60
 # Bump when ProjectFreshness or SourceFreshness change shape: cached values are pickled, so old
 # entries would otherwise unpickle missing a field.
@@ -168,9 +173,21 @@ def _compute(teams: list[Team]) -> list[ProjectFreshness]:
             # One unavailable store must not blank out every other source's verdict.
             degraded = True
             logger.warning("data_freshness_probe_failed", probe=name, error=str(e))
-            capture_exception(e)
+            # A backstop timeout firing as designed is expected load-shedding, not a novel error,
+            # so don't page on it — the degraded verdict already suppresses the affected teams.
+            if not _is_statement_timeout(e):
+                capture_exception(e)
 
     return reportable([derive_freshness(team, by_team[team.id], quiet_before) for team in teams], degraded=degraded)
+
+
+def _is_statement_timeout(error: BaseException) -> bool:
+    for exc in (error, error.__cause__):
+        if exc is None:
+            continue
+        if (getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)) == _QUERY_CANCELED_SQLSTATE:
+            return True
+    return False
 
 
 def reportable(results: list[ProjectFreshness], *, degraded: bool) -> list[ProjectFreshness]:

@@ -1,5 +1,6 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -61,6 +62,13 @@ class EventDefinition(UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            # Lets the data-freshness probe range-scan the lookback window per project scope,
+            # mirroring the unique index's `coalesce(project_id, team_id)` leading expression.
+            models.Index(
+                Coalesce("project_id", "team_id"),
+                "last_seen_at",
+                name="posthog_eventdef_scope_seen_ix",
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(

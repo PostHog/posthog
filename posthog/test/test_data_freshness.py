@@ -1,10 +1,19 @@
 from datetime import UTC, datetime, timedelta
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.data_freshness import Freshness, ProjectFreshness, derive_freshness, reportable
+from posthog.data_freshness import (
+    Freshness,
+    ProjectFreshness,
+    _compute,
+    _is_statement_timeout,
+    derive_freshness,
+    reportable,
+)
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 
@@ -90,3 +99,48 @@ class TestDeriveFreshness(SimpleTestCase):
 
         self.assertEqual(reportable(results, degraded=False), results)
         self.assertEqual([r.team_id for r in reportable(results, degraded=True)], [1])
+
+
+def _timeout_error(*, on_cause: bool, attr: str) -> Exception:
+    inner = Exception("canceling statement due to statement timeout")
+    setattr(inner, attr, "57014")
+    if not on_cause:
+        return inner
+    outer = Exception("wrapped")
+    outer.__cause__ = inner
+    return outer
+
+
+class TestStatementTimeoutPaging(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("psycopg2 pgcode on the error", _timeout_error(on_cause=False, attr="pgcode"), True),
+            ("psycopg3 sqlstate on the error", _timeout_error(on_cause=False, attr="sqlstate"), True),
+            ("django re-raise carries it on the cause", _timeout_error(on_cause=True, attr="sqlstate"), True),
+            ("an unrelated failure is not a timeout", ValueError("boom"), False),
+        ]
+    )
+    def test_recognizes_statement_timeout(self, _name: str, error: Exception, expected: bool) -> None:
+        self.assertEqual(_is_statement_timeout(error), expected)
+
+    @parameterized.expand(
+        [
+            ("designed backstop timeout is not paged", _timeout_error(on_cause=True, attr="sqlstate"), False),
+            ("a novel probe failure still pages", RuntimeError("clickhouse unreachable"), True),
+        ]
+    )
+    def test_only_novel_probe_failures_page(self, _name: str, error: Exception, should_capture: bool) -> None:
+        team = Team(id=1, ingested_event=True)
+
+        def failing_probe() -> list:
+            raise error
+
+        with (
+            patch("posthog.data_freshness._probes", return_value=[("event_definitions", failing_probe)]),
+            patch("posthog.data_freshness.capture_exception") as capture,
+        ):
+            result = _compute([team])
+
+        # Both paths degrade, so the stale verdict is suppressed rather than shown wrongly.
+        self.assertEqual(result, [])
+        self.assertEqual(capture.called, should_capture)
