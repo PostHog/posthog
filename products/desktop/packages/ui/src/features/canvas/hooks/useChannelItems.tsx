@@ -16,10 +16,6 @@ import {
   useDashboardMutations,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
-import {
-  PERSONAL_CHANNEL_NAME,
-  useBackendChannel,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -30,13 +26,10 @@ import { useMemo } from "react";
  * A channel's canvases + task feed as merged, newest-first items, plus the row
  * actions and the viewer's identity for the recent-list filters.
  *
- * The channel's *name* is resolved here rather than accepted as an argument: it
- * feeds `useBackendChannel`, whose resolve-or-create effect provisions a backend
- * channel for any name it's handed. A caller with a half-loaded channel list has
- * nothing truthful to pass, and a placeholder would create a real channel named
- * after the placeholder. While the name is unknown the hook reports loading and
- * yields nothing — which also keeps the personal-channel ownership filter from
- * running against an identity we haven't established yet.
+ * The channel is looked up in the channels list to establish its identity
+ * (personal vs public). While it's unknown the hook reports loading and yields
+ * nothing — which keeps the personal-channel ownership filter from running
+ * against an identity we haven't established yet.
  */
 export function useChannelItems(channelId: string): {
   items: ChannelItemModel[];
@@ -51,16 +44,12 @@ export function useChannelItems(channelId: string): {
 
   const { channels, isLoading: channelsLoading } = useChannels();
   const channel = channels.find((c) => c.id === channelId);
-  const channelName = channel?.name;
-  const identityKnown = channelName !== undefined;
-  const isPersonal = channelName === PERSONAL_CHANNEL_NAME;
+  const identityKnown = channel !== undefined;
+  const isPersonal = channel?.channelType === "personal";
 
   const { dashboards, isLoading: dashboardsLoading } = useDashboards(channelId);
-  const { channel: backendChannel, isLoading: channelLoading } =
-    useBackendChannel(channelName);
-  const { tasks: feedTasks, isLoading: feedLoading } = useChannelFeed(
-    backendChannel?.id,
-  );
+  const { tasks: feedTasks, isLoading: feedLoading } =
+    useChannelFeed(channelId);
   const { tasks: filedTaskRecords, isLoading: filedTasksLoading } =
     useChannelTasks(channelId);
   const { data: allTasks = [], isLoading: allTasksLoading } = useTasks({
@@ -182,7 +171,6 @@ export function useChannelItems(channelId: string): {
       (channelsLoading ||
         !identityKnown ||
         dashboardsLoading ||
-        channelLoading ||
         feedLoading ||
         filedTasksLoading ||
         allTasksLoading ||

@@ -666,6 +666,13 @@ PARQUET_WRITER_SETTINGS: dict[str, Any] = {
     "output_format_parquet_row_group_size": 250_000,  # secondary cap; binds for narrow persons rows
 }
 
+# Grace hash uses this limit to grow spill buckets before the query-wide memory limit,
+# leaving headroom for FINAL and the Parquet writers.
+PERSONS_JOIN_SETTINGS: dict[str, Any] = {
+    "join_algorithm": "grace_hash",
+    "max_bytes_in_join": 10 * ONE_GB_IN_BYTES,
+}
+
 # Shared concurrency key across events + persons backfills. Each duckling
 # connection spins up a duckgres worker, and the per-org worker pool is capped
 # (maxWorkers in the duckgres chart) and shared with product queries — so the
@@ -2174,7 +2181,8 @@ def export_persons_to_duckling_s3(
     """
 
     # Bound per-partition writer memory like the events export (see PARQUET_WRITER_SETTINGS).
-    export_settings = settings.copy()
+    export_settings = PERSONS_JOIN_SETTINGS.copy()
+    export_settings.update(settings)
     export_settings.update(PARQUET_WRITER_SETTINGS)
 
     context.log.info(f"Exporting persons for {info} ({row_count} persons → {fanout} file(s)) to {s3_glob}")
@@ -2229,7 +2237,8 @@ def export_persons_full_to_duckling_s3(
     # No date filtering - export all persons for the team
     # Full exports need more memory due to FINAL + JOIN on large datasets
     # Also enable external sorting to spill to disk if memory is still exceeded
-    full_export_settings = settings.copy()
+    full_export_settings = PERSONS_JOIN_SETTINGS.copy()
+    full_export_settings.update(settings)
     full_export_settings.update(PARQUET_WRITER_SETTINGS)  # bound per-partition writer memory
     full_export_settings.update(
         {

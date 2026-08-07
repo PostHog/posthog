@@ -60,6 +60,17 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 
 ## 3. Clone and run the app
 
+Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
+
+```bash
+cd products/desktop
+pnpm install
+cp .env.example .env
+pnpm dev
+```
+
+Starting fresh from the standalone repo instead:
+
 ```bash
 git clone https://github.com/PostHog/code.git
 cd code

@@ -124,7 +124,11 @@ pub(crate) fn make_consumer(
         .set("group.id", group_id)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest");
+        .set("auto.offset.reset", "earliest")
+        // Only committed transactions: with fencing on, aborted windows
+        // and zombie leftovers must never reach the cache. Identical
+        // behavior on a topic without transactional records.
+        .set("isolation.level", "read_committed");
     if kafka.kafka_tls {
         cfg.set("security.protocol", "ssl")
             .set("enable.ssl.certificate.verification", "false");
@@ -214,28 +218,34 @@ impl ConsumerPool {
     /// only means the first operations pay the setup they would have
     /// paid anyway.
     pub async fn warm_up(&self, n: usize) {
-        // Hold every connected client outside the pool until the end:
-        // returning them as we go would make the next checkout pop the
-        // client we just returned, connecting one client n times and
-        // leaving the other n-1 slots to be built cold on the hot path.
-        let mut connected = Vec::with_capacity(n);
+        // Create every client before connecting any: returning them as we
+        // go would make the next checkout pop the client we just returned,
+        // connecting one client n times and leaving the other n-1 slots to
+        // be built cold on the hot path. The connects then run
+        // concurrently — a deploy burst needs the pool populated in one
+        // connect's time, not n of them in sequence.
+        let mut clients = Vec::with_capacity(n);
         for _ in 0..n {
             let Ok(consumer) = self.checkout() else {
                 break;
             };
-            let timeout = Duration::from_secs(5);
-            let outcome = tokio::task::spawn_blocking(move || {
-                let ok = consumer.fetch_metadata(None, timeout).is_ok();
-                (consumer, ok)
-            })
-            .await;
-            match outcome {
-                Ok((consumer, true)) => connected.push(consumer),
-                _ => break,
-            }
+            clients.push(consumer);
         }
-        for consumer in connected {
-            self.give_back(consumer);
+        let connects: Vec<_> = clients
+            .into_iter()
+            .map(|consumer| {
+                tokio::task::spawn_blocking(move || {
+                    let ok = consumer
+                        .fetch_metadata(None, Duration::from_secs(5))
+                        .is_ok();
+                    (consumer, ok)
+                })
+            })
+            .collect();
+        for connect in connects {
+            if let Ok((consumer, true)) = connect.await {
+                self.give_back(consumer);
+            }
         }
     }
 }
@@ -473,19 +483,40 @@ pub async fn warm_from_kafka(
     let mut buffered: Vec<(PersonCacheKey, CachedPerson, i64)> = Vec::new();
     let mut last_offset: i64 = -1;
 
+    // A transactionally-produced range can end in control records
+    // (commit/abort markers) that `recv` never delivers, so reaching the
+    // HWM is only observable through the fetch position advancing past
+    // them. Poll in short slices and consult the position when quiet;
+    // `cfg.recv_timeout` still bounds the total quiet time before the
+    // warm is declared stalled.
+    let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
+    let mut quiet_since = Instant::now();
+
     loop {
-        let msg = match timeout(cfg.recv_timeout, consumer.recv()).await {
+        let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
             Ok(Err(e)) => {
                 return Err(CoordError::invalid_state(format!("warm recv: {e}")));
             }
             Err(_) => {
-                return Err(CoordError::invalid_state(format!(
-                    "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
-                    count = buffered.len()
-                )));
+                let position_reached = consumer
+                    .position()
+                    .map_err(|e| CoordError::invalid_state(format!("warm position: {e}")))?
+                    .find_partition(&cfg.topic, partition_i32)
+                    .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= hwm));
+                if position_reached {
+                    break;
+                }
+                if quiet_since.elapsed() >= cfg.recv_timeout {
+                    return Err(CoordError::invalid_state(format!(
+                        "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
+                        count = buffered.len()
+                    )));
+                }
+                continue;
             }
         };
+        quiet_since = Instant::now();
 
         let offset = msg.offset();
         last_offset = offset;

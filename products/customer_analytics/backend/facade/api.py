@@ -15,13 +15,15 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
+import asyncio
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
@@ -30,11 +32,14 @@ from django.utils import timezone
 import structlog
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -89,7 +94,9 @@ from products.customer_analytics.backend.models import (
     DisplayType,
     EventStream,
     EventStreamMember,
+    Meeting,
     SyncStatus,
+    SyncTrigger,
     TargetType,
 )
 from products.customer_analytics.backend.models.account import (
@@ -124,6 +131,7 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
     from products.customer_analytics.backend.models import CustomPropertyValue
+    from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
@@ -395,6 +403,36 @@ def _account_name_from_group(team: Team, external_id: str) -> str:
         return external_id
     name = (group.group_properties or {}).get("name") if group is not None else None
     return str(name) if name else external_id
+
+
+def get_account_group_type_name(team: Team) -> str | None:
+    """The group type name accounts are keyed on, or None when customer analytics is unconfigured."""
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return None
+    group_types = get_group_types_for_project(team.project_id, caller_tag="customer_analytics/account_audience")
+    for mapping in group_types:
+        if mapping["group_type_index"] == group_type_index:
+            return mapping["group_type"]
+    return None
+
+
+def count_accounts_for_audience(team: Team, filters: "AccountAudienceFilters") -> int:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.count_accounts_for_audience(team, filters)
+
+
+def list_account_external_ids_for_audience(
+    team: Team, filters: "AccountAudienceFilters", *, cursor: str | None, limit: int
+) -> list[str]:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.list_account_external_ids_for_audience(team, filters, cursor=cursor, limit=limit)
 
 
 def create_external_account(
@@ -1312,6 +1350,7 @@ def _to_custom_property_source_view(
     if isinstance(enrichment, _ResolveEnrichmentInline):
         schema = _resolve_person_source_schema(source, user_access_control)
         latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
+        _expire_stale_running_runs(source.team_id, [latest])
     else:
         schema, latest = enrichment
     if schema is not None:
@@ -1374,6 +1413,7 @@ def _batch_source_enrichment(
         .distinct("source_id")
     }
     enrichment: dict[Any, tuple[Any, CustomPropertySyncRun | None]] = {}
+    authorized_runs: list[CustomPropertySyncRun | None] = []
     for source in person_sources:
         schema = schemas_by_id.get(source.external_data_schema_id)
         if (
@@ -1383,7 +1423,12 @@ def _batch_source_enrichment(
         ):
             schema = None
         latest = latest_run_by_source_id.get(source.id) if schema is not None else None
+        # Only mutate runs the caller can view; expiring runs for hidden schemas would let a
+        # denied viewer flip their status through the source-list endpoint.
+        if latest is not None:
+            authorized_runs.append(latest)
         enrichment[source.id] = (schema, latest)
+    _expire_stale_running_runs(team_id, authorized_runs)
     return enrichment
 
 
@@ -1457,11 +1502,40 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
 _WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
 
 
+# A run row only reaches a terminal state when its activity records one, so a sync that died before
+# getting there — an import that failed ahead of the person-property step, a killed worker — would sit
+# "running" forever, misreporting the source and keeping its sync/backfill buttons disabled. Six hours
+# matches the sync activity's start_to_close timeout, so nothing live is behind an older row.
+STALE_RUNNING_RUN_AFTER = timedelta(hours=6)
+STALE_RUNNING_RUN_ERROR = "This run never reported a result. The sync may have failed before it ran."
+
+
+def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncRun | None]") -> None:
+    """Fail abandoned 'running' rows, both in the database and in the passed-in objects so the caller
+    serializes what it just wrote. Runs on the read paths the UI polls, so a stuck row self-heals."""
+    cutoff = timezone.now() - STALE_RUNNING_RUN_AFTER
+    stale = [
+        run
+        for run in runs
+        if run is not None and run.status == SyncStatus.RUNNING.value and (run.started_at or run.created_at) < cutoff
+    ]
+    if not stale:
+        return
+    finished_at = timezone.now()
+    CustomPropertySyncRun.objects.for_team(team_id).filter(id__in=[run.id for run in stale]).update(
+        status=SyncStatus.FAILED.value, finished_at=finished_at, error=STALE_RUNNING_RUN_ERROR
+    )
+    for run in stale:
+        run.status = SyncStatus.FAILED.value
+        run.finished_at = finished_at
+        run.error = STALE_RUNNING_RUN_ERROR
+
+
 def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person/group source on the schema that isn't already
-    running. The UI shows these as in-progress and disables the trigger while they exist; the backfill
-    activity reconciles them to their terminal state (see record_sync_run). Skipping sources that
-    already have a running run makes this a no-op when a backfill for the table is already in flight
+    running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
+    backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
+    that already have a running run makes this a no-op when a run for the table is already in flight
     (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
     to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     with transaction.atomic():
@@ -1478,11 +1552,12 @@ def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any
         )
         if not sources:
             return []
-        already_running = set(
-            CustomPropertySyncRun.objects.for_team(team_id)
-            .filter(source__in=sources, status=SyncStatus.RUNNING.value)
-            .values_list("source_id", flat=True)
+        running = list(
+            CustomPropertySyncRun.objects.for_team(team_id).filter(source__in=sources, status=SyncStatus.RUNNING.value)
         )
+        # An abandoned row must not coalesce away a fresh trigger.
+        _expire_stale_running_runs(team_id, running)
+        already_running = {run.source_id for run in running if run.status == SyncStatus.RUNNING.value}
         to_create = [source for source in sources if source.id not in already_running]
         now = timezone.now()
         CustomPropertySyncRun.objects.bulk_create(
@@ -1609,10 +1684,18 @@ def trigger_person_property_sync(
         trigger_schema_sync,
     )
 
+    # Open the run rows before the sync starts, so the history shows it in progress right away and the
+    # trigger buttons stay disabled until it settles. The person-property activity reconciles them
+    # when the import reaches it (see record_sync_run).
+    created_source_ids = _create_running_runs(team_id, schema_id, SyncTrigger.SYNC.value)
     try:
         trigger_schema_sync(team_id=team_id, schema_id=schema_id)
     except ExternalDataSchemaSyncPausedError as e:
+        _fail_created_runs(team_id, created_source_ids, "Warehouse syncs are paused for this project")
         raise WarehouseSyncPausedError(str(e)) from e
+    except Exception:
+        _fail_created_runs(team_id, created_source_ids, "Failed to start sync")
+        raise
     return True
 
 
@@ -1805,7 +1888,8 @@ def list_custom_property_sync_runs(
         _assert_warehouse_source_viewer(team_id, source.external_data_schema_id, user_access_control)
     queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
     total_count = queryset.count()
-    page = queryset[offset : offset + limit]
+    page = list(queryset[offset : offset + limit])
+    _expire_stale_running_runs(team_id, page)
     return [_to_sync_run_view(run) for run in page], total_count
 
 
@@ -2474,6 +2558,124 @@ def get_account_support_tickets(
     if account is None or not account.external_id:
         return []
     return list_account_tickets(team_id, account.external_id, limit=limit)
+
+
+def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStatus]:
+    """Sync state of every connected calendar for the team: last completed sync and
+    whether a run is currently in flight (started but not finished, within the sync
+    activity's timeout — a run past it is considered dead, not running)."""
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415 — keeps requests/HogQL layers off the import path
+        LAST_SYNCED_AT_CONFIG_KEY,
+        SYNC_STALE_AFTER,
+        SYNC_STARTED_AT_CONFIG_KEY,
+    )
+
+    statuses = []
+    for integration in Integration.objects.filter(team_id=team_id, kind="google-calendar").order_by("id"):
+        config = integration.config or {}
+        last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
+        started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
+        is_syncing = bool(
+            started_at
+            and (last_synced_at is None or started_at > last_synced_at)
+            and started_at > timezone.now() - SYNC_STALE_AFTER
+        )
+        statuses.append(
+            contracts.CalendarSyncStatus(
+                integration_id=integration.id,
+                last_synced_at=last_synced_at,
+                is_syncing=is_syncing,
+            )
+        )
+    return statuses
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
+    """Start the calendar-sync workflow for one connected calendar, outside the hourly
+    schedule. Returns 'started', 'already_running' (a sync for this calendar is in
+    flight; the workflow id is deterministic per integration), or None when the
+    integration doesn't exist for this team (→ 404)."""
+    if not Integration.objects.filter(id=integration_id, team_id=team_id, kind="google-calendar").exists():
+        return None
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
+
+    from products.customer_analytics.backend.temporal.calendar_sync import (  # noqa: PLC0415 — same
+        CalendarSyncInput,
+        CalendarSyncWorkflow,
+    )
+
+    client = sync_connect()
+    try:
+        asyncio.run(
+            client.start_workflow(
+                CalendarSyncWorkflow.run,
+                CalendarSyncInput(integration_id=integration_id, team_id=team_id),
+                id=f"google-calendar-sync-{integration_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        return "already_running"
+    return "started"
+
+
+def list_account_meetings(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    search: str | None = None,
+) -> tuple[list[contracts.MeetingView], int] | None:
+    """Synced calendar meetings for an accessible account, newest first, optionally
+    filtered by ``search`` (title or attendee email/name). None when the account isn't
+    accessible (→ 404)."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
+    if search:
+        queryset = queryset.filter(
+            Q(title__icontains=search)
+            | Q(participants__email__icontains=search)
+            | Q(participants__display_name__icontains=search)
+        ).distinct()
+    count = queryset.count()
+    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    views = [
+        contracts.MeetingView(
+            id=meeting.id,
+            title=meeting.title,
+            start_time=meeting.start_time,
+            end_time=meeting.end_time,
+            organizer_email=meeting.organizer_email,
+            status=meeting.status,
+            participants=[
+                contracts.MeetingParticipantView(
+                    email=participant.email,
+                    display_name=participant.display_name,
+                    response_status=participant.response_status,
+                    is_organizer=participant.is_organizer,
+                    person_id=participant.person_id,
+                )
+                for participant in meeting.participants.all()
+            ],
+        )
+        for meeting in meetings
+    ]
+    return views, count
 
 
 def list_account_notebooks(

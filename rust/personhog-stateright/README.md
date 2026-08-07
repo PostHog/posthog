@@ -37,7 +37,7 @@ minimum viable scale or not at all. Measured sizes (release mode):
 | 2 pods / 2 routers / 2 partitions, 2 failures | ~8.9M | 110s |
 | 3 pods / 2 routers / 2 partitions, 2 failures | ~24M | 300s |
 
-The test suite (twelve scenarios, ~2min total in release) runs the full
+The test suite (twenty-odd scenarios; the heavy double-zombie pair dominates the runtime) runs the full
 verdict matrix — the 1-partition scenarios, the 2-partition cases
 including both double-zombie verdicts, the 3-pod rejoin, and the
 reachability probes. Two partitions matter for the coordinator's
@@ -66,7 +66,7 @@ queue — mapped to named production behavior for review:
 
 | Model | Production behavior modeled |
 |---|---|
-| `Action::CleanupStale` | `cleanup_stale_handoffs` (mod_revision-guarded delete, modeled as atomic check-and-delete) |
+| `Action::CancelDeadNewOwner` / `Action::Cancel` / `Action::CleanupComplete` | the planner's cancellation-by-replacement and mod_revision-guarded Complete cleanup, modeled as atomic check-and-swap / check-and-delete |
 | `Action::AdvancePhase` Warming→Complete | `complete_handoff` (phase write + assignment flip as one txn) |
 | `Action::Converge` effect application | `PodHandle::apply` (warm installs at HWM and unfences, drain fences, acks echo the handoff id and are phase-gated) |
 | `Action::Observe` | Router watch handlers: `begin_stash` + FreezeAck (Freezing only), cutover + stash drain at Complete, drain-back on cancellation |
@@ -136,13 +136,13 @@ open scenarios the small configs can't reach?" with checker facts:
 **concurrent handoffs are reachable** (one rebalance transaction creates
 a handoff per moved/fresh partition, and safety is verified at every
 such state), and **a dual-role pod — drain-side of one handoff while
-warm-side of another — is machine-proven unreachable** under the
-shipped protocol, even with crash-and-rejoin churn at 3 pods / 3
-partitions: within one plan the sticky strategy never takes from and
-gives to the same pod, and the rebalance deferral gate keeps handoffs
-from different plans from coexisting. If a strategy or gate change ever
-makes it reachable, the probe test fails and the dual-role case needs
-explicit analysis. The rejoin scenario runs at 3 pods because that is
+warm-side of another — is machine-proven reachable and safe**. Under
+the old global rebalance gate it was unreachable; partial rebalancing
+(in-flight partitions pinned, everything else planned) deliberately
+lets handoffs from different plans coexist, so the probe that once
+proved unreachability now pins the state as reached — and the same run
+verifies every safety property across those interleavings, which holds
+because every mechanism the two roles touch is partition-scoped. The rejoin scenario runs at 3 pods because that is
 the smallest scale where the strategy genuinely chooses a placement
 target rather than having it forced — the one axis a 2-pod world
 under-exercises; the per-partition safety relations themselves are
@@ -180,6 +180,17 @@ shipped design); two routers draining stashed FIFOs concurrently at
 cutover (thaw ordering); multi-partition rebalance gating; concurrent
 handoffs (probed reachable, safety checked throughout); the dual-role
 pod shape (probed unreachable — see Results).
+
+The claim to serve is modeled apart from the lease (`Pod.claims_authority`,
+production's `AuthorityClock`), because in production the two diverge and
+the interesting failures live in the gap: a revoked lease leaves a pod
+claiming what it no longer holds until something tells it. `ClaimDetection`
+selects whether that is immediate — the pod watching its own registration —
+or waits for a keepalive round, and the verdict pins that only the prompt
+form closes the stale-read half. Stability now also requires the assigned
+owner to still claim its partitions, so an owner that refuses its own
+reads while looking alive to the coordinator fails liveness rather than
+passing quietly.
 
 Known remaining abstractions: warming is instant and atomic (production
 streams from Kafka with retries — availability, not safety); stash

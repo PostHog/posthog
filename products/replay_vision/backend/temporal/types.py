@@ -187,6 +187,10 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     navigation_dropped: int = Field(default=0, ge=0)
     # True when the session hit the fetch row cap, so the events tool can't see the whole session.
     events_truncated: bool = False
+    # Customer product context rendered into the preamble; empty for teams without core memory / descriptions.
+    product_context: str = ""
+    # Session-scoped custom-event descriptions, ordered by in-session frequency.
+    event_descriptions: dict[str, str] = Field(default_factory=dict)
     metadata: SessionMetadata
     # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
     distinct_id: str | None = None

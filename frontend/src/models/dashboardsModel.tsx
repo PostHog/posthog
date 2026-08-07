@@ -484,7 +484,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 }
 
                 if (discardResult) {
-                    return values.dashboard
+                    return null
                 }
 
                 const mappedDashboard = getQueryBasedDashboard(response)

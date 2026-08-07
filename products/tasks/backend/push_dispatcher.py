@@ -1,4 +1,4 @@
-"""Dispatch push notifications to the task creator's mobile devices.
+"""Dispatch task notifications to the relevant users' mobile devices.
 
 Schedules the underlying Expo HTTP call as a Celery task via
 ``transaction.on_commit`` so nothing here can block a request/response cycle
@@ -9,34 +9,35 @@ Three guards before we enqueue:
 1. **Feature flag.** ``posthog-code-mobile-push`` must be enabled for the
    user. Off by default — flip on once the mobile build is ready and
    tokens start arriving.
-2. **Cooldown.** A per-``(task_run, kind)`` Redis lock collapses duplicate
-   triggers in a short window. A workflow that retries ``mark_completed``
-   or an agent that fires several rapid end-of-turn events results in one
-   push, not five.
-3. **Anonymous task.** Runs without a ``created_by`` user get skipped
-   silently — there's no one to notify.
+2. **Cooldown.** A per-source Redis lock collapses duplicate triggers in a
+   short window.
+3. **Access.** Recipients must still be able to view the task.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Collection
+from typing import TYPE_CHECKING, Literal, cast
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections, transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 import structlog
 import posthoganalytics
 
+from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL
-from products.tasks.backend.models import TaskPresence
+from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.models import TaskRun, TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -47,13 +48,14 @@ FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 # they should only fire once per run lifetime — anything more is a retry.
 # Interactive turn-end can legitimately fire again after the user replies,
 # so a short cooldown is enough to absorb rapid duplicate triggers.
-PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed"]
+PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message"]
 _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "completed": 600,
     "failed": 600,
     "cancelled": 600,
     "awaiting": 30,
     "turn_completed": 30,
+    "thread_message": 600,
 }
 
 
@@ -82,6 +84,64 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
+
+
+def notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
+    try:
+        _notify_task_thread_message(message, mentioned_user_ids)
+    except Exception as exc:
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="thread_message", reason=_failure_reason(exc)).inc()
+        logger.warning(
+            "push_dispatcher.enqueue_failed",
+            task_id=str(message.task_id),
+            message_id=str(message.id),
+            kind="thread_message",
+            exc_info=True,
+        )
+
+
+def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
+    recipient_ids = set(mentioned_user_ids)
+    if message.task.created_by_id is not None:
+        recipient_ids.add(message.task.created_by_id)
+    if message.author_id is not None:
+        recipient_ids.discard(message.author_id)
+
+    mentioned = set(mentioned_user_ids)
+    author = message.author
+    author_name = (author.first_name.strip() or author.email) if author else "PostHog"
+    task_title = (message.task.title or "").strip() or "Untitled task"
+    data = {
+        "taskId": str(message.task_id),
+        "messageId": str(message.id),
+    }
+    visible_task = Task.objects.filter(team_id=message.team_id, deleted=False).filter(
+        task_visibility_q(cast(int, OuterRef("id"))), id=message.task_id
+    )
+    recipients = User.objects.filter(id__in=recipient_ids).filter(Exists(visible_task))
+    for user in recipients:
+        if not user.teams.filter(id=message.team_id).exists():
+            continue
+        action = "mentioned you" if user.id in mentioned else "replied"
+        try:
+            _enqueue_user(
+                user,
+                task=message.task,
+                kind="thread_message",
+                cooldown_subject=f"{message.id}:{user.id}",
+                body=f'{author_name} {action} in "{task_title}"',
+                data=data,
+            )
+        except Exception as exc:
+            PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="thread_message", reason=_failure_reason(exc)).inc()
+            logger.warning(
+                "push_dispatcher.enqueue_failed",
+                task_id=str(message.task_id),
+                message_id=str(message.id),
+                user_id=user.id,
+                kind="thread_message",
+                exc_info=True,
+            )
 
 
 def _project_awaiting_input_activity(task_run: TaskRun) -> None:
@@ -151,20 +211,34 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     if user is None:
         return
 
-    # If the user has lost access to the task's team (e.g. removed from the
-    # organization), don't push them task titles for runs they shouldn't see
-    # anymore. The push body and data payload both carry the task identity.
-    # `user.teams` already accounts for both org membership and project-level
-    # RBAC, so it's the most accurate "can this user still see this run" gate.
     if not user.teams.filter(id=task_run.team_id).exists():
         logger.debug(
             "push_dispatcher.recipient_lost_access",
             user_id=user.id,
-            run_id=str(task_run.id),
+            task_id=str(task_run.task_id),
             team_id=task_run.team_id,
         )
         return
 
+    _enqueue_user(
+        user,
+        task=task_run.task,
+        kind=kind,
+        cooldown_subject=str(task_run.id),
+        body=body,
+        data={"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)},
+    )
+
+
+def _enqueue_user(
+    user: User,
+    *,
+    task: Task,
+    kind: PushKind,
+    cooldown_subject: str,
+    body: str,
+    data: dict[str, str],
+) -> None:
     distinct_id = user.distinct_id or f"user_{user.id}"
     try:
         flag_enabled = posthoganalytics.feature_enabled(
@@ -180,13 +254,12 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     if not flag_enabled:
         return
 
-    cooldown_key = f"push_notification:{task_run.id}:{kind}"
+    cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
     if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
-        logger.debug("push_dispatcher.cooldown_hit", run_id=str(task_run.id), kind=kind)
+        logger.debug("push_dispatcher.cooldown_hit", subject=cooldown_subject, kind=kind)
         return
 
-    data = {"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)}
-    suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task_run.task_id)
+    suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.

@@ -1,10 +1,5 @@
 import { unreadChannelIds } from "@posthog/core/canvas/channelUnread";
 import { useMentionActivity } from "@posthog/ui/features/canvas/hooks/useMentionActivity";
-import {
-  normalizeChannelName,
-  PERSONAL_CHANNEL_NAME,
-  useTaskChannels,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelSeenStore } from "@posthog/ui/features/canvas/stores/channelSeenStore";
 import { useMemo } from "react";
 
@@ -30,33 +25,16 @@ export function useUnreadChannelIds(): ReadonlySet<string> {
 }
 
 /**
- * Is this folder channel unread, by display name?
- *
- * Unread is keyed by backend channel id while the sidebar's rows are folder
- * channels, so something has to bridge the two. This mirrors the mapping
- * useBackendChannel walks — "me" is the personal channel (matched by type, as
- * its name is the backend's business), everything else matches a public channel
- * by normalized name — and does it once for the whole list rather than
- * resolving per row, which would fire a resolve per channel.
+ * Is this channel unread, by id? Unread and the sidebar rows share the backend
+ * channel id, so this is a straight set lookup — `undefined` (a row whose
+ * channel hasn't loaded yet) is never unread.
  */
-export function useIsChannelUnread(): (channelName: string) => boolean {
-  const { channels: backendChannels, personalChannel } = useTaskChannels();
+export function useIsChannelUnread(): (
+  channelId: string | undefined,
+) => boolean {
   const unreadIds = useUnreadChannelIds();
-
-  return useMemo(() => {
-    const unreadNames = new Set<string>();
-    for (const channel of backendChannels) {
-      if (channel.channel_type === "public" && unreadIds.has(channel.id)) {
-        unreadNames.add(channel.name);
-      }
-    }
-    const personalUnread =
-      !!personalChannel && unreadIds.has(personalChannel.id);
-    return (channelName: string) => {
-      const normalized = normalizeChannelName(channelName);
-      return normalized === PERSONAL_CHANNEL_NAME
-        ? personalUnread
-        : unreadNames.has(normalized);
-    };
-  }, [backendChannels, personalChannel, unreadIds]);
+  return useMemo(
+    () => (channelId) => !!channelId && unreadIds.has(channelId),
+    [unreadIds],
+  );
 }

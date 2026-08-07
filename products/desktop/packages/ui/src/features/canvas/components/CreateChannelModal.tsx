@@ -14,6 +14,7 @@ import {
   FieldError,
   FieldLabel,
   Input,
+  Text,
   Textarea,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -106,7 +107,9 @@ export function CreateChannelModal({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [repositories, setRepositories] = useState<string[]>([]);
-  const [repoIntegration, setRepoIntegration] = useState<number | null>(null);
+  const [repositoryIntegration, setRepositoryIntegration] = useState<
+    number | null
+  >(null);
   // Create mode's step. Describe mode has no name step, so it starts past it.
   const [step, setStep] = useState<"name" | "describe" | "repositories">(
     "name",
@@ -123,7 +126,7 @@ export function CreateChannelModal({
       setName("");
       setDescription("");
       setRepositories([]);
-      setRepoIntegration(null);
+      setRepositoryIntegration(null);
       setStep("name");
     }
   }
@@ -138,9 +141,9 @@ export function CreateChannelModal({
   const canDescribe = !busy && !!trimmedDescription;
 
   // `busy` only disables the buttons a render after the mutation starts, so a
-  // double-click lands two creates before it applies — and folder creation is
-  // not idempotent by path, so that is two channels of the same name. Latch
-  // synchronously; the buttons stay the user-visible half of this.
+  // double-click lands two submits before it applies. Create is resolve-or-
+  // create (idempotent), but a double submit would still double-launch the
+  // plan session. Latch synchronously; the buttons stay the user-visible half.
   const submittingRef = useRef(false);
   const submitOnce = async (submit: () => Promise<void>) => {
     if (submittingRef.current) return;
@@ -152,7 +155,7 @@ export function CreateChannelModal({
     }
   };
 
-  const submitCreate = async ({ withRepos }: { withRepos: boolean }) => {
+  const submitCreate = async (linkSelectedRepositories: boolean) => {
     let contextId: string;
     try {
       const channel = await createChannel(trimmedName);
@@ -175,11 +178,11 @@ export function CreateChannelModal({
       return;
     }
 
-    if (withRepos && repositories.length > 0) {
+    if (linkSelectedRepositories && repositories.length > 0) {
       try {
         await linkRepositories.mutateAsync({
           channelId: contextId,
-          githubIntegration: repoIntegration,
+          githubIntegration: repositoryIntegration,
           repositories,
         });
       } catch (error) {
@@ -240,9 +243,9 @@ export function CreateChannelModal({
     if (isDescribeMode) {
       if (!canDescribe) return;
       await submitDescribe();
-    } else if (!busy) {
-      setStep("repositories");
+      return;
     }
+    if (canDescribe) setStep("repositories");
   };
 
   const descriptionField = (
@@ -392,10 +395,8 @@ export function CreateChannelModal({
           </Button>
         </DialogFooter>
 
-        {/* Step two (About), nested inside step one rather than replacing it:
-            quill scales and dims a parent that has a nested dialog open, so the
-            name step stays visible behind. It stays open behind the optional
-            repositories step too, so the stack reads first-on-top. */}
+        {/* The About dialog stays mounted behind the repository step so Quill
+            can preserve the visual stack and return path. */}
         <Dialog
           open={step === "describe" || step === "repositories"}
           onOpenChange={(next) => {
@@ -455,7 +456,6 @@ export function CreateChannelModal({
               </Button>
             </DialogFooter>
 
-            {/* Step three (Repositories, optional), nested inside step two. */}
             <Dialog
               open={step === "repositories"}
               onOpenChange={(next) => {
@@ -476,17 +476,17 @@ export function CreateChannelModal({
                 </DialogHeader>
 
                 <DialogBody viewportClassName="flex flex-col gap-3">
-                  <p className="text-[13px] text-muted-foreground">
+                  <Text size="sm" variant="muted">
                     New tasks in this {spacesLayout ? "space" : "channel"} can
-                    work across these repositories. You can change them later.
-                  </p>
+                    use these repositories. You can change them later.
+                  </Text>
                   <RepositoriesField
                     selected={repositories}
-                    integrationId={repoIntegration}
+                    integrationId={repositoryIntegration}
                     disabled={busy}
                     onChange={(nextRepositories, nextIntegration) => {
                       setRepositories(nextRepositories);
-                      setRepoIntegration(nextIntegration);
+                      setRepositoryIntegration(nextIntegration);
                     }}
                   />
                 </DialogBody>
@@ -499,15 +499,10 @@ export function CreateChannelModal({
                   >
                     Back
                   </Button>
-                  {/* Skip creates the space without linking repos; Create links
-                      the selected ones. Either way a description seeds
-                      context.md. */}
                   <Button
                     variant="default"
                     disabled={busy}
-                    onClick={() =>
-                      void submitOnce(() => submitCreate({ withRepos: false }))
-                    }
+                    onClick={() => void submitOnce(() => submitCreate(false))}
                   >
                     Skip
                   </Button>
@@ -515,9 +510,7 @@ export function CreateChannelModal({
                     variant="primary"
                     disabled={busy || repositories.length === 0}
                     loading={busy}
-                    onClick={() =>
-                      void submitOnce(() => submitCreate({ withRepos: true }))
-                    }
+                    onClick={() => void submitOnce(() => submitCreate(true))}
                   >
                     Create
                   </Button>

@@ -5,6 +5,7 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Model
+from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -12,7 +13,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import exceptions, filters, request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -40,16 +41,20 @@ from posthog.api.team import (
     _format_serializer_errors,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_experiments_config,
     handle_logs_config,
     report_conversations_settings_changes,
     validate_secret_token_generation,
     validate_team_attrs,
 )
+from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
+from posthog.exceptions import Conflict
+from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -316,37 +321,6 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
 
 
-def team_experiments_config_view(team: Team, request: request.Request) -> response.Response:
-    """Manage experiment configuration for this project."""
-    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-        class Meta:
-            model = TeamExperimentsConfig
-            fields = [
-                "experiment_recalculation_time",
-                "default_experiment_confidence_level",
-                "default_experiment_stats_method",
-                "experiment_precomputation_enabled",
-                "default_only_count_matured_users",
-                "default_cuped_enabled",
-                "default_cuped_lookback_days",
-                "default_minimum_detectable_effect",
-                "default_sequential_testing_enabled",
-                "default_sequential_tuning_parameter",
-            ]
-
-    config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-    if request.method == "PATCH":
-        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return response.Response(serializer.data)
-
-    return response.Response(TeamExperimentsConfigSerializer(config).data)
-
-
 def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
     """
     Return the project settings as of the provided timestamp.
@@ -583,6 +557,12 @@ class ProjectBackwardCompatSerializer(
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
     )
+    name = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=200,
+        help_text="Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.",
+    )
     # Analytics config sub-objects live on the passthrough Team — reuse the Team serializers for identical shape
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
@@ -595,7 +575,9 @@ class ProjectBackwardCompatSerializer(
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
-        return [url for url in value if url]
+        urls = [url for url in value if url]
+        validate_authorized_url_wildcards(urls)
+        return urls
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -608,6 +590,7 @@ class ProjectBackwardCompatSerializer(
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+            validate_authorized_url_wildcards(value["widget_domains"])
         return value
 
     class Meta:
@@ -976,6 +959,30 @@ class ProjectBackwardCompatSerializer(
     def get_available_setup_task_ids(self, obj) -> list[str]:
         return [e.value for e in SetupTaskId]
 
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        # A no-op save must stay valid even for projects that already share a name from before
+        # duplicate names were rejected, so only newly chosen names are checked.
+        if self.instance is not None and value == self.instance.name:
+            return value
+        organization_id = (
+            self.instance.organization_id if self.instance is not None else self.context["view"].organization_id
+        )
+        # Trim the stored side too: names created before this validation (or via the ORM) may carry
+        # surrounding whitespace and must still count as duplicates of their trimmed form.
+        duplicates = (
+            Project.objects.annotate(trimmed_name=Trim("name"))
+            .filter(organization_id=organization_id, trimmed_name__iexact=value)
+            .exclude(is_pending_deletion=True)
+        )
+        if self.instance is not None:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise Conflict(
+                detail=f'There is already a project called "{value}" in this organization. Choose a different name.'
+            )
+        return value
+
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
 
@@ -1322,7 +1329,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [PhraseSearchFilter]
     search_fields = ["name"]
 
     def safely_get_queryset(self, queryset):
@@ -1667,7 +1674,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this project."""
-        return team_experiments_config_view(self.get_object().passthrough_team, request)
+        return handle_experiments_config(request, self.get_object().passthrough_team)
 
     @action(
         methods=["GET", "POST", "DELETE"],

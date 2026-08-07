@@ -1,8 +1,8 @@
 import {
-  channelTaskIdInput,
   channelTaskRecordSchema,
   fileChannelTaskInput,
   listChannelTasksInput,
+  unfileChannelTaskInput,
 } from "@posthog/core/canvas/channelTaskSchemas";
 import { CHANNEL_TASKS_SERVICE } from "@posthog/core/canvas/identifiers";
 import type { IChannelTasksService } from "@posthog/core/canvas/services";
@@ -27,10 +27,10 @@ export const channelTasksRouter = router({
         .file(input),
     ),
   unfile: publicProcedure
-    .input(channelTaskIdInput)
+    .input(unfileChannelTaskInput)
     .mutation(({ ctx, input }) =>
       ctx.container
         .get<IChannelTasksService>(CHANNEL_TASKS_SERVICE)
-        .unfile(input.id),
+        .unfile(input.taskId),
     ),
 });

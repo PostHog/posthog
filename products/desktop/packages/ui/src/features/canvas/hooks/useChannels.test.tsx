@@ -1,12 +1,12 @@
-import type { Schemas } from "@posthog/api-client";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = vi.hoisted(() => ({
-  getDesktopFileSystemChannels: vi.fn(),
-  createDesktopFileSystemChannel: vi.fn(),
+  getTaskChannels: vi.fn(),
+  resolveTaskChannel: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -14,14 +14,13 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 
 import { useChannelMutations, useChannels } from "./useChannels";
 
-function folder(id: string, path: string): Schemas.FileSystem {
+function taskChannel(id: string, name: string): TaskChannel {
   return {
     id,
-    path,
-    type: "folder",
-    depth: 1,
+    name,
+    channel_type: "public",
+    starred: false,
     created_at: "2026-01-01T00:00:00Z",
-    last_viewed_at: null,
   };
 }
 
@@ -42,9 +41,7 @@ describe("useChannelMutations", () => {
 
   it("shows the created channel immediately, before the refetch resolves", async () => {
     // Seed the list with one existing channel.
-    mockClient.getDesktopFileSystemChannels.mockResolvedValue([
-      folder("1", "alpha"),
-    ]);
+    mockClient.getTaskChannels.mockResolvedValue([taskChannel("1", "alpha")]);
 
     const list = renderHook(() => useChannels(), { wrapper });
     await waitFor(() => expect(list.result.current.isLoading).toBe(false));
@@ -52,11 +49,9 @@ describe("useChannelMutations", () => {
 
     // Make the create return the new channel, but hang any subsequent refetch
     // so we can prove the list updates without waiting on it.
-    const created = folder("2", "beta");
-    mockClient.createDesktopFileSystemChannel.mockResolvedValue(created);
-    mockClient.getDesktopFileSystemChannels.mockReturnValue(
-      new Promise(() => {}),
-    );
+    const created = taskChannel("2", "beta");
+    mockClient.resolveTaskChannel.mockResolvedValue(created);
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
 
     const mutations = renderHook(() => useChannelMutations(), { wrapper });
     await act(async () => {
@@ -76,19 +71,17 @@ describe("useChannelMutations", () => {
 
   it("does not duplicate a channel the poll already landed", async () => {
     // The poll has already surfaced the channel we're about to create.
-    const existing = folder("1", "alpha");
-    mockClient.getDesktopFileSystemChannels.mockResolvedValue([existing]);
+    const existing = taskChannel("1", "alpha");
+    mockClient.getTaskChannels.mockResolvedValue([existing]);
 
     const list = renderHook(() => useChannels(), { wrapper });
     await waitFor(() => expect(list.result.current.isLoading).toBe(false));
     expect(list.result.current.channels.map((c) => c.id)).toEqual(["1"]);
 
-    // Create returns the same id; hang the refetch so only the optimistic
-    // cache write is exercised.
-    mockClient.createDesktopFileSystemChannel.mockResolvedValue(existing);
-    mockClient.getDesktopFileSystemChannels.mockReturnValue(
-      new Promise(() => {}),
-    );
+    // Resolve returns the same id (resolve-or-create is idempotent); hang the
+    // refetch so only the optimistic cache write is exercised.
+    mockClient.resolveTaskChannel.mockResolvedValue(existing);
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
 
     const mutations = renderHook(() => useChannelMutations(), { wrapper });
     await act(async () => {

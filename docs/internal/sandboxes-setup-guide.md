@@ -182,13 +182,14 @@ Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=MODAL_DOCKER
-LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
+# The desktop source lives in this repo; an out-of-tree PostHog/code checkout also works
+LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./products/desktop
 ```
 
 Then build the agent package and restart the temporal worker:
 
 ```bash
-cd /path/to/posthog-code/packages/agent && pnpm build
+cd products/desktop/packages/agent && pnpm build
 ```
 
 ### Sandbox providers
@@ -238,9 +239,9 @@ The collector parses each JSON key into a queryable attribute and turns the emit
 so one run groups as a trace and can be pulled up with an attribute filter on `task_run_id`.
 
 ```bash
-# Which task origins to mirror (comma-separated). Defaults to signals scouts only.
+# Which task origins to mirror (comma-separated). Defaults to signals scouts and user-created tasks.
 # Set empty to disable.
-TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout,user_created
 ```
 
 The mirror also has a **direct OTLP leg** that ships each batch straight to a logs ingest endpoint:
@@ -273,7 +274,7 @@ When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT`
 After changing agent-server code, rebuild and restart the worker:
 
 ```bash
-cd /path/to/posthog-code/packages/agent && pnpm build
+cd products/desktop/packages/agent && pnpm build
 ```
 
 > **Note:** The build context is cached for the lifetime of the worker process (`lru_cache`).

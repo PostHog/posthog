@@ -18,6 +18,11 @@ class ObservationStatus(models.TextChoices):
 # Not-yet-terminal statuses: what the quota meter reserves and the concurrency caps count as "in flight".
 IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 
+# Everything else, derived so the two stay exhaustive and disjoint when a status is added. These rows are
+# sticky, so the (scanner, session) slot they hold is spent: a new scan for the same pair can't be
+# started, only retried (which deletes and re-creates the row).
+TERMINAL_STATUSES = tuple(status for status in ObservationStatus if status not in IN_FLIGHT_STATUSES)
+
 
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"

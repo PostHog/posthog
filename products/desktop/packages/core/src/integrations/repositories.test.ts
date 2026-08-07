@@ -3,8 +3,10 @@ import {
   buildTeamRepositoryOptions,
   buildUserRepositoryOptions,
   combineGithubRepositories,
-  combineRepositoryPicker,
   combineUserGithubRepositories,
+  computeNextRepositoryPickerOffsets,
+  computeRepositoryNextOffset,
+  flattenRepositoryPickerPages,
   getIntegrationIdForRepo,
   isEmptyRepositoryMap,
   isRepoInIntegration,
@@ -143,24 +145,63 @@ describe("combineUserGithubRepositories", () => {
   });
 });
 
-describe("combineRepositoryPicker", () => {
-  it("merges pages, derives hasMore/isRefreshing/isPending", () => {
-    const combined = combineRepositoryPicker<UserRepositoryIntegrationRef>([
+describe("repository picker pages", () => {
+  it("appends pages and maps repositories to their integrations", () => {
+    const firstRef = { userIntegrationId: "u1", installationId: "i1" };
+    const secondRef = { userIntegrationId: "u2", installationId: "i2" };
+    const combined = flattenRepositoryPickerPages([
       {
-        data: {
-          ref: { userIntegrationId: "u1", installationId: "i1" },
-          repositories: ["a/x"],
-          hasMore: true,
-        },
-        isPending: false,
-        isError: false,
-        isRefetching: true,
+        integrations: [
+          {
+            key: "i1",
+            ref: firstRef,
+            repositories: ["a/x"],
+            hasMore: true,
+            nextOffset: 1,
+          },
+        ],
+      },
+      {
+        integrations: [
+          {
+            key: "i1",
+            ref: firstRef,
+            repositories: ["a/y"],
+            hasMore: false,
+          },
+          {
+            key: "i2",
+            ref: secondRef,
+            repositories: ["b/x"],
+            hasMore: true,
+            nextOffset: 51,
+          },
+        ],
       },
     ]);
 
-    expect(Object.keys(combined.repositoryMap)).toEqual(["a/x"]);
+    expect(combined.repositoryMap).toEqual({
+      "a/x": firstRef,
+      "a/y": firstRef,
+      "b/x": secondRef,
+    });
     expect(combined.hasMore).toBe(true);
-    expect(combined.isRefreshing).toBe(true);
+    expect(
+      computeNextRepositoryPickerOffsets({
+        integrations: [
+          {
+            key: "i2",
+            ref: secondRef,
+            repositories: ["b/x"],
+            hasMore: true,
+            nextOffset: 51,
+          },
+        ],
+      }),
+    ).toEqual({ i2: 51 });
+    expect(
+      computeRepositoryNextOffset(50, { repositories: [], hasMore: true }),
+    ).toBeUndefined();
   });
 });
 
