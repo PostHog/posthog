@@ -73,6 +73,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'external_data_source':
             return <IconDatabase />
         case 'warehouse_objects':
+        case 'warehouse_table':
+        case 'warehouse_view':
             return <IconDatabase />
         case 'feature_flag':
             return <IconToggle />
