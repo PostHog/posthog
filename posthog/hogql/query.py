@@ -35,8 +35,10 @@ from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_
 from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
+    RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
+    raw_query_denied_by_table_access,
 )
 from posthog.hogql.direct_sql import DirectQueryRequest, ensure_single_direct_statement, get_adapter
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
@@ -593,6 +595,14 @@ class HogQLQueryExecutor:
         )
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
+        if raw_query_denied_by_table_access(
+            self.team,
+            source,
+            user=self.user,
+            user_access_control=self.context.user_access_control if self.context else None,
+            bypass_warehouse_access_control=self.context.bypass_warehouse_access_control if self.context else False,
+        ):
+            raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
         self.connection_id = str(source.id)
         self.direct_source_id = self.connection_id
         adapter = get_adapter(source.direct_engine)
