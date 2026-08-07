@@ -7,12 +7,19 @@ share: warn, validate, gate on --yes, publish, print markdown.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 import click
 
 from hogli_commands import pr_assets
+
+# Short form, matching what people already write by hand in pr-assets. GitHub raises no
+# cross-reference event on the target PR for it, so an upload never adds timeline noise.
+_SOURCE_REPO: Final = "posthog"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -36,7 +43,46 @@ def escape_markdown_label(text: str) -> str:
     return text.replace("\\", "\\\\").replace("]", "\\]")
 
 
-def run(files: tuple[Path, ...], caption: str | None, yes: bool, kind: AssetKind) -> None:
+def _open_pull_request() -> int | None:
+    """The open PR for the current branch, or None when there is not one.
+
+    Uploading before `gh pr create` is normal, so every failure here is silent: a missing
+    PR, a missing gh, or a slow network must never block publishing.
+    """
+    gh = shutil.which("gh")
+    if gh is None:
+        return None
+    try:
+        result = subprocess.run(
+            [gh, "pr", "view", "--json", "number", "--jq", ".number"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def commit_message(kind: AssetKind, pr: int | None) -> str:
+    """Name the PR the asset documents, so a stray file can be traced back to it.
+
+    Only the number travels. pr-assets is public and permanent, and a branch name can
+    carry a customer or incident name that must not land there.
+    """
+    number = pr if pr is not None else _open_pull_request()
+    if number is None:
+        return kind.commit_message
+    return f"{kind.commit_message} for {_SOURCE_REPO}#{number}"
+
+
+def run(files: tuple[Path, ...], caption: str | None, yes: bool, kind: AssetKind, pr: int | None = None) -> None:
     """Publish every file and print one markdown line each to stdout."""
     click.secho(pr_assets.PUBLIC_WARNING, fg="yellow", bold=True, err=True)
 
@@ -59,7 +105,7 @@ def run(files: tuple[Path, ...], caption: str | None, yes: bool, kind: AssetKind
         raise SystemExit(1)
 
     click.secho(f"Uploading to {pr_assets.REPO} …", fg="cyan", err=True)
-    urls = pr_assets.publish(files, message=kind.commit_message)
+    urls = pr_assets.publish(files, message=commit_message(kind, pr))
 
     for path, url in zip(files, urls, strict=True):
         label = caption if caption is not None else path.stem
