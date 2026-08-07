@@ -656,6 +656,8 @@ export namespace Schemas {
       inlineCohortCalculation?: InlineCohortCalculation | null;
       materializationMode?: MaterializationMode | null;
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
+      /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+      mergeFederatedAggregateJoins?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -2230,6 +2232,8 @@ export namespace Schemas {
       readonly config_schema: ActivityEventsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -4741,6 +4745,7 @@ export namespace Schemas {
       /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
       connectionId?: string | null;
       explain?: boolean | null;
+      /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       kind?: 'HogQLQuery';
       /** Modifiers used when performing the query */
@@ -12427,6 +12432,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `team_retention` - team_retention
+     * * `byte_budget` - byte_budget
+     */
+    export type BindingConstraintsEnum = typeof BindingConstraintsEnum[keyof typeof BindingConstraintsEnum];
+
+
+    export const BindingConstraintsEnum = {
+      TeamRetention: 'team_retention',
+      ByteBudget: 'byte_budget',
+    } as const;
+
+    /**
      * * `email` - email
      */
     export type DedupeKeyEnum = typeof DedupeKeyEnum[keyof typeof DedupeKeyEnum];
@@ -13553,6 +13570,22 @@ export namespace Schemas {
       event_count: number;
     }
 
+    /**
+     * * `fix_platform_urls` - fix_platform_urls
+     * * `add_source_mapping` - add_source_mapping
+     * * `switch_to_id_match` - switch_to_id_match
+     * * `add_campaign_name_mapping` - add_campaign_name_mapping
+     */
+    export type SuggestedActionsEnum = typeof SuggestedActionsEnum[keyof typeof SuggestedActionsEnum];
+
+
+    export const SuggestedActionsEnum = {
+      FixPlatformUrls: 'fix_platform_urls',
+      AddSourceMapping: 'add_source_mapping',
+      SwitchToIdMatch: 'switch_to_id_match',
+      AddCampaignNameMapping: 'add_campaign_name_mapping',
+    } as const;
+
     export interface UtmIssue {
       /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
       field: string;
@@ -13577,6 +13610,10 @@ export namespace Schemas {
       shared_with_integrations: string[];
       /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
       missing_source_count: number;
+      /** Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place. */
+      suggested_actions: SuggestedActionsEnum[];
+      /** The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend. */
+      mapping_candidate: string;
     }
 
     export interface CampaignAuditResult {
@@ -13627,6 +13664,8 @@ export namespace Schemas {
       method: string;
       /** Why these campaign values were clustered together */
       reason: string;
+      /** Events across every raw value folded into this suggestion. Suggestions are ordered by it. */
+      event_count_30d: number;
     }
 
     export interface CandidateEvent {
@@ -15541,6 +15580,8 @@ export namespace Schemas {
     export interface CommentSlackThreadRef {
       /** Slack channel ID this discussion is mirrored to. */
       channel_id: string;
+      /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+      channel_name: string;
       /** Deep link that opens the mirrored Slack thread. */
       url: string;
     }
@@ -15596,6 +15637,8 @@ export namespace Schemas {
       readonly integration: number;
       /** Slack channel the mirrored thread lives in. */
       readonly slack_channel_id: string;
+      /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+      readonly slack_channel_name: string;
       /** Slack thread timestamp anchoring the mirrored thread. */
       readonly slack_thread_ts: string;
       /**
@@ -17882,6 +17925,45 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at: string | null;
       readonly created_by: UserBasic;
+    }
+
+    /**
+     * * `never` - never
+     * * `live` - live
+     * * `stale` - stale
+     */
+    export type FreshnessEnum = typeof FreshnessEnum[keyof typeof FreshnessEnum];
+
+
+    export const FreshnessEnum = {
+      Never: 'never',
+      Live: 'live',
+      Stale: 'stale',
+    } as const;
+
+    export interface DataFreshnessSource {
+      /** The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). Not an enum: products declare their own data sources, so the set grows without an API change. */
+      data_source: string;
+      /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+      last_data_at: string;
+    }
+
+    export interface DataFreshnessProject {
+      /** ID of the project this freshness verdict is for. */
+      team_id: number;
+      /** `live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, `never` if the project has never ingested anything at all.
+       *
+       * * `never` - never
+       * * `live` - live
+       * * `stale` - stale */
+      freshness: FreshnessEnum;
+      /**
+         * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+         * @nullable
+         */
+      last_data_at: string | null;
+      /** Per-source breakdown, most recently active first. */
+      sources: DataFreshnessSource[];
     }
 
     /**
@@ -24796,10 +24878,10 @@ export namespace Schemas {
      * * `general-availability` - general availability
      * * `archived` - archived
      */
-    export type StageEnum = typeof StageEnum[keyof typeof StageEnum];
+    export type EarlyAccessFeatureStageEnum = typeof EarlyAccessFeatureStageEnum[keyof typeof EarlyAccessFeatureStageEnum];
 
 
-    export const StageEnum = {
+    export const EarlyAccessFeatureStageEnum = {
       Draft: 'draft',
       Concept: 'concept',
       Alpha: 'alpha',
@@ -24829,7 +24911,7 @@ export namespace Schemas {
        * * `beta` - beta
        * * `general-availability` - general availability
        * * `archived` - archived */
-      stage: StageEnum;
+      stage: EarlyAccessFeatureStageEnum;
       /**
          * URL to external documentation for this feature. Shown to users in the opt-in UI.
          * @maxLength 800
@@ -24881,7 +24963,7 @@ export namespace Schemas {
        * * `beta` - beta
        * * `general-availability` - general availability
        * * `archived` - archived */
-      stage: StageEnum;
+      stage: EarlyAccessFeatureStageEnum;
       /**
          * URL to external documentation for this feature. Shown to users in the opt-in UI.
          * @maxLength 800
@@ -27041,6 +27123,8 @@ export namespace Schemas {
       readonly config_schema: ErrorTrackingListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -29816,6 +29900,8 @@ export namespace Schemas {
       readonly config_schema: ExperimentResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -30243,6 +30329,8 @@ export namespace Schemas {
       readonly config_schema: ExperimentsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -34651,6 +34739,14 @@ export namespace Schemas {
       period?: Period;
     }
 
+    export interface GenerateLinkRequest {
+      /**
+         * Recipient to generate the link for. Defaults to the requesting user's own email address.
+         * @maxLength 512
+         */
+      recipient?: string;
+    }
+
     export interface SuggestedRule {
       /** re2 pattern matching the dynamic path segment. */
       regex: string;
@@ -38799,7 +38895,7 @@ export namespace Schemas {
       connectionId?: string | null;
       /** Enable more verbose output, usually run from the /debug page */
       debug?: boolean | null;
-      /** Extra filters applied to query via {filters} */
+      /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
@@ -38895,10 +38991,10 @@ export namespace Schemas {
      * * `medium` - medium
      * * `low` - low
      */
-    export type TierEnum = typeof TierEnum[keyof typeof TierEnum];
+    export type IdentityMatchingLinkTierEnum = typeof IdentityMatchingLinkTierEnum[keyof typeof IdentityMatchingLinkTierEnum];
 
 
-    export const TierEnum = {
+    export const IdentityMatchingLinkTierEnum = {
       High: 'high',
       Medium: 'medium',
       Low: 'low',
@@ -39006,7 +39102,7 @@ export namespace Schemas {
        * * `high` - high
        * * `medium` - medium
        * * `low` - low */
-      tier: TierEnum;
+      tier: IdentityMatchingLinkTierEnum;
       /** When the link was computed (UTC). */
       computed_at: string;
       /** Distinct (IP, day) combinations both sides were seen on. */
@@ -40735,6 +40831,20 @@ export namespace Schemas {
       Sustained: 'sustained',
     } as const;
 
+    /**
+     * * `series_history` - series_history
+     * * `team_retention` - team_retention
+     * * `byte_budget` - byte_budget
+     */
+    export type LimitedByEnum = typeof LimitedByEnum[keyof typeof LimitedByEnum];
+
+
+    export const LimitedByEnum = {
+      SeriesHistory: 'series_history',
+      TeamRetention: 'team_retention',
+      ByteBudget: 'byte_budget',
+    } as const;
+
     export interface LinearIssueSignalExtra {
       url: string;
       identifier: string;
@@ -41176,6 +41286,221 @@ export namespace Schemas {
     }
 
     /**
+     * * `insufficient` - insufficient
+     * * `cold_start` - cold_start
+     * * `developing` - developing
+     * * `mature` - mature
+     */
+    export type LogsAnomalyBaselineStageEnum = typeof LogsAnomalyBaselineStageEnum[keyof typeof LogsAnomalyBaselineStageEnum];
+
+
+    export const LogsAnomalyBaselineStageEnum = {
+      Insufficient: 'insufficient',
+      ColdStart: 'cold_start',
+      Developing: 'developing',
+      Mature: 'mature',
+    } as const;
+
+    /**
+     * * `spike` - spike
+     * * `drop` - drop
+     * * `silence` - silence
+     */
+    export type LogsAnomalyVerdictEnum = typeof LogsAnomalyVerdictEnum[keyof typeof LogsAnomalyVerdictEnum];
+
+
+    export const LogsAnomalyVerdictEnum = {
+      Spike: 'spike',
+      Drop: 'drop',
+      Silence: 'silence',
+    } as const;
+
+    export interface LogsAnomalyScanBucket {
+      /** Start of the 5 minute bucket (UTC). */
+      time: string;
+      /** Log records observed in this bucket. */
+      observed: number;
+      /**
+         * Expected count from the learned baseline. Null when the bucket was not scored.
+         * @nullable
+         */
+      expected: number | null;
+      /**
+         * Lower edge of the expected band. Observed below this is a drop or silence candidate.
+         * @nullable
+         */
+      lower: number | null;
+      /**
+         * Upper edge of the expected band. Observed above this is a spike candidate.
+         * @nullable
+         */
+      upper: number | null;
+      /** How much history backed the baseline for this bucket. Wider bands and lower confidence in cold_start; mature means a full seasonal baseline. Null when the bucket was gated out (for example, traffic below the detection floor).
+       *
+       * * `insufficient` - insufficient
+       * * `cold_start` - cold_start
+       * * `developing` - developing
+       * * `mature` - mature */
+      stage: LogsAnomalyBaselineStageEnum | null;
+      /** Anomaly verdict for this bucket, or null when the observed count sat inside the band.
+       *
+       * * `spike` - spike
+       * * `drop` - drop
+       * * `silence` - silence */
+      verdict: LogsAnomalyVerdictEnum | null;
+    }
+
+    export interface LogsAnomalyScanError {
+      /** Human readable description of why the scan could not run. */
+      error: string;
+    }
+
+    /**
+     * * `up` - up
+     * * `down` - down
+     */
+    export type LogsAnomalyScanIssueDirectionEnum = typeof LogsAnomalyScanIssueDirectionEnum[keyof typeof LogsAnomalyScanIssueDirectionEnum];
+
+
+    export const LogsAnomalyScanIssueDirectionEnum = {
+      Up: 'up',
+      Down: 'down',
+    } as const;
+
+    /**
+     * * `pending` - pending
+     * * `active` - active
+     * * `resolved` - resolved
+     */
+    export type LogsAnomalyScanIssueStateEnum = typeof LogsAnomalyScanIssueStateEnum[keyof typeof LogsAnomalyScanIssueStateEnum];
+
+
+    export const LogsAnomalyScanIssueStateEnum = {
+      Pending: 'pending',
+      Active: 'active',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface LogsAnomalyScanIssue {
+      /** up covers spikes; down covers drops and silences (which share one issue per service).
+       *
+       * * `up` - up
+       * * `down` - down */
+      direction: LogsAnomalyScanIssueDirectionEnum;
+      /**
+         * Severity of the spiking series. Null for down issues, which are tracked per service.
+         * @nullable
+         */
+      severity: string | null;
+      /** Most severe verdict the issue reached. A drop that deepens into silence escalates in place.
+       *
+       * * `spike` - spike
+       * * `drop` - drop
+       * * `silence` - silence */
+      kind: LogsAnomalyVerdictEnum;
+      /** Lifecycle state at the end of the evaluation window.
+       *
+       * * `pending` - pending
+       * * `active` - active
+       * * `resolved` - resolved */
+      state: LogsAnomalyScanIssueStateEnum;
+      /** Bucket where the issue first opened. */
+      opened_at: string;
+      /** Most recent anomalous bucket attributed to this issue. */
+      last_anomalous_at: string;
+      /**
+         * Bucket where the issue resolved, or null if it was still open at the end of the window.
+         * @nullable
+         */
+      resolved_at: string | null;
+      /** Every anomalous bucket attributed to this issue, oldest first. */
+      anomalous_bucket_times: string[];
+    }
+
+    export interface _ScanDateRange {
+      /** Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history. */
+      date_from: string;
+      /** End of the evaluation window (ISO 8601), clamped to now. */
+      date_to: string;
+    }
+
+    export interface LogsAnomalyScanRequest {
+      /** Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call. */
+      serviceName: string;
+      /** Evaluation window to scan for anomalies. May span at most 7 days. */
+      dateRange: _ScanDateRange;
+    }
+
+    /**
+     * * `a` - a
+     * * `b` - b
+     * * `c` - c
+     * * `d` - d
+     */
+    export type LogsAnomalyScanSeriesTierEnum = typeof LogsAnomalyScanSeriesTierEnum[keyof typeof LogsAnomalyScanSeriesTierEnum];
+
+
+    export const LogsAnomalyScanSeriesTierEnum = {
+      A: 'a',
+      B: 'b',
+      C: 'c',
+      D: 'd',
+    } as const;
+
+    export interface LogsAnomalyScanSeries {
+      /** Severity level of this log series (for example info, warn, error). */
+      severity: string;
+      /** Baseline stage reached by the end of the evaluation window. Null if no bucket was scored.
+       *
+       * * `insufficient` - insufficient
+       * * `cold_start` - cold_start
+       * * `developing` - developing
+       * * `mature` - mature */
+      stage: LogsAnomalyBaselineStageEnum | null;
+      /** Traffic tier at the end of the window, from a (0.5 or more records per second) down to d (below the detection floor of roughly 1 record per minute).
+       *
+       * * `a` - a
+       * * `b` - b
+       * * `c` - c
+       * * `d` - d */
+      tier: LogsAnomalyScanSeriesTierEnum | null;
+      /**
+         * Earliest bucket with data inside the fetched lookback.
+         * @nullable
+         */
+      history_start: string | null;
+      /** What limited this series' baseline maturity, or null for a full baseline. series_history: data starts inside the lookback, because the series is young or a per-stream retention rule trimmed it (indistinguishable from the data). byte_budget and team_retention mirror the scan level constraints.
+       *
+       * * `series_history` - series_history
+       * * `team_retention` - team_retention
+       * * `byte_budget` - byte_budget */
+      limited_by: LimitedByEnum | null;
+      /** Per bucket observed counts and expected bands across the evaluation window, for evidence charts. */
+      buckets: LogsAnomalyScanBucket[];
+    }
+
+    export interface LogsAnomalyScanResponse {
+      /** Service that was scanned. */
+      service_name: string;
+      /** Actual start of the evaluated window after any clipping. */
+      eval_start: string;
+      /** Actual end of the evaluated window after clamping to now. */
+      eval_end: string;
+      /** Days of baseline history the scan used. */
+      lookback_days: number;
+      /** True when the evaluation window was clipped to fit the read budget. The response covers only the clipped window. */
+      eval_clipped: boolean;
+      /** True when the scan could not afford the full lookback and fell back to a cheaper configuration. */
+      degraded: boolean;
+      /** Everything that limited the baseline, empty for an unconstrained scan. team_retention: the project's log retention is shorter than the full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget. */
+      binding_constraints: BindingConstraintsEnum[];
+      /** One entry per severity level observed for the service, with per bucket evidence. */
+      series: LogsAnomalyScanSeries[];
+      /** Anomaly issues that opened during the evaluation window, oldest first. */
+      issues: LogsAnomalyScanIssue[];
+    }
+
+    /**
      * * `log` - log
      * * `resource` - resource
      * * `column` - column
@@ -41206,6 +41531,8 @@ export namespace Schemas {
       readonly config_schema: LogsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -43486,12 +43813,13 @@ export namespace Schemas {
     }
 
     export interface MessagePreferences {
+      /** Server-assigned UUID for this recipient's preference record. */
       readonly id: string;
       /** The recipient identifier (e.g. email address). */
       identifier: string;
       /** When the preference was last updated. */
       updated_at: string;
-      /** Map of category ID to preference status. */
+      /** Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message. */
       preferences: unknown;
     }
 
@@ -44897,6 +45225,15 @@ export namespace Schemas {
          * @nullable
          */
       is_pending_deletion?: boolean | null;
+    }
+
+    export interface OrganizationDataFreshness {
+      /** One entry per project the requesting user can see. */
+      results: DataFreshnessProject[];
+      /** How many days back the check looks. Data older than this is not visible to the check. */
+      lookback_days: number;
+      /** How many days without data make a project or source count as quiet. */
+      quiet_after_days: number;
     }
 
     export interface OrganizationDomain {
@@ -49597,6 +49934,8 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
+      /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
+      dismissed_at?: string;
       /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
       url?: string;
     }
@@ -52510,7 +52849,7 @@ export namespace Schemas {
        * * `beta` - beta
        * * `general-availability` - general availability
        * * `archived` - archived */
-      stage?: StageEnum;
+      stage?: EarlyAccessFeatureStageEnum;
       /**
          * URL to external documentation for this feature. Shown to users in the opt-in UI.
          * @maxLength 800
@@ -59437,6 +59776,11 @@ export namespace Schemas {
       Postgres: 'Postgres',
     } as const;
 
+    export interface PreferencesLink {
+      /** Token-gated URL where the recipient can manage their preferences. */
+      preferences_url: string;
+    }
+
     export interface PreviewInviteRequest {
       /**
          * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
@@ -64401,12 +64745,12 @@ export namespace Schemas {
     }
 
     /**
-     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.
+     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is.
      */
     export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
 
     export interface QuotaLimitsResponse {
-      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
+      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
       limited: QuotaLimitsResponseLimited;
       /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
       code_usage_billing_active: boolean;
@@ -64574,6 +64918,16 @@ export namespace Schemas {
          * @nullable
          */
       run_id?: string | null;
+    }
+
+    export interface RemoveOptOutRequest {
+      /**
+         * The recipient identifier to opt back in (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
+      category_key?: string;
     }
 
     export interface ReorderTilesRequest {
@@ -66628,7 +66982,7 @@ export namespace Schemas {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
       /**
-         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
          * @maxLength 255
          */
       channel_id: string;
@@ -66732,6 +67086,8 @@ export namespace Schemas {
       readonly config_schema: SessionReplayListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -66996,10 +67352,10 @@ export namespace Schemas {
        * * `negative` - negative */
       sentiment: SentimentEnum;
       /**
-         * Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.
+         * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
          * @maxLength 4000
          */
-      note: string;
+      note?: string;
     }
 
     export interface SignalReportFeedbackResponse {
@@ -67127,7 +67483,7 @@ export namespace Schemas {
        * * `paused_by_system` - Paused by system
        * * `paused_by_user` - Paused by user */
       readonly status: ScoutConfigStatusEnum;
-      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (its output received no human engagement), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
        *
        * * `no_output` - No output
        * * `ignored` - Ignored
@@ -67171,7 +67527,7 @@ export namespace Schemas {
       /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
       readonly consecutive_failure_count: number;
       /**
-         * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone acts on the scout's reports; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
+         * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
          * @nullable
          */
       readonly status_changed_at: string | null;
@@ -69185,6 +69541,8 @@ export namespace Schemas {
       suggested_target_display_name: string;
       /** Why this mapping is suggested */
       reason: string;
+      /** Events carrying this raw utm_source in the window. Suggestions are ordered by it. */
+      event_count_30d: number;
     }
 
     /**
@@ -72590,6 +72948,8 @@ export namespace Schemas {
       readonly config_schema: SurveyResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -73750,6 +74110,22 @@ export namespace Schemas {
       content_type?: string;
       /** Optional structured metadata for special artifact types, such as skill bundles. */
       metadata?: TaskRunArtifactMetadata;
+    }
+
+    export interface TaskRunArtifactsDismissRequest {
+      /**
+         * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      artifact_ids: string[];
+      /** True to hide the artifacts from clients, false to show them again. */
+      dismissed?: boolean;
+    }
+
+    export interface TaskRunArtifactsDismissResponse {
+      /** Updated list of artifacts on the run */
+      artifacts: TaskRunArtifactResponse[];
     }
 
     export interface TaskRunArtifactsFinalizeUploadRequest {
@@ -75621,7 +75997,7 @@ export namespace Schemas {
     export interface UtmMappingSuggestionsResponse {
       /** Suggested custom_source_mappings entries */
       source_suggestions: SourceMappingSuggestion[];
-      /** Suggested campaign-name clusters (empty in v1) */
+      /** campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real campaign. Near-ties are withheld, so an absent campaign may still be mappable by hand. */
       campaign_suggestions: CampaignMappingSuggestion[];
       /** All unmatched raw utm_source values worth reviewing */
       raw_unmatched_samples: RawUnmatchedSample[];
@@ -75858,18 +76234,22 @@ export namespace Schemas {
      * Request body for warming a full idling Run while composing a Code-app cloud task.
      *
      * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
-     * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
-     * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
-     * it to the caller's team before use.
+     * interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+     * then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+     * the view re-scopes it to the caller's team before use.
      */
     export interface WarmTaskRequest {
       /**
-         * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+         * Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
          * @maxLength 255
+         * @nullable
          */
-      repository: string;
-      /** Primary key of the team's GitHub integration to clone with. */
-      github_integration: number;
+      repository?: string | null;
+      /**
+         * Primary key of the team's GitHub integration to clone with when a repository is selected.
+         * @nullable
+         */
+      github_integration?: number | null;
       /**
          * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
          * @maxLength 255
@@ -75955,6 +76335,11 @@ export namespace Schemas {
     export interface WebAnalyticsUserPreferences {
       /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
       achievements_opt_out: boolean;
+    }
+
+    export interface WebhookUrl {
+      /** URL to register in Customer.io so it posts subscription changes to PostHog. */
+      url: string;
     }
 
     export interface WeeklyDigestResponse {

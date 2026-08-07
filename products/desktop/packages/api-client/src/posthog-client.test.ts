@@ -1187,6 +1187,32 @@ describe("PostHogAPIClient", () => {
       );
     });
 
+    it("supports warming a repo-less sandbox", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () =>
+          JSON.stringify({ task_id: "task-1", run_id: "run-1" }),
+      });
+      const client = makeClient(fetch);
+
+      await client.warmTask({ repository: null, github_integration: null });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overrides: {
+            body: JSON.stringify({
+              repository: null,
+              github_integration: null,
+              branch: null,
+              runtime_adapter: null,
+              model: null,
+              reasoning_effort: null,
+            }),
+          },
+        }),
+      );
+    });
+
     it("returns null on an empty 200 body (feature disabled / capped / no-op)", async () => {
       const fetch = vi.fn().mockResolvedValue({
         ok: true,

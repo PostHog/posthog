@@ -71,7 +71,7 @@ from posthog.scopes import (
     resolve_ceiling,
     scopes_outside_ceiling,
 )
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, render_template
 from posthog.views import login_required
@@ -423,7 +423,9 @@ class OAuthValidator(OAuth2Validator):
         http://localhost/callback and request http://localhost:<ephemeral>/callback.
         """
 
-        if has_authority_bypass_chars(redirect_uri):
+        # The authorization code is delivered to this URI as given, with no userinfo stripped,
+        # so the authority has to be unambiguous rather than merely parseable.
+        if has_ambiguous_authority(redirect_uri):
             return False
 
         if request.client.redirect_uri_allowed(redirect_uri):
