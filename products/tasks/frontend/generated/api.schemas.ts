@@ -913,6 +913,8 @@ export interface PatchedSandboxEnvironmentWriteApi {
  * * `awaiting_input` - awaiting_input
  * * `completed` - completed
  * * `mention` - mention
+ * * `thread_reply` - thread_reply
+ * * `owned_item_comment` - owned_item_comment
  * * `message` - message
  * * `created` - created
  */
@@ -922,6 +924,8 @@ export const ActivityKindEnumApi = {
     AwaitingInput: 'awaiting_input',
     Completed: 'completed',
     Mention: 'mention',
+    ThreadReply: 'thread_reply',
+    OwnedItemComment: 'owned_item_comment',
     Message: 'message',
     Created: 'created',
 } as const
@@ -938,20 +942,28 @@ export interface TaskActivityDTOApi {
     /** @nullable */
     channel_name: string | null
     activity_at: string
-    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), a task-thread reply (message), or their creating the task (created).
      *
      * * `awaiting_input` - awaiting_input
      * * `completed` - completed
      * * `mention` - mention
+     * * `thread_reply` - thread_reply
+     * * `owned_item_comment` - owned_item_comment
      * * `message` - message
      * * `created` - created */
     activity_kind: ActivityKindEnumApi
-    /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+    /** Content of the thread message or resource comment tied to the latest activity. */
     snippet: string
     /** Author of the thread message tied to the latest activity, when one applies. */
     latest_author?: TaskUserBasicInfoApi | null
     /** @nullable */
     latest_message_id?: string | null
+    /** @nullable */
+    latest_comment_id?: string | null
+    /** @nullable */
+    latest_comment_scope?: string | null
+    /** @nullable */
+    latest_comment_item_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }
@@ -979,6 +991,11 @@ export interface TaskActivityPageDTOApi {
 export interface TaskActivityReadMarkerApi {
     /** Task whose displayed activity should be marked read. */
     task_id: string
+    /**
+     * Comment activity row to mark read. Omit for collapsed task activity.
+     * @nullable
+     */
+    activity_id?: string | null
     /** Mark activity at or before this timestamp read without clearing newer activity. */
     seen_before: string
 }
@@ -1417,6 +1434,8 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
+    /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
+    dismissed_at?: string
     /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
     url?: string
 }
@@ -1994,6 +2013,150 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     channel?: string | null
+}
+
+export interface TaskArtifactApi {
+    /** Stable artifact id used to filter task comments. */
+    id: string
+    /** Artifact type: artifact or canvas. */
+    type: string
+    /** Display name of the artifact. */
+    name: string
+}
+
+export interface TaskArtifactsResponseApi {
+    /** Artifacts and canvases linked to this task. */
+    artifacts: TaskArtifactApi[]
+}
+
+export interface TaskCommentTargetApi {
+    /** Stable target id. */
+    id: string
+    /** Target type: task, artifact, or canvas. */
+    type: string
+    /** Display name of the comment target. */
+    name: string
+}
+
+export interface TaskCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment is resolved. */
+    resolved: boolean
+}
+
+export interface TaskCommentsResponseApi {
+    /** Root comments, newest first. */
+    comments: TaskCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
+export interface TaskCommentAnchorApi {
+    /** Anchor kind. */
+    kind?: string
+    /** Selected text. */
+    quote?: string
+    /** Text immediately before the selection. */
+    prefix?: string
+    /** Text immediately after the selection. */
+    suffix?: string
+    /**
+     * Selection start offset.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Selection end offset.
+     * @minimum 1
+     */
+    end?: number
+    /**
+     * Horizontal region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    x?: number
+    /**
+     * Vertical region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    y?: number
+    /**
+     * Region width.
+     * @minimum 0
+     * @maximum 1
+     */
+    width?: number
+    /**
+     * Region height.
+     * @minimum 0
+     * @maximum 1
+     */
+    height?: number
+}
+
+export interface TaskCommentEntryApi {
+    /** Comment id. */
+    id: string
+    /** Byte-bounded comment body chunk. */
+    content: string
+    /** Whether this comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next body chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
+    /**
+     * Comment author's display name.
+     * @nullable
+     */
+    author: string | null
+    /** When the comment was created. */
+    created_at: string
+    /** Normalized text or document anchor. */
+    anchor: TaskCommentAnchorApi | null
+    /**
+     * Canvas version receiving the comment.
+     * @nullable
+     */
+    canvas_version_id: string | null
+}
+
+export interface TaskCommentDetailApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Whether the comment is resolved. */
+    resolved: boolean
+    /** Comments in this page, oldest first. */
+    comments: TaskCommentEntryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
 }
 
 export interface TaskPinRequestApi {
@@ -2814,6 +2977,22 @@ export interface TaskRunArtifactsUploadRequestApi {
 }
 
 export interface TaskRunArtifactsUploadResponseApi {
+    /** Updated list of artifacts on the run */
+    artifacts: TaskRunArtifactResponseApi[]
+}
+
+export interface TaskRunArtifactsDismissRequestApi {
+    /**
+     * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    artifact_ids: string[]
+    /** True to hide the artifacts from clients, false to show them again. */
+    dismissed?: boolean
+}
+
+export interface TaskRunArtifactsDismissResponseApi {
     /** Updated list of artifacts on the run */
     artifacts: TaskRunArtifactResponseApi[]
 }
@@ -4065,6 +4244,55 @@ export const TasksListStatus = {
     Failed: 'failed',
     Cancelled: 'cancelled',
 } as const
+
+export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type TasksCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
 
 export type TasksRunsListParams = {
     /**

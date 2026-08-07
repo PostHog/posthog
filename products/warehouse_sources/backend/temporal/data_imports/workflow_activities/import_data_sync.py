@@ -185,7 +185,10 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
 
-        schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        try:
+            schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        except ExternalDataSchema.DoesNotExist as e:
+            await _handle_import_error(job_inputs, logger, e)
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
@@ -382,6 +385,15 @@ async def _handle_import_error(
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
+
+    # The schema this activity is running for can be deleted (or soft-deleted) between the job
+    # being created and this activity's mid-run re-fetch of it — every retry re-reads the same
+    # gone row, so it never turns into data regardless of source. Classify it here by type rather
+    # than depending on each source listing the message in get_non_retryable_errors.
+    if isinstance(error, ExternalDataSchema.DoesNotExist):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
 
     # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
