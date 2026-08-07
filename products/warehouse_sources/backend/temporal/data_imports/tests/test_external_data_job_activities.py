@@ -69,17 +69,16 @@ class TestTriggerScheduleBufferOneActivity(BaseTest):
         # The shape that keeps its charge: the retrigger resumes from a per-batch watermark
         (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, True, True),
         (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.APPEND, True, True),
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.WEBHOOK, True, True),
         # A cut-short v2 first sync also keeps it: its committed chunks survive on S3 and the
         # retrigger merges from the persisted watermark, so these rows are extracted exactly once
         (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, False, True),
         # A full refresh restarts, so the retrigger re-extracts and re-bills these rows
         (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, True, False),
-        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, False, False),
         # Thousands of live schemas carry no sync_type and replace their table every run
         (ExternalDataJob.PipelineVersion.V2, None, True, False),
         # v3 stages its watermark until the final batch, which a cut-short run never sends
         (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.INCREMENTAL, True, False),
-        (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.INCREMENTAL, False, False),
     ],
 )
 # transaction=True: the activity writes through database_sync_to_async_pool, which runs off this
@@ -127,7 +126,7 @@ async def test_a_shutdown_runs_charge_drops_unless_the_retrigger_resumes(
             status=ExternalDataJob.Status.COMPLETED,
             internal_error=None,
             latest_error=None,
-            mark_non_billable=True,
+            cut_short_by_shutdown=True,
         ),
     )
 

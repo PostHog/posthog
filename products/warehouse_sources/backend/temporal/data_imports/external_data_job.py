@@ -8,6 +8,7 @@ from django.conf import settings
 
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from prometheus_client import Counter
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
@@ -98,6 +99,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
+SHUTDOWN_CHARGE_DROPPED = Counter(
+    "dwh_shutdown_charge_dropped",
+    "Runs cut short by a worker shutdown whose charge was dropped at finalize",
+)
+
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
 # expensive retry-exhaustion paths fast.
@@ -170,7 +176,7 @@ class UpdateExternalDataJobStatusInputs:
     workflow_run_id: str | None = None
     # Set when the run was cut short by something on our side (a worker shutdown), so finalization
     # can decide whether its charge must drop — see _shutdown_run_charge_should_drop.
-    mark_non_billable: bool = False
+    cut_short_by_shutdown: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -181,7 +187,7 @@ class UpdateExternalDataJobStatusInputs:
             "source_id": self.source_id,
             "status": self.status,
             "workflow_run_id": self.workflow_run_id,
-            "mark_non_billable": self.mark_non_billable,
+            "cut_short_by_shutdown": self.cut_short_by_shutdown,
         }
 
 
@@ -191,13 +197,19 @@ def _shutdown_run_charge_should_drop(job_id: str, team_id: int) -> bool:
     The customer pays once for rows that become queryable, and rows become queryable at the next
     completed run's post-load — so a cut-short run's charge follows what the retriggered run does
     with its rows. A v2 cumulative sync (incremental/append/webhook, plus cdc/xmin) keeps them:
-    the watermark persists per batch and the committed chunks survive on S3, since the writer keys
-    `is_first_sync` on delta-table existence rather than table registration and so merges instead
-    of overwriting — even when this run was the schema's first. Those rows are extracted once and
-    the charge stands. Everything else re-extracts and re-bills the same rows: a full refresh
-    starts over by definition (read as the inverse of the cumulative sync types, since many live
-    schemas carry no sync_type at all), and v3 stages its watermark until the loader sees the
-    final batch, which a cut-short run never sends.
+    for asc-sorted resources the watermark persists per batch, and the committed chunks survive on
+    S3 since the writer keys `is_first_sync` on delta-table existence rather than table
+    registration and so merges instead of overwriting — even when this run was the schema's first.
+    Those rows are extracted once and the charge stands. Everything else re-extracts and re-bills
+    the same rows: a full refresh starts over by definition (read as the inverse of the cumulative
+    sync types, since many live schemas carry no sync_type at all), and v3 stages its watermark
+    until the loader sees the final batch, which a cut-short run never sends.
+
+    Known corner kept billable anyway: a resumable source with a desc-sorted resource reaches the
+    shutdown branch too (`should_check_shutdown` raises for any resumable source), and desc sorts
+    only persist `earliest_value` per batch — its retrigger re-extracts from the top. Unchanged
+    behavior vs before this fix; closing it needs a per-resource resumes-across-runs signal that
+    doesn't exist at finalize time.
     """
     job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).select_related("schema").first()
     if job is None or job.schema is None:
@@ -299,10 +311,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_shutdown_run_charge_should_drop)(
+    drop_charge = inputs.cut_short_by_shutdown and await database_sync_to_async_pool(_shutdown_run_charge_should_drop)(
         job_id=job_id, team_id=inputs.team_id
     )
     if drop_charge:
+        SHUTDOWN_CHARGE_DROPPED.inc()
         logger.info(f"Marking job {job_id} non-billable: cut short by a worker shutdown")
 
     await database_sync_to_async_pool(update_external_job_status)(
@@ -854,7 +867,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # The extraction was cut off mid-stream, so flag it for the finalize activity,
                 # which decides whether the charge drops (_shutdown_run_charge_should_drop).
                 # Set before the trigger below so a raise there can't skip it.
-                update_inputs.mark_non_billable = True
+                update_inputs.cut_short_by_shutdown = True
 
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
