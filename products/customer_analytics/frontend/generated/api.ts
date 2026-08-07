@@ -45,6 +45,7 @@ import type {
     ExternalAccountListPageApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    MeetingApi,
     PaginatedAccountChannelSummaryListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
@@ -543,6 +544,21 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsMeetingsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/meetings/`
+}
+
+export const accountsMeetingsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MeetingApi[]> => {
+    return apiMutator<MeetingApi[]>(getAccountsMeetingsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
