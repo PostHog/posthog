@@ -15409,13 +15409,6 @@
         }
       },
       {
-        chain: [
-          "ee"
-        ]
-        from_asterisk: False
-        type: <recursion ...>
-      },
-      {
         alias: "e"
         expr: {
           chain: [

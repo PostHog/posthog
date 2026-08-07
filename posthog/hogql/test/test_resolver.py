@@ -98,9 +98,44 @@ class TestResolver(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias(self):
-        expr = self._select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
+        expr = self._select("SELECT event as ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
+
+    @parameterized.expand(
+        [
+            ("bare_column_twice", "SELECT e.uuid, e.uuid FROM events e", "uuid"),
+            ("asterisk_plus_column", "SELECT e.*, e.uuid FROM events e", "uuid"),
+            ("alias_then_reference", "SELECT event as ee, ee FROM events", "ee"),
+            ("union_first_branch", "SELECT uuid, uuid FROM events UNION ALL SELECT uuid, event FROM events", "uuid"),
+        ]
+    )
+    def test_root_duplicate_output_columns_raise(self, _name: str, query: str, duplicate: str):
+        self.context.enforce_unique_output_columns = True
+        with self.assertRaisesMessage(
+            QueryError, f"The query returns more than one column named '{duplicate}'. Give each column a unique alias."
+        ):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("inner_subquery_shadowing", "SELECT event FROM (SELECT timestamp AS event, event FROM events)"),
+            ("cte_body", "WITH c AS (SELECT uuid, uuid FROM events) SELECT uuid FROM c"),
+            ("union_later_branch", "SELECT uuid, event FROM events UNION ALL SELECT uuid, uuid FROM events"),
+        ]
+    )
+    def test_non_root_duplicate_output_columns_resolve(self, _name: str, query: str):
+        self.context.enforce_unique_output_columns = True
+        resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+    def test_duplicate_output_columns_allowed_when_not_enforced(self):
+        # programmatic ASTs consume columns positionally, so the default context allows repeats
+        resolve_types(self._select("SELECT e.uuid, e.uuid FROM events e"), self.context, dialect="clickhouse")
+
+    def test_root_duplicate_output_columns_lint_as_error_in_hogql_dialect(self):
+        self.context.enforce_unique_output_columns = True
+        resolve_types(self._select("SELECT e.uuid, e.uuid FROM events e"), self.context, dialect="hogql")
+        assert any("more than one column named 'uuid'" in error.message for error in self.context.errors)
 
     def test_resolve_table_column_aliases_dialect_guard(self):
         expr = self._select("SELECT 1 FROM events AS e (event_alias)")

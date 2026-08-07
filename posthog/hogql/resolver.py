@@ -968,6 +968,7 @@ class Resolver(CloningVisitor):
                 select_nodes.append(new_expr)
 
         columns_with_visible_alias: dict[str, bool] = {}
+        output_name_counts: dict[str, int] = {}
         for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
@@ -985,6 +986,7 @@ class Resolver(CloningVisitor):
                 alias = None
 
             if alias:
+                output_name_counts[alias] = output_name_counts.get(alias, 0) + 1
                 # Make a reference of the first visible or last hidden expr for each unique alias name.
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
                     if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
@@ -996,6 +998,20 @@ class Resolver(CloningVisitor):
 
             # add the column to the new select query
             new_node.select.append(new_expr)
+
+        # Only the outermost select of user-authored SQL is checked: hidden-alias shadowing and
+        # internal transforms legitimately emit duplicate names in inner scopes, programmatic ASTs
+        # (insight runners) consume columns positionally, and transform re-resolves pass enclosing
+        # scopes. Message kept in sync with products/data_modeling/backend/logic/column_names.py.
+        if is_root_select and len(self.scopes) == 1 and self.context.enforce_unique_output_columns:
+            duplicate_names = sorted(name for name, count in output_name_counts.items() if count > 1)
+            if duplicate_names:
+                quoted = ", ".join(f"'{name}'" for name in duplicate_names)
+                message = f"The query returns more than one column named {quoted}. Give each column a unique alias."
+                if self.dialect == "hogql":
+                    self.context.add_error(message=message, start=node.start, end=node.end)
+                else:
+                    raise QueryError(message)
 
         # Array joins (pass 2 - so we can use aliases from columns in the array join)
         if node.array_join_list:

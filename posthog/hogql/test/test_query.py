@@ -181,7 +181,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     period_end
                 FROM (SELECT '2026-08-03' AS period_end)
             )
-            SELECT *, toDate(period_end)
+            SELECT *, toDate(period_end) AS period_end_date
             FROM blah
             WHERE month < '2027-01-01'
             LIMIT 1000
@@ -192,7 +192,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             response.columns,
-            ["customer_id", "month", "toDate(period_end)", "period_end", "toDate(period_end)"],
+            ["customer_id", "month", "toDate(period_end)", "period_end", "period_end_date"],
         )
         self.assertEqual(
             response.results,
@@ -501,7 +501,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             flush_persons_and_events()
 
             response = execute_hogql_query(
-                "SELECT e1.event, e2.event "
+                "SELECT e1.event AS event1, e2.event AS event2 "
                 "FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id "
                 "WHERE e1.event = 'pageview' AND e2.event = 'click'",
                 self.team,

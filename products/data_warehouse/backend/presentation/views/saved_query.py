@@ -553,6 +553,8 @@ class DataWarehouseSavedQuerySerializer(
                 view.external_tables = view.s3_tables
             except ConflictingColumnNamesError as e:
                 raise serializers.ValidationError(str(e))
+            except ExposedHogQLError as e:
+                raise serializers.ValidationError(str(e))
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -744,6 +746,8 @@ class DataWarehouseSavedQuerySerializer(
                     view.external_tables = view.s3_tables
                 except ConflictingColumnNamesError as e:
                     raise serializers.ValidationError(str(e))
+                except ExposedHogQLError as e:
+                    raise serializers.ValidationError(str(e))
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception as e:
@@ -862,7 +866,9 @@ class DataWarehouseSavedQuerySerializer(
         team_id = self.context["team_id"]
         user = self.context["request"].user
 
-        context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
+        context = HogQLContext(
+            team_id=team_id, user=user, enable_select_queries=True, enforce_unique_output_columns=True
+        )
         try:
             select_ast = parse_select(query["query"])
 

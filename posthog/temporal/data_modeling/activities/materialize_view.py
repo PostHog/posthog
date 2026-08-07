@@ -291,6 +291,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
+        enforce_unique_output_columns=True,
     )
     # Userless materialization context; bypass warehouse HogQL access control so the model query
     # can resolve its source tables/views.

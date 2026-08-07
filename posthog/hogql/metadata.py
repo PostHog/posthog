@@ -95,6 +95,9 @@ def get_hogql_metadata(
             else:
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
+            # full user-authored queries only: expr fragments above are appended onto
+            # runner-built source queries whose columns they may legitimately repeat
+            context.enforce_unique_output_columns = True
             if not hogql_ast:
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)

@@ -394,6 +394,19 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "more than one column named 'event'" in response.json()["detail"]
 
+    def test_create_without_types_rejects_conflicting_column_names(self):
+        # without client-sent types the resolver check in validate_query is the gate
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "duplicate_column_view",
+                "query": {"kind": "HogQLQuery", "query": "select e.event, e.event from events as e"},
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "more than one column named 'event'" in response.json()["detail"]
+
     def test_column_order_survives_postgres_roundtrip(self):
         # Columns are stored in a jsonb object, which does not preserve key insertion order. Names
         # are chosen so jsonb reorders them (by length then bytes -> a, mm, zebra) away from the

@@ -155,6 +155,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         response = func(
             query_type="HogQLQuery",
             query=query,
+            enforce_unique_output_columns=True,
             filters=self.query.filters,
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,

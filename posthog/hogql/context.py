@@ -75,6 +75,10 @@ class HogQLContext:
     use_new_events_schema: Optional[bool] = None
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
+    # Reject a root select whose output column names repeat. Set only when compiling user-authored
+    # SQL text (editor runs, linting, view saves, materialization) — programmatic ASTs consume
+    # columns positionally and may repeat names.
+    enforce_unique_output_columns: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
     # Context for determining the appropriate limit to apply

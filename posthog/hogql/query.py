@@ -104,6 +104,9 @@ class HogQLQueryExecutor:
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
+    # Set by callers compiling user-authored SQL whose AST was parsed upstream (e.g. HogQLQueryRunner);
+    # string inputs enforce automatically in _parse_query.
+    enforce_unique_output_columns: bool = False
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -145,7 +148,10 @@ class HogQLQueryExecutor:
             if isinstance(self.query, ast.SelectQuery) or isinstance(self.query, ast.SelectSetQuery):
                 self.select_query = self.query
                 self.query = None
+                if self.enforce_unique_output_columns:
+                    self.context.enforce_unique_output_columns = True
             else:
+                self.context.enforce_unique_output_columns = True
                 self.select_query = parse_select(
                     str(self.query),
                     timings=self.timings,
