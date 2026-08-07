@@ -7614,6 +7614,105 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestTaskRunArtifactDismissAPI(BaseTaskAPITest):
+    def _create_run_with_artifacts(self) -> tuple[Task, TaskRun]:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id=artifact_id,
+                name=name,
+                artifact_type="output",
+                source="agent_output",
+                size=1024,
+                content_type="text/markdown",
+                storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{run.id}/{artifact_id}_{name}",
+            )
+            for artifact_id, name in (
+                ("artifact-1", "report.md"),
+                ("artifact-2", "report.md"),
+                ("artifact-3", "chart.png"),
+            )
+        ]
+        run.save(update_fields=["artifacts", "updated_at"])
+        return task, run
+
+    def _dismiss(self, task: Task, run: TaskRun, artifact_ids: list[str], dismissed: bool):
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/dismiss/",
+            {"artifact_ids": artifact_ids, "dismissed": dismissed},
+            format="json",
+        )
+
+    def test_dismiss_flags_only_the_requested_artifacts_and_can_be_undone(self):
+        task, run = self._create_run_with_artifacts()
+
+        response = self._dismiss(task, run, ["artifact-1", "artifact-2"], True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        dismissed_at = {artifact["id"]: artifact.get("dismissed_at") for artifact in run.artifacts}
+        self.assertIsNotNone(dismissed_at["artifact-1"])
+        self.assertIsNotNone(dismissed_at["artifact-2"])
+        self.assertIsNone(dismissed_at.get("artifact-3"))
+        self.assertEqual([artifact["id"] for artifact in response.json()["artifacts"]], list(dismissed_at))
+
+        self.assertEqual(self._dismiss(task, run, ["artifact-1", "artifact-2"], False).status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertTrue(all("dismissed_at" not in artifact for artifact in run.artifacts))
+
+    def test_dismiss_unknown_artifact_leaves_the_manifest_alone(self):
+        task, run = self._create_run_with_artifacts()
+
+        response = self._dismiss(task, run, ["artifact-1", "artifact-missing"], True)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["error"], "Artifact not found on this run")
+        run.refresh_from_db()
+        self.assertTrue(all(artifact.get("dismissed_at") is None for artifact in run.artifacts))
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.head_object")
+    def test_dismissal_survives_a_finalize_upload_that_overlaps_it(self, mock_head_object, mock_tag, mock_presign):
+        task, run = self._create_run_with_artifacts()
+        new_artifact_id = uuid.uuid4().hex
+        storage_path = f"{run.get_artifact_s3_prefix()}/{new_artifact_id[:8]}_summary.pdf"
+        mock_presign.return_value = None
+
+        # Dismissing from inside head_object lands the dismissal in the window where finalize has
+        # read the manifest but not yet written it — the overlap when an agent revises a file the
+        # user is dismissing.
+        def dismiss_mid_flight(_storage_path):
+            self._dismiss(task, run, ["artifact-1"], True)
+            return {"ContentLength": 4096, "ContentType": "application/pdf"}
+
+        mock_head_object.side_effect = dismiss_mid_flight
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": new_artifact_id,
+                        "name": "summary.pdf",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": storage_path,
+                        "content_type": "application/pdf",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        artifacts_by_id = {artifact["id"]: artifact for artifact in run.artifacts}
+        self.assertIsNotNone(artifacts_by_id["artifact-1"].get("dismissed_at"))
+        self.assertIn(new_artifact_id, artifacts_by_id)
+
+
 class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
     """Tests for the GET .../session_logs/ endpoint that returns filtered log entries."""
 

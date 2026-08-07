@@ -49863,6 +49863,8 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
+      /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
+      dismissed_at?: string;
       /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
       url?: string;
     }
@@ -64654,12 +64656,12 @@ export namespace Schemas {
     }
 
     /**
-     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.
+     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is.
      */
     export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
 
     export interface QuotaLimitsResponse {
-      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
+      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
       limited: QuotaLimitsResponseLimited;
       /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
       code_usage_billing_active: boolean;
@@ -74007,6 +74009,22 @@ export namespace Schemas {
       content_type?: string;
       /** Optional structured metadata for special artifact types, such as skill bundles. */
       metadata?: TaskRunArtifactMetadata;
+    }
+
+    export interface TaskRunArtifactsDismissRequest {
+      /**
+         * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      artifact_ids: string[];
+      /** True to hide the artifacts from clients, false to show them again. */
+      dismissed?: boolean;
+    }
+
+    export interface TaskRunArtifactsDismissResponse {
+      /** Updated list of artifacts on the run */
+      artifacts: TaskRunArtifactResponse[];
     }
 
     export interface TaskRunArtifactsFinalizeUploadRequest {
