@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -92,6 +92,22 @@ describe('maxGlobalLogic', () => {
 
             expect(logic.values.conversationHistory).toHaveLength(1)
             expect(logic.values.conversationHistory[0]?.id).toBe(MOCK_CONVERSATION_ID)
+        })
+    })
+
+    // maxGlobalLogic is mounted on every scene, so loadConversationHistory (a team-scoped request)
+    // fires even mid-offboarding. Without the guard it 404s and toasts on a page the user is leaving.
+    describe('loadConversationHistory scope guard', () => {
+        it('skips the team-scoped request when there is no usable team', async () => {
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(false)
+            const listSpy = jest.spyOn(api.conversations, 'list')
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversationHistory()
+            }).toDispatchActions(['loadConversationHistorySuccess'])
+
+            expect(listSpy).not.toHaveBeenCalled()
         })
     })
 

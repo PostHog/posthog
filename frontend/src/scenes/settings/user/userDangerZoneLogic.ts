@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { OrganizationBasicType } from '~/types'
 
@@ -118,12 +119,16 @@ export const userDangerZoneLogic = kea<userDangerZoneLogicType>({
                 actions.setOrganizationToDelete(null)
             }
         },
-        leaveOrganizationSuccess: () => {
-            router.actions.replace(urls.settings('user-danger-zone'), { deletingUser: true })
-
+        leaveOrganizationSuccess: ({ payload: organizationId }) => {
             lemonToast.success('Organization left successfully')
 
-            window.location.reload()
+            // This runs inside the delete-account modal while the user clears their organizations.
+            // Drop the org from the modal list right away and refresh the user in place, rather than
+            // a full-page reload that lands on a now-inaccessible org-scoped URL under a stack of 404s.
+            if (organizationId) {
+                actions.addDeletedOrganizationId(organizationId)
+            }
+            userLogic.actions.loadUser()
         },
         leaveOrganizationFailure: () => {
             lemonToast.error('Failed to leave organization')

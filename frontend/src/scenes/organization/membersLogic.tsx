@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType, UserType } from '~/types'
@@ -277,10 +278,15 @@ export const membersLogic = kea<membersLogicType>([
             },
             removeMember: async (member: OrganizationMemberType) => {
                 await api.organizationMembers.delete(member.user.uuid)
+                const isSelf = member.user.uuid === userLogic.values.user?.uuid
                 lemonToast.success(
-                    <>
-                        Removed <b>{member.user.first_name}</b> from organization
-                    </>
+                    isSelf ? (
+                        'You left the organization'
+                    ) : (
+                        <>
+                            Removed <b>{member.user.first_name}</b> from organization
+                        </>
+                    )
                 )
                 actions.postRemoveMember(member.user.uuid)
                 return values.members?.filter((thisMember) => thisMember.user.id !== member.user.id) ?? null
@@ -411,7 +417,11 @@ export const membersLogic = kea<membersLogicType>([
     listeners(({ values, actions }) => ({
         postRemoveMember: async ({ userUuid }) => {
             if (userUuid === userLogic.values.user?.uuid) {
-                location.reload()
+                // The user left the org from the members page, so this URL is no longer theirs.
+                // Hard-navigate to the app root for a clean handoff: the server routes them to
+                // another org's home, or to organization creation if this was their last org,
+                // instead of reloading the now-inaccessible members page.
+                window.location.href = urls.default()
             }
         },
 

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -319,6 +319,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
+                    // This loader is invoked unconditionally on mount from both maxGlobalLogic (mounted
+                    // on every scene via Navigation) and maxLogic. `api.conversations.list()` is
+                    // team-scoped, so mid-offboarding (no current org, or a team id already reset) it
+                    // 404s and toasts on a page the user is leaving. Skip the request in that state.
+                    if (!values.currentOrganization || !ApiConfig.hasCurrentTeamId()) {
+                        return values.conversationHistory
+                    }
                     const response = await api.conversations.list()
                     return response.results.map((conversation) =>
                         mergeConversations(
