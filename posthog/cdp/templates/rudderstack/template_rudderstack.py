@@ -54,8 +54,8 @@ fun getPayload() {
 
     if (event.event in ('$identify', '$set')) {
         rudderPayload.type := 'identify'
-        if (not empty(event.properties.$set)) rudderPayload.context.trait := event.properties.$set
-        if (not empty(event.properties.$set)) rudderPayload.traits := event.properties.$set
+        if (not empty(person.properties)) rudderPayload.context.trait := person.properties
+        if (not empty(person.properties)) rudderPayload.traits := person.properties
     } else if (event.event == '$create_alias') {
         rudderPayload.type := 'alias'
         if (not empty(event.properties.alias)) rudderPayload.userId := event.properties.alias

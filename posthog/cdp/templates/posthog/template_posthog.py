@@ -22,6 +22,14 @@ let include_all_properties := inputs.include_all_properties
 let propertyOverrides := inputs.properties
 let properties := include_all_properties ? event.properties : {}
 
+// Person properties used to ride along inside the event payload, so replication updated the
+// receiving project's persons as a side effect. They no longer do, so send them explicitly.
+// The whole snapshot goes over rather than one event's changes, which converges the receiving
+// person onto the same state and makes $set_once unnecessary.
+if (inputs.include_person_properties and not empty(person.properties)) {
+    properties['$set'] := person.properties
+}
+
 for (let key, value in propertyOverrides) {
     properties[key] := value
 }
@@ -68,6 +76,15 @@ fetch(f'{host}/e', {
             "required": True,
         },
         {
+            "key": "include_person_properties",
+            "type": "boolean",
+            "label": "Include person properties",
+            "description": "Replicate the person's properties so the receiving project updates its own persons. Turn this off to send events only.",
+            "default": True,
+            "secret": False,
+            "required": True,
+        },
+        {
             "key": "properties",
             "type": "dictionary",
             "label": "Property overrides",
@@ -99,6 +116,7 @@ class TemplatePostHogMigrator(HogFunctionTemplateMigrator):
             "host": {"value": host},
             "token": {"value": project_api_key},
             "include_all_properties": {"value": True},
+            "include_person_properties": {"value": True},
             "properties": {"value": {"$geoip_disable": True} if disable_geoip else {}},
         }
 

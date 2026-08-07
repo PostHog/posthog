@@ -38,6 +38,50 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
             },
         )
 
+    def test_function_replicates_person_properties(self):
+        self.run_function(
+            inputs={
+                "host": "https://us.i.posthog.com",
+                "token": "TOKEN",
+                "include_all_properties": False,
+                "include_person_properties": True,
+                "properties": {},
+            },
+            globals={"person": {"properties": {"email": "someone@example.com", "plan": "paid"}}},
+        )
+
+        assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == {
+            "$set": {"email": "someone@example.com", "plan": "paid"}
+        }
+
+    def test_function_can_skip_person_properties(self):
+        self.run_function(
+            inputs={
+                "host": "https://us.i.posthog.com",
+                "token": "TOKEN",
+                "include_all_properties": False,
+                "include_person_properties": False,
+                "properties": {},
+            },
+            globals={"person": {"properties": {"email": "someone@example.com"}}},
+        )
+
+        assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == {}
+
+    def test_property_overrides_win_over_person_properties(self):
+        self.run_function(
+            inputs={
+                "host": "https://us.i.posthog.com",
+                "token": "TOKEN",
+                "include_all_properties": False,
+                "include_person_properties": True,
+                "properties": {"$set": {"email": "override@example.com"}},
+            },
+            globals={"person": {"properties": {"email": "someone@example.com"}}},
+        )
+
+        assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == {"$set": {"email": "override@example.com"}}
+
     def test_function_doesnt_include_all_properties(self):
         self.run_function(
             inputs={
@@ -70,6 +114,7 @@ class TestTemplateMigration(BaseTest):
             "host": {"value": "us.i.example.com"},
             "token": {"value": "apikey"},
             "include_all_properties": {"value": True},
+            "include_person_properties": {"value": True},
             "properties": {"value": {}},
         }
 
@@ -82,6 +127,7 @@ class TestTemplateMigration(BaseTest):
             "host": {"value": "us.i.example.com"},
             "token": {"value": "apikey"},
             "include_all_properties": {"value": True},
+            "include_person_properties": {"value": True},
             "properties": {"value": {"$geoip_disable": True}},
         }
 
@@ -94,6 +140,7 @@ class TestTemplateMigration(BaseTest):
             "host": {"value": "us.i.example.com"},
             "token": {"value": "apikey"},
             "include_all_properties": {"value": True},
+            "include_person_properties": {"value": True},
             "properties": {"value": {}},
         }
 

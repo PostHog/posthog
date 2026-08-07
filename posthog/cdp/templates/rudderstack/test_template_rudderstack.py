@@ -93,6 +93,19 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
         res = self.get_mock_fetch_calls()[0]
         assert res[0] == "https://hosted.rudderlabs.com/v1/batch"
 
+    def test_identify_sends_person_properties_as_traits(self):
+        self.run_function(
+            inputs=self._inputs(),
+            globals={
+                "event": {"event": "$identify", "properties": {"$browser": "Chrome"}},
+                "person": {"properties": {"email": "someone@example.com", "plan": "paid"}},
+            },
+        )
+
+        payload = self.get_mock_fetch_calls()[0][1]["body"]["batch"][0]
+        assert payload["traits"] == {"email": "someone@example.com", "plan": "paid"}
+        assert payload["context"]["trait"] == {"email": "someone@example.com", "plan": "paid"}
+
     def test_automatic_action_mapping(self):
         for event_name, expected_action in [
             ("$identify", "identify"),
