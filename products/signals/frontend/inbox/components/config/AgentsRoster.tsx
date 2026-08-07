@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import type { SourceToolStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
@@ -61,14 +62,27 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element {
 interface AgentCardProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
+    tool?: SourceToolStatus
+    enablingTool: boolean
     onToggle: (source: AgentRosterSource) => void
+    onEnableTool: (tool: SourceToolStatus) => void
 }
 
-const AgentCard = memo(function AgentCard({ agent, state, onToggle }: AgentCardProps): JSX.Element {
+const AgentCard = memo(function AgentCard({
+    agent,
+    state,
+    tool,
+    enablingTool,
+    onToggle,
+    onEnableTool,
+}: AgentCardProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus } = state
     const status = resolveAgentStatus(armed, syncStatus)
     const statusTag = STATUS_TAG[status]
-    const isInteractive = !loading
+    const toolOff = !!tool && !tool.enabled
+    // An off tool blocks arming (the source would watch nothing), never disarming.
+    const armingBlocked = toolOff && !armed
+    const isInteractive = !loading && !armingBlocked
 
     const handleCardClick = useCallback(() => {
         if (!isInteractive) {
@@ -115,9 +129,15 @@ const AgentCard = memo(function AgentCard({ agent, state, onToggle }: AgentCardP
 
                 {/* eslint-disable-next-line react/no-unknown-property */}
                 <div className="flex flex-col items-end gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <LemonTag type={statusTag.type} size="small">
-                        {statusTag.label}
-                    </LemonTag>
+                    {toolOff ? (
+                        <LemonTag type="warning" size="small">
+                            Tool off
+                        </LemonTag>
+                    ) : (
+                        <LemonTag type={statusTag.type} size="small">
+                            {statusTag.label}
+                        </LemonTag>
+                    )}
                     {loading ? (
                         <Spinner className="text-lg" />
                     ) : requiresSetup ? (
@@ -128,11 +148,40 @@ const AgentCard = memo(function AgentCard({ agent, state, onToggle }: AgentCardP
                         <LemonSwitch
                             checked={armed}
                             onChange={() => onToggle(agent.source)}
+                            disabledReason={
+                                armingBlocked
+                                    ? `Turn on ${tool?.toolName} first. This source reads its data.`
+                                    : undefined
+                            }
                             aria-label={`Arm ${agent.label}`}
                         />
                     )}
                 </div>
             </div>
+
+            {toolOff && tool ? (
+                // eslint-disable-next-line react/no-unknown-property
+                <div className="flex items-center gap-2 mt-2 ml-11" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-sm text-warning">
+                        {tool.toolName} is off, so this source has nothing to read.
+                    </span>
+                    {tool.enablement && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={enablingTool}
+                            onClick={() => onEnableTool(tool)}
+                        >
+                            Turn it on
+                        </LemonButton>
+                    )}
+                </div>
+            ) : tool?.receivingData !== null && tool?.receivingData !== undefined ? (
+                <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
+                    <span className={`size-1.5 rounded-full ${tool.receivingData ? 'bg-success' : 'bg-border-bold'}`} />
+                    {tool.receivingData ? 'Receiving data' : 'No data yet'}
+                </div>
+            ) : null}
 
             {armed && agent.source === 'session_replay' && status === 'syncing' && (
                 <div className="flex items-center gap-2 mt-2 ml-11">
@@ -170,6 +219,8 @@ export function AgentsRoster(): JSX.Element {
         isPgAnalyzeIssuesToggling,
         isHealthChecksToggling,
         isCiSignalsToggling,
+        toolStatusBySource,
+        enablingTool,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -180,6 +231,7 @@ export function AgentsRoster(): JSX.Element {
         toggleAnomalyInvestigation,
         toggleHealthChecks,
         initiateDataWarehouseSourceToggle,
+        enableSourceTool,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -338,7 +390,12 @@ export function AgentsRoster(): JSX.Element {
                                     key={agent.source}
                                     agent={agent}
                                     state={stateFor(agent.source)}
+                                    tool={toolStatusBySource[agent.source]}
+                                    enablingTool={
+                                        !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
+                                    }
                                     onToggle={handleToggle}
+                                    onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
                                 />
                             ))}
                     </div>
