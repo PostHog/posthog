@@ -1,11 +1,11 @@
 # HogQL access controls
 
-HogQL enforces access control in layers.
-Layer 0 is the multi-tenancy boundary and applies to every query. Layers 1 to 3 are role-based access control on top of it.
+HogQL enforces access at different levels, from whole tables down to individual properties.
+Level 0 is the multi-tenancy boundary and applies to every query. Levels 1 to 3 are access control (aka RBAC) on top of it.
 
 0. **[Tenant isolation](#0-tenant-isolation-the-team_id-guard)** — every table read, keeping one team's rows out of another team's results.
    - Enforced when the query is printed to SQL.
-   - Always on: a mandatory `team_id` filter on every table. Not part of RBAC, and needs no user.
+   - Always on: a mandatory `team_id` filter on every table. Not part of RBAC, and doesn't require a user, only a team.
 1. **[System tables](#1-system-tables)** — the `system.*` tables (dashboards, notebooks, error tracking issues, ...).
    - Enforced at schema build time and print time.
    - When denied: the whole table is removed from the schema and the query errors; individual denied objects are filtered out with a `WHERE` guard.
@@ -16,7 +16,7 @@ Layer 0 is the multi-tenancy boundary and applies to every query. Layers 1 to 3 
    - Enforced when the query is printed to ClickHouse SQL (AST transform, then printing).
    - When denied: values are masked to `NULL` or stripped from the JSON blob, with no error.
 
-Layers 1 to 3 share one preloaded `UserAccessControl` instance and partition the query cache so a restricted user can never be served an unrestricted user's cached rows.
+Levels 1 to 3 share one preloaded `UserAccessControl` instance and partition the query cache so a restricted user can never be served an unrestricted user's cached rows.
 
 ## 0. Tenant isolation: the `team_id` guard
 
@@ -30,7 +30,7 @@ Because it's added during printing, query-supplied `WHERE` clauses and modifiers
 For `LEFT JOIN`s the guard goes in the `ON` clause instead of `WHERE`, so unmatched rows aren't dropped.
 
 **Fail closed:** `team_id_guard_for_table()` raises `InternalHogQLError` if `context.team_id` is missing, so a query with no team never runs against shared data.
-This layer is independent of the ones below it: it never consults `UserAccessControl`, and it needs no user — only a team.
+This level is independent of the ones below it: it never consults `UserAccessControl`, and doesn't require a user, only a team.
 
 A few tables opt out, and only these:
 
@@ -39,7 +39,7 @@ A few tables opt out, and only these:
 
 ## Passing the user into HogQL
 
-Layers 1 to 3 need to know who is querying.
+Levels 1 to 3 need to know who is querying.
 The user is threaded through `Database.create_for()` and `HogQLContext` (`posthog/hogql/context.py`):
 
 ```python
@@ -156,7 +156,7 @@ Property access control is a paid feature, available on the Scale and Enterprise
 
 ### Enforcement: masking, not errors
 
-Unlike the table layers, restricted properties do not error.
+Unlike levels 1 and 2, restricted properties do not error.
 They're masked when the query is printed to ClickHouse SQL, so a restricted read is indistinguishable from a property that was never set (anti-enumeration):
 
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
@@ -177,7 +177,7 @@ Otherwise a denied user gets served an allowed user's cached rows.
 The cache key is derived from `get_cache_payload()`:
 
 - `QueryRunner.get_cache_payload()` adds `restricted_properties` (sorted `(name, type)` pairs) when the user has property restrictions.
-- `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for the table layers.
+- `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
 
 Two things keep cache hit rates high:
 
