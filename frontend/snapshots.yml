@@ -4983,9 +4983,9 @@ snapshots:
     products-workflows-customerioimportmodal--step-4-track-not-configured--light:
         hash: v1.k794b7964.0954891b73cdc0b1bce1275fa11a5fa4af2055b83b518bce82f3fde886097659.mgEq2W8sZg7x-vt8z2EpwEHPBGRzPI1GWtn-9tu-46o
     queries-webvitals--web-vitals--dark:
-        hash: v1.k794b7964.a6d69dfd4718ccc9c5b9610eb2e92f2253ff222f58b5f8f2e17324273c0d3540.PwlwzgyyuTCXAXrqbEIumf0BYHMgEgkMTnF7RMeARWw
+        hash: v1.k794b7964.48327775c34a8754e434a53828b33347eeef44af293d4e95a46c0ed628213ee8.pOw3j0vJibdK8umATaWRR3xd9JlS6hcJYf3POABQ464
     queries-webvitals--web-vitals--light:
-        hash: v1.k794b7964.9ee33a37c9dc8e70a61fba6ae6df1149dd3b879f632f5a0a4681d82ec1924446.f2YdyidQkukjaRYXqfWMNmkrJ1A4n5GiD3LauixzibU
+        hash: v1.k794b7964.78ded4dbdf1721276a7e00949b507b270d3a57a90a827970c4bb6a613abba458.OZh0w0xN4ZKozqD0BLkv2Gxdg-1A_mM3GsLldgj82ac
     queries-webvitalspathbreakdown--web-vitals-path-breakdown--dark:
         hash: v1.k794b7964.5ad75695030b31559f83a36380a7c83078678002c669a23b450bd9a5d134ae70.BJSO9CULjFh8KlWBnKsep0Ep6jtur0r4s3T3_0YHjPs
     queries-webvitalspathbreakdown--web-vitals-path-breakdown--light:
@@ -6479,9 +6479,9 @@ snapshots:
     scenes-app-mcp-analytics--activity--light:
         hash: v1.k794b7964.7153b1283f0cae6130fabfd5ad0b357eace4038543f642eb3d39d7e955347b19.DAm06XBnoG0jIbLm05PyMGn0LWaJfn8f9SOPqN_1KGc
     scenes-app-mcp-analytics--dashboard--dark:
-        hash: v1.k794b7964.05490a43bcb92252f0270f3302f92f2ef896f9373e9a832e2a166714f4ea9e9d.hZfs_sWw_pq-GRMv5LKpUxYktqR8xoniQdom5iIW7Xw
+        hash: v1.k794b7964.fa3e40c46ac63c60a51e1896fefe41ff5050fc8b03eb978986b3593206719c33.FEGHgKuz5-9JZ9UcWiUFhjjndx7-ysHEYmKf7VBXGyk
     scenes-app-mcp-analytics--dashboard--light:
-        hash: v1.k794b7964.49f850b518aa783296b3d178c4335a14048651a65980d230e22f2d140176b149.GdW1N70CXyKtRCe88ML3fwlrrHTXrIJ58dXsp7VIN6g
+        hash: v1.k794b7964.8085bf3b0d7cf70cfcdbc11a9ca9ae2823f07271a03230fa7e22b343ebbdf4c1.hG5BDPQ_aqdiioaYbf5Z1SjuAJSM2nzbJWupyc1VtUk
     scenes-app-mcp-analytics--dashboard-with-menu-bar--dark:
         hash: v1.k794b7964.53e903ed1eede907e906eb0a64cce280f685c41e4d5600b21b5719316720bf55.xEmtMNyC6k7Dxe8jqsZVXGePczRmMYF1Z4ZNKk9qv30
     scenes-app-mcp-analytics--dashboard-with-menu-bar--light:
