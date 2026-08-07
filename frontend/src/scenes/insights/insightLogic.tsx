@@ -639,6 +639,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                                 ? (e.detail ?? 'Could not update insight')
                                 : 'Could not update insight'
                         )
+                        // Return the unchanged insight so the loader's state stays in sync with the
+                        // server after a rejected save, rather than throwing an unhandled rejection.
                         return values.insight
                     }
                     await breakpoint(300)
