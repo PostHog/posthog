@@ -68,7 +68,12 @@ export function removeAutomaticRedirects(html: string): string {
 // available without patching the library's native WebChromeClient, so treat it
 // as defence in depth: a script that builds a fresh realm (an about:blank
 // iframe, which frame-src 'none' does not cover) can still find an unpatched
-// navigator.
+// navigator. That gap cannot be closed from script — patching
+// HTMLIFrameElement's contentWindow getter still leaves window[0], an
+// unconfigurable WindowProxy index. Closing it properly means a native
+// WebChromeClient whose onPermissionRequest denies RESOURCE_VIDEO_CAPTURE and
+// RESOURCE_AUDIO_CAPTURE, i.e. a patch to react-native-webview, which affects
+// every WebView in the app and so needs its own change.
 const MEDIA_CAPTURE_GUARD = `<script>(function () {
   var hide = function (target, key) {
     try {

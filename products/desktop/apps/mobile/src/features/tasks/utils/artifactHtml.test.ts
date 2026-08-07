@@ -93,4 +93,23 @@ describe("denyMediaCapture", () => {
     ).not.toThrow();
     expect(fakeNavigator.mediaDevices).toBeUndefined();
   });
+
+  // Records the limitation documented in artifactHtml.ts as something the
+  // suite states rather than a claim in a comment: the guard reaches one
+  // realm's navigator, so a script that builds a fresh realm (an about:blank
+  // iframe, which frame-src 'none' does not cover) finds an unpatched one
+  // there. Closing that needs a native WebChromeClient denying
+  // onPermissionRequest, not a bigger script.
+  it("only covers the realm it runs in", () => {
+    const topRealmNavigator: Record<string, unknown> = {
+      mediaDevices: { getUserMedia: () => undefined },
+    };
+    const freshRealmNavigator: Record<string, unknown> = {
+      mediaDevices: { getUserMedia: () => undefined },
+    };
+    new Function("navigator", guardScript())(topRealmNavigator);
+
+    expect(topRealmNavigator.mediaDevices).toBeUndefined();
+    expect(freshRealmNavigator.mediaDevices).toBeDefined();
+  });
 });
