@@ -257,17 +257,6 @@ export const lemonToast = {
             options
         )
     },
-    /** Only safe while the toast is pending: updates apply 100ms late and would overwrite a settled state. */
-    updatePendingMessage(
-        id: number | string,
-        message: string | JSX.Element,
-        { button, ...toastOptions }: ToastOptionsWithButton = {}
-    ): void {
-        toast.update(id, {
-            render: <ToastContent type="info" message={message} button={button} id={id} />,
-            ...toastOptions,
-        } as UpdateOptions)
-    },
     /** Restates the whole success frame: react-toastify defers updates 100ms and re-dispatches the pending content when given no render. */
     updateToSuccess(
         id: number | string,
@@ -287,6 +276,11 @@ export const lemonToast = {
             draggable: null,
             ...toastOptions,
         } as UpdateOptions)
+    },
+    /** Whether the toast is still on screen. Updating a dismissed id is a silent no-op, so anything
+     * with a side effect attached to the update has to check this first. */
+    isActive(id: number | string): boolean {
+        return toast.isActive(id)
     },
     dismiss(id?: number | string): void {
         // If a toast was created in this tick but hasn't been registered yet (due to
