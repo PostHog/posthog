@@ -32,8 +32,11 @@ jobs:
         runs-on: ubuntu-24.04
         # The job applies every Postgres and ClickHouse migration from scratch, so its
         # runtime grows with the migration count: ~20 minutes in June 2026, past 25 by
-        # July, ~27 minutes as of this bump. Raise further if it keeps creeping up.
-        timeout-minutes: 30
+        # July, ~27 for Postgres alone by August. The schema cache below shortcuts the
+        # Postgres part, but the cache pool sits at the repo's 10 GB LRU cap and the
+        # dumps are routinely evicted within minutes, so the full-migrate fallback is
+        # the common path and needs to fit. Raise further if it keeps creeping up.
+        timeout-minutes: 40
         env:
             DEBUG: '1'
             MULTINODE_CLICKHOUSE: '1'
