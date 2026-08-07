@@ -806,7 +806,7 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
     expect(document).toContain("posthog-artifact-comment-active");
     expect(document).not.toContain("ph-artifact-comment-outline");
-    expect(document).toContain("💬 Comment");
+    expect(document).toContain('textContent="Comment"');
     expect(document).toContain('var CHANNEL="test-channel"');
     expect(document).toContain('d.type==="locate"');
     expect(document).toContain('send("open-external",{href:link.href})');

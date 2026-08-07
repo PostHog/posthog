@@ -20,6 +20,7 @@ import {
   type HighlightResolution,
   readCommentContext,
 } from "./commentViewTypes";
+import { installSelectionSettleGate } from "./selectionCommentAction";
 
 type HighlightRect = {
   id: string;
@@ -334,14 +335,19 @@ export function ArtifactTextAnnotations({
         },
       });
     };
-    const handleSelectionChange = () => {
+    const scheduleUpdate = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(updateSelection);
     };
-    document.addEventListener("selectionchange", handleSelectionChange);
+    const removeGate = installSelectionSettleGate(document, {
+      onGestureStart: clearOverlay,
+      onSelectionSettled: scheduleUpdate,
+      onIdleSelectionChange: scheduleUpdate,
+      onGestureCancel: clearOverlay,
+    });
     return () => {
       cancelAnimationFrame(frame);
-      document.removeEventListener("selectionchange", handleSelectionChange);
+      removeGate();
     };
   }, [clearOverlay, containerRef, rootRef]);
 

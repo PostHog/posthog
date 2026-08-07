@@ -138,28 +138,35 @@ function SelectionComposerCard({
   }, [onDismiss]);
 
   if (!expanded) {
+    const action = (
+      <Button
+        type="button"
+        variant="outline"
+        size={showActionText ? "sm" : "icon-sm"}
+        aria-label={actionLabel}
+        data-selection-comment-overlay=""
+        className="fixed z-50 shadow-sm"
+        style={style}
+        onClick={() => setUserExpanded(true)}
+      >
+        {showActionText ? (
+          <>
+            <ChatCircle size={14} weight="bold" />
+            Comment
+          </>
+        ) : (
+          <Plus size={14} weight="bold" />
+        )}
+      </Button>
+    );
+    // The text button names itself; only the icon-only variant needs a label
+    // on hover.
     return createPortal(
-      <Tooltip content={actionLabel}>
-        <Button
-          type="button"
-          variant="primary"
-          size={showActionText ? "sm" : "icon-sm"}
-          aria-label={actionLabel}
-          data-selection-comment-overlay=""
-          className="fixed z-50 shadow-sm"
-          style={style}
-          onClick={() => setUserExpanded(true)}
-        >
-          {showActionText ? (
-            <>
-              <ChatCircle size={14} weight="bold" />
-              Comment
-            </>
-          ) : (
-            <Plus size={14} weight="bold" />
-          )}
-        </Button>
-      </Tooltip>,
+      showActionText ? (
+        action
+      ) : (
+        <Tooltip content={actionLabel}>{action}</Tooltip>
+      ),
       document.body,
     );
   }

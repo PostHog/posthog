@@ -6,6 +6,7 @@ import {
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
+import { installSelectionSettleGate } from "@posthog/ui/features/sessions/components/selectionCommentAction";
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
@@ -329,7 +330,16 @@ export function buildSandboxDocument(
       });
       }, 80);
     };
-    document.addEventListener("selectionchange", reportTextSelection);
+    // Report the selection only once it settles, so the host's comment action
+    // doesn't chase the cursor mid-drag. The settle callback re-reads the live
+    // selection, which self-corrects clicks that didn't change the selection.
+    const selectionSettleGate = ${installSelectionSettleGate.toString()};
+    selectionSettleGate(document, {
+      onGestureStart: clearTextSelection,
+      onSelectionSettled: reportTextSelection,
+      onIdleSelectionChange: reportTextSelection,
+      onGestureCancel: clearTextSelection,
+    });
     const clearNativeTextSelection = () => {
       window.getSelection()?.removeAllRanges();
       clearTextSelection();
