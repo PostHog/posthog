@@ -393,11 +393,11 @@ export const teamLogic = kea<teamLogicType>([
                     actions.loadCurrentOrganization()
 
                     // A 2xx doesn't guarantee the write stuck. A field can be rejected or stripped
-                    // server-side while the PATCH still returns 200 — e.g. field-level access control on a
-                    // nested config like marketing_analytics_config. Detect the case where we asked to change
-                    // a field but the server's value never moved, and surface an honest error instead of
-                    // "updated successfully". Comparing against the prior value (not just the request) keeps
-                    // legitimate server-side normalization from reading as a dropped write.
+                    // server-side while the PATCH still returns 200 (e.g. field-level access control on a
+                    // nested config such as marketing_analytics_config). For any updated field, detect the
+                    // case where we asked to change it but the server's value never moved, and surface an
+                    // honest error instead of "updated successfully". Comparing against the prior value (not
+                    // just the request) keeps legitimate server-side normalization from reading as a drop.
                     const droppedAttributes = Object.keys(payload).filter((key) => {
                         // Renames go through /api/projects and are reflected on patchedTeam by construction.
                         if (key === 'name') {
