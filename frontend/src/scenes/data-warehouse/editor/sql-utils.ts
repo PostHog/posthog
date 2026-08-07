@@ -56,7 +56,7 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
             continue
         }
 
-        if (query.startsWith('{filters}', i) || query.startsWith('{filters.', i)) {
+        if (query.startsWith('{filters}', i) || query.startsWith('{filters.', i) || query.startsWith('{filters(', i)) {
             return true
         }
 

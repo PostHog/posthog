@@ -60,6 +60,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    MeetingSerializer,
     SupportTicketSerializer,
 )
 
@@ -962,6 +963,18 @@ class AccountViewSet(
         if tickets is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
+
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: MeetingSerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def meetings(self, request: Request, *args, **kwargs) -> Response:
+        meetings = api.get_account_meetings(
+            self.team_id,
+            self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if meetings is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(MeetingSerializer(instance=meetings, many=True).data)
 
     def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)
