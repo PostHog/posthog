@@ -154,6 +154,7 @@ export function ArtifactTextAnnotations({
     null,
   );
   const [rects, setRects] = useState<HighlightRect[]>([]);
+  const textIndexRef = useRef<TextNodeIndex | null>(null);
   const firstRectByThread = useMemo(() => {
     const first = new Map<string, number>();
     rects.forEach((rect, index) => {
@@ -182,6 +183,7 @@ export function ArtifactTextAnnotations({
     const container = containerRef.current;
     if (!root || !container) return;
     const textIndex = buildTextNodeIndex(root);
+    textIndexRef.current = textIndex;
     const text = textIndex.text;
     const containerBox = container.getBoundingClientRect();
     const nextRects: HighlightRect[] = [];
@@ -241,12 +243,19 @@ export function ArtifactTextAnnotations({
       });
     };
     const observer = new ResizeObserver(update);
+    const mutationObserver = new MutationObserver(update);
     observer.observe(root);
+    mutationObserver.observe(root, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
     window.addEventListener("resize", update);
     container.addEventListener("scroll", update, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      mutationObserver.disconnect();
       window.removeEventListener("resize", update);
       container.removeEventListener("scroll", update);
     };
@@ -305,8 +314,10 @@ export function ArtifactTextAnnotations({
         return;
       }
       const offsets = selectionOffsets(root, range);
+      const documentText =
+        textIndexRef.current?.text ?? buildTextNodeIndex(root).text;
       const anchor = createTextCommentAnchor(
-        root.textContent ?? "",
+        documentText,
         offsets.start,
         offsets.end,
       );
