@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
@@ -13,6 +17,13 @@ import type { Ticket, TicketStatus } from '../../types'
 import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
 
 const FEEDBACK_STORAGE_KEY = 'conversations_ai_reply_feedback'
+
+/** A logic left mounted keeps polling for messages, into whichever suite builds the same key next. */
+function stopPolling(logic: ReturnType<typeof supportTicketSceneLogic.build> | undefined): void {
+    if (logic?.isMounted()) {
+        logic.unmount()
+    }
+}
 
 jest.mock('~/lib/api', () => {
     const actual = jest.requireActual('~/lib/api')
@@ -69,6 +80,21 @@ function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
         item_context: { author_type: 'AI', is_private: isPrivate },
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
+    } as unknown as CommentType
+}
+
+function makeSupportComment(overrides: Partial<CommentType> = {}): CommentType {
+    return {
+        id: 'msg-sent-1',
+        content: 'hello',
+        rich_content: null,
+        version: 0,
+        scope: 'conversations_ticket',
+        item_id: 'ticket-1',
+        item_context: { author_type: 'support', is_private: false },
+        created_at: '2026-01-01T00:00:10Z',
+        created_by: MOCK_DEFAULT_USER,
+        ...overrides,
     } as unknown as CommentType
 }
 
@@ -320,7 +346,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
 
     beforeEach(async () => {
         initKeaTests()
-        commentsCreateMock.mockReset().mockResolvedValue(undefined)
+        commentsCreateMock.mockReset().mockResolvedValue(makeSupportComment())
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
         ticketUpdateMock.mockReset()
         // A non-'new', dash-free id: sendMessage early-returns on 'new' and loadTicket
@@ -328,6 +354,10 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         logic = supportTicketSceneLogic({ id: 42 })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['setTicket'])
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
     })
 
     // "Send and set status" must persist through the same PATCH as the "Save changes" button,
@@ -408,6 +438,161 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     })
 })
 
+describe('supportTicketSceneLogic send outcome handling', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsCreateMock = api.comments.create as jest.Mock
+    const commentsListMock = api.comments.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const captureMock = posthog.capture as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    const rejectWith = (status?: number): void => {
+        commentsCreateMock.mockRejectedValue(Object.assign(new Error('send failed'), { status }))
+    }
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsCreateMock.mockReset().mockResolvedValue(makeSupportComment())
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        captureMock.mockClear()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        // These cases point the shared mock at failures and pending promises, which would break
+        // every later suite's initial message load.
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        commentsCreateMock.mockReset().mockResolvedValue(makeSupportComment())
+    })
+
+    it('shows the sent message without waiting for the next poll', async () => {
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, onSuccess)
+        }).toDispatchActions(['appendMessage'])
+
+        expect(logic.values.messages.map((message) => message.id)).toEqual(['msg-sent-1'])
+        expect(onSuccess).toHaveBeenCalledTimes(1)
+        expect(logic.values.messageSending).toBe(false)
+    })
+
+    // A poll that started before the send must not replace the list with its older snapshot.
+    it('keeps the sent message when an in-flight poll resolves afterwards', async () => {
+        let resolveStalePoll: ((value: { results: CommentType[] }) => void) | undefined
+        commentsListMock.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveStalePoll = resolve
+                })
+        )
+
+        logic.actions.loadMessages()
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false)
+        }).toDispatchActions(['appendMessage'])
+
+        resolveStalePoll?.({ results: [] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.messages.map((message) => message.id)).toEqual(['msg-sent-1'])
+    })
+
+    // 429 and 4xx rejections happen before anything is written, so the operator can just resend.
+    // Sending them down the recovery path would tell them to go check a thread that never changed.
+    it.each<[string, number]>([
+        ['throttled', 429],
+        ['rejected', 400],
+    ])('reports a %s send as a plain failure without looking at the thread', async (_name, status) => {
+        rejectWith(status)
+        commentsListMock.mockClear()
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, onSuccess)
+        }).toFinishAllListeners()
+
+        expect(commentsListMock).not.toHaveBeenCalled()
+        expect(onSuccess).not.toHaveBeenCalled()
+        expect(captureMock).not.toHaveBeenCalledWith('support reply send unconfirmed', expect.anything())
+        expect(logic.values.messageSending).toBe(false)
+    })
+
+    // A response we never saw, a timeout, a 409 from the server's own dedupe guard, and a 5xx all
+    // leave the same question open: did the message land? If it did, adopt it instead of telling the
+    // operator to resend something the customer already received.
+    it.each<[string, number | undefined]>([
+        ['no response', undefined],
+        ['a timeout', 408],
+        ['a concurrent duplicate', 409],
+        ['a server error', 503],
+    ])('adopts the message that landed despite %s', async (_name, status) => {
+        rejectWith(status)
+        const landed = makeSupportComment({ id: 'msg-landed-1', created_at: new Date().toISOString() })
+        commentsListMock.mockResolvedValue({ results: [landed] })
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, onSuccess)
+        }).toDispatchActions(['appendMessage'])
+
+        expect(logic.values.messages.map((message) => message.id)).toEqual(['msg-landed-1'])
+        expect(onSuccess).toHaveBeenCalledTimes(1)
+        expect(commentsCreateMock).toHaveBeenCalledTimes(1)
+        expect(captureMock).not.toHaveBeenCalledWith('support reply send unconfirmed', expect.anything())
+    })
+
+    // Adopting a near-miss would show the operator the wrong message as theirs, so each of these
+    // has to keep the outcome unresolved.
+    it.each<[string, Partial<CommentType>]>([
+        ['a different body', { content: 'something else' }],
+        ['a private note rather than a reply', { item_context: { author_type: 'support', is_private: true } }],
+        ['a colleague as the author', { created_by: { ...MOCK_DEFAULT_USER, id: 9999 } as any }],
+        ['a timestamp outside the replay window', { created_at: '2026-01-01T00:00:10Z' }],
+    ])('does not adopt a message with %s', async (_name, overrides) => {
+        rejectWith(503)
+        commentsListMock.mockResolvedValue({
+            results: [makeSupportComment({ id: 'msg-other-1', created_at: new Date().toISOString(), ...overrides })],
+        })
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, onSuccess)
+        }).toFinishAllListeners()
+
+        expect(logic.values.messages).toEqual([])
+        expect(onSuccess).not.toHaveBeenCalled()
+        expect(captureMock).toHaveBeenCalledWith('support reply send unconfirmed', {
+            reason: 'server_error',
+            is_private: false,
+        })
+    })
+
+    it('leaves the outcome unresolved when the recovery lookup also fails', async () => {
+        rejectWith(undefined)
+        commentsListMock.mockRejectedValue(new Error('offline'))
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, onSuccess)
+        }).toFinishAllListeners()
+
+        expect(onSuccess).not.toHaveBeenCalled()
+        expect(captureMock).toHaveBeenCalledWith('support reply send unconfirmed', {
+            reason: 'network',
+            is_private: false,
+        })
+        expect(logic.values.messageSending).toBe(false)
+    })
+})
+
 describe('supportTicketSceneLogic tag pool refresh', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
@@ -433,6 +618,10 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
         // Wait out lazyLoaders' deferred refetch, or it lands mid-test and makes the assertions below vacuous.
         await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
         tagsListMock.mockClear()
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
     })
 
     // A newly typed tag is created globally on save, so the shared pool must reload to surface it
@@ -482,6 +671,10 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         ticketGetMock.mockReset()
     })
 
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
     // email_from is attacker-spoofable unless the ticket's identity is positively attested, and
     // person.properties.email is customer-controlled analytics with no trusted mapping. Only a
     // verified ticket may widen the match by email — otherwise a spoofed sender pulls another
@@ -526,12 +719,16 @@ describe('supportTicketSceneLogic private note editing', () => {
         localStorage.clear()
         initKeaTests()
         noteUpdateMock.mockReset().mockResolvedValue(undefined)
-        commentsCreateMock.mockReset().mockResolvedValue(undefined)
+        commentsCreateMock.mockReset().mockResolvedValue(makeSupportComment())
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
         logic = supportTicketSceneLogic({ id: 42 })
         logic.mount()
         // Wait for ticket + initial message load so a late setMessages([]) can't cancel an edit.
         await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
     })
 
     test('startEditingMessage stashes the in-progress draft and loads the note', async () => {
