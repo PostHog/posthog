@@ -29,8 +29,9 @@ import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnal
 import { useTrackUsageViewed } from "@posthog/ui/features/usage/useTrackUsageViewed";
 import { track } from "@posthog/ui/shell/analytics";
 import { getBillingUrl } from "@posthog/ui/utils/urls";
-import { Badge, Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
-import { useEffect } from "react";
+import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
+import type { UsageOutput } from "@posthog/core/usage/schemas";
+import { useEffect, type ReactNode } from "react";
 
 export function PlanUsageSettings() {
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
@@ -57,9 +58,36 @@ export function PlanUsageSettings() {
     burstUsedPercent: usage?.burst.used_percent ?? null,
   });
 
-  // Tri-state: unknown (absent field) must render as subscribed, never free.
+  return (
+    <PlanUsageContent
+      billingEnabled={billingEnabled}
+      spendAnalysisEnabled={spendAnalysisEnabled}
+      billingUrl={billingUrl}
+      usage={usage}
+      usageLoading={usageLoading}
+      personalSpendAnalysis={<SpendAnalysisSection />}
+    />
+  );
+}
+
+interface PlanUsageContentProps {
+  billingEnabled: boolean;
+  spendAnalysisEnabled: boolean;
+  billingUrl: string | null | undefined;
+  usage: UsageOutput | null | undefined;
+  usageLoading: boolean;
+  personalSpendAnalysis?: ReactNode;
+}
+
+export function PlanUsageContent({
+  billingEnabled,
+  spendAnalysisEnabled,
+  billingUrl,
+  usage,
+  usageLoading,
+  personalSpendAnalysis,
+}: PlanUsageContentProps) {
   const freeTier = isCodeUsageFreeTier(usage);
-  const subscribed = usage?.code_usage_subscribed === true;
   const orgLimitReached = usage?.ai_credits?.exhausted === true;
   const meter = codeUsageMeter(usage);
   const components = desktopUsageComponents(usage);
@@ -117,52 +145,35 @@ export function PlanUsageSettings() {
 
           <Flex
             direction="column"
-            gap="3"
+            gap="4"
             p="4"
             className="rounded-(--radius-3) border border-(--gray-5)"
           >
-            <Flex align="center" justify="between">
+            <Flex align="start" justify="between" gap="4" wrap="wrap">
               <Flex direction="column" gap="1">
-                <Text className="font-bold text-base">
-                  {freeTier ? "Free tier" : "Usage-based billing"}
-                </Text>
+                <Text className="font-bold text-base">Organization usage</Text>
                 <Text className="text-(--gray-11) text-sm">
-                  {freeTier
-                    ? "Your organization's first $20 of usage each month is included, with access to open models. Add a payment method to unlock premium models — you only pay for what you use."
-                    : "Your organization pays for usage at cost — no seats, no subscriptions. The first $20 each month is included."}
+                  Combined token and cloud-compute spend counts toward your
+                  organization's shared allowance and limit.
                 </Text>
               </Flex>
-              {subscribed && (
-                <Badge variant="soft" color="green" radius="full">
-                  Active
-                </Badge>
-              )}
+              <Button
+                size="1"
+                variant={freeTier ? "solid" : "outline"}
+                disabled={!billingUrl}
+                onClick={() => {
+                  if (freeTier) {
+                    track(ANALYTICS_EVENTS.UPGRADE_PROMPT_CLICKED, {
+                      surface: "plan_page_card",
+                    });
+                  }
+                  openBilling();
+                }}
+              >
+                {freeTier ? "Add payment method" : "Manage billing and limits"}
+                <ArrowSquareOut size={12} />
+              </Button>
             </Flex>
-            <Button
-              size="1"
-              variant={freeTier ? "solid" : "outline"}
-              disabled={!billingUrl}
-              onClick={() => {
-                if (freeTier) {
-                  track(ANALYTICS_EVENTS.UPGRADE_PROMPT_CLICKED, {
-                    surface: "plan_page_card",
-                  });
-                }
-                openBilling();
-              }}
-              className="self-start"
-            >
-              {freeTier
-                ? "Add payment method"
-                : "Manage billing and spend limits"}
-              <ArrowSquareOut size={12} />
-            </Button>
-          </Flex>
-
-          <Flex direction="column" gap="3">
-            <Text className="font-medium text-(--gray-9) text-sm">
-              Organization usage
-            </Text>
             {usageLoading ? (
               <Flex
                 align="center"
@@ -220,9 +231,7 @@ export function PlanUsageSettings() {
             )}
             {!usageLoading && (
               <Flex direction="column" gap="3">
-                <Text className="font-medium text-(--gray-9) text-sm">
-                  Usage breakdown
-                </Text>
+                <Text className="font-medium text-sm">What's included</Text>
                 {components ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <UsageComponent
@@ -284,7 +293,7 @@ export function PlanUsageSettings() {
         </>
       )}
 
-      {spendAnalysisEnabled && <SpendAnalysisSection />}
+      {spendAnalysisEnabled && personalSpendAnalysis}
     </Flex>
   );
 }
