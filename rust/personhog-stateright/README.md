@@ -28,17 +28,17 @@ web explorer.
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
 minimum viable scale or not at all.
-The suite explores ~45M states across 31 runs.
+The suite explores ~37M states across 31 runs.
 Its long pole is the two-partition double-zombie pair, which is most of the wall clock on its own:
 
 | Scenario | Unique states | Wall time |
 |---|---|---|
-| `epoch_fenced_two_partitions_double_zombie_is_safe` | 20.3M | 26s |
-| `two_partitions_double_zombie_loses_acked_writes` | 15.3M | 19s |
-| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 2.9s |
-| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 1.5M | 1.5s |
-| `current_two_partitions_single_zombie_is_safe` | 1.0M | 1.2s |
-| *everything else (26 runs)* | 4.6M | 5s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 16.2M | 21s |
+| `two_partitions_double_zombie_loses_acked_writes` | 12.6M | 15s |
+| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 3.0s |
+| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 1.1M | 1.0s |
+| `current_two_partitions_single_zombie_is_safe` | 0.9M | 1.0s |
+| *everything else (26 runs)* | 4.0M | 4s |
 
 Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
 Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
@@ -60,6 +60,14 @@ Two kinds of change, two different expectations:
   A moved count means the transition relation changed, which was not the intent.
 - A deliberate collapse — dropping a field no guard or property reads back — must **shrink** `unique` while every verdict in `tests/model_tests.rs` stays as it was.
   Each one needs an argument in its commit message for why forgetting that information is a bisimulation, because a collapse that is wrong does not fail loudly: it quietly stops exploring states where a bug could live.
+
+Three kinds of field are worth suspecting when a configuration is too slow, all of them found by asking "who reads this, and when":
+
+- **A history counter.** It only ever grows, and nothing reads its magnitude, so every count reached roots its own copy of the subtree beneath it. Replace it with whatever the logic actually consumes — a flag, a sum, an owner id.
+- **A value only ever read through a function of it.** Two fields compared only via their sum, or only for equality, cost more than the one number or one identity that decides the outcome.
+- **Evidence for a probe that some configurations cannot reach.** A `sometimes` probe guarded to be vacuous outside its own scenario must not have its flag recorded elsewhere: nothing will look at it, and a sticky flag doubles its subtree. Gate the write on the same predicate the probe reads, so the two cannot drift.
+
+Note which way each mistake fails. Recording too little makes a `sometimes` probe find no discovery and `assert_properties` panic — loud. Dropping something a safety property needed is silent, which is why the argument matters more than the measurement.
 
 `generated / unique` is the duplicate-successor ratio, and `depth` is a racing maximum across checker threads, so it varies run to run and means nothing on its own.
 Wall times move by up to 10% between runs of the same binary, so judge a change by its state counts and treat a timing difference under that as no difference.

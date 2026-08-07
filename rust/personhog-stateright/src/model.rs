@@ -169,6 +169,31 @@ fn model_desired_state(pod: PodId, state: &SystemState, partition: Partition) ->
 }
 
 impl HandoffModel {
+    // Whether each cancellation-reachability probe can reach its shape in
+    // this configuration, and therefore whether its evidence flag is worth
+    // recording.
+    //
+    // The flags are sticky, so recording one in a configuration whose probe
+    // can never read it is pure cost: every state that sets it roots a
+    // duplicate of the subtree beneath it, and most configurations set
+    // `cancels` to zero while still reaching `CancelDeadNewOwner`, which is
+    // unbudgeted. Each predicate below is used by both the `properties`
+    // probe and the `cancel_by_replacement` arm that feeds it, so the two
+    // cannot drift apart — and under-recording fails loudly rather than
+    // quietly, since the `sometimes` probe then finds no discovery and
+    // `assert_properties` panics.
+    fn probes_reaffirm(&self) -> bool {
+        // A reaffirm needs a move handoff whose old owner is alive, which
+        // takes a crash and a rejoin to manufacture.
+        self.cancels > 0 && self.rejoins > 0
+    }
+    fn probes_successor_replacement(&self) -> bool {
+        self.cancels > 0
+    }
+    fn probes_stash_racing_cancellation(&self) -> bool {
+        self.cancels > 0 && self.writes > 0
+    }
+
     fn pod_ids(&self) -> impl Iterator<Item = PodId> {
         0..self.pods
     }
@@ -429,10 +454,11 @@ impl HandoffModel {
     ///   state (`Observe`'s no-handoff arm drains to the assignment
     ///   owner, fail-closed), not decided on the deletion event.
     fn cancel_by_replacement(&self, state: &mut SystemState, p: Partition) {
-        if state
-            .routers
-            .values()
-            .any(|r| r.stash.get(&p).is_some_and(|q| !q.is_empty()))
+        if self.probes_stash_racing_cancellation()
+            && state
+                .routers
+                .values()
+                .any(|r| r.stash.get(&p).is_some_and(|q| !q.is_empty()))
         {
             state.cancelled_while_stash_parked = true;
         }
@@ -455,7 +481,9 @@ impl HandoffModel {
                     quorum: BTreeSet::new(),
                 },
             );
-            state.reaffirmed = true;
+            if self.probes_reaffirm() {
+                state.reaffirmed = true;
+            }
             return;
         }
         if let Some(target) = self.target_owner(state, p) {
@@ -475,7 +503,9 @@ impl HandoffModel {
                     quorum,
                 },
             );
-            state.replaced_with_successor = true;
+            if self.probes_successor_replacement() {
+                state.replaced_with_successor = true;
+            }
             return;
         }
         state.handoffs.remove(&p);
@@ -1407,19 +1437,19 @@ impl Model for HandoffModel {
                 // `assert_properties` stays usable across the matrix.
                 m.reads == 0 || s.read_served
             }),
-            // Replacement-cancellation reachability. Guards make each
-            // probe vacuous outside the configs shaped to reach it, so
-            // `assert_properties` stays usable across the matrix.
-            // A reaffirm needs a move handoff whose old owner is alive —
-            // which takes a crash *and* a rejoin to manufacture.
+            // Replacement-cancellation reachability. Each probe is vacuous
+            // outside the configurations shaped to reach it, so
+            // `assert_properties` stays usable across the matrix — and the
+            // same predicate decides whether its evidence flag is recorded
+            // at all, so a vacuous probe costs no state space.
             Property::<Self>::sometimes("cancellation_reaffirms", |m, s| {
-                m.cancels == 0 || m.rejoins == 0 || s.reaffirmed
+                !m.probes_reaffirm() || s.reaffirmed
             }),
             Property::<Self>::sometimes("cancellation_replaces_with_successor", |m, s| {
-                m.cancels == 0 || s.replaced_with_successor
+                !m.probes_successor_replacement() || s.replaced_with_successor
             }),
             Property::<Self>::sometimes("cancellation_races_a_parked_stash", |m, s| {
-                m.cancels == 0 || m.writes == 0 || s.cancelled_while_stash_parked
+                !m.probes_stash_racing_cancellation() || s.cancelled_while_stash_parked
             }),
             // Liveness: every full run ends quiescent and converged —
             // no handoffs in flight, every assignment served by a warm,
