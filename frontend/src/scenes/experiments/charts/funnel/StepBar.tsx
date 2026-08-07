@@ -176,7 +176,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     className="StepBar__backdrop"
                     onClick={handleDropoffClick}
                     style={{
-                        cursor: stepIndex > 1 ? 'pointer' : 'default',
+                        cursor: stepIndex > 0 ? 'pointer' : 'default',
                     }}
                 />
                 <div
