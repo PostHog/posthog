@@ -127,7 +127,7 @@ import {
   MCP_APP_HOST_COMPONENT,
   MCP_SANDBOX_PROXY_URL,
 } from "@posthog/ui/features/mcp-apps/identifiers";
-import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrame";
+import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
   localHandoffDialog,
@@ -153,11 +153,11 @@ import {
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 import { HOST_LOGGER } from "@posthog/ui/shell/logger";
 import { posthogAnalyticsTracker } from "@posthog/ui/shell/posthogAnalyticsImpl";
-import { ElectronArtifactHtmlFrame } from "@renderer/features/artifact-preview/ElectronArtifactHtmlFrame";
 import {
   diffWorkerFactory,
   reviewHost,
 } from "@renderer/features/code-review/reviewHost";
+import { ElectronArtifactHtmlFrame } from "@renderer/platform-adapters/electron-artifact-html-frame";
 import {
   taskDeletionHost,
   taskDeletionWorkspaceClient,

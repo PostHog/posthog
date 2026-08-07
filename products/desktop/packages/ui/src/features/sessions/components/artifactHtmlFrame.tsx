@@ -1,32 +1,17 @@
 import { useServiceOptional } from "@posthog/di/react";
-import type { ComponentType } from "react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
-
-export const ARTIFACT_HTML_BRIDGE_MARKER =
-  "__POSTHOG_ARTIFACT_COMMENT_BRIDGE__";
-
-export type ArtifactHtmlFrameRect = {
-  top: number;
-  left: number;
-  right: number;
-  bottom: number;
-  width: number;
-  height: number;
-};
-
-export type ArtifactHtmlFrameProps = {
-  document: string;
-  fallbackDocument: string;
-  name: string;
-  messages: readonly Record<string, unknown>[];
-  onMessage: (data: unknown, frameRect: ArtifactHtmlFrameRect) => void;
-};
-
-export type ArtifactHtmlFrameComponent = ComponentType<ArtifactHtmlFrameProps>;
-
-export const ARTIFACT_HTML_FRAME_COMPONENT = Symbol.for(
-  "posthog.ui.ArtifactHtmlFrameComponent",
-);
+import {
+  type SyntheticEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  ARTIFACT_HTML_BRIDGE_MARKER,
+  ARTIFACT_HTML_FRAME_COMPONENT,
+  type ArtifactHtmlFrameComponent,
+  type ArtifactHtmlFrameProps,
+} from "./artifactHtmlFrameHost";
 
 function IframeArtifactHtmlFrame({
   document,
@@ -35,22 +20,32 @@ function IframeArtifactHtmlFrame({
   onMessage,
 }: ArtifactHtmlFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const documentUrl = useMemo(
-    () => URL.createObjectURL(new Blob([document], { type: "text/html" })),
-    [document],
-  );
+  const onMessageRef = useRef(onMessage);
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
 
-  useEffect(() => () => URL.revokeObjectURL(documentUrl), [documentUrl]);
+  useEffect(() => {
+    const nextDocumentUrl = URL.createObjectURL(
+      new Blob([document], { type: "text/html" }),
+    );
+    setDocumentUrl(nextDocumentUrl);
+    return () => URL.revokeObjectURL(nextDocumentUrl);
+  }, [document]);
 
   const sendMessages = useCallback(() => {
     for (const message of messages) {
       iframeRef.current?.contentWindow?.postMessage(message, "*");
     }
   }, [messages]);
+  const sendMessagesRef = useRef(sendMessages);
 
   useEffect(() => {
+    sendMessagesRef.current = sendMessages;
     sendMessages();
   }, [sendMessages]);
+
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -60,15 +55,18 @@ function IframeArtifactHtmlFrame({
         data?.marker === ARTIFACT_HTML_BRIDGE_MARKER &&
         data.type === "ready"
       ) {
-        sendMessages();
+        sendMessagesRef.current();
       }
       const frameRect = iframeRef.current?.getBoundingClientRect();
       if (!frameRect) return;
-      onMessage(event.data, frameRect);
+      onMessageRef.current(event.data, frameRect);
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [onMessage, sendMessages]);
+  }, []);
+
+  const handleLoad = (_event: SyntheticEvent<HTMLIFrameElement>) =>
+    sendMessagesRef.current();
 
   return (
     <iframe
@@ -76,9 +74,9 @@ function IframeArtifactHtmlFrame({
       className="size-full border-0 bg-white"
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
-      src={documentUrl}
+      src={documentUrl ?? "about:blank"}
       title={`Preview of ${name}`}
-      onLoad={sendMessages}
+      onLoad={handleLoad}
     />
   );
 }

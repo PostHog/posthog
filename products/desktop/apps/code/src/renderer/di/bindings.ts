@@ -232,7 +232,7 @@ import {
 import {
   ARTIFACT_HTML_FRAME_COMPONENT,
   type ArtifactHtmlFrameComponent,
-} from "@posthog/ui/features/sessions/components/artifactHtmlFrame";
+} from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,

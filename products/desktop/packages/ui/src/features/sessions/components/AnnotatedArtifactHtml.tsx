@@ -7,11 +7,11 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { ArtifactHtmlFrame } from "./artifactHtmlFrame";
 import {
   ARTIFACT_HTML_BRIDGE_MARKER,
-  ArtifactHtmlFrame,
   type ArtifactHtmlFrameRect,
-} from "./artifactHtmlFrame";
+} from "./artifactHtmlFrameHost";
 import {
   artifactHtmlDocument,
   scriptedArtifactHtmlDocument,

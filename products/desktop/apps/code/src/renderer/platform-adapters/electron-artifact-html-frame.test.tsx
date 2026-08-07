@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { ElectronArtifactHtmlFrame } from "./ElectronArtifactHtmlFrame";
+import { ElectronArtifactHtmlFrame } from "./electron-artifact-html-frame";
 
 vi.mock("@posthog/quill", () => ({
   Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (

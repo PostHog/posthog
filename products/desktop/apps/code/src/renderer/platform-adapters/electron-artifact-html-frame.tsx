@@ -2,8 +2,14 @@ import { Button, Text } from "@posthog/quill";
 import {
   ARTIFACT_HTML_BRIDGE_MARKER,
   type ArtifactHtmlFrameProps,
-} from "@posthog/ui/features/sessions/components/artifactHtmlFrame";
-import { useCallback, useEffect, useRef, useState } from "react";
+} from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 
 const HOST_TO_ARTIFACT_CHANNEL = "posthog-artifact-host-message";
 const ARTIFACT_TO_HOST_CHANNEL = "posthog-artifact-message";
@@ -20,33 +26,44 @@ type WebviewIpcMessageEvent = Event & {
 
 type PreviewState = "running" | "stopped" | "failed" | "unresponsive";
 
-export function ElectronArtifactHtmlFrame({
+type RunningArtifactWebviewProps = ArtifactHtmlFrameProps & {
+  onStateChange: (state: PreviewState) => void;
+};
+
+function RunningArtifactWebview({
   document: htmlDocument,
   name,
   messages,
   onMessage,
-}: ArtifactHtmlFrameProps) {
+  onStateChange,
+}: RunningArtifactWebviewProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<ArtifactWebviewElement | null>(null);
   const readyRef = useRef(false);
+  const messagesRef = useRef(messages);
   const onMessageRef = useRef(onMessage);
-  const [state, setState] = useState<PreviewState>("running");
-  onMessageRef.current = onMessage;
-  const active = state === "running" || state === "unresponsive";
 
   const sendMessages = useCallback(() => {
     if (!readyRef.current) return;
-    for (const message of messages) {
+    for (const message of messagesRef.current) {
       webviewRef.current?.send(HOST_TO_ARTIFACT_CHANNEL, message);
     }
-  }, [messages]);
-  const sendMessagesRef = useRef(sendMessages);
-  sendMessagesRef.current = sendMessages;
+  }, []);
+  const reportState = useEffectEvent(onStateChange);
 
   useEffect(() => {
-    if (!active) return;
+    messagesRef.current = messages;
+    sendMessages();
+  }, [messages, sendMessages]);
+
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reportState is an Effect Event and must not be a dependency.
+  useEffect(() => {
     const mount = mountRef.current;
-    if (!mount) return;
+    if (!mount) throw new Error("Artifact preview mount is unavailable");
 
     const webview = document.createElement("webview") as ArtifactWebviewElement;
     const partition = `artifact-preview-${crypto.randomUUID()}`;
@@ -60,8 +77,8 @@ export function ElectronArtifactHtmlFrame({
 
     const onReady = () => {
       readyRef.current = true;
-      setState("running");
-      sendMessagesRef.current();
+      reportState("running");
+      sendMessages();
     };
     const onIpcMessage = (event: Event) => {
       const ipcEvent = event as WebviewIpcMessageEvent;
@@ -71,14 +88,14 @@ export function ElectronArtifactHtmlFrame({
         data?.marker === ARTIFACT_HTML_BRIDGE_MARKER &&
         data.type === "ready"
       ) {
-        sendMessagesRef.current();
+        sendMessages();
       }
       onMessageRef.current(data, webview.getBoundingClientRect());
     };
-    const onFailed = () => setState("failed");
-    const onGone = () => setState("failed");
-    const onUnresponsive = () => setState("unresponsive");
-    const onResponsive = () => setState("running");
+    const onFailed = () => reportState("failed");
+    const onGone = () => reportState("failed");
+    const onUnresponsive = () => reportState("unresponsive");
+    const onResponsive = () => reportState("running");
 
     webview.addEventListener("dom-ready", onReady);
     webview.addEventListener("ipc-message", onIpcMessage);
@@ -90,19 +107,24 @@ export function ElectronArtifactHtmlFrame({
     webviewRef.current = webview;
 
     return () => {
+      webview.removeEventListener("dom-ready", onReady);
+      webview.removeEventListener("ipc-message", onIpcMessage);
+      webview.removeEventListener("did-fail-load", onFailed);
+      webview.removeEventListener("render-process-gone", onGone);
+      webview.removeEventListener("unresponsive", onUnresponsive);
+      webview.removeEventListener("responsive", onResponsive);
       readyRef.current = false;
       webviewRef.current = null;
       webview.remove();
     };
-  }, [active, htmlDocument, name]);
+  }, [htmlDocument, name, sendMessages]);
 
-  useEffect(() => {
-    sendMessages();
-  }, [sendMessages]);
+  return <div ref={mountRef} className="size-full" />;
+}
 
-  const stop = () => setState("stopped");
-  const restart = () => setState("running");
-
+export function ElectronArtifactHtmlFrame(props: ArtifactHtmlFrameProps) {
+  const [state, setState] = useState<PreviewState>("running");
+  const active = state === "running" || state === "unresponsive";
   const message =
     state === "failed"
       ? "The preview stopped. Restart it to run the HTML again."
@@ -112,20 +134,30 @@ export function ElectronArtifactHtmlFrame({
 
   return (
     <div className="relative size-full bg-white">
-      <div ref={mountRef} className="size-full" />
+      {active ? (
+        <RunningArtifactWebview {...props} onStateChange={setState} />
+      ) : null}
       <div className="absolute top-2 right-2 z-50 flex items-center gap-2">
         {message ? (
           <div className="rounded bg-background px-2 py-1 shadow">
             <Text size="xs">{message}</Text>
           </div>
         ) : null}
-        {state === "stopped" || state === "failed" ? (
-          <Button size="xs" variant="outline" onClick={restart}>
-            Restart preview
+        {active ? (
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => setState("stopped")}
+          >
+            Stop preview
           </Button>
         ) : (
-          <Button size="xs" variant="outline" onClick={stop}>
-            Stop preview
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => setState("running")}
+          >
+            Restart preview
           </Button>
         )}
       </div>
