@@ -1,10 +1,13 @@
 from parameterized import parameterized
 
+from posthog.models.integration import OauthIntegration
+
 from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
     EXTERNAL_SOURCE_TYPE_TO_NATIVE,
     KEY_TO_NATIVE,
     NATIVE_TO_KEY,
+    OAUTH_KIND_BY_NATIVE,
     aliases_for,
     canonical_source_aliases,
     display_name_for_key,
@@ -127,3 +130,16 @@ class TestStructuralInvariants:
         for source_type, native in EXTERNAL_SOURCE_TYPE_TO_NATIVE.items():
             assert native in NATIVE_TO_KEY
             assert isinstance(source_type, str)
+
+    def test_every_oauth_kind_is_one_the_authorize_endpoint_accepts(self):
+        # This table is spelled out because it can't be derived — snapchat registers as "snapchat"
+        # and tiktok as "tiktok-ads", so no PascalCase rule produces both. Spelled out means it can
+        # drift, and a kind the endpoint rejects is a Connect button that 400s with nothing in the
+        # plan to explain it. `supported_kinds` is the list `authorize` validates against.
+        unknown = set(OAUTH_KIND_BY_NATIVE.values()) - set(OauthIntegration.supported_kinds)
+
+        assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"
+
+    def test_every_native_integration_has_an_oauth_kind(self):
+        for native in NATIVE_TO_KEY:
+            assert native in OAUTH_KIND_BY_NATIVE, f"{native} has no OAuth kind, so it can't be connected"
