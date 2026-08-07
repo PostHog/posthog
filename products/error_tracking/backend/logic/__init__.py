@@ -184,7 +184,9 @@ def _clean_existing_external_context(integration: Integration, external_context:
         if isinstance(value, str):
             value = value.strip()
         if expected_type is int:
-            if isinstance(value, str) and value.isdigit():
+            # Explicit ASCII-digit check: str.isdigit() accepts values int() rejects (e.g. "²"),
+            # and the length bound avoids Python's large-int conversion limit.
+            if isinstance(value, str) and re.fullmatch(r"[0-9]{1,10}", value):
                 value = int(value)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise error
@@ -408,6 +410,12 @@ def search_external_issues(
         if integration.kind == Integration.IntegrationKind.GITHUB:
             if not repository:
                 raise ErrorTrackingExternalReferenceValidationError("A repository is required to search GitHub issues.")
+            # Bare names only, matching what create/link store: an owner-qualified path can
+            # search another account's repository, whose issues would link to wrong URLs.
+            if "/" in repository:
+                raise ErrorTrackingExternalReferenceValidationError(
+                    "Pass the repository name without an owner; only the integration's account can be searched."
+                )
             return GitHubIntegration(integration).search_issues(repository, search)
         elif integration.kind == Integration.IntegrationKind.GITLAB:
             return GitLabIntegration(integration).search_issues(search)

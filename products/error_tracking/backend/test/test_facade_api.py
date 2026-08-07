@@ -235,6 +235,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("zero_number", {"repository": "posthog", "number": 0}),
             ("list_number", {"repository": "posthog", "number": [42]}),
             ("non_numeric_number", {"repository": "posthog", "number": "not-an-issue"}),
+            ("unicode_digit_number", {"repository": "posthog", "number": "²"}),
             ("integer_repository", {"repository": 42, "number": 42}),
             ("blank_repository", {"repository": "   ", "number": 42}),
             ("path_traversal_repository", {"repository": "../../settings", "number": 42}),
@@ -269,6 +270,19 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         with self.assertRaises(api.ExternalReferenceValidationError):
             api.search_external_issues(team_id=self.team.id, integration_id=integration.id, search="boom")
+
+    def test_search_external_issues_rejects_owner_qualified_github_repository(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB.value,
+            config={"account": {"name": "acme"}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with self.assertRaises(api.ExternalReferenceValidationError):
+            api.search_external_issues(
+                team_id=self.team.id, integration_id=integration.id, search="boom", repository="other-org/repo"
+            )
 
     @patch("products.error_tracking.backend.logic.GitLabIntegration.search_issues")
     def test_search_external_issues_maps_provider_failures_to_validation_errors(self, mock_search_issues):
