@@ -724,6 +724,32 @@ describe("TaskCommentsList", () => {
     );
   });
 
+  it("polls at most 20 artifact comment targets plus the task", () => {
+    mocks.runs = [
+      run(
+        Array.from({ length: 25 }, (_, index) =>
+          outputFile({
+            id: `artifact-${index}`,
+            name: `artifact-${index}.md`,
+            storage_path: `runs/1/artifact-${index}.md`,
+          }),
+        ),
+      ),
+    ];
+
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    const queriedTargets = mocks.queriedTargets.at(-1) as Array<{
+      scope: string;
+      itemId: string;
+    }>;
+    expect(queriedTargets).toHaveLength(21);
+    expect(queriedTargets[0]).toEqual({
+      scope: "task",
+      itemId: "task-1",
+    });
+  });
+
   it("shows an empty state pointing at the artifact surfaces", () => {
     mocks.comments = [];
 

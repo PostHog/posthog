@@ -75,6 +75,9 @@ const EMPTY_COMMENTS: ResourceComment[] = [];
 const POLL_INTERVAL_MS = 30_000;
 const PULSE_MS = 1_200;
 const ALL_SOURCES = "all";
+// Keep task comments live, but bound the artifact and canvas poll so generated
+// output cannot turn one Comments tab into an unbounded backend request.
+const MAX_RESOURCE_COMMENT_TARGETS = 20;
 // Each PR starts three GitHub-backed queries. Keep this cap at the source so a
 // task with generated output cannot fan out into an unbounded number of requests.
 const MAX_PR_COMMENT_SOURCES = 20;
@@ -332,8 +335,14 @@ export function TaskCommentsList({
     [task.id, rows, onlySource],
   );
   const targets = useMemo(
-    () => sources.map((source) => source.target),
-    [sources],
+    () =>
+      onlySource
+        ? sources.map((source) => source.target)
+        : [
+            ...sources.slice(0, 1),
+            ...sources.slice(1, MAX_RESOURCE_COMMENT_TARGETS + 1),
+          ].map((source) => source.target),
+    [onlySource, sources],
   );
   const singleSourceComments = useCommentsQuery(
     onlySource?.target ?? null,
