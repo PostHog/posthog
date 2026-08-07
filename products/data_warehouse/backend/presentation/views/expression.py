@@ -1,7 +1,8 @@
+import hashlib
 from typing import Any, Optional, cast
 
 from django.core.validators import RegexValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 
 from rest_framework import filters, response, serializers, viewsets
 
@@ -32,6 +33,10 @@ FIELD_NAME_REGEX = r"^[A-Za-z_$][A-Za-z0-9_$]*$"
 # so both per-expression size and total count have to stay bounded.
 MAX_EXPRESSION_LENGTH = 10_000
 MAX_EXPRESSIONS_PER_TEAM = 500
+
+# First key of the two-key advisory lock serializing per-team cap checks; the second key is the
+# team id. Same keying scheme as HealthIssue's upsert lock.
+_EXPRESSION_CAP_LOCK_KEY = int.from_bytes(hashlib.sha256(b"dw_expression_cap").digest()[:4], "big", signed=True)
 
 
 class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
@@ -87,14 +92,10 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
         if not expression:
             raise serializers.ValidationError({"expression": ["Expression must not be empty."]})
 
-        if (
-            instance is None
-            and DataWarehouseExpression.objects.for_team(team_id).exclude(deleted=True).count()
-            >= MAX_EXPRESSIONS_PER_TEAM
-        ):
-            raise serializers.ValidationError(
-                f"This project has {MAX_EXPRESSIONS_PER_TEAM} saved expressions, the maximum. Delete one to add another."
-            )
+        # Fast-fail before the expensive probe below; the authoritative, race-safe check runs
+        # under an advisory lock inside create()/update().
+        if self._becomes_active(attrs) and (instance is None or instance.deleted):
+            self._enforce_expression_cap(team_id, instance)
 
         try:
             source, database = resolve_database_for_connection(
@@ -188,6 +189,33 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             {"field_name": [f'An expression named "{field_name}" already exists on table "{table_name}".']}
         )
 
+    def _becomes_active(self, validated_data: dict[str, Any]) -> bool:
+        instance = cast(Optional[DataWarehouseExpression], self.instance)
+        return not validated_data.get("deleted", instance.deleted if instance else False)
+
+    def _enforce_expression_cap(self, team_id: int, instance: Optional[DataWarehouseExpression]) -> None:
+        active = DataWarehouseExpression.objects.for_team(team_id).exclude(deleted=True)
+        if instance is not None:
+            active = active.exclude(id=instance.id)
+        if active.count() >= MAX_EXPRESSIONS_PER_TEAM:
+            raise serializers.ValidationError(
+                f"This project has {MAX_EXPRESSIONS_PER_TEAM} saved expressions, the maximum. Delete one to add another."
+            )
+
+    def _lock_and_enforce_expression_cap(
+        self, team_id: int, instance: Optional[DataWarehouseExpression], validated_data: dict[str, Any]
+    ) -> None:
+        """Race-safe cap check for any write that lands in the active state, including restores.
+
+        Must run inside the write's transaction: the advisory lock serializes concurrent
+        writers for the team, and the recount under it sees their committed rows.
+        """
+        if not self._becomes_active(validated_data):
+            return
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_EXPRESSION_CAP_LOCK_KEY, team_id])
+        self._enforce_expression_cap(team_id, instance)
+
     def create(self, validated_data: dict[str, Any]) -> DataWarehouseExpression:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -195,6 +223,7 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             # atomic() takes a savepoint so the caught IntegrityError can't poison an
             # enclosing transaction.
             with transaction.atomic():
+                self._lock_and_enforce_expression_cap(validated_data["team_id"], None, validated_data)
                 return DataWarehouseExpression.objects.create(**validated_data)
         except IntegrityError:
             # The unique constraints backstop the check-then-act duplicate validation above;
@@ -204,6 +233,7 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
     def update(self, instance: DataWarehouseExpression, validated_data: dict[str, Any]) -> DataWarehouseExpression:
         try:
             with transaction.atomic():
+                self._lock_and_enforce_expression_cap(instance.team_id, instance, validated_data)
                 return super().update(instance, validated_data)
         except IntegrityError:
             raise self._duplicate_error(

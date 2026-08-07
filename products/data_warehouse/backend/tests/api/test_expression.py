@@ -81,6 +81,22 @@ class TestExpressionApi(APIBaseTest):
             response = self._create(field_name="os", expression="properties.$os")
             self.assertEqual(response.status_code, 400, response.content)
 
+            # Soft-deleted rows don't count toward the cap on create, and restoring one
+            # past the cap must be blocked too - otherwise create-deleted-then-restore
+            # bypasses the limit entirely.
+            deleted_response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_expressions/",
+                {"table_name": "events", "field_name": "os", "expression": "properties.$os", "deleted": True},
+            )
+            self.assertEqual(deleted_response.status_code, 201, deleted_response.content)
+            restore_url = f"/api/environments/{self.team.id}/warehouse_expressions/{deleted_response.json()['id']}/"
+            self.assertEqual(self.client.patch(restore_url, {"deleted": False}).status_code, 400)
+
+            # Restoring is fine once the team is back under the cap.
+            active_id = DataWarehouseExpression.objects.for_team(self.team.pk).get(deleted=False).id
+            self.client.delete(f"/api/environments/{self.team.id}/warehouse_expressions/{active_id}/")
+            self.assertEqual(self.client.patch(restore_url, {"deleted": False}).status_code, 200)
+
     def test_mutually_recursive_expressions_fail_as_query_error(self):
         # Bypasses API validation the way a concurrent-save race would: each expression was
         # validated against a database that didn't yet contain the other.

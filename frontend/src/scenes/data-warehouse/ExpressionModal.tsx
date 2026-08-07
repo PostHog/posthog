@@ -14,6 +14,7 @@ export function ExpressionModal(): JSX.Element {
         selectedTableName,
         error,
         isExpressionFormSubmitting,
+        isPostHogTable,
     } = useValues(expressionModalLogic)
     const { closeExpressionModal } = useActions(expressionModalLogic)
 
@@ -39,6 +40,13 @@ export function ExpressionModal(): JSX.Element {
                 <Field name="field_name" label="Field name">
                     <LemonInput placeholder="for example browser_name" autoFocus={!expressionToEdit} />
                 </Field>
+                {isPostHogTable ? (
+                    <LemonBanner type="info">
+                        PostHog sometimes adds new fields to its built-in tables. If a new field takes this name, the
+                        built-in field takes precedence and this expression stops applying. Use a unique prefix for your
+                        field name, for example <code>acme_browser</code> instead of <code>browser</code>.
+                    </LemonBanner>
+                ) : null}
                 <Field name="expression" label="Expression">
                     {({ value, onChange }) => (
                         <CodeEditorInline
