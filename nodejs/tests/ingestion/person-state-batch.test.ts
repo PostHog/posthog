@@ -4020,6 +4020,62 @@ describe('PersonState.processEvent()', () => {
             expect(result.person).toBeDefined()
         })
 
+        it('tombstone-mode merge held off by a live lifecycle claim drops with a warning', async () => {
+            const target = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+
+            // The file-level observer's spy dies with the first test's restoreAllMocks;
+            // observe this test's produces through a fresh spy.
+            const producerObserver = new KafkaProducerObserver(kafkaProducer)
+
+            // A concurrent lifecycle operation (e.g. a delete saga) holds the target
+            // through every merge retry.
+            const holderOpId = new UUIDT().toString()
+            await personRepository.claimLifecycleMarks(holderOpId, teamId, [
+                { personId: target.id, personUuid: target.uuid, role: 'source' },
+            ])
+
+            try {
+                const mergeService: PersonMergeService = personMergeService(
+                    {
+                        event: '$merge_dangerously',
+                        distinct_id: firstUserDistinctId,
+                        properties: { alias: secondUserDistinctId },
+                        uuid: new UUIDT().toString(),
+                    },
+                    hub,
+                    personRepository,
+                    true,
+                    timestamp,
+                    mainTeam,
+                    createDefaultSyncMergeMode(),
+                    undefined,
+                    undefined,
+                    true
+                )
+
+                const result = await mergeService.handleIdentifyOrAlias()
+
+                // The merge is dropped, not failed: success with no person, plus the warning.
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected a dropped merge to resolve successfully')
+                }
+                expect(result.person).toBeUndefined()
+
+                const warnings = producerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_INGESTION_WARNINGS)
+                    .filter((w) => (w.value as any)?.type === 'merge_race_condition')
+                expect(warnings).toHaveLength(1)
+            } finally {
+                await personRepository.releaseLifecycleMarks(holderOpId, teamId)
+            }
+        })
+
         describe('SYNC mode with batch processing', () => {
             it('merges all distinct IDs when batch size is larger than total distinct IDs', async () => {
                 const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {

@@ -67,6 +67,12 @@ export const mergeFoldSizeHistogram = new Histogram({
     buckets: [2, 5, 10, 25, 50, 100, 250, 500],
 })
 
+export const mergeClaimDroppedCounter = new Counter({
+    name: 'person_merge_claim_dropped_total',
+    help: 'Merges dropped because another lifecycle operation held a person through every retry.',
+    labelNames: ['call'],
+})
+
 export const mergeDistinctIdOverrideCounter = new Counter({
     name: 'person_merge_distinct_id_override_total',
     help: 'Distinct id mapping rows written during merges, split by whether their version writes a ClickHouse override row.',
@@ -154,6 +160,9 @@ export class PersonMergeService {
                 // Expected contention, not a failure: another lifecycle operation held one of
                 // the persons through every retry. Drop the merge with a warning; the event's
                 // property updates still apply to whatever the distinct ids resolve to next.
+                // The counter is the rollout's drop-rate signal; the warning is debounced by
+                // the standard limiter so a long-held claim cannot flood the warnings topic.
+                mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
                 await emitIngestionWarning(this.context.outputs, this.context.team.id, {
                     type: 'merge_race_condition',
                     details: {
@@ -165,7 +174,6 @@ export class PersonMergeService {
                         targetPersonDistinctId: this.context.distinctId,
                     },
                     pipelineStep: 'person-merge',
-                    alwaysSend: true,
                 })
                 logger.warn('🤔', 'merge dropped: person claimed by a concurrent lifecycle operation', {
                     team_id: this.context.team.id,
