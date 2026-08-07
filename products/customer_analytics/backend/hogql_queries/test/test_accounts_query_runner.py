@@ -1,19 +1,20 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import AccountsQuery, AccountsQueryResponse, HogQLQueryModifiers
+from posthog.schema import AccountsQuery, AccountsQueryResponse, HogQLQueryModifiers, QueryLogTags
 
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
-from posthog.models import Tag, User
+from posthog.models import ColumnConfiguration, Tag, User
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -61,6 +62,21 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             older = create_account(team_id=self.team.id, name="Older")
             newer = create_account(team_id=self.team.id, name="Newer")
         self.assertEqual(self._ids(), [str(newer.id), str(older.id)])
+
+    def test_accounts_list_query_reports_unsupported_saved_view_usage(self):
+        ColumnConfiguration.objects.create(
+            team=self.team,
+            context_key="customer_analytics_accounts_columns",
+            columns=["concat(name, external_id) AS display_name"],
+        )
+        create_account(team_id=self.team.id, name="Account")
+
+        with patch(
+            "products.customer_analytics.backend.logic.accounts_saved_view_usage.report_team_action"
+        ) as report_team_action:
+            self._run_query(tags=QueryLogTags(name="customer_analytics_accounts_list"))
+
+        report_team_action.assert_called_once()
 
     @parameterized.expand(
         [
