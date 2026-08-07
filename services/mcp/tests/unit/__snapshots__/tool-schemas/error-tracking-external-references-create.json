@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Read-only shape of an external reference, shared by every response.",
     "properties": {
         "config": {
             "additionalProperties": {
