@@ -4202,6 +4202,23 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
         response = self.client.get(auth_url)
         self.assertNotEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            ("percent_encoded_slash", "http://evil.example%2F@localhost:50470/callback"),
+            ("percent_encoded_question_mark", "http://evil.example%3F@localhost:50470/callback"),
+            ("percent_encoded_hash", "http://evil.example%23@localhost:50470/callback"),
+            ("percent_encoded_at", "http://evil.example%40@localhost:50470/callback"),
+        ]
+    )
+    def test_encoded_authority_terminator_in_localhost_redirect_rejected(self, _name, redirect_uri):
+        # urlparse reads hostname='localhost', so the portless reconstruction matches the
+        # registered URI and the port-flexibility branch approves the request. A client that
+        # decodes before splitting the authority delivers the code to evil.example instead.
+        # Asserted against the validator rather than the /authorize response because an
+        # unbuilt frontend also produces a non-200 there.
+        request = SimpleNamespace(client=self.localhost_app)
+        assert OAuthValidator().validate_redirect_uri("test_localhost_client_id", redirect_uri, request) is False
+
     def test_non_localhost_port_mismatch_still_rejected(self):
         """Port flexibility only applies to loopback addresses, not arbitrary hosts."""
         https_app = OAuthApplication.objects.create(
