@@ -1,4 +1,4 @@
-import type { AgentSession } from "@posthog/shared";
+import type { AgentSession, ExecutionMode } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { SessionService, type SessionServiceDeps } from "./sessionService";
 
@@ -22,6 +22,7 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
     adapter: "claude",
     model: "claude-sonnet",
     executionMode: "plan",
+    conversationClear: true,
     ...overrides,
   } as AgentSession;
 }
@@ -46,7 +47,10 @@ function makePermission() {
   };
 }
 
-function createHarness(session: AgentSession) {
+function createHarness(
+  session: AgentSession,
+  { stubContinuation = true }: { stubContinuation?: boolean } = {},
+) {
   const sessions: Record<string, AgentSession> = {
     [session.taskRunId]: session,
   };
@@ -79,9 +83,11 @@ function createHarness(session: AgentSession) {
   } as unknown as SessionServiceDeps;
 
   const service = new SessionService(deps);
-  const continueFromApprovedPlan = vi
-    .spyOn(service, "continueFromApprovedPlan")
-    .mockResolvedValue(undefined);
+  const continueFromApprovedPlan = vi.spyOn(
+    service,
+    "continueFromApprovedPlan",
+  );
+  if (stubContinuation) continueFromApprovedPlan.mockResolvedValue(undefined);
   const respondToPermission = vi
     .spyOn(service, "respondToPermission")
     .mockResolvedValue(undefined);
@@ -90,10 +96,17 @@ function createHarness(session: AgentSession) {
 }
 
 describe("SessionService plan continuation", () => {
-  it("continues only when clearAndContinue is selected", async () => {
-    const session = makeSession();
+  it.each<[string, Record<string, string> | undefined, ExecutionMode]>([
+    ["the selected mode", { executionMode: "acceptEdits" }, "acceptEdits"],
+    ["default when answers omit it", undefined, "default"],
+    [
+      "default when answers carry an unknown mode",
+      { executionMode: "x" },
+      "default",
+    ],
+  ])("continues from the plan with %s", async (_label, answers, expected) => {
     const { service, continueFromApprovedPlan, respondToPermission } =
-      createHarness(session);
+      createHarness(makeSession());
 
     await service.resolvePermissionSelection(
       "task-1",
@@ -101,26 +114,23 @@ describe("SessionService plan continuation", () => {
       "clearAndContinue",
       undefined,
       undefined,
-      { executionMode: "acceptEdits" },
-      "/repo",
+      answers,
     );
 
     expect(continueFromApprovedPlan).toHaveBeenCalledWith(
       "task-1",
-      "/repo",
+      "tool-1",
       "## Plan\n- fix bug",
-      "acceptEdits",
+      expected,
     );
-    // The planning turn must NOT be answered "allow": doing so lets the old
-    // session start generating in the stale context, and cancelling that
-    // mid-stream is what closed the ACP connection for ~2s.
+    // Answering "allow" would let the agent start implementing in the stale
+    // planning context before the clear lands.
     expect(respondToPermission).not.toHaveBeenCalled();
   });
 
   it("does not continue on normal approve", async () => {
-    const session = makeSession();
     const { service, continueFromApprovedPlan, respondToPermission } =
-      createHarness(session);
+      createHarness(makeSession());
 
     await service.resolvePermissionSelection(
       "task-1",
@@ -129,17 +139,15 @@ describe("SessionService plan continuation", () => {
       undefined,
       undefined,
       undefined,
-      "/repo",
     );
 
     expect(continueFromApprovedPlan).not.toHaveBeenCalled();
-    // Normal approve still answers the permission in place.
     expect(respondToPermission).toHaveBeenCalledTimes(1);
   });
 
-  it("does not continue without repoPath", async () => {
-    const session = makeSession();
-    const { service, continueFromApprovedPlan } = createHarness(session);
+  it("approves without clearing when the agent cannot clear", async () => {
+    const { service, continueFromApprovedPlan, respondToPermission } =
+      createHarness(makeSession({ conversationClear: false }));
 
     await service.resolvePermissionSelection(
       "task-1",
@@ -150,12 +158,14 @@ describe("SessionService plan continuation", () => {
       { executionMode: "auto" },
     );
 
+    // An agent predating the capability ignores the boundary and rebuilds the
+    // conversation, so a clear here would be shown but not real.
     expect(continueFromApprovedPlan).not.toHaveBeenCalled();
+    expect(respondToPermission).toHaveBeenCalledTimes(1);
   });
 
   it("does not continue on plan rejection", async () => {
-    const session = makeSession();
-    const { service, continueFromApprovedPlan } = createHarness(session);
+    const { service, continueFromApprovedPlan } = createHarness(makeSession());
 
     await service.resolvePermissionSelection(
       "task-1",
@@ -164,31 +174,43 @@ describe("SessionService plan continuation", () => {
       undefined,
       "try again",
       undefined,
-      "/repo",
     );
 
     expect(continueFromApprovedPlan).not.toHaveBeenCalled();
   });
 
-  it("defaults clear-and-continue mode to default when answers omit it", async () => {
-    const session = makeSession();
-    const { service, continueFromApprovedPlan } = createHarness(session);
+  it("ends the planning turn and clears before sending the plan", async () => {
+    const { service } = createHarness(makeSession(), {
+      stubContinuation: false,
+    });
+    const cancelPermissionAndPrompt = vi
+      .spyOn(service, "cancelPermissionAndPrompt")
+      .mockResolvedValue(undefined);
+    const setConfigOption = vi
+      .spyOn(service, "setSessionConfigOptionByCategory")
+      .mockResolvedValue(undefined);
+    const sendPrompt = vi
+      .spyOn(service, "sendPrompt")
+      .mockResolvedValue({ stopReason: "end_turn" });
 
-    await service.resolvePermissionSelection(
+    await service.continueFromApprovedPlan(
       "task-1",
-      makePermission() as never,
-      "clearAndContinue",
-      undefined,
-      undefined,
-      undefined,
-      "/repo",
-    );
-
-    expect(continueFromApprovedPlan).toHaveBeenCalledWith(
-      "task-1",
-      "/repo",
+      "tool-1",
       "## Plan\n- fix bug",
-      "default",
+      "acceptEdits",
     );
+
+    expect(cancelPermissionAndPrompt).toHaveBeenCalledWith("task-1", "tool-1");
+    expect(setConfigOption).toHaveBeenCalledWith(
+      "task-1",
+      "mode",
+      "acceptEdits",
+    );
+    // Order is the whole feature: a plan sent before the clear lands in the
+    // planning context the clear was meant to retire.
+    expect(sendPrompt.mock.calls.map((call) => call[1])).toEqual([
+      "/clear",
+      [{ type: "text", text: expect.stringContaining("## Plan\n- fix bug") }],
+    ]);
   });
 });

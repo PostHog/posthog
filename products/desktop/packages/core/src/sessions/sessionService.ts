@@ -91,6 +91,7 @@ import {
 } from "./permissionResponse";
 import {
   buildApprovedPlanContinuationPrompt,
+  CLEAR_CONVERSATION_COMMAND,
   extractPlanMarkdownFromPermission,
   resolveClearAndContinueExecutionMode,
   shouldContinueFromApprovedPlan,
@@ -5396,15 +5397,15 @@ export class SessionService {
   }
 
   /**
-   * After plan approval, discard the planning conversation and continue
-   * implementation on a fresh local task run seeded with the approved plan.
-   * Leaves `resetSession` untouched (same-run error recovery).
+   * After plan approval, clear the conversation and continue implementation in
+   * the same run, seeded with the approved plan. The task run, the ACP session
+   * and the visible thread all survive; only the SDK conversation is retired.
    *
-   * Cloud runs are skipped until cloud session lifecycle supports this path.
+   * Callers gate on the agent advertising `conversationClear`.
    */
   async continueFromApprovedPlan(
     taskId: string,
-    repoPath: string,
+    toolCallId: string,
     planMarkdown: string,
     executionMode: ExecutionMode,
   ): Promise<void> {
@@ -5412,46 +5413,18 @@ export class SessionService {
     if (!session) {
       throw new Error("No active session for task");
     }
-    if (session.isCloud) {
-      this.d.log.info("Skipping plan continuation on cloud session", {
-        taskId,
-      });
-      return;
-    }
 
-    const { taskRunId, taskTitle, adapter, model, reasoningLevel } = session;
+    // The turn is parked on the ExitPlanMode permission and /clear only lands
+    // on an idle input stream. Cancel both, which stops the turn without the
+    // hard-kill that closes ACP.
+    await this.cancelPermissionAndPrompt(taskId, toolCallId);
 
-    // Interrupt like Stop (cancelPrompt), not hard-kill (cancel). Hard-kill
-    // closes ACP under the in-flight prompt and surfaces "ACP connection closed".
-    // Keep the store entry until createNewLocalSession swaps it — otherwise the
-    // connect effect resumes the stale run.
-    try {
-      await this.d.trpc.agent.cancelPrompt.mutate({ sessionId: taskRunId });
-    } catch {
-      // best-effort: the turn may already be idle
-    }
-    this.unsubscribeFromChannel(taskRunId);
-    this.localRepoPaths.set(taskId, repoPath);
+    await this.setSessionConfigOptionByCategory(taskId, "mode", executionMode);
 
-    const authStatus = await this.getAuthCredentialsStatus();
-    if (authStatus.kind === "restoring") {
-      throw new Error("Authentication is still restoring. Please wait.");
-    }
-    if (authStatus.kind !== "ready") {
-      throw new Error("Unable to reach server. Please check your connection.");
-    }
-
-    const initialPrompt = buildApprovedPlanContinuationPrompt(planMarkdown);
-    await this.createNewLocalSession(
+    await this.sendPrompt(taskId, CLEAR_CONVERSATION_COMMAND);
+    await this.sendPrompt(
       taskId,
-      taskTitle,
-      repoPath,
-      authStatus.auth,
-      initialPrompt,
-      executionMode,
-      adapter,
-      model,
-      reasoningLevel,
+      buildApprovedPlanContinuationPrompt(planMarkdown),
     );
   }
 
@@ -7226,31 +7199,28 @@ export class SessionService {
     modeOption: SessionConfigOption | undefined,
     customInput?: string,
     answers?: Record<string, string>,
-    repoPath?: string | null,
   ): Promise<PermissionSelectionPlan> {
     const plan = planPermissionResponse(permission, optionId, customInput);
 
-    // Clear-and-continue: rebuild on a fresh run instead of answering the
-    // planning turn. Sending "allow" here would let the old session start
-    // generating the implementation reply in the stale (full planning) context;
-    // cancelling that mid-stream is what closes the ACP connection for ~2s and
-    // logs "Upstream fetch aborted after client disconnect". So resolve the
-    // pending-permission card locally and let continueFromApprovedPlan cancel
-    // the turn and reseed with the plan — no backend "allow" is sent.
-    const clearAndContinuePlan =
-      repoPath && shouldContinueFromApprovedPlan(permission, optionId)
-        ? extractPlanMarkdownFromPermission(permission)
-        : null;
+    // Clear-and-continue: retire the planning conversation with /clear instead
+    // of answering the planning turn. Sending "allow" here would let the agent
+    // start the implementation reply in the stale (full planning) context.
+    const clearAndContinuePlan = shouldContinueFromApprovedPlan(
+      permission,
+      optionId,
+    )
+      ? extractPlanMarkdownFromPermission(permission)
+      : null;
 
-    if (repoPath && clearAndContinuePlan) {
-      const session = this.d.store.getSessionByTaskId(taskId);
-      if (session) {
-        this.resolvePermission(session, permission.toolCallId);
-      }
+    // An agent older than the /clear capability ignores the boundary and
+    // rebuilds the conversation it was meant to retire, so fall through to a
+    // normal approve rather than show a clear that did not happen.
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (clearAndContinuePlan && session?.conversationClear) {
       try {
         await this.continueFromApprovedPlan(
           taskId,
-          repoPath,
+          permission.toolCallId,
           clearAndContinuePlan,
           resolveClearAndContinueExecutionMode(answers),
         );
@@ -7262,6 +7232,11 @@ export class SessionService {
         throw error;
       }
       return plan;
+    }
+    if (clearAndContinuePlan) {
+      this.d.log.info("Agent lacks /clear; approving plan without clearing", {
+        taskId,
+      });
     }
 
     if (plan.applyAllowAlwaysUpgrade) {

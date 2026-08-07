@@ -511,7 +511,6 @@ export function SessionView({
         modeOption,
         customInput,
         answers,
-        repoPath,
       );
 
       if (plan.resendPromptText) {
@@ -528,7 +527,6 @@ export function SessionView({
       sessionId,
       modeOption,
       sessionService,
-      repoPath,
     ],
   );
 

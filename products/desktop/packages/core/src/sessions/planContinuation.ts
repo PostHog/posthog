@@ -22,6 +22,12 @@ export const CLEAR_AND_CONTINUE_OPTION_ID = "clearAndContinue";
 /** Answers key used by the plan UI to carry the ModeSelector choice. */
 export const CLEAR_AND_CONTINUE_EXECUTION_MODE_KEY = "executionMode";
 
+/**
+ * The adapter intercepts this before the SDK conversion and swaps in a fresh
+ * SDK session, so it is how core asks for a clear.
+ */
+export const CLEAR_CONVERSATION_COMMAND = "/clear";
+
 export function isPlanApprovalPermission(
   permission: PermissionRequest,
 ): boolean {
