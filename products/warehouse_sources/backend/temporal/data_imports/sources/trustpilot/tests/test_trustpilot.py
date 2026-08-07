@@ -28,9 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot
     validate_credentials,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# resolve_business_unit_id / mint_access_token build their own tracked session in the trustpilot module.
+# resolve_business_unit_id, mint_access_token and the sync client all build their tracked
+# session in the trustpilot module.
 TRUSTPILOT_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot.make_tracked_session"
 )
@@ -195,6 +194,16 @@ class TestResolveBusinessUnit:
             resolve_business_unit_id("key", "example.com")
 
     @mock.patch(TRUSTPILOT_SESSION_PATCH)
+    def test_lookup_response_without_id_fails_loud(self, MockSession) -> None:
+        # A 200 without an id is a broken response contract; it must not read as "not found",
+        # which would tell the user to fix a business unit value that is actually fine.
+        session = MockSession.return_value
+        session.get.return_value = _response({"displayName": "Example"})
+
+        with pytest.raises(TrustpilotBusinessUnitError, match="unexpected"):
+            resolve_business_unit_id("key", "example.com")
+
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_rejected_api_key_raises_auth_error(self, MockSession) -> None:
         session = MockSession.return_value
         session.get.return_value = _response({"details": "unauthorized"}, status_code=401)
@@ -283,7 +292,7 @@ class TestValidateCredentials:
 
 class TestPagination:
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_pages_until_empty_page(self, MockSession, _mock_resolve) -> None:
         session = MockSession.return_value
         params = _wire(
@@ -306,7 +315,7 @@ class TestPagination:
         assert params[2]["page"] == 3
 
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_checkpoints_next_page_with_query_window(self, MockSession, _mock_resolve) -> None:
         session = MockSession.return_value
         _wire(session, [_reviews_response([{"id": "r1"}]), _reviews_response([])])
@@ -325,7 +334,7 @@ class TestPagination:
         )
 
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_resume_reissues_saved_query_window(self, MockSession, _mock_resolve) -> None:
         # A resumed run must re-issue the interrupted run's startDateTime: the watermark advanced
         # per batch mid-run, so re-deriving it would shift the query window and page 5 would point
@@ -347,7 +356,7 @@ class TestPagination:
         assert params[0]["startDateTime"] == "2026-01-01T00:00:00"
 
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_incremental_filter_added_to_request(self, MockSession, _mock_resolve) -> None:
         session = MockSession.return_value
         params = _wire(session, [_reviews_response([{"id": "r1"}]), _reviews_response([])])
@@ -362,7 +371,7 @@ class TestPagination:
         assert params[0]["startDateTime"] == "2026-03-04T02:58:14"
 
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_full_refresh_endpoint_never_filters(self, MockSession, _mock_resolve) -> None:
         # product_reviews has no server-side time filter; a cursor value must not leak into the request.
         session = MockSession.return_value
@@ -384,7 +393,7 @@ class TestPagination:
         assert "orderBy" not in params[0]
 
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_business_unit_returns_single_row(self, MockSession, _mock_resolve) -> None:
         session = MockSession.return_value
         params = _wire(
@@ -401,7 +410,7 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_no_checkpoint_after_final_page(self, MockSession, _mock_resolve) -> None:
         session = MockSession.return_value
         _wire(session, [_reviews_response([])])

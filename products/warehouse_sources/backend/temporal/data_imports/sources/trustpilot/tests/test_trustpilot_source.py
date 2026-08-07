@@ -1,5 +1,6 @@
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
@@ -39,7 +40,7 @@ class TestTrustPilotSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key", "api_secret", "business_unit"]
 
-    @pytest.mark.parametrize("field_name", ["api_key", "api_secret"])
+    @parameterized.expand(["api_key", "api_secret"])
     def test_credential_fields_are_secret_passwords(self, field_name):
         config = self.source.get_source_config
         field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
@@ -47,8 +48,7 @@ class TestTrustPilotSource:
         assert field.secret is True
         assert field.required is True
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
             "401 Client Error: Unauthorized for url: https://api.trustpilot.com/v1/private/business-units/x/reviews",
             "403 Client Error: Forbidden for url: https://api.trustpilot.com/v1/private/product-reviews/business-units/x/reviews",
@@ -62,8 +62,7 @@ class TestTrustPilotSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
-    @pytest.mark.parametrize(
-        "other_error",
+    @parameterized.expand(
         [
             "429 Client Error: Too Many Requests for url: https://api.trustpilot.com/v1/business-units/x/reviews",
             "500 Server Error: Internal Server Error for url: https://api.trustpilot.com/v1/business-units/x",

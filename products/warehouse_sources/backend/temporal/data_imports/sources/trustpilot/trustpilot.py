@@ -138,8 +138,13 @@ def resolve_business_unit_id(api_key: str, business_unit: str) -> str:
             continue
         response.raise_for_status()
         business_unit_id = response.json().get("id")
-        if isinstance(business_unit_id, str) and business_unit_id:
-            return business_unit_id
+        if not isinstance(business_unit_id, str) or not business_unit_id:
+            # A 200 without an id is a broken response contract, not a user typo — fail loud
+            # instead of falling through to the misleading not-found message.
+            raise TrustpilotBusinessUnitError(
+                "Trustpilot returned an unexpected business unit lookup response. Try again."
+            )
+        return business_unit_id
 
     raise TrustpilotBusinessUnitError(
         f"{BUSINESS_UNIT_NOT_FOUND_ERROR} for '{normalized}'. Enter your domain exactly as it "
@@ -283,6 +288,9 @@ def trustpilot_source(
             "headers": {"Accept": "application/json"},
             "auth": _build_auth(api_key, api_secret, config.requires_oauth),
             "paginator": TrustpilotPaginator() if config.paginated else "single_page",
+            # capture=False: private review rows carry consumer emails, order references and
+            # review text, which must stay out of HTTP sample capture (still metered and logged).
+            "session": make_tracked_session(redact_values=(api_key, api_secret), capture=False),
         },
         "resource_defaults": {},
         "resources": [
