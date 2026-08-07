@@ -1,7 +1,6 @@
 import type { UsageOutput } from "@posthog/core/usage/schemas";
 import { PlanUsageContent } from "@posthog/ui/features/settings/sections/PlanUsageSettings";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Flex, Text } from "@radix-ui/themes";
 
 const usage = {
   product: "posthog_code",
@@ -33,41 +32,6 @@ const usage = {
   billing_period_end: "2026-09-01T00:00:00.000Z",
 } satisfies UsageOutput;
 
-const PersonalSpendPreview = () => (
-  <Flex
-    direction="column"
-    gap="3"
-    pt="5"
-    className="border-(--gray-5) border-t"
-  >
-    <Flex direction="column" gap="1">
-      <Text className="font-bold text-base">Your spend</Text>
-      <Text className="text-(--gray-11) text-sm">
-        Near-real-time spend for your activity in the selected window. It may
-        differ from the delayed organization billing period above.
-      </Text>
-    </Flex>
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {[
-        ["Last 30 days", "$18.72"],
-        ["Today", "$1.08"],
-        ["Runs", "42"],
-      ].map(([label, value]) => (
-        <Flex
-          key={label}
-          direction="column"
-          gap="1"
-          p="3"
-          className="rounded-(--radius-3) bg-(--gray-a2)"
-        >
-          <Text className="text-(--gray-11) text-xs">{label}</Text>
-          <Text className="font-medium text-lg">{value}</Text>
-        </Flex>
-      ))}
-    </div>
-  </Flex>
-);
-
 const meta: Meta<typeof PlanUsageContent> = {
   title: "Billing/Plan and usage",
   component: PlanUsageContent,
@@ -84,7 +48,6 @@ const meta: Meta<typeof PlanUsageContent> = {
     billingUrl: "https://app.posthog.com/organization/billing",
     usage,
     usageLoading: false,
-    personalSpendAnalysis: <PersonalSpendPreview />,
   },
 };
 

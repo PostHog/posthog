@@ -1,5 +1,7 @@
 import {
   ArrowSquareOut,
+  CaretDown,
+  CaretRight,
   CreditCard,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -31,7 +33,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { getBillingUrl } from "@posthog/ui/utils/urls";
 import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
 import type { UsageOutput } from "@posthog/core/usage/schemas";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export function PlanUsageSettings() {
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
@@ -91,6 +93,8 @@ export function PlanUsageContent({
   const orgLimitReached = usage?.ai_credits?.exhausted === true;
   const meter = codeUsageMeter(usage);
   const components = desktopUsageComponents(usage);
+  const hasUsageMix =
+    components?.tokenUsd != null && components.computeUsd != null;
 
   const openBilling = () => {
     if (billingUrl) window.open(billingUrl, "_blank");
@@ -231,19 +235,7 @@ export function PlanUsageContent({
             )}
             {!usageLoading && (
               <Flex direction="column" gap="3">
-                {components ? (
-                  <UsageMix components={components} />
-                ) : (
-                  <Flex
-                    p="4"
-                    className="rounded-(--radius-3) border border-(--gray-5)"
-                  >
-                    <Text color="gray" className="text-sm">
-                      Detailed usage is awaiting data. Your combined usage and
-                      organization limit are still shown above.
-                    </Text>
-                  </Flex>
-                )}
+                {hasUsageMix && <UsageMix components={components} />}
                 <Text className="text-(--gray-9) text-[13px]">
                   Usage reporting may be delayed by 15–20 minutes.
                 </Text>
@@ -253,7 +245,11 @@ export function PlanUsageContent({
         </>
       )}
 
-      {spendAnalysisEnabled && personalSpendAnalysis}
+      {spendAnalysisEnabled && (
+        <PersonalSpendDisclosure>
+          {personalSpendAnalysis}
+        </PersonalSpendDisclosure>
+      )}
     </Flex>
   );
 }
@@ -263,11 +259,10 @@ function UsageMix({
 }: {
   components: NonNullable<ReturnType<typeof desktopUsageComponents>>;
 }) {
-  const tokenUsd = components.tokenUsd;
-  const computeUsd = components.computeUsd;
-  const hasCreditMix = tokenUsd != null && computeUsd != null;
-  const totalUsd = hasCreditMix ? tokenUsd + computeUsd : 0;
-  const tokenPercent = totalUsd > 0 ? ((tokenUsd ?? 0) / totalUsd) * 100 : 0;
+  const tokenUsd = components.tokenUsd ?? 0;
+  const computeUsd = components.computeUsd ?? 0;
+  const totalUsd = tokenUsd + computeUsd;
+  const tokenPercent = totalUsd > 0 ? (tokenUsd / totalUsd) * 100 : 0;
   const roundedTokenPercent = Math.round(tokenPercent);
   const computeDetails = [
     components.cpuCoreSeconds == null
@@ -285,52 +280,69 @@ function UsageMix({
       p="4"
       className="rounded-(--radius-3) bg-(--gray-a2)"
     >
-      <Flex align="center" justify="between">
-        <Text className="font-medium text-sm">Usage mix</Text>
-        <Text className="text-(--gray-11) text-xs">
-          Token vs. compute spend
-        </Text>
+      <Text className="font-medium text-sm">Usage mix</Text>
+      <div
+        role="img"
+        aria-label={`${roundedTokenPercent}% tokens and ${totalUsd > 0 ? 100 - roundedTokenPercent : 0}% cloud compute`}
+        className="flex h-3 w-full overflow-hidden rounded-full bg-(--gray-a4)"
+      >
+        {totalUsd > 0 && (
+          <>
+            <div
+              className="bg-(--purple-9)"
+              style={{ width: `${tokenPercent}%` }}
+            />
+            <div className="flex-1 bg-(--blue-9)" />
+          </>
+        )}
+      </div>
+      <Flex align="center" gap="5" wrap="wrap">
+        <MixLegend
+          color="bg-(--purple-9)"
+          label="Tokens"
+          percent={roundedTokenPercent}
+          value={formatUsdAmount(tokenUsd)}
+        />
+        <MixLegend
+          color="bg-(--blue-9)"
+          label="Cloud compute"
+          percent={totalUsd > 0 ? 100 - roundedTokenPercent : 0}
+          value={formatUsdAmount(computeUsd)}
+        />
       </Flex>
-      {hasCreditMix ? (
-        <>
-          <div
-            role="img"
-            aria-label={`${roundedTokenPercent}% tokens and ${totalUsd > 0 ? 100 - roundedTokenPercent : 0}% cloud compute`}
-            className="flex h-3 w-full overflow-hidden rounded-full bg-(--gray-a4)"
-          >
-            {totalUsd > 0 && (
-              <>
-                <div
-                  className="bg-(--purple-9)"
-                  style={{ width: `${tokenPercent}%` }}
-                />
-                <div className="flex-1 bg-(--blue-9)" />
-              </>
-            )}
-          </div>
-          <Flex align="center" gap="5" wrap="wrap">
-            <MixLegend
-              color="bg-(--purple-9)"
-              label="Tokens"
-              percent={roundedTokenPercent}
-              value={formatUsdAmount(tokenUsd)}
-            />
-            <MixLegend
-              color="bg-(--blue-9)"
-              label="Cloud compute"
-              percent={totalUsd > 0 ? 100 - roundedTokenPercent : 0}
-              value={formatUsdAmount(computeUsd)}
-            />
-          </Flex>
-        </>
-      ) : (
-        <Text className="text-(--gray-11) text-sm">
-          Token and compute proportions are awaiting data.
-        </Text>
-      )}
       <Text className="text-(--gray-9) text-xs">
         Compute resources: {computeDetails}
       </Text>
+    </Flex>
+  );
+}
+
+function PersonalSpendDisclosure({ children }: { children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Flex
+      direction="column"
+      className="overflow-hidden rounded-(--radius-3) border border-(--gray-5)"
+    >
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-(--gray-a2) focus-visible:outline-2 focus-visible:outline-(--accent-8)"
+      >
+        <Flex direction="column" gap="1">
+          <Text className="font-medium text-sm">Your spend</Text>
+          <Text className="text-(--gray-11) text-xs">
+            Near-real-time analysis of your activity, separate from organization
+            billing.
+          </Text>
+        </Flex>
+        {expanded ? <CaretDown size={16} /> : <CaretRight size={16} />}
+      </button>
+      {expanded && children && (
+        <div className="border-(--gray-5) border-t p-4">{children}</div>
+      )}
     </Flex>
   );
 }

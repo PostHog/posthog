@@ -35,20 +35,8 @@ export function SpendAnalysisSection() {
   }, [data]);
 
   return (
-    <Flex
-      direction="column"
-      gap="3"
-      pt="5"
-      className="border-(--gray-5) border-t"
-    >
-      <Flex align="end" justify="between" gap="3" wrap="wrap">
-        <Flex direction="column" gap="1">
-          <Text className="font-bold text-base">Your spend</Text>
-          <Text className="text-(--gray-11) text-sm">
-            Near-real-time spend for your activity in the selected window. It
-            may differ from the delayed organization billing period above.
-          </Text>
-        </Flex>
+    <Flex direction="column" gap="3">
+      <Flex justify="end">
         <Flex align="center" gap="4">
           <WindowSelector value={spendWindow} onChange={setSpendWindow} />
           <Button
