@@ -101,7 +101,7 @@ class TestCheckRunner(BaseTest):
         assert check.subject_status == SubjectStatus.ORPHANED
 
     def test_a_hard_deleted_subject_is_skipped_without_a_history_row(self) -> None:
-        # SET_NULL leaves no subject id to denormalize onto a run row, so none is written.
+        # A hard delete leaves no subject id to denormalize onto a run row, so none is written.
         check = self._check(saved_query_id=None)
 
         outcome = run_check(check, self.suite_run, self.team)
@@ -137,7 +137,7 @@ class TestCheckRunner(BaseTest):
             run_check(check, self.suite_run, self.team)
 
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
-        assert run.compiled_query == "SELECT 1 FROM orders WHERE isNull(customer_id)"
+        assert run.compiled_query == "SELECT * FROM orders WHERE isNull(customer_id)"
 
     @parameterized.expand(
         [
