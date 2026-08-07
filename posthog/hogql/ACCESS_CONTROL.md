@@ -1,11 +1,11 @@
 # HogQL access controls
 
-HogQL enforces access at different levels, from whole tables down to individual properties.
+HogQL enforces access at different levels.
 Level 0 is the multi-tenancy boundary and applies to every query. Levels 1 to 3 are access control (aka RBAC) on top of it.
 
 0. **[Tenant isolation](#0-tenant-isolation-the-team_id-guard)** — every table read, keeping one team's rows out of another team's results.
    - Enforced when the query is printed to SQL.
-   - Always on: a mandatory `team_id` filter on every table. Not part of RBAC, and doesn't require a user, only a team.
+   - Always on: a mandatory `team_id` filter on every table.
 1. **[System tables](#1-system-tables)** — the `system.*` tables (dashboards, notebooks, error tracking issues, ...).
    - Enforced at schema build time and print time.
    - When denied: the whole table is removed from the schema and the query errors; individual denied objects are filtered out with a `WHERE` guard.
@@ -16,13 +16,11 @@ Level 0 is the multi-tenancy boundary and applies to every query. Levels 1 to 3 
    - Enforced when the query is printed to ClickHouse SQL (AST transform, then printing).
    - When denied: values are masked to `NULL` or stripped from the JSON blob, with no error.
 
-Levels 1 to 3 share one preloaded `UserAccessControl` instance and partition the query cache so a restricted user can never be served an unrestricted user's cached rows.
-
 ## 0. Tenant isolation: the `team_id` guard
 
 PostHog's ClickHouse tables (`events`, `persons`, `sessions`, ...) are shared: one physical table holds the rows for every team, keyed by a `team_id` column.
 Multi-tenancy therefore depends on every query being scoped to a single team.
-HogQL guarantees this by injecting a mandatory `team_id = <context.team_id>` filter onto **every** table it reads, so a query can never see another team's rows even if it tries.
+HogQL guarantees this by injecting a mandatory `team_id = <context.team_id>` filter onto **every** table it reads that holds team data, so a query can never see another team's rows even if it tries.
 
 This is enforced at the lowest level, at print time.
 When the printer emits each table in a `FROM` / `JOIN`, `_ensure_team_id_where_clause()` adds the guard built by `team_id_guard_for_table()` (`posthog/hogql/printer/clickhouse.py`), applied in `BasePrinter.visit_join_expr` (`posthog/hogql/printer/base.py`).
@@ -32,14 +30,11 @@ For `LEFT JOIN`s the guard goes in the `ON` clause instead of `WHERE`, so unmatc
 **Fail closed:** `team_id_guard_for_table()` raises `InternalHogQLError` if `context.team_id` is missing, so a query with no team never runs against shared data.
 This level is independent of the ones below it: it never consults `UserAccessControl`, and doesn't require a user, only a team.
 
-A few tables opt out, and only these:
-
-- **Warehouse tables and views** (`DataWarehouseTable`, `SavedQuery`): external data or subqueries that carry their own scoping — a saved query's inner tables get guarded individually.
-- **`DANGEROUS_NoTeamIdCheckTable`** (`posthog/hogql/database/models.py`): an explicit escape hatch for tables that hold no team data — `numbers`, `exchange_rate`, `information_schema`, and similar. As the name warns, don't use it for anything that touches user data.
-
 ## Passing the user into HogQL
 
 Levels 1 to 3 need to know who is querying.
+They share one preloaded `UserAccessControl` instance and partition the query cache so a restricted user can never be served an unrestricted user's cached rows.
+
 The user is threaded through `Database.create_for()` and `HogQLContext` (`posthog/hogql/context.py`):
 
 ```python
