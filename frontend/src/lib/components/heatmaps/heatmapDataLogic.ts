@@ -38,6 +38,10 @@ const UNBOUNDED_HEATMAP_LIMIT = 0
 // Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
 export const MAX_HEATMAP_HEIGHT = 8000
 
+// Below this many interactions we treat a heatmap as sparse and surface which filters are
+// narrowing it, since a busy page rarely has this few clicks unless a filter is hiding them.
+export const SPARSE_HEATMAP_INTERACTION_THRESHOLD = 10
+
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
     { value: 'red', label: 'Red (monocolor)' },
@@ -153,6 +157,8 @@ export interface heatmapDataLogicValues {
     heatmapColorPalette: string | null
     heatmapElements: HeatmapElement[]
     heatmapEmpty: boolean
+    heatmapInteractionCount: number
+    heatmapSparse: boolean
     heatmapFilters: HeatmapFilters
     heatmapFixedPositionMode: HeatmapFixedPositionMode
     heatmapJsData: HeatmapJsData
@@ -302,6 +308,13 @@ export interface heatmapDataLogicMeta {
         widthOverride: (windowWidthOverride: number | null) => number
         heatmapTooltipLabel: (heatmapFilters: HeatmapFilters) => string
         heatmapEmpty: (rawHeatmap: HeatmapResponseType | null, rawHeatmapLoading: boolean) => boolean
+        heatmapInteractionCount: (heatmapElements: HeatmapElement[]) => number
+        heatmapSparse: (
+            rawHeatmap: HeatmapResponseType | null,
+            rawHeatmapLoading: boolean,
+            heatmapFilters: HeatmapFilters,
+            heatmapInteractionCount: number
+        ) => boolean
         maxYFromEvents: (heatmapElements: HeatmapElement[]) => number
         heightOverride: (maxYFromEvents: number, windowHeight: number) => number
         isHeightCapped: (maxYFromEvents: number) => boolean
@@ -609,6 +622,31 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             (s) => [s.rawHeatmap, s.rawHeatmapLoading],
             (rawHeatmap: HeatmapResponseType | null, rawHeatmapLoading: boolean) => {
                 return rawHeatmap?.results.length === 0 && !rawHeatmapLoading
+            },
+        ],
+
+        heatmapInteractionCount: [
+            (s) => [s.heatmapElements],
+            (heatmapElements: HeatmapElement[]): number =>
+                heatmapElements.reduce((total, element) => total + (element.count ?? 0), 0),
+        ],
+
+        heatmapSparse: [
+            (s) => [s.rawHeatmap, s.rawHeatmapLoading, s.heatmapFilters, s.heatmapInteractionCount],
+            (
+                rawHeatmap: HeatmapResponseType | null,
+                rawHeatmapLoading: boolean,
+                heatmapFilters: HeatmapFilters,
+                heatmapInteractionCount: number
+            ): boolean => {
+                if (rawHeatmapLoading || !rawHeatmap || rawHeatmap.results.length === 0) {
+                    return false
+                }
+                // scroll depth is a reach curve, not a count of interactions, so "too few" doesn't apply
+                if (heatmapFilters.type === 'scrolldepth') {
+                    return false
+                }
+                return heatmapInteractionCount > 0 && heatmapInteractionCount < SPARSE_HEATMAP_INTERACTION_THRESHOLD
             },
         ],
 

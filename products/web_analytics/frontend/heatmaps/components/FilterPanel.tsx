@@ -20,6 +20,8 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { buildQueryAgnosticUrlPattern } from './heatmapsBrowserLogic'
+
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
         type: PropertyFilterType.Cohort,
@@ -135,7 +137,6 @@ export function FilterPanel({
         viewportRange,
         commonFilters,
         rawHeatmapLoading,
-        heatmapEmpty,
     } = useValues(heatmapDataLogic({ context: 'in-app' }))
 
     const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } = useActions(
@@ -257,12 +258,85 @@ export function FilterPanel({
                 </div>
                 <ViewportChooser />
             </div>
-            {heatmapEmpty ? (
-                <LemonBanner type="info" className="mb-2">
-                    No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap
-                    settings. A high value can hide data on pages with less traffic.
-                </LemonBanner>
-            ) : null}
+            <LowDataHint />
         </>
+    )
+}
+
+/**
+ * When a heatmap comes back empty or with only a handful of interactions, name the two filters
+ * that most often hide data on a busy page (exact-URL matching and the viewport width band) and
+ * give a one-click way to loosen each, instead of leaving the page looking dead.
+ */
+function LowDataHint(): JSX.Element | null {
+    const { heatmapEmpty, heatmapSparse, heatmapInteractionCount, href, heatmapFilters, viewportRange } = useValues(
+        heatmapDataLogic({ context: 'in-app' })
+    )
+    const { setHref, setHrefMatchType, patchHeatmapFilters } = useActions(heatmapDataLogic({ context: 'in-app' }))
+
+    if (!heatmapEmpty && !heatmapSparse) {
+        return null
+    }
+
+    // Offer to drop the query string whenever the matched URL carries one, so query-string variants
+    // of the page stop being counted as separate pages. This is independent of hrefMatchType: a URL
+    // with a "?" is classified as a pattern, but still only matches its own query string.
+    const queryAgnosticPattern = href ? buildQueryAgnosticUrlPattern(href) : null
+    const canDropQueryString = !!queryAgnosticPattern && href !== queryAgnosticPattern
+    const viewportRestrictive = (heatmapFilters?.viewportAccuracy ?? 0) > 0
+
+    const intro = heatmapEmpty
+        ? 'No interactions match these filters.'
+        : `Only ${heatmapInteractionCount} ${
+              heatmapInteractionCount === 1 ? 'interaction matches' : 'interactions match'
+          } these filters.`
+
+    return (
+        <LemonBanner type="info" className="mb-2">
+            <p className="mb-1 font-semibold">{intro}</p>
+            <p className="mb-1">
+                On pages that get a lot of traffic, this usually means a filter is narrowing the data:
+            </p>
+            <ul className="list-disc pl-4 deprecated-space-y-2">
+                {canDropQueryString ? (
+                    <li>
+                        <span>
+                            This URL includes a query string (like <code>?utm_source=…</code>), and each variant of it
+                            is counted as a separate page.
+                        </span>
+                        <div className="mt-1">
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                onClick={() => {
+                                    setHrefMatchType('pattern')
+                                    setHref(queryAgnosticPattern as string)
+                                }}
+                            >
+                                Match any query string
+                            </LemonButton>
+                        </div>
+                    </li>
+                ) : null}
+                <li>
+                    <span>
+                        Only viewports from {viewportRange?.min}px to {viewportRange?.max}px are counted, based on your
+                        screen width, so visitors on other screen sizes are left out.
+                    </span>
+                    {viewportRestrictive ? (
+                        <div className="mt-1">
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                onClick={() => patchHeatmapFilters?.({ viewportAccuracy: 0 })}
+                            >
+                                Include all screen widths
+                            </LemonButton>
+                        </div>
+                    ) : null}
+                </li>
+            </ul>
+            <p className="mt-1 mb-0">You can also widen the date range above.</p>
+        </LemonBanner>
     )
 }

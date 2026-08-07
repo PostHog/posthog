@@ -115,3 +115,59 @@ export const New: Story = {
         pageUrl: urls.heatmap('new'),
     },
 }
+
+// A saved heatmap whose data URL carries a query string, so the empty/sparse hints can offer the
+// "Match any query string" action.
+const makeQueryStringSaved = (): Record<string, unknown> => ({
+    ...makeIframeSaved(),
+    id: 102,
+    short_id: 'hm_lowdata',
+    name: 'Iframe with query string',
+    url: `${window.location.origin}/mock-page.html?utm_source=newsletter`,
+    data_url: `${window.location.origin}/mock-page.html?utm_source=newsletter`,
+})
+
+export const EmptyData: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_lowdata'),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/saved/hm_lowdata/': () => [200, makeQueryStringSaved()],
+                '/api/projects/:team_id/heatmaps/': () => [200, { results: [], count: 0, next: null, previous: null }],
+            },
+        }),
+    ],
+}
+
+export const SparseData: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_lowdata'),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/saved/hm_lowdata/': () => [200, makeQueryStringSaved()],
+                '/api/projects/:team_id/heatmaps/': () => [
+                    200,
+                    {
+                        results: [
+                            { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 355, count: 2 },
+                            { pointer_relative_x: 0.7, pointer_target_fixed: false, pointer_y: 24, count: 1 },
+                        ],
+                        count: 2,
+                        next: null,
+                        previous: null,
+                    },
+                ],
+            },
+        }),
+    ],
+}

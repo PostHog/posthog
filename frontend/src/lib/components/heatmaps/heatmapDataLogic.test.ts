@@ -1,6 +1,7 @@
-import { heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
-import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+import { heatmapDataLogic, heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HeatmapBoundsFilter, HeatmapFilters, HeatmapKind } from 'lib/components/heatmaps/types'
 
+import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
 describe('isWithinBounds', () => {
@@ -55,5 +56,56 @@ describe('heatmapApiPath', () => {
             : { current_team: { id: teamId } }) as unknown as AppContext
 
         expect(heatmapApiPath(context, endpoint)).toBe(expected)
+    })
+})
+
+describe('heatmapDataLogic empty and sparse detection', () => {
+    let logic: ReturnType<typeof heatmapDataLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = heatmapDataLogic({ context: 'in-app' })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    const clickResults = (counts: number[]): Record<string, unknown>[] =>
+        counts.map((count) => ({
+            count,
+            pointer_relative_x: 0.5,
+            pointer_target_fixed: false,
+            pointer_y: 100,
+        }))
+
+    it.each([
+        ['no interactions is empty, not sparse', [], true, false, 0],
+        ['a handful of clicks is sparse', [2, 1], false, true, 3],
+        // threshold is exclusive: a page right at the cutoff is not flagged
+        ['clicks at the threshold are not sparse', [10], false, false, 10],
+        ['plenty of clicks is neither empty nor sparse', [60], false, false, 60],
+    ] as const)('%s', (_name, counts, expectedEmpty, expectedSparse, expectedCount) => {
+        logic.actions.loadHeatmapSuccess({ results: clickResults([...counts]) as any })
+
+        expect(logic.values.heatmapEmpty).toBe(expectedEmpty)
+        expect(logic.values.heatmapSparse).toBe(expectedSparse)
+        expect(logic.values.heatmapInteractionCount).toBe(expectedCount)
+    })
+
+    it('never flags scroll depth as sparse, since it is a reach curve rather than an interaction count', () => {
+        const filters: HeatmapFilters = {
+            enabled: true,
+            type: 'scrolldepth' as HeatmapKind,
+            viewportAccuracy: 0.9,
+            aggregation: 'total_count',
+        }
+        logic.actions.setHeatmapFilters(filters)
+        logic.actions.loadHeatmapSuccess({
+            results: [{ scroll_depth_bucket: 100, cumulative_count: 3, bucket_count: 3 }] as any,
+        })
+
+        expect(logic.values.heatmapSparse).toBe(false)
     })
 })

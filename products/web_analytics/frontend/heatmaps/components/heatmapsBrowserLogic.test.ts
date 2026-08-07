@@ -7,12 +7,28 @@ import { initKeaTests } from '~/test/init'
 
 import {
     PagePreflight,
+    buildQueryAgnosticUrlPattern,
     heatmapsBrowserLogic,
     normalizeHeatmapDataUrl,
     preflightBannerMessage,
 } from './heatmapsBrowserLogic'
 
 describe('heatmapsBrowserLogic', () => {
+    describe('buildQueryAgnosticUrlPattern', () => {
+        it.each([
+            // a query string or hash is dropped and the literal URL is regex-escaped before the trailing `.*`
+            ['https://example.com/pricing?utm_source=x', 'https://example\\.com/pricing.*'],
+            ['https://example.com/pricing#reviews', 'https://example\\.com/pricing.*'],
+            ['https://example.com/?ref=nav', 'https://example\\.com/.*'],
+            ['https://example.com/plans.html?a=1', 'https://example\\.com/plans\\.html.*'],
+            // nothing to loosen when there is no query string or hash, so no pattern is offered
+            ['https://example.com/pricing', null],
+            ['not-a-url', null],
+        ] as const)('buildQueryAgnosticUrlPattern(%s) → %s', (input, expected) => {
+            expect(buildQueryAgnosticUrlPattern(input)).toEqual(expected)
+        })
+    })
+
     describe('normalizeHeatmapDataUrl', () => {
         it.each([
             ['example.com', null],
