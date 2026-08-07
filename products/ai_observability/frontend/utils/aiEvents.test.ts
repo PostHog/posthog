@@ -13,54 +13,31 @@ describe('aiEventsUtils', () => {
     })
 
     describe('hasRecentAIEvents', () => {
-        it('returns true when a valid non-stale EventDefinition exists', async () => {
-            const recentDate = dayjs().subtract(1, 'day').toISOString()
+        // Any non-stale `$ai_*` definition should short-circuit to the dashboard. Cover events that
+        // the old four-name allowlist dropped ($ai_metric, $ai_feedback, $ai_evaluation) so a
+        // project instrumented with only those isn't sent back to onboarding.
+        it.each(['$ai_generation', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation'])(
+            'returns true from EventDefinition for %s without querying ClickHouse',
+            async (eventName) => {
+                const recentDate = dayjs().subtract(1, 'day').toISOString()
 
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/event_definitions/': {
-                        results: [
-                            {
-                                id: '1',
-                                name: '$ai_generation',
-                                last_seen_at: recentDate,
-                            },
-                        ],
-                        count: 1,
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/event_definitions/': {
+                            results: [{ id: '1', name: eventName, last_seen_at: recentDate }],
+                            count: 1,
+                        },
                     },
-                },
-            })
+                })
 
-            const queryApiSpy = jest.spyOn(api, 'query')
+                const queryApiSpy = jest.spyOn(api, 'query')
 
-            const result = await hasRecentAIEvents()
+                const result = await hasRecentAIEvents()
 
-            expect(result).toBe(true)
-            expect(queryApiSpy).not.toHaveBeenCalled()
-        })
-
-        it('returns true for $ai_trace event type', async () => {
-            const recentDate = dayjs().subtract(1, 'day').toISOString()
-
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/event_definitions/': {
-                        results: [
-                            {
-                                id: '1',
-                                name: '$ai_trace',
-                                last_seen_at: recentDate,
-                            },
-                        ],
-                        count: 1,
-                    },
-                },
-            })
-
-            const result = await hasRecentAIEvents()
-
-            expect(result).toBe(true)
-        })
+                expect(result).toBe(true)
+                expect(queryApiSpy).not.toHaveBeenCalled()
+            }
+        )
 
         it('falls back to ClickHouse when EventDefinition is stale', async () => {
             const staleDate = dayjs().subtract(120, 'day').toISOString()
@@ -138,7 +115,7 @@ describe('aiEventsUtils', () => {
                         results: [
                             {
                                 id: '1',
-                                name: '$ai_something_else',
+                                name: '$pageview',
                                 last_seen_at: recentDate,
                             },
                         ],

@@ -5,7 +5,10 @@ import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-genera
 import { hogql } from '~/queries/utils'
 import { EventDefinitionType } from '~/types'
 
-const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
+// Match the whole `$ai_*` event family, not a hand-picked subset. A project sending only
+// `$ai_evaluation`, `$ai_metric`, or `$ai_feedback` is still instrumented and must land on the
+// dashboard rather than the onboarding screen.
+const AI_EVENT_PREFIX = '$ai_'
 
 // Use a longer staleness window than the global default so orgs that ingested AI events
 // in the past, paused, and have since resumed still land on the dashboard rather than the
@@ -24,22 +27,23 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     // Fast path: check EventDefinition (works for most existing users)
     const aiEventDefinitions = await api.eventDefinitions.list({
         event_type: EventDefinitionType.Event,
-        search: '$ai_',
+        search: AI_EVENT_PREFIX,
     })
 
     const validDefinition = aiEventDefinitions?.results?.find(
-        (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
+        (r) => r.name.startsWith(AI_EVENT_PREFIX) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
     )
 
     if (validDefinition) {
         return true
     }
 
-    // Fallback: query ClickHouse directly for recent events (new users)
+    // Fallback: query ClickHouse directly for recent events (new users). Use the same window as
+    // the staleness rule above so the two paths agree on what "recently instrumented" means.
     const response = await api.query<HogQLQuery>(
         {
             kind: NodeKind.HogQLQuery,
-            query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 12 HOUR LIMIT 1`,
+            query: hogql`SELECT 1 FROM events WHERE event LIKE '$ai_%' AND timestamp > now() - toIntervalDay(${AI_STALE_EVENT_DAYS}) LIMIT 1`,
             tags: { productKey: ProductKey.AI_OBSERVABILITY },
         },
         { refresh: 'force_blocking' }
