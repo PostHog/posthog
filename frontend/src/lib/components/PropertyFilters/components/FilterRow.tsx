@@ -54,6 +54,10 @@ export const FilterRow = React.memo(function FilterRow({
     size = 'small',
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
+    // True while the popover is opening but floating-ui hasn't positioned it yet, so it's still
+    // invisible. Clicking the trigger during this frame used to toggle `open` straight back off,
+    // swallowing the click; we ignore trigger clicks until the overlay is actually on screen.
+    const [openingPopover, setOpeningPopover] = useState(false)
 
     const { key } = item
     const isValid = isValidPropertyFilter(item)
@@ -64,6 +68,13 @@ export const FilterRow = React.memo(function FilterRow({
         }
 
         setOpen(visible)
+    }
+
+    const toggleOpen = (): void => {
+        if (openingPopover) {
+            return
+        }
+        setOpen((wasOpen) => !wasOpen)
     }
 
     return (
@@ -94,18 +105,19 @@ export const FilterRow = React.memo(function FilterRow({
                         className="filter-row-popover"
                         visible={open}
                         onClickOutside={() => handleVisibleChange(false)}
+                        onPositionPendingChange={setOpeningPopover}
                         overlay={filterComponent(() => setOpen(false))}
                     >
                         {isValid ? (
                             <PropertyFilterButton
-                                onClick={() => setOpen(!open)}
+                                onClick={toggleOpen}
                                 onClose={() => onRemove(index)}
                                 item={item}
                                 disabledReason={disabledReason}
                             />
                         ) : !disabledReason ? (
                             <LemonButton
-                                onClick={() => setOpen(!open)}
+                                onClick={toggleOpen}
                                 className={clsx('new-prop-filter', labelClassName)}
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"

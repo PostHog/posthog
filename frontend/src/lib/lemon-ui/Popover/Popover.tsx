@@ -80,6 +80,13 @@ export interface PopoverProps {
     showArrow?: boolean
     /** An added delay before the floating overlay is shown */
     delayMs?: number
+    /**
+     * Called when the "opening" state changes: `true` once `visible` flips true but floating-ui
+     * hasn't measured the overlay's position yet (so it's still rendered with `display: none`),
+     * then `false` once it's positioned or hidden. Lets a consumer keep its trigger inert during
+     * that invisible frame so an impatient second click doesn't toggle the popover back shut.
+     */
+    onPositionPendingChange?: (pending: boolean) => void
 }
 
 /** Context for the popover overlay: parent popover visibility and parent popover level. */
@@ -128,6 +135,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         showArrow = false,
         overflowHidden = false,
         delayMs = 50,
+        onPositionPendingChange,
     },
     contentRef
 ): JSX.Element {
@@ -366,6 +374,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     // x/y. Until then, rendering at the (0, 0) fallback would briefly flash the overlay at
     // the top-left of the viewport. Hide it until positioning resolves.
     const isPositionPending = isAttached && (x == null || y == null)
+
+    // Surface the invisible "opening" frame to consumers so they can keep their trigger inert.
+    const positionPending = visible && !!isPositionPending
+    useEffect(() => {
+        onPositionPendingChange?.(positionPending)
+    }, [positionPending]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>
