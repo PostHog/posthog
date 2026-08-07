@@ -194,3 +194,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         if dashboard_filter.breakdown_filter is not None:
             self.query.filters.breakdownFilter = dashboard_filter.breakdown_filter
+
+        # Tri-state override: None means inherit the insight's own setting.
+        if dashboard_filter.filterTestAccounts is not None:
+            self.query.filters.filterTestAccounts = dashboard_filter.filterTestAccounts

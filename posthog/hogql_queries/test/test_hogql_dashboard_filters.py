@@ -2,6 +2,8 @@ from typing import Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BreakdownFilter,
     DashboardFilter,
@@ -80,3 +82,18 @@ class TestHogQLDashboardFilters(BaseTest):
         query_runner.apply_dashboard_filters(DashboardFilter(breakdown_filter=breakdown_filter))
 
         assert query_runner.query.filters == HogQLFilters(breakdownFilter=breakdown_filter)
+
+    @parameterized.expand(
+        [
+            ("force_on", None, True, True),
+            ("force_off_overrides_insight", True, False, False),
+            ("absent_inherits_insight", True, None, True),
+        ]
+    )
+    def test_filter_test_accounts_tri_state_override(
+        self, _name: str, insight_value: Optional[bool], override: Optional[bool], expected: Optional[bool]
+    ):
+        query_runner = self._create_hogql_runner(filters=HogQLFilters(filterTestAccounts=insight_value))
+        query_runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=override))
+
+        assert query_runner.query.filters == HogQLFilters(filterTestAccounts=expected)
