@@ -29,7 +29,7 @@ import numpy as np
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -83,6 +83,11 @@ SCAN_MAX_EXECUTION_SECONDS = int(os.environ.get("LOGS_ANOMALY_SCAN_MAX_EXECUTION
 
 class ScanBudgetExceeded(Exception):
     """Every degradation rung blew the byte budget or the scan deadline."""
+
+
+class ScanFetchTruncated(Exception):
+    """The bucket fetch hit its row limit, so the history would be silently
+    incomplete. Degradable: fewer lookback buckets means fewer rows."""
 
 
 class BindingConstraint(StrEnum):
@@ -321,8 +326,16 @@ def fetch_bucket_counts(
         WHERE {where}
         GROUP BY bucket, severity_text
         ORDER BY bucket ASC
+        LIMIT {row_limit}
         """,
-        placeholders={"bucket_minutes": ast.Constant(value=BUCKET_MINUTES), "where": where},
+        placeholders={
+            "bucket_minutes": ast.Constant(value=BUCKET_MINUTES),
+            "where": where,
+            # Without an explicit LIMIT, HogQL applies the context default of
+            # 100 rows, and ClickHouse returns buckets in primary-key order —
+            # the scan would silently see only the oldest sliver of history.
+            "row_limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
     )
     assert isinstance(query, ast.SelectQuery)
 
@@ -335,6 +348,11 @@ def fetch_bucket_counts(
         limit_context=LimitContext.QUERY,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
     )
+
+    # A full page may be complete-but-exactly-full; treating it as truncated is
+    # the conservative read — degrading beats scoring against partial history.
+    if len(response.results) >= MAX_SELECT_RETURNED_ROWS:
+        raise ScanFetchTruncated(f"bucket fetch returned {len(response.results)} rows, at the row limit")
 
     counts: dict[str, dict[dt.datetime, int]] = {}
     for row in response.results:
@@ -547,7 +565,7 @@ def run_scan(
         ranges = baseline_slice_ranges(attempt.eval_start, attempt.eval_end, attempt.lookback_buckets, config_probe)
         try:
             counts = fetch_bucket_counts(team, service_name, ranges, max_execution_seconds=remaining_seconds)
-        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut) as err:
+        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut, ScanFetchTruncated) as err:
             last_error = err
             continue
 
