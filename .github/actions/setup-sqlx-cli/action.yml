@@ -20,6 +20,29 @@ runs:
               path: ${{ runner.temp }}/sqlx-cli
               key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
+        - name: Install Rust toolchain on cache miss
+          # Building sqlx-cli from source needs the Rust toolchain, but a cache hit
+          # skips the build, so only reach for the toolchain (and static.rust-lang.org)
+          # when we actually have to compile. rustup fetches over the network, so retry
+          # a dropped connection instead of failing the job on a single blip.
+          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'
+          shell: bash
+          run: |
+              set -euo pipefail
+              for attempt in 1 2 3; do
+                  if rustup toolchain install stable --profile minimal --component cargo --no-self-update; then
+                      break
+                  fi
+                  if [ "$attempt" -eq 3 ]; then
+                      echo "rustup toolchain install failed after $attempt attempts" >&2
+                      exit 1
+                  fi
+                  delay=$((attempt * 15))
+                  echo "rustup toolchain install attempt $attempt failed; retrying in ${delay}s..." >&2
+                  sleep "$delay"
+              done
+              rustup default stable
+
         - name: Build sqlx-cli on cache miss
           if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'
           shell: bash

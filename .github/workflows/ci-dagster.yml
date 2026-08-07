@@ -360,13 +360,9 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: stable
-                  components: cargo
-
             - name: Install sqlx-cli
+              # setup-sqlx-cli installs the Rust toolchain itself, but only on a cache
+              # miss, so a cache hit no longer touches static.rust-lang.org at all.
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Add service hostnames to /etc/hosts
