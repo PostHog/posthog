@@ -43,6 +43,7 @@ jobs:
                         - 'bin/generate_personhog_proto.sh'
                         - 'nodejs/src/common/generated/personhog/**'
                         - 'nodejs/buf.gen.yaml'
+                        - 'nodejs/package.json'
                         - '.github/workflows/ci-proto.yml'
 
     lint:
@@ -122,6 +123,8 @@ jobs:
 
             - name: Check for diff
               run: |
+                  # Intent-to-add so brand-new generated files show up in git diff
+                  git add -N posthog/personhog_client/proto/generated/
                   if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
                     echo ""
                     echo "ERROR: Generated Python proto stubs are out of date."
@@ -158,6 +161,8 @@ jobs:
 
             - name: Check for diff
               run: |
+                  # Intent-to-add so brand-new generated files show up in git diff
+                  git add -N nodejs/src/common/generated/personhog/
                   if ! git diff --exit-code nodejs/src/common/generated/personhog/; then
                     echo ""
                     echo "ERROR: Generated Node proto stubs are out of date."
