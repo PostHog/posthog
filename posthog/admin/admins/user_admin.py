@@ -130,12 +130,16 @@ class UserAdmin(DjangoUserAdmin):
     ordering = ("email",)
 
     def changelist_view(self, request, extra_context=None):
-        # Let tools that only know a customer's email (not their user ID) deep-link straight to
-        # the user's change page, where "Log in as" and the ticket-prefilled reason live. Only
-        # redirect on an unambiguous single match — email uniqueness is case-sensitive at the DB
-        # level, so `iexact` can match more than one row; when it does (or matches none), fall
-        # through to the normal changelist so a human disambiguates. The `ticket` param is carried
-        # through and pre-filled on the change page (see admin/posthog/user/change_form.html).
+        # Let tools that only know a customer's email (not their user ID) deep-link straight to the
+        # user's change page, where "Log in as" and the ticket-prefilled reason live. Match on
+        # `email__iexact` to tolerate whatever casing was pasted in, and carry the `ticket` param
+        # through so it pre-fills on the change page (see admin/posthog/user/change_form.html).
+        #
+        # Only redirect on an unambiguous single match. New emails are lowercased (EmailNormalizer),
+        # but legacy rows can hold case variants of the same address — EmailLookupHandler exists
+        # precisely because "test@x.com" and "Test@x.com" can coexist — so an iexact lookup can
+        # return several. When it does (or matches none), fall through to the changelist so a human
+        # picks the account rather than impersonating an arbitrary one.
         ticket = request.GET.get("ticket")
         query = request.GET.get("q")
         if ticket and query and self.has_view_or_change_permission(request):
@@ -143,6 +147,14 @@ class UserAdmin(DjangoUserAdmin):
             if len(matches) == 1:
                 change_url = reverse("admin:posthog_user_change", args=[matches[0].pk])
                 return HttpResponseRedirect(f"{change_url}?{urlencode({'ticket': ticket})}")
+        if ticket:
+            # `ticket` is not a real changelist filter. Left in the querystring, Django's changelist
+            # treats it as a field lookup, raises IncorrectLookupParameters, and redirects to ?e=1
+            # (an error page) instead of the results. Strip it so the no-match fall-through renders
+            # the normal search page.
+            mutable_get = request.GET.copy()
+            mutable_get.pop("ticket", None)
+            request.GET = mutable_get
         return super().changelist_view(request, extra_context=extra_context)
 
     @admin.display(description="Current Team")
