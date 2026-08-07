@@ -853,9 +853,11 @@ export class PersonMergeService {
                 async (tx) => {
                     // New-world merges claim both persons in the lifecycle mark table: at
                     // most one live operation (merge or delete saga) may hold a person, so
-                    // nothing can tombstone the target or mutate the source's identity under
-                    // this transaction. The liveness check is a separate statement because a
-                    // claim that waited on the mark index resumes with a stale snapshot.
+                    // neither can be tombstoned under this transaction. The marks say
+                    // nothing about tombstones committed before the claim, so assert both
+                    // persons are still live while holding them. Liveness checks are
+                    // separate statements because a claim that waited on the mark index
+                    // resumes with a stale snapshot.
                     if (this.context.mergeTombstoneEnabled) {
                         await tx.claimLifecycleMarks(
                             this.context.event.uuid,
@@ -877,6 +879,9 @@ export class PersonMergeService {
                         )
                         if (!(await tx.isPersonLive(currentTargetPerson, this.context.distinctId))) {
                             throw new TargetPersonNotFoundError('Target person was deleted concurrently')
+                        }
+                        if (!(await tx.isPersonLive(currentSourcePerson, this.context.distinctId))) {
+                            throw new SourcePersonNotFoundError('Source person was deleted concurrently')
                         }
                     }
                     const [person, updatePersonMessages] = await tx.updatePersonForMerge(

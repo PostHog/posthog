@@ -296,7 +296,8 @@ describe('PersonState.processEvent()', () => {
         team = mainTeam,
         mergeMode = createDefaultSyncMergeMode(),
         mergeEventsConfig?: { enabled: boolean; partitionCount: number; isTeamEnabled?: (teamId: number) => boolean },
-        customPersonsStore?: BatchWritingPersonsStore
+        customPersonsStore?: BatchWritingPersonsStore,
+        mergeTombstoneEnabled = false
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -326,7 +327,10 @@ describe('PersonState.processEvent()', () => {
             false,
             // isTeamEnabled defaults to allow-all so the enabled/produce tests are unaffected by the
             // team gate; pass it explicitly to exercise the allowlist.
-            { isTeamEnabled: () => true, ...(mergeEventsConfig ?? { enabled: false, partitionCount: 64 }) }
+            { isTeamEnabled: () => true, ...(mergeEventsConfig ?? { enabled: false, partitionCount: 64 }) },
+            undefined,
+            undefined,
+            mergeTombstoneEnabled
         )
         return new PersonMergeService(context)
     }
@@ -3892,6 +3896,77 @@ describe('PersonState.processEvent()', () => {
                     'person2-merged-distinct-id',
                 ])
             )
+        })
+
+        it('tombstone-mode merge with a concurrently tombstoned source converges to a no-op instead of half-applying', async () => {
+            const target = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, true, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const source = await createPerson(
+                hub,
+                timestamp,
+                { plan: 'pro' },
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                secondUserUuid,
+                { distinctId: secondUserDistinctId }
+            )
+
+            // A concurrent operation tombstones the source after our stale fetch, while an
+            // identity write that raced the tombstone left a live mapping pointing at it.
+            // Without the post-claim source liveness check the merge would move that mapping
+            // and merge the stale source properties into the target.
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_person SET is_deleted = true, version = version + 1 WHERE team_id = $1 AND id = $2',
+                [teamId, source.id],
+                'testTombstoneSource'
+            )
+
+            const mergeService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: firstUserDistinctId,
+                    uuid: new UUIDT().toString(),
+                },
+                hub,
+                personRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                undefined,
+                undefined,
+                true
+            )
+
+            const result = await mergeService.mergePeople({
+                mergeInto: target,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: source,
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+
+            // The retry refreshes by the source distinct id, which no longer resolves to a
+            // live person, so the merge converges to a no-op on the untouched target.
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            expect(result.person).toMatchObject({ id: target.id, uuid: firstUserUuid })
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toMatchObject({
+                id: target.id,
+                properties: {},
+                version: 0,
+            })
+            const targetDistinctIds = await fetchPostgresDistinctIdsForPerson(hub.postgres, target.id)
+            expect(targetDistinctIds).toEqual([firstUserDistinctId])
         })
 
         describe('SYNC mode with batch processing', () => {
