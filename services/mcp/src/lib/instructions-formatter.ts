@@ -1,6 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
+    buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
@@ -268,6 +269,7 @@ export class InstructionsFormatter {
         // via the single `query` tool domain instead.
         const vars = {
             guidelines: ctx.guidelines.trim(),
+            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',

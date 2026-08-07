@@ -133,6 +133,20 @@ describe('InstructionsFormatter', () => {
             expect(result.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
         })
 
+        // The domain index names PostHog resources, not callable tools, so without this
+        // line the payload never states what can actually be called. `render-ui` is only
+        // mounted on MCP Apps hosts — naming it elsewhere advertises a tool that isn't there.
+        it('names the callable tools, gating render-ui on the host mounting it', () => {
+            const formatter = new InstructionsFormatter()
+            const withUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: true })
+            const withoutUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: false })
+
+            expect(withUi).toContain('`exec` — run any PostHog command')
+            expect(withUi).toContain('`render-ui` — show a tool result as an interactive app.')
+            expect(withoutUi).toContain('`exec` — run any PostHog command')
+            expect(withoutUi).not.toContain('render-ui')
+        })
+
         it('does not bleed the full command reference into the compact instructions', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecInstructions(fullCtx)

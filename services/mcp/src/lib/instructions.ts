@@ -70,6 +70,20 @@ export function buildActiveEnvironmentContextPrompt(
     return `### Active environment\n\n${lines.join('\n')}`
 }
 
+/**
+ * The tools the MCP actually advertises in single-exec mode. Without this the domain
+ * index is the only list in the payload, and it names PostHog resources rather than
+ * callable tools — so a model that reads `scout|survey|…` as the tool list has no
+ * callable name to reach for. `render-ui` is listed only where it is mounted.
+ */
+export function buildAvailableToolsBlock(renderUiEnabled?: boolean): string {
+    const lines = ['`exec` — run any PostHog command; its `command` description has the syntax.']
+    if (renderUiEnabled) {
+        lines.push('`render-ui` — show a tool result as an interactive app.')
+    }
+    return lines.join('\n')
+}
+
 export interface ToolInfo {
     name: string
     category: string
