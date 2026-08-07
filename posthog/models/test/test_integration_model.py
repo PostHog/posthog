@@ -2203,6 +2203,42 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         mock_patch.assert_not_called()
 
+    def test_search_issues_drops_results_from_other_repositories(self):
+        # Search-syntax operators in the query (e.g. "foo OR bar") can escape the repo:
+        # qualifier, so results must be filtered by the repository they actually belong to.
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "items": [
+                {
+                    "number": 1,
+                    "title": "In repo",
+                    "html_url": "https://github.com/PostHog/posthog/issues/1",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                },
+                {
+                    "number": 2,
+                    "title": "Other repo",
+                    "html_url": "https://github.com/PostHog/other/issues/2",
+                    "repository_url": "https://api.github.com/repos/PostHog/other",
+                },
+                {
+                    "number": 3,
+                    "title": "A pull request",
+                    "html_url": "https://github.com/PostHog/posthog/pull/3",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                    "pull_request": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/3"},
+                },
+            ]
+        }
+        with patch.object(github, "api_request", return_value=mock_response):
+            results = github.search_issues("posthog", "timeout OR crash")
+        assert [result["id"] for result in results] == ["1"]
+        assert results[0]["external_context"] == {"repository": "posthog", "number": 1}
+
     def test_comment_on_pull_request_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
