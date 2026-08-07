@@ -14,6 +14,7 @@ from parameterized import parameterized
 from products.mcp_analytics.backend.failure_classification import (
     CLASSIFY_BATCH_SIZE,
     FailureClass,
+    FailureClassificationUnavailable,
     classify_fingerprints,
     normalize_fingerprint,
 )
@@ -68,6 +69,20 @@ def _classification_payload(fingerprints: list[str], failure_class: str) -> str:
 
 
 class TestClassifyFingerprints(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+    def test_raises_without_ai_processing_consent(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+            with self.assertRaises(FailureClassificationUnavailable):
+                classify_fingerprints({"a fingerprint": "a raw message"}, self.team)
+
+        mock_openai_cls.return_value.chat.completions.create.assert_not_called()
+
     def test_returns_mapping_from_fingerprint_to_class(self) -> None:
         items = {
             "timed out after seconds": "Error: timed out after 45 seconds",
@@ -106,12 +121,25 @@ class TestClassifyFingerprints(BaseTest):
         assert mock_create.call_count == 2
         assert len(result) == len(items)
 
-    def test_invalid_class_is_retried_then_marked_internal_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("invalid_class", [{"line_number": 1, "failure_class": "not_a_real_class"}]),
+            (
+                "duplicate_line_numbers",
+                [{"line_number": 1, "failure_class": "timeout"}, {"line_number": 1, "failure_class": "rate_limited"}],
+            ),
+            ("missing_line", []),
+            ("out_of_range_line", [{"line_number": 7, "failure_class": "timeout"}]),
+        ]
+    )
+    def test_malformed_response_is_retried_then_marked_internal_error(
+        self, _name: str, classifications: list[dict[str, object]]
+    ) -> None:
         items = {"some fingerprint": "some raw message"}
-        invalid_payload = json.dumps({"classifications": [{"line_number": 1, "failure_class": "not_a_real_class"}]})
+        payload = json.dumps({"classifications": classifications})
         with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
             mock_create = mock_openai_cls.return_value.chat.completions.create
-            mock_create.side_effect = [_openai_response(invalid_payload), _openai_response(invalid_payload)]
+            mock_create.side_effect = [_openai_response(payload), _openai_response(payload)]
             result = classify_fingerprints(items, self.team)
 
         assert mock_create.call_count == 2

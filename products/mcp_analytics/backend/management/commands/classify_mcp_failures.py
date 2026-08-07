@@ -23,11 +23,18 @@ from posthog.models.team.team import Team
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.failure_classification import (
     FailureClass,
+    FailureClassificationUnavailable,
     classify_fingerprints,
     normalize_fingerprint,
 )
 
 EXAMPLE_MAX_CHARS = 80
+
+
+def _clean(value: str) -> str:
+    """Raw messages carry tabs and newlines; keep the TSV/stdout tables one row per record."""
+    return value.replace("\t", " ").replace("\n", " | ").replace("\r", "")
+
 
 _FAILURES_SQL = """
 SELECT
@@ -48,7 +55,11 @@ ORDER BY events DESC
 @dataclass
 class FingerprintAggregate:
     events: int = 0
-    users: int = 0
+    # Summed per-(tool, message) uniq counts: a user who hit several raw messages sharing one
+    # fingerprint is counted once per message, so this is an upper bound. An exact uniq would
+    # need the fingerprinting pushed into SQL, duplicating normalize_fingerprint and inviting
+    # drift; a bound is enough for ranking in a staff tool.
+    users_upper_bound: int = 0
     tools: set[str] = field(default_factory=set)
     example_message: str = ""
     example_events: int = 0
@@ -92,7 +103,7 @@ def aggregate_by_fingerprint(
             aggregate = FingerprintAggregate()
             aggregates[fingerprint] = aggregate
         aggregate.events += events
-        aggregate.users += users
+        aggregate.users_upper_bound += users
         if tool:
             aggregate.tools.add(tool)
         if events > aggregate.example_events:
@@ -137,18 +148,22 @@ class Command(BaseCommand):
             self._print_dry_run(aggregates)
             return
 
-        classifications = classify_fingerprints(
-            {fingerprint: aggregate.example_message for fingerprint, aggregate in aggregates.items()}, team
-        )
+        try:
+            classifications = classify_fingerprints(
+                {fingerprint: aggregate.example_message for fingerprint, aggregate in aggregates.items()}, team
+            )
+        except FailureClassificationUnavailable as e:
+            self.stderr.write(self.style.ERROR(f"Cannot classify: {e}"))
+            return
         self._print_breakdown(aggregates, classifications, total_failures)
         if output:
             self._write_tsv(output, aggregates, classifications)
 
     def _print_dry_run(self, aggregates: dict[str, FingerprintAggregate]) -> None:
-        self.stdout.write("\nfingerprint\tevents\tusers\texample")
+        self.stdout.write("\nfingerprint\tevents\tusers_upper_bound\texample")
         for fingerprint, aggregate in sorted(aggregates.items(), key=lambda item: item[1].events, reverse=True):
-            example = aggregate.example_message[:EXAMPLE_MAX_CHARS]
-            self.stdout.write(f"{fingerprint}\t{aggregate.events}\t{aggregate.users}\t{example}")
+            example = _clean(aggregate.example_message)[:EXAMPLE_MAX_CHARS]
+            self.stdout.write(f"{fingerprint}\t{aggregate.events}\t{aggregate.users_upper_bound}\t{example}")
 
     def _print_breakdown(
         self,
@@ -167,7 +182,7 @@ class Command(BaseCommand):
             events = sum(aggregates[f].events for f in fingerprints)
             share = round(events * 100.0 / total_failures, 1) if total_failures else 0.0
             example_fingerprint = max(fingerprints, key=lambda f: aggregates[f].events)
-            example = aggregates[example_fingerprint].example_message[:EXAMPLE_MAX_CHARS]
+            example = _clean(aggregates[example_fingerprint].example_message)[:EXAMPLE_MAX_CHARS]
             rows.append((failure_class, events, share, len(fingerprints), example))
 
         for failure_class, events, share, fingerprint_count, example in sorted(
@@ -182,10 +197,13 @@ class Command(BaseCommand):
         classifications: dict[str, str],
     ) -> None:
         with open(output, "w") as f:
-            f.write("fingerprint\tclass\tevents\tusers\ttools\texample\n")
+            f.write("fingerprint\tclass\tevents\tusers_upper_bound\ttools\texample\n")
             for fingerprint, aggregate in sorted(aggregates.items(), key=lambda item: item[1].events, reverse=True):
                 failure_class = classifications.get(fingerprint, FailureClass.INTERNAL_ERROR.value)
-                tools = ",".join(sorted(aggregate.tools))
-                example = aggregate.example_message[:EXAMPLE_MAX_CHARS]
-                f.write(f"{fingerprint}\t{failure_class}\t{aggregate.events}\t{aggregate.users}\t{tools}\t{example}\n")
+                tools = _clean(",".join(sorted(aggregate.tools)))
+                example = _clean(aggregate.example_message)[:EXAMPLE_MAX_CHARS]
+                f.write(
+                    f"{fingerprint}\t{failure_class}\t{aggregate.events}"
+                    f"\t{aggregate.users_upper_bound}\t{tools}\t{example}\n"
+                )
         self.stdout.write(f"\nWrote {len(aggregates)} rows to {output}")

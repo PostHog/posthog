@@ -21,6 +21,11 @@ from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
+
+class FailureClassificationUnavailable(RuntimeError):
+    pass
+
+
 FAILURE_CLASS_MODEL = "gpt-5.6-luna"
 CLASSIFY_BATCH_SIZE = 25
 FINGERPRINT_MAX_CHARS = 200
@@ -174,11 +179,15 @@ def _classify_batch(client: OpenAI, batch: list[tuple[str, str]], team: Team) ->
             if attempt == 1:
                 break
             continue
+        # Valid JSON with missing/duplicate/out-of-range line numbers is as malformed as a
+        # schema violation: it must consume the retry, not silently orphan inputs.
+        returned_lines = sorted(item.line_number for item in parsed.classifications)
+        if returned_lines != list(range(1, len(batch) + 1)):
+            if attempt == 1:
+                break
+            continue
         by_line = {item.line_number: item.failure_class.value for item in parsed.classifications}
-        return {
-            fingerprint: by_line.get(i + 1, FailureClass.INTERNAL_ERROR.value)
-            for i, (fingerprint, _) in enumerate(batch)
-        }
+        return {fingerprint: by_line[i + 1] for i, (fingerprint, _) in enumerate(batch)}
     logger.warning("mcp_analytics.failure_classifier.batch_failed", team_id=team.id, batch_size=len(batch))
     return dict.fromkeys((fingerprint for fingerprint, _ in batch), FailureClass.INTERNAL_ERROR.value)
 
@@ -194,6 +203,11 @@ def classify_fingerprints(messages_by_fingerprint: dict[str, str], team: Team) -
     """
     if not messages_by_fingerprint:
         return {}
+
+    # Failure messages are customer-authored text, so shipping them to the LLM needs the
+    # organization's AI data processing consent, same as intent generation.
+    if not team.organization.is_ai_data_processing_approved:
+        raise FailureClassificationUnavailable("AI data processing is not approved for this organization")
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
     items = list(messages_by_fingerprint.items())
