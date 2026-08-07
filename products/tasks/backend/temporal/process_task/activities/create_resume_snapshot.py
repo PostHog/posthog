@@ -29,6 +29,12 @@ logger = structlog.get_logger(__name__)
 # killing the attempt first.
 RESUME_SNAPSHOT_TIMEOUT_SECONDS = 4 * 60
 
+# The pruned directory-snapshot retry runs inside the same 5-minute activity budget as the
+# failed first attempt, so it gets a tighter per-call timeout: prune (~90s) + this retry must
+# stay comfortably under the budget so the in-activity graceful degrade runs before Temporal
+# kills the attempt.
+PRUNED_RETRY_SNAPSHOT_TIMEOUT_SECONDS = 2 * 60
+
 PENDING_USER_STATE_KEYS = [
     "pending_user_message",
     "pending_user_artifact_ids",
@@ -111,11 +117,40 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             error=str(e),
         )
         try:
-            external_id = sandbox.create_directory_snapshot(snapshot_mount_path, prune_heavy_dirs=True)
-        except Exception as retry_error:
+            # Tighter per-call timeout: this retry runs after the failed first attempt inside the
+            # same 5-minute activity budget, so keep prune + retry snapshot well under it.
+            external_id = sandbox.create_directory_snapshot(
+                snapshot_mount_path, prune_heavy_dirs=True, timeout_seconds=PRUNED_RETRY_SNAPSHOT_TIMEOUT_SECONDS
+            )
+        except SnapshotTimeoutError as retry_error:
+            # Transient failure on the retry. The prune already ran against the live sandbox, so a
+            # Temporal activity retry re-runs the first (now-cheaper) snapshot against the shrunk
+            # tree — re-raise instead of forfeiting that recovery to a fresh start.
+            outcome = "transient_error"
+            logger.warning(
+                "create_resume_snapshot_transient_error_after_prune",
+                sandbox_id=input.sandbox_id,
+                error=str(retry_error),
+            )
+            increment_snapshot_create(snapshot_kind, outcome)
+            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+            raise
+        except SnapshotFileLimitExceededError as retry_error:
+            # Pruning did not bring the tree under the cap. Nothing more to try — degrade to a
+            # fresh start rather than crash the run.
             outcome = "file_limit_exceeded"
             logger.warning(
                 "create_resume_snapshot_file_limit_exceeded_after_prune",
+                sandbox_id=input.sandbox_id,
+                error=str(retry_error),
+            )
+            increment_snapshot_create(snapshot_kind, outcome)
+            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+            return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(retry_error))
+        except Exception as retry_error:
+            outcome = "failed"
+            logger.warning(
+                "create_resume_snapshot_snapshot_failed_after_prune",
                 sandbox_id=input.sandbox_id,
                 error=str(retry_error),
             )

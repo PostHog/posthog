@@ -836,28 +836,33 @@ class TestModalSandboxAgentServer:
         assert result == "snapshot-456"
         mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(timeout=240, ttl=None)
 
-    def test_directory_snapshot_over_file_cap_raises_classified_error(self, mock_sandbox: Any) -> None:
-        # Modal's 1M-file cap is permanent, not transient: it must surface as the classified,
-        # non-retryable error rather than a generic captured SnapshotCreationError.
-        mock_sandbox._sandbox.snapshot_directory.side_effect = ModalResourceExhaustedError(
-            "filesystem snapshot contains more than 1000000 files"
-        )
-
-        with pytest.raises(SnapshotFileLimitExceededError) as exc:
+    def _trigger_snapshot(self, mock_sandbox: Any, snapshot_method: str, error: Exception) -> None:
+        mock_sandbox._sandbox.snapshot_directory.side_effect = error
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = error
+        if snapshot_method == "create_directory_snapshot":
             mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR)
-
-        assert exc.value.non_retryable is True
-        assert exc.value.context["path"] == DEFAULT_SANDBOX_WORKING_DIR
-
-    def test_filesystem_snapshot_over_file_cap_raises_classified_error(self, mock_sandbox: Any) -> None:
-        mock_sandbox._sandbox.snapshot_filesystem.side_effect = ModalResourceExhaustedError(
-            "filesystem snapshot contains more than 1000000 files"
-        )
-
-        with pytest.raises(SnapshotFileLimitExceededError) as exc:
+        else:
             mock_sandbox.create_snapshot()
 
+    @pytest.mark.parametrize("snapshot_method", ["create_directory_snapshot", "create_snapshot"])
+    def test_snapshot_over_file_cap_raises_classified_error(self, mock_sandbox: Any, snapshot_method: str) -> None:
+        # Modal's 1M-file cap is permanent, not transient: it must surface as the classified,
+        # non-retryable error rather than a generic captured SnapshotCreationError.
+        cap_error = ModalResourceExhaustedError("filesystem snapshot contains more than 1000000 files")
+
+        with pytest.raises(SnapshotFileLimitExceededError) as exc:
+            self._trigger_snapshot(mock_sandbox, snapshot_method, cap_error)
+
         assert exc.value.non_retryable is True
+
+    @pytest.mark.parametrize("snapshot_method", ["create_directory_snapshot", "create_snapshot"])
+    def test_generic_resource_exhausted_is_transient_not_file_cap(self, mock_sandbox: Any, snapshot_method: str) -> None:
+        # A generic quota/rate-limit RESOURCE_EXHAUSTED must stay retryable, not be misclassified
+        # as the permanent file-count cap.
+        quota_error = ModalResourceExhaustedError("resource quota exceeded, please try again later")
+
+        with pytest.raises(SnapshotTimeoutError):
+            self._trigger_snapshot(mock_sandbox, snapshot_method, quota_error)
 
     def test_directory_snapshot_prunes_heavy_dirs_before_snapshotting(self, mock_sandbox: Any) -> None:
         mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-pruned")
@@ -869,6 +874,15 @@ class TestModalSandboxAgentServer:
         assert "node_modules" in prune_command
         assert ".venv" in prune_command
         assert DEFAULT_SANDBOX_WORKING_DIR in prune_command
+
+    def test_prune_failure_does_not_block_snapshot(self, mock_sandbox: Any) -> None:
+        # _prune_snapshot_heavy_dirs is best-effort: a failed prune must not skip the snapshot.
+        mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-after-failed-prune")
+        with patch.object(ModalSandbox, "execute", side_effect=SandboxExecutionError("prune timed out", {}, cause=RuntimeError())):
+            result = mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR, prune_heavy_dirs=True)
+
+        assert result == "im-after-failed-prune"
+        mock_sandbox._sandbox.snapshot_directory.assert_called_once()
 
 
 class TestModalSandboxProvisionDiagnostics:

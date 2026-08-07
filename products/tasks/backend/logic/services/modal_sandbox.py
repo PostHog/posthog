@@ -148,6 +148,19 @@ SNAPSHOT_PRUNE_DIR_NAMES = (
     ".pytest_cache",
     ".mypy_cache",
 )
+SNAPSHOT_PRUNE_TIMEOUT_SECONDS = 90
+
+
+def _is_snapshot_file_cap_error(error: BaseException) -> bool:
+    """Whether Modal's ``ResourceExhaustedError`` is the permanent >1M-file snapshot cap
+    rather than a generic (retryable) quota/rate-limit ``RESOURCE_EXHAUSTED``.
+
+    ``ResourceExhaustedError`` is Modal's generic gRPC RESOURCE_EXHAUSTED wrapper, so we
+    key on the file-count message ("... snapshot contains more than 1000000 files") to avoid
+    classifying a transient quota/rate-limit blip as a permanent, non-retryable failure.
+    """
+    message = str(error).lower()
+    return "snapshot" in message and "more than" in message and "file" in message
 
 # Modal's snapshot_filesystem default timeout is 55s, which multi-GB sandbox filesystems
 # routinely exceed. The default fits the standalone snapshot activity's 10-minute budget;
@@ -1524,14 +1537,24 @@ class ModalSandbox(SandboxBase):
             return image.object_id
 
         except ModalResourceExhaustedError as e:
-            # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. Permanent, not
-            # transient: classify it separately so it neither retries forever nor mints a generic
-            # captured issue.
-            logger.warning(f"Filesystem snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
-            raise SnapshotFileLimitExceededError(
-                f"Filesystem snapshot exceeds Modal's file-count cap: {e}",
+            if _is_snapshot_file_cap_error(e):
+                # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. Permanent, not
+                # transient: classify it separately so it neither retries forever nor mints a generic
+                # captured issue.
+                logger.warning(f"Filesystem snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
+                raise SnapshotFileLimitExceededError(
+                    f"Filesystem snapshot exceeds Modal's file-count cap: {e}",
+                    {**error_context, "error": str(e)},
+                    cause=e,
+                )
+            # A generic RESOURCE_EXHAUSTED (server-side quota / rate limit) is transient — let the
+            # caller's retry recover it instead of failing permanently.
+            logger.warning(f"Transient resource-exhausted error creating snapshot for sandbox {self.id}: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient resource-exhausted error creating snapshot: {e}",
                 {**error_context, "error": str(e)},
                 cause=e,
+                capture=False,
             )
 
         except TRANSIENT_SNAPSHOT_ERRORS as e:
@@ -1563,10 +1586,17 @@ class ModalSandbox(SandboxBase):
         prune_command = (
             f"find {quoted_path} -type d \\( {name_predicate} \\) -prune -exec rm -rf {{}} + 2>/dev/null || true"
         )
-        self.execute(prune_command, timeout_seconds=120)
-        logger.info(f"Pruned heavy directories under {path} for sandbox {self.id} before snapshot retry")
+        try:
+            self.execute(prune_command, timeout_seconds=SNAPSHOT_PRUNE_TIMEOUT_SECONDS)
+            logger.info(f"Pruned heavy directories under {path} for sandbox {self.id} before snapshot retry")
+        except Exception as e:
+            # Best-effort: a failed or timed-out prune must not skip the snapshot retry. A partial
+            # prune may already have shrunk the tree enough for the retry to fit under the cap.
+            logger.warning(f"Best-effort prune of heavy directories under {path} failed for sandbox {self.id}: {e}")
 
-    def create_directory_snapshot(self, path: str, *, prune_heavy_dirs: bool = False) -> str:
+    def create_directory_snapshot(
+        self, path: str, *, prune_heavy_dirs: bool = False, timeout_seconds: int | None = None
+    ) -> str:
         if not self.is_running():
             raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
@@ -1585,10 +1615,11 @@ class ModalSandbox(SandboxBase):
         if prune_heavy_dirs:
             self._prune_snapshot_heavy_dirs(path)
 
+        snapshot_timeout = timeout_seconds if timeout_seconds is not None else DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS
         try:
             quoted_path = shlex.quote(path)
             self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
-            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
+            image = snapshot_directory(path, timeout=snapshot_timeout, ttl=None)
             snapshot_id = image.object_id
 
             logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")
@@ -1596,14 +1627,24 @@ class ModalSandbox(SandboxBase):
             return snapshot_id
 
         except ModalResourceExhaustedError as e:
-            # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. This is permanent,
-            # not transient — retrying the same tree cannot succeed — so classify it separately
-            # (the caller prunes and retries) instead of letting it become a generic captured issue.
-            logger.warning(f"Directory snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
-            raise SnapshotFileLimitExceededError(
-                f"Directory snapshot exceeds Modal's file-count cap: {e}",
+            if _is_snapshot_file_cap_error(e):
+                # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. This is permanent,
+                # not transient — retrying the same tree cannot succeed — so classify it separately
+                # (the caller prunes and retries) instead of letting it become a generic captured issue.
+                logger.warning(f"Directory snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
+                raise SnapshotFileLimitExceededError(
+                    f"Directory snapshot exceeds Modal's file-count cap: {e}",
+                    {"sandbox_id": self.id, "path": path, "error": str(e)},
+                    cause=e,
+                )
+            # A generic RESOURCE_EXHAUSTED (server-side quota / rate limit) is transient — let the
+            # caller's retry recover it instead of failing permanently.
+            logger.warning(f"Transient resource-exhausted error creating directory snapshot for sandbox {self.id}: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient resource-exhausted error creating directory snapshot: {e}",
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
+                capture=False,
             )
 
         except TRANSIENT_SNAPSHOT_ERRORS as e:
