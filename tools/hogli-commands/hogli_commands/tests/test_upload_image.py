@@ -85,6 +85,18 @@ def test_pr_flag_reaches_the_commit_message(png: Path) -> None:
     assert publish.call_args.kwargs["message"] == "add screenshot for posthog#1234"
 
 
+@pytest.mark.parametrize("pr", ["0", "-1"], ids=["zero", "negative"])
+def test_pr_flag_rejects_numbers_no_pr_can_have(png: Path, pr: str) -> None:
+    # A typo'd number must fail loudly rather than commit "for posthog#0" to a public repo
+    # permanently, and must not quietly take the no-PR fallback either.
+    with _publishes(_URL) as publish:
+        result = CliRunner(mix_stderr=False).invoke(upload_image.upload_image, ["--yes", "--pr", pr, str(png)])
+
+    assert result.exit_code != 0
+    assert "--pr" in result.stderr
+    publish.assert_not_called()
+
+
 def test_requires_yes_before_uploading(png: Path) -> None:
     # The gate: a first run without --yes must warn and abort without uploading, so the
     # caller has to read the warning and re-run to confirm the public upload.

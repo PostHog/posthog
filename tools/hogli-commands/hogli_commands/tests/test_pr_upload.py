@@ -1,10 +1,3 @@
-"""Tests for the shared upload body.
-
-These guard the commit message that ties an asset to the PR it documents: the explicit
-override, the detected PR, and the rule that every detection failure falls back to the
-plain message rather than blocking the upload.
-"""
-
 from __future__ import annotations
 
 import subprocess

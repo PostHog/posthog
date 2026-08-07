@@ -90,6 +90,18 @@ def test_pr_flag_reaches_the_commit_message(mp4: Path) -> None:
     assert publish.call_args.kwargs["message"] == "add video for posthog#1234"
 
 
+@pytest.mark.parametrize("pr", ["0", "-1"], ids=["zero", "negative"])
+def test_pr_flag_rejects_numbers_no_pr_can_have(mp4: Path, pr: str) -> None:
+    # A typo'd number must fail loudly rather than commit "for posthog#0" to a public repo
+    # permanently, and must not quietly take the no-PR fallback either.
+    with _publishes(_URL) as publish:
+        result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, ["--yes", "--pr", pr, str(mp4)])
+
+    assert result.exit_code != 0
+    assert "--pr" in result.stderr
+    publish.assert_not_called()
+
+
 def test_label_rejected_for_multiple_files(mp4: Path, tmp_path: Path) -> None:
     other = tmp_path / "second.webm"
     other.write_bytes(b"webm fake")
