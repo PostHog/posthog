@@ -62,7 +62,6 @@ KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC = f"{KAFKA_PREFIX}document_embedding_resu
 
 KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
 KAFKA_CDP_BACKFILL_EVENTS = f"{KAFKA_PREFIX}cdp_backfill_events{SUFFIX}"
-KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
 
 KAFKA_DWH_CDP_RAW_TABLE = f"{KAFKA_PREFIX}cdp_data_warehouse_source_table{SUFFIX}"
 KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}data_warehouse_source_webhooks{SUFFIX}"
