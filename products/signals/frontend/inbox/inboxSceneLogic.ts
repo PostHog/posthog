@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,6 +15,7 @@ import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import { signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
 
 import {
     captureInboxReportClosed,
@@ -556,6 +558,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             })
             cache.openTracking = { report, openedAt: Date.now() }
             cache.pendingOpenMethod = undefined
+            // Best-effort server-side view record: consumption evidence that keeps the authoring
+            // scout from being auto-paused as ignored. The analytics event above stays the rich
+            // record (rank, open method, dwell), so a failure here is swallowed.
+            void signalsReportsViewedCreate(String(teamLogic.values.currentTeamId), report.id).catch(() => {})
         },
         setSelectedScoutSkillName: ({ skillName }) => {
             if (skillName !== null) {
