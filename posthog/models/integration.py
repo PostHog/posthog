@@ -555,6 +555,7 @@ class Integration(models.Model):
         GITLAB = "gitlab"
         GOOGLE_ADS = "google-ads"
         GOOGLE_ANALYTICS = "google-analytics"
+        GOOGLE_CALENDAR = "google-calendar"
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -830,6 +831,7 @@ class OauthIntegration:
         "hubspot",
         "google-ads",
         "google-analytics",
+        "google-calendar",
         "google-search-console",
         "google-sheets",
         "snapchat",
@@ -1018,6 +1020,23 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-calendar":
+            if not settings.GOOGLE_CALENDAR_APP_CLIENT_ID or not settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Calendar app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CALENDAR_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -3201,6 +3220,25 @@ class JiraIntegration:
         except Exception:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
+    def _raise_create_issue_error(self, response: requests.Response, response_body: Any) -> NoReturn:
+        properties: dict[str, Any] = {
+            "jira_status_code": response.status_code,
+            "jira_response_content_type": response.headers.get("Content-Type"),
+            "integration_id": self.integration.id,
+            "team_id": self.integration.team_id,
+        }
+        if isinstance(response_body, dict):
+            properties.update(
+                {
+                    "jira_error_messages": response_body.get("errorMessages"),
+                    "jira_field_errors": response_body.get("errors"),
+                    "jira_response_keys": list(response_body.keys()),
+                }
+            )
+
+        capture_exception(Exception("Jira issue creation failed"), additional_properties=properties)
+        raise ValidationError("Could not create the Jira issue. Check the project's issue settings and try again.")
+
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
         cloud_id = self.cloud_id()
@@ -3263,8 +3301,18 @@ class JiraIntegration:
             timeout=10,
         )
 
-        issue = response.json()
-        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
+        try:
+            issue = response.json()
+        except ValueError:
+            issue = None
+
+        if response.status_code != 201:
+            self._raise_create_issue_error(response, issue)
+
+        if not isinstance(issue, dict) or not issue.get("key"):
+            self._raise_create_issue_error(response, issue)
+
+        return {"key": issue["key"], "id": issue.get("id", "")}
 
 
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
@@ -3361,6 +3409,10 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
+        # See GitHubIntegrationBase.refresh_access_token for why permissions are persisted.
+        permissions = installation_access.installation_info.get("permissions")
+        if isinstance(permissions, dict):
+            config["permissions"] = permissions
 
         sensitive_config = {"access_token": installation_access.access_token}
 

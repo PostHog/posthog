@@ -109,6 +109,7 @@ PRODUCTS_APPS = [
     "products.approvals.backend.apps.ApprovalsConfig",
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
+    "products.data_quality.backend.apps.DataQualityConfig",
 ]
 
 INSTALLED_APPS = [
@@ -893,6 +894,12 @@ SPECTACULAR_SETTINGS = {
         # `caches` list item share the same evaluation/definitions choice set. Pin to a
         # stable name so "cache" and "caches" don't collide into a hash name.
         "StaffCacheKindEnum": ["evaluation", "definitions"],
+        # Logs anomaly scan: `verdict` (per-bucket) and `kind` (per-issue) share the
+        # spike/drop/silence choice set; pin one stable name for both. `stage` would
+        # otherwise collide with EarlyAccessFeature's stage, so both sides get pinned.
+        "LogsAnomalyVerdictEnum": ["spike", "drop", "silence"],
+        "LogsAnomalyBaselineStageEnum": ["insufficient", "cold_start", "developing", "mature", None],
+        "EarlyAccessFeatureStageEnum": "products.early_access_features.backend.models.EarlyAccessFeature.Stage",
     },
 }
 
@@ -1070,6 +1077,9 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 
 # one-click passwordless login on the login page (also requires DEBUG)
 ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
+
+# shows the full value of the seeded dev personal API key in the UI (also requires DEBUG)
+ALLOW_DEV_API_KEY_REVEAL = get_from_env("ALLOW_DEV_API_KEY_REVEAL", False, type_cast=str_to_bool)
 
 ####
 # Random/temporary

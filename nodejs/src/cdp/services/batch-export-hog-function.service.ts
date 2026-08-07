@@ -48,7 +48,7 @@ export class BatchExportHogFunctionService {
         private hogExecutorAsync: HogExecutorAsyncService,
         private hogWatcher: HogWatcherService,
         private invocationResultsService: InvocationResultsService,
-        private hogWatcherMirror: HogWatcherService | null = null
+        private hogWatcherMirror: HogWatcherService
     ) {
         this.promiseScheduler = new PromiseScheduler()
     }
@@ -101,7 +101,7 @@ export class BatchExportHogFunctionService {
                 this.invocationResultsService.queueInvocationResultsAndFlush([result]),
                 this.hogWatcher.observeResultsBuffered(result),
                 mirrorCall('hog-watcher.observeResultsBuffered', () =>
-                    this.hogWatcherMirror?.observeResultsBuffered(result)
+                    this.hogWatcherMirror.observeResultsBuffered(result)
                 ),
             ])
         )
