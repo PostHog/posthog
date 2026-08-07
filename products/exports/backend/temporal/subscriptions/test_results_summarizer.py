@@ -217,8 +217,9 @@ class TestBuildResultsSummaryTruncation:
     def test_long_results_are_truncated(self):
         results = [{"label": f"Series {i}", "data": list(range(100))} for i in range(50)]
         summary = build_results_summary("TrendsQuery", results)
-        assert len(summary) <= MAX_SUMMARY_LENGTH + len("\n... (truncated)")
-        assert "truncated" in summary
+        assert len(summary) <= MAX_SUMMARY_LENGTH
+        assert summary.startswith("(These are the ")
+        assert "of 50 series" in summary
 
 
 class TestBuildResultsSummaryColumns:
@@ -507,17 +508,21 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         summary = build_results_summary(
             "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
         )
-        assert summary.startswith("(Excluding 1 day at the end of the range")
-        assert "truncated" in summary
+        # The sample notice comes first, then the exclusion note; truncation can drop neither.
+        assert summary.startswith("(These are the ")
+        assert "(Excluding 1 day at the end of the range" in summary.splitlines()[1]
 
-    def test_truncation_lands_on_a_line_boundary_and_states_coverage(self):
+    # A model told only afterwards that it was reading a sample still wrote "all series".
+    def test_truncation_states_coverage_before_the_data(self):
         results = [{"label": f"Prompt {i}", "data": [1, 2, 3]} for i in range(200)]
         summary = build_results_summary("TrendsQuery", results)
-        body, marker = summary.rsplit("\n", 1)
-        assert marker.startswith("... (truncated: showing the ")
-        assert "of 200 series" in marker
+        notice, *body = summary.splitlines()
+        assert notice.startswith("(These are the ")
+        assert "of 200 series" in notice
+        assert "never as all series" in notice
         # Every retained line is whole, so a fragment cannot read as a series with no data.
-        assert all(line.startswith("- Prompt ") and "latest=" in line for line in body.splitlines())
+        assert all(line.startswith("- Prompt ") and "latest=" in line for line in body)
+        assert len(summary) <= MAX_SUMMARY_LENGTH
 
     # Every series line carries in_progress=, whatever the breakdown's width. A schema that varied
     # with series count would make the prompt's description of the field true only sometimes.
@@ -530,7 +535,7 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         summary = build_results_summary(
             "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
         )
-        assert summary.startswith("(Excluding 1 day")
+        assert "(Excluding 1 day" in summary
         series_lines = [line for line in summary.splitlines() if line.startswith("- ")]
         assert series_lines
         assert all("in_progress=9" in line for line in series_lines)

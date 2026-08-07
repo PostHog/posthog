@@ -66,9 +66,11 @@ def _summarize_trend_kind(
     if coverage is None or not _has_trimmable_series(results, coverage.excluded):
         # Total-value displays carry `days` but report one figure over the whole range, so a note
         # would describe a trim that never happened.
-        return _summarize_trends(results, value_fmt, 0, in_progress=False)
+        return _summarize_trends(results, value_fmt, 0, in_progress=False, unit=None)
 
-    return _prepend(coverage.note(), _summarize_trends(results, value_fmt, coverage.excluded, in_progress=True))
+    return _prepend(
+        coverage.note(), _summarize_trends(results, value_fmt, coverage.excluded, in_progress=True, unit=coverage.unit)
+    )
 
 
 def _prepend(note: str, text: str) -> str:
@@ -77,18 +79,28 @@ def _prepend(note: str, text: str) -> str:
 
 
 def _truncate(text: str, series_count: int) -> str:
-    """Cut on a line boundary and say what was lost, so a mangled fragment cannot read as a series."""
+    """Keep whole lines and say up front that this is a sample of the largest series."""
     if len(text) <= MAX_SUMMARY_LENGTH:
         return text
+
+    def notice(shown: int) -> str:
+        # Directive, like the exclusion note: a model given only the count still wrote "all series".
+        return (
+            f"(These are the {shown} largest of {series_count} series — describe them as the top {shown}, "
+            f"never as all series.)"
+        )
+
+    # Reserve the widest the notice can get, so prepending it afterwards cannot breach the budget.
+    budget = MAX_SUMMARY_LENGTH - len(notice(series_count)) - 1
     kept: list[str] = []
     used = 0
     for line in text.split("\n"):
-        if used + len(line) + 1 > MAX_SUMMARY_LENGTH:
+        if used + len(line) + 1 > budget:
             break
         kept.append(line)
         used += len(line) + 1
     shown = sum(1 for line in kept if line.startswith("- "))
-    return "\n".join(kept) + f"\n... (truncated: showing the {shown} largest of {series_count} series)"
+    return _prepend(notice(shown), "\n".join(kept))
 
 
 def _summarize_trends(
@@ -97,6 +109,7 @@ def _summarize_trends(
     excluded: int,
     *,
     in_progress: bool,
+    unit: str | None,
 ) -> str:
     lines: list[str] = []
     for series in results:
@@ -117,7 +130,9 @@ def _summarize_trends(
                 line = (
                     f"- {label}: latest={_fmt_value(latest, value_format)}, avg={_fmt_value(avg, value_format)}, "
                     f"min={_fmt_value(min(numeric), value_format)}, max={_fmt_value(max(numeric), value_format)}, "
-                    f"trend={trend} ({len(numeric)} points)"
+                    # "(6 points)" next to formatted values reads as a magnitude; a model wrote
+                    # "decreased by 6 points". The unit name cannot be misread that way.
+                    f"trend={trend} ({len(numeric)} {_plural(unit, len(numeric)) if unit else 'points'})"
                 )
                 if in_progress and isinstance(partial, (int, float)) and math.isfinite(partial):
                     line += f", in_progress={_fmt_value(partial, value_format)}"
@@ -160,8 +175,9 @@ class _Coverage:
         return (
             f"{INCOMPLETE_PERIOD_NOTE_PREFIX} {self.excluded} {_plural(self.unit, self.excluded)} at the end of the "
             f"range that had not completed when the query ran; the per-period figures below cover {complete} "
-            f"complete {_plural(self.unit, complete)}. in_progress= is the unfinished {self.unit}{elapsed}: "
-            f"context only, not comparable to latest=.)"
+            f"complete {_plural(self.unit, complete)}. in_progress= is how far the unfinished {self.unit} has "
+            f"got{elapsed} — report it when describing the current {self.unit}, but never compare it to "
+            f"latest= and never call it a rise or a fall.)"
         )
 
 
