@@ -354,7 +354,10 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(r.content, b"jpegdata1024")
 
     @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
-    def test_retrieve_auto_recovers_stale_processing_heatmap(self, mock_task):
+    def test_retrieve_never_re_enqueues_a_stuck_processing_heatmap(self, mock_task):
+        # Retrieve used to re-enqueue stale renders, which reset the row's updated_at and defeated the
+        # server-side stuck deadline. The report_stuck_heatmap_screenshots watchdog fails them instead,
+        # so retrieve must leave the row and its snapshots untouched no matter how old.
         saved = SavedHeatmap.objects.create(
             team=self.team,
             url="https://example.com",
@@ -363,35 +366,14 @@ class TestHeatmapsAPI(APIBaseTest):
             type=SavedHeatmap.Type.SCREENSHOT,
         )
         HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"old")
-
-        # Force updated_at to 15 minutes ago
         SavedHeatmap.objects.filter(id=saved.id).update(updated_at=timezone.now() - timedelta(minutes=15))
 
         r = self.client.get(f"/api/environments/{self.team.id}/saved/{saved.short_id}/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data["status"], "processing")
 
-        # Task was re-enqueued
-        mock_task.delay.assert_called_once_with(saved.id)
-
-        # Old snapshots were cleaned up
-        self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 0)
-
-    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
-    def test_retrieve_does_not_recover_recent_processing_heatmap(self, mock_task):
-        saved = SavedHeatmap.objects.create(
-            team=self.team,
-            url="https://example.com",
-            created_by=self.user,
-            status=SavedHeatmap.Status.PROCESSING,
-            type=SavedHeatmap.Type.SCREENSHOT,
-        )
-
-        r = self.client.get(f"/api/environments/{self.team.id}/saved/{saved.short_id}/")
-        self.assertEqual(r.status_code, 200)
-
-        # Task was NOT re-enqueued (still within threshold)
         mock_task.delay.assert_not_called()
+        self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 1)
 
     @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
     def test_regenerate_endpoint_re_enqueues_task(self, mock_task):

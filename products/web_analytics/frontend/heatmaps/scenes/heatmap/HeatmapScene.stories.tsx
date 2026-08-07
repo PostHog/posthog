@@ -5,7 +5,9 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-const generatingSaved = {
+// updated_at is the render's server-side start, and the scene shows elapsed time relative to it, so
+// keep it fresh on each fetch rather than a fixed past date (which would render an absurd elapsed).
+const makeGeneratingSaved = (): Record<string, unknown> => ({
     id: 100,
     short_id: 'hm_gen',
     name: 'Generating…',
@@ -18,9 +20,28 @@ const generatingSaved = {
     snapshots: [],
     deleted: false,
     created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    exception: null,
+})
+
+const failedSaved = {
+    id: 102,
+    short_id: 'hm_failed',
+    name: 'Failed render',
+    url: 'https://example.com',
+    data_url: 'https://example.com',
+    target_widths: [1024],
+    type: 'screenshot',
+    status: 'failed',
+    has_content: false,
+    snapshots: [],
+    deleted: false,
+    created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
-    exception: null,
+    exception:
+        "Screenshot generation timed out before it finished. This can happen when the page is slow to load or can't be reached. Try regenerating, or use an iframe or session recording background instead.",
 }
 
 const meta: Meta = {
@@ -37,8 +58,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/saved/hm_gen/': generatingSaved,
-                '/api/projects/:team_id/heatmap_screenshots/:id/content/': () => [202, generatingSaved],
+                '/api/projects/:team_id/saved/hm_gen/': () => [200, makeGeneratingSaved()],
+                '/api/projects/:team_id/heatmap_screenshots/:id/content/': () => [202, makeGeneratingSaved()],
             },
         }),
     ],
@@ -53,6 +74,19 @@ export const Generating: Story = {
             waitForLoadersToDisappear: false,
         },
     },
+}
+
+export const GenerationFailed: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_failed'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/saved/hm_failed/': () => [200, failedSaved],
+            },
+        }),
+    ],
 }
 
 const makeIframeSaved = (): Record<string, unknown> => ({

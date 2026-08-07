@@ -28,6 +28,12 @@ import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
 
+function formatElapsed(totalSeconds: number): string {
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, '0')}s` : `${seconds}s`
+}
+
 export const scene: SceneExport<{ id: string }> = {
     component: HeatmapScene,
     logic: heatmapLogic,
@@ -46,6 +52,8 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         widthOverride,
         heightOverride,
         screenshotUrl,
+        screenshotWaitSeconds,
+        screenshotWaitIsLong,
         generatingScreenshot,
         screenshotLoaded,
         containerWidth,
@@ -62,6 +70,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         onIframeLoad,
         setScreenshotLoaded,
         setScreenshotError,
+        regenerateScreenshot,
         exportHeatmap,
         setContainerWidth,
     } = useActions(logic)
@@ -198,11 +207,29 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                                     transformOrigin: '50% 50%',
                                                 }}
                                             />
-                                            Taking screenshots of your page...
-                                            <div className="text-muted text-xs mt-2">
-                                                This usually takes a few minutes
+                                            Taking a screenshot of your page...
+                                            <div className="text-muted text-xs mt-2 font-normal">
+                                                {screenshotWaitSeconds != null
+                                                    ? `Elapsed: ${formatElapsed(screenshotWaitSeconds)}`
+                                                    : 'This usually takes under a minute'}
                                             </div>
                                             <LoadingBar />
+                                            {screenshotWaitIsLong && (
+                                                <div className="text-muted text-xs mt-3 font-normal max-w-xs mx-auto flex flex-col items-center gap-2">
+                                                    <span>
+                                                        This is taking longer than usual. You can keep waiting, or start
+                                                        over.
+                                                    </span>
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        onClick={regenerateScreenshot}
+                                                        data-attr="heatmap-screenshot-retry"
+                                                    >
+                                                        Try again
+                                                    </LemonButton>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ) : screenshotUrl ? (

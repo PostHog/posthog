@@ -30,6 +30,22 @@ import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 
+const SCREENSHOT_POLL_INTERVAL_MS = 2000
+// Past this the wait is unusual (successful renders finish well under it), so surface an elapsed
+// readout and a retry option rather than an indeterminate bar.
+const SCREENSHOT_LONG_WAIT_SECONDS = 90
+// Keep polling past the server-side stuck deadline so the backend's failure is what ends the wait,
+// not a shorter client timeout. Anchored on the render's server start, so a refresh doesn't reset it.
+const SCREENSHOT_MAX_WAIT_SECONDS = 13 * 60
+
+// The render's server-side start, so a page refresh doesn't restart the clock. Falls back to now for
+// a row whose timestamp we can't parse.
+function serverWaitSeconds(updatedAt: string | null | undefined): number {
+    const startedMs = updatedAt ? Date.parse(updatedAt) : NaN
+    const anchorMs = Number.isNaN(startedMs) ? Date.now() : startedMs
+    return Math.max(0, Math.round((Date.now() - anchorMs) / 1000))
+}
+
 export interface HeatmapCreationContext {
     creation_flow: 'wizard'
     capture_enabled: boolean
@@ -132,6 +148,8 @@ export interface heatmapLogicValues {
     screenshotLoaded: boolean
     screenshotLoading: boolean
     screenshotUrl: string | null
+    screenshotWaitSeconds: number | null
+    screenshotWaitIsLong: boolean
     sidePanelContext: SidePanelSceneContext | null
     status: HeatmapStatus
     type: HeatmapType
@@ -222,6 +240,9 @@ export interface heatmapLogicActions {
     setScreenshotUrl: (url: string | null) => {
         url: string | null
     }
+    setScreenshotWaitSeconds: (seconds: number | null) => {
+        seconds: number | null
+    }
     setType: (type: HeatmapType) => {
         type: HeatmapType
     }
@@ -258,6 +279,7 @@ export interface heatmapLogicMeta {
         desiredNumericWidth: (widthOverride: number, containerWidth: number | null) => number
         effectiveWidth: (desiredNumericWidth: number) => number
         scalePercent: (widthOverride: number, containerWidth: number | null) => number
+        screenshotWaitIsLong: (screenshotWaitSeconds: number | null) => boolean
     }
 }
 
@@ -313,6 +335,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
+        setScreenshotWaitSeconds: (seconds: number | null) => ({ seconds }),
         setScreenshotError: (error: string | null) => ({ error }),
         setGeneratingScreenshot: (generating: boolean) => ({ generating }),
         pollScreenshotStatus: (width?: number) => ({ width }),
@@ -336,6 +359,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
         status: ['processing' as HeatmapStatus, { setStatus: (_, { status }) => status }],
         screenshotUrl: [null as string | null, { setScreenshotUrl: (_, { url }) => url }],
         screenshotError: [null as string | null, { setScreenshotError: (_, { error }) => error }],
+        screenshotWaitSeconds: [
+            null as number | null,
+            {
+                setScreenshotWaitSeconds: (_, { seconds }) => seconds,
+                setScreenshotUrl: (state, { url }) => (url ? null : state),
+                setScreenshotError: (state, { error }) => (error ? null : state),
+            },
+        ],
         generatingScreenshot: [false, { setGeneratingScreenshot: (_, { generating }) => generating }],
         // expose a screenshotLoading alias for UI compatibility
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
@@ -408,6 +439,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         actions.setScreenshotError(item.exception || 'Screenshot generation failed')
                     } else {
                         actions.setScreenshotError(null)
+                        // Anchor the elapsed readout on the render's server start so a refresh mid-wait
+                        // shows the true elapsed time rather than restarting from zero.
+                        actions.setScreenshotWaitSeconds(serverWaitSeconds(item.updated_at))
                         actions.pollScreenshotStatus(desiredWidth)
                     }
                 } else if (item.type === 'iframe') {
@@ -446,16 +480,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
             })
         },
         pollScreenshotStatus: async ({ width }, breakpoint) => {
-            let attempts = 0
             // Polling means the render wasn't ready on arrival — i.e. no prewarm hit.
             cache.screenshotPolled = true
             actions.setGeneratingScreenshot(true)
-            // Multi-width renders open one Browserless session per width and can take a few minutes,
-            // so poll for up to 5 minutes before giving up (the backend marks failures sooner).
-            const pollIntervalMs = 2000
-            const maxAttempts = (5 * 60 * 1000) / pollIntervalMs
+            const maxAttempts = (SCREENSHOT_MAX_WAIT_SECONDS * 1000) / SCREENSHOT_POLL_INTERVAL_MS
+            let attempts = 0
             while (attempts < maxAttempts) {
-                await breakpoint(pollIntervalMs)
+                await breakpoint(SCREENSHOT_POLL_INTERVAL_MS)
                 try {
                     const screenshot = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
                     if (screenshot.status === 'completed' && screenshot.has_content) {
@@ -473,6 +504,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         actions.setGeneratingScreenshot(false)
                         break
                     }
+                    // Keep the elapsed readout tied to the render's server start (updated_at stays put
+                    // while the render runs), so the count is honest even across a refresh.
+                    actions.setScreenshotWaitSeconds(serverWaitSeconds(screenshot.updated_at))
                     attempts++
                 } catch (e) {
                     actions.setScreenshotError('Failed to check screenshot status')
@@ -484,7 +518,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
             if (attempts >= maxAttempts) {
                 actions.setGeneratingScreenshot(false)
-                actions.setScreenshotError('Screenshot is still generating. Refresh to check, or try fewer widths.')
+                actions.setScreenshotError(
+                    'Screenshot generation is taking too long. Try regenerating, or use an iframe or session recording background instead.'
+                )
             }
         },
         regenerateScreenshot: async () => {
@@ -625,6 +661,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         effectiveWidth: [(s) => [s.desiredNumericWidth], (desiredNumericWidth: number) => desiredNumericWidth],
+        screenshotWaitIsLong: [
+            (s) => [s.screenshotWaitSeconds],
+            (screenshotWaitSeconds: number | null): boolean =>
+                screenshotWaitSeconds != null && screenshotWaitSeconds >= SCREENSHOT_LONG_WAIT_SECONDS,
+        ],
         scalePercent: [
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) => {

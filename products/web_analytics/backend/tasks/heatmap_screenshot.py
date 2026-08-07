@@ -30,8 +30,16 @@ HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT = 600  # seconds
 HEATMAP_SCREENSHOT_TIME_LIMIT = HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT + 30
 # Reject implausibly large Browserless responses before they reach worker memory / Postgres.
 HEATMAP_SCREENSHOT_MAX_BYTES = 20 * 1024 * 1024
+# Past this age a still-processing render is treated as lost (never picked up, or the worker died
+# without recording a failure) and flipped to FAILED. Sits well beyond the task time limit and the
+# p99 render time, so a legitimately slow render is never failed out from under a running task.
 HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS = HEATMAP_SCREENSHOT_TIME_LIMIT + 60
 HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE = 20
+# Shown to the user in the failed-screenshot state, so keep it a plain next-step message.
+HEATMAP_SCREENSHOT_STUCK_REASON = (
+    "Screenshot generation timed out before it finished. This can happen when the page is slow to load "
+    "or can't be reached. Try regenerating, or use an iframe or session recording background instead."
+)
 
 HEATMAP_SCREENSHOT_SUCCEEDED = Counter(
     "heatmap_screenshot_task_succeeded",
@@ -578,30 +586,43 @@ def _host_of(url: str) -> str:
 @shared_task(ignore_result=True, queue=CeleryQueue.EXPORTS.value)
 @skip_team_scope_audit
 def report_stuck_heatmap_screenshots() -> int:
+    # Server-side deadline for a render. A row only ever moved to FAILED from inside the task itself,
+    # so a dropped or never-picked-up render sat in PROCESSING forever and the UI spun with no bound.
+    # Fail those here so the wait ends and the user gets an error they can retry from.
     now = timezone.now()
     cutoff = now - timedelta(seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS)
     stuck = SavedHeatmap.objects.filter(
         type=SavedHeatmap.Type.SCREENSHOT,
         status=SavedHeatmap.Status.PROCESSING,
+        is_prewarm=False,
         updated_at__lt=cutoff,
+    )
+    sample = list(
+        stuck.order_by("updated_at").only("id", "team_id", "updated_at")[:HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE]
     )
     count = stuck.count()
     HEATMAP_SCREENSHOT_STUCK_PROCESSING.set(count)
-    if count:
-        sample = stuck.order_by("updated_at").only("id", "team_id", "updated_at")[:HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE]
-        logger.warning(
-            "heatmap_screenshot.stuck_processing",
-            stuck_count=count,
-            threshold_seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS,
-            sample=[
-                {
-                    "screenshot_id": str(s.id),
-                    "team_id": s.team_id,
-                    "age_seconds": round((now - s.updated_at).total_seconds()),
-                }
-                for s in sample
-            ],
-        )
+    if not count:
+        return 0
+
+    logger.warning(
+        "heatmap_screenshot.stuck_processing",
+        stuck_count=count,
+        threshold_seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS,
+        sample=[
+            {
+                "screenshot_id": str(s.id),
+                "team_id": s.team_id,
+                "age_seconds": round((now - s.updated_at).total_seconds()),
+            }
+            for s in sample
+        ],
+    )
+
+    # Re-filter on status in the UPDATE so a render that completed between the count above and here
+    # isn't clobbered. Set updated_at explicitly since QuerySet.update() bypasses auto_now.
+    failed = stuck.update(status=SavedHeatmap.Status.FAILED, exception=HEATMAP_SCREENSHOT_STUCK_REASON, updated_at=now)
+    HEATMAP_SCREENSHOT_FAILED.labels(failure_type="stuck_timeout").inc(failed)
     return count
 
 

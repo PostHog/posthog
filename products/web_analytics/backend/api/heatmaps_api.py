@@ -65,8 +65,6 @@ from products.web_analytics.backend.heatmap_preflight import BlockedBy, Framing,
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
 
-STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
-
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
 
 logger = structlog.get_logger(__name__)
@@ -1375,15 +1373,10 @@ class SavedHeatmapViewSet(
         description="Get a single saved heatmap by its short_id, including per-width render status.",
     )
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # A stuck render is failed by the report_stuck_heatmap_screenshots watchdog, not re-enqueued
+        # here: re-enqueuing on every poll reset the row's updated_at, which defeated that deadline and
+        # kept a lost render spinning forever. A failed render surfaces an error the user can retry from.
         obj = self.get_object()
-
-        if (
-            obj.type == SavedHeatmap.Type.SCREENSHOT
-            and obj.status == SavedHeatmap.Status.PROCESSING
-            and obj.updated_at < datetime.now(tz=obj.updated_at.tzinfo) - STALE_PROCESSING_THRESHOLD
-        ):
-            self._regenerate(obj)
-
         response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 

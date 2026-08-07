@@ -503,7 +503,12 @@ class TestClassifyFailure(SimpleTestCase):
 
 class TestReportStuckHeatmapScreenshots(APIBaseTest):
     def _make(
-        self, *, status: str, type_: str = SavedHeatmap.Type.SCREENSHOT, age_seconds: int | None = None
+        self,
+        *,
+        status: str,
+        type_: str = SavedHeatmap.Type.SCREENSHOT,
+        age_seconds: int | None = None,
+        is_prewarm: bool = False,
     ) -> SavedHeatmap:
         heatmap = SavedHeatmap.objects.create(
             team=self.team,
@@ -512,6 +517,7 @@ class TestReportStuckHeatmapScreenshots(APIBaseTest):
             target_widths=[1024],
             type=type_,
             status=status,
+            is_prewarm=is_prewarm,
         )
         if age_seconds is not None:
             SavedHeatmap.objects.filter(id=heatmap.id).update(
@@ -519,22 +525,27 @@ class TestReportStuckHeatmapScreenshots(APIBaseTest):
             )
         return heatmap
 
-    def test_reports_only_old_processing_screenshots_without_mutating_them(self) -> None:
+    def test_fails_only_lost_processing_screenshots(self) -> None:
         old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
         stuck = self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
         fresh = self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=30)
         completed = self._make(status=SavedHeatmap.Status.COMPLETED, age_seconds=old)
         iframe = self._make(status=SavedHeatmap.Status.PROCESSING, type_=SavedHeatmap.Type.IFRAME, age_seconds=old)
+        prewarm = self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old, is_prewarm=True)
 
         count = report_stuck_heatmap_screenshots()
 
         assert count == 1
-        for heatmap in (stuck, fresh, completed, iframe):
+        for heatmap in (stuck, fresh, completed, iframe, prewarm):
             heatmap.refresh_from_db()
-        assert stuck.status == SavedHeatmap.Status.PROCESSING
+        # The lost render is failed with a user-facing reason so the wait ends and can be retried.
+        assert stuck.status == SavedHeatmap.Status.FAILED
+        assert stuck.exception
+        # A recent render, a completed one, non-screenshot types, and speculative prewarms are left alone.
         assert fresh.status == SavedHeatmap.Status.PROCESSING
         assert completed.status == SavedHeatmap.Status.COMPLETED
         assert iframe.status == SavedHeatmap.Status.PROCESSING
+        assert prewarm.status == SavedHeatmap.Status.PROCESSING
 
     def test_gauge_reflects_count_and_resets_when_clear(self) -> None:
         def _gauge() -> float:
