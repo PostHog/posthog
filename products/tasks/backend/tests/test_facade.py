@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import ClassVar
 from uuid import uuid4
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.utils import timezone as django_timezone
@@ -748,6 +748,61 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("runtime_adapter"), "claude")
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+
+
+class TestAppendLogAgentActivity(TestCase):
+    # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
+    # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
+    # timer on every write, so a run whose agent went silent could never time out.
+    @parameterized.expand(
+        [
+            ("session_update", [{"notification": {"method": "session/update", "params": {}}}], True),
+            ("session_request", [{"notification": {"method": "session/request_permission", "params": {}}}], True),
+            ("console_only", [{"notification": {"method": "_posthog/console", "params": {"message": "x"}}}], False),
+            ("error_only", [{"notification": {"method": "_posthog/error", "params": {}}}], False),
+            # Non-ACP batches keep the old heartbeat behaviour: callers that only post generic
+            # {type, message} entries have no session/* frame to offer and would otherwise lose
+            # their inactivity extension while still working.
+            ("no_notification", [{"message": "plain infra line"}], True),
+            ("malformed_notification", [{"notification": "not-a-dict"}], True),
+            ("non_string_method", [{"notification": {"method": 7}}], False),
+            ("empty_entries", [], False),
+            (
+                "mixed_infra_and_session",
+                [
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                    {"notification": {"method": "session/update", "params": {}}},
+                ],
+                True,
+            ),
+            # One ACP frame is enough to mark the batch as sandbox traffic, so the plain line
+            # riding alongside it does not buy the credential-refresh batch a heartbeat.
+            (
+                "plain_line_alongside_infra_frame",
+                [
+                    {"message": "plain infra line"},
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                ],
+                False,
+            ),
+        ]
+    )
+    def test_entries_show_agent_activity(self, _name, entries, expected):
+        self.assertIs(facade._entries_show_agent_activity(entries), expected)
+
+    def test_append_task_run_log_heartbeats_with_classified_activity(self):
+        run = MagicMock()
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log(
+                "r", "t", 1, entries=[{"notification": {"method": "_posthog/console", "params": {}}}]
+            )
+            run.heartbeat_workflow.assert_called_once_with(agent_active=False)
+            run.reset_mock()
+            facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
+            run.heartbeat_workflow.assert_called_once_with(agent_active=True)
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

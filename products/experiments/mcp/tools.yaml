@@ -762,6 +762,19 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        ui_app: experiment-results
+        response:
+            exclude:
+                - results.*.result.hogql
+                - results.*.result.clickhouse_sql
+                - results.*.result.cache_key
+                - results.*.result.is_cached
+                - results.*.result.cache_target_age
+                - results.*.result.next_allowed_client_refresh
+                - results.*.result.calculation_trigger
+                - results.*.result.query_status
+                - results.*.result.stats_version
+                - results.*.result.insight
     experiment-metrics-recalculation-retrieve:
         operation: experiments_metrics_recalculation_retrieve
         enabled: true
@@ -793,6 +806,18 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        response:
+            exclude:
+                - results.*.result.hogql
+                - results.*.result.clickhouse_sql
+                - results.*.result.cache_key
+                - results.*.result.is_cached
+                - results.*.result.cache_target_age
+                - results.*.result.next_allowed_client_refresh
+                - results.*.result.calculation_trigger
+                - results.*.result.query_status
+                - results.*.result.stats_version
+                - results.*.result.insight
     experiment-pause:
         operation: experiments_pause_create
         enabled: true
@@ -1114,7 +1139,18 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-        ui_app: experiment-results
+        response:
+            exclude:
+                - timeseries.*.hogql
+                - timeseries.*.clickhouse_sql
+                - timeseries.*.cache_key
+                - timeseries.*.is_cached
+                - timeseries.*.cache_target_age
+                - timeseries.*.next_allowed_client_refresh
+                - timeseries.*.calculation_trigger
+                - timeseries.*.query_status
+                - timeseries.*.stats_version
+                - timeseries.*.insight
     experiment-unarchive:
         operation: experiments_unarchive_create
         enabled: true

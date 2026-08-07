@@ -1436,7 +1436,7 @@ export interface TaskRunArtifactResponseApi {
     uploaded_at: string
     /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
     dismissed_at?: string
-    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
     url?: string
 }
 
@@ -3959,18 +3959,28 @@ export interface PaginatedTaskSummaryDTOListApi {
  * Request body for warming a full idling Run while composing a Code-app cloud task.
  *
  * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
- * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
- * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
- * it to the caller's team before use.
+ * interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+ * then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+ * the view re-scopes it to the caller's team before use.
  */
 export interface WarmTaskRequestApi {
     /**
-     * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+     * Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
      * @maxLength 255
+     * @nullable
      */
-    repository: string
-    /** Primary key of the team's GitHub integration to clone with. */
-    github_integration: number
+    repository?: string | null
+    /**
+     * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+     * @maxItems 3
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
+     * Primary key of the team's GitHub integration to clone with when a repository is selected.
+     * @nullable
+     */
+    github_integration?: number | null
     /**
      * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
      * @maxLength 255

@@ -1437,7 +1437,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
         self.assertEqual(task.create_run().state["repositories"], task.repositories)
-        mock_find_warm_run.assert_not_called()
+        mock_find_warm_run.assert_called_once_with(
+            self.team.id,
+            self.user.id,
+            repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
+            github_integration_id=integration.id,
+            branch="main",
+            runtime_adapter=None,
+            model=None,
+            reasoning_effort=None,
+            sandbox_environment_id=None,
+            custom_image_id=None,
+        )
 
         update = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",
@@ -4999,6 +5011,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "sandbox_gone": False,
                 "ai_stage": "research",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
@@ -5015,7 +5028,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # decisions, change Modal resume snapshot metadata, repoint the run at another
         # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
-        # routed to an unbilled gateway product is free spend). Non-protected keys still merge.
+        # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
+        # workflow-owned terminal reason marker, which would make a genuine FAILED run read as a
+        # timeout and skip its Slack error card. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -5045,6 +5060,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "timed_out_inactivity": True,
+                    "timed_out_wall_clock": True,
+                    "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
@@ -5079,6 +5097,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
+        assert "timed_out_wall_clock" not in run.state
+        assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
@@ -5105,6 +5126,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "sandbox_gone",
                     "runtime_adapter",
                     "provider",
                     "model",
@@ -5128,6 +5150,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["sandbox_gone"] is False  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
         # the pin the server chose.
@@ -5911,9 +5934,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_write.assert_called_once()
         mock_tag.assert_called_once()
 
+        returned = response.json()["artifacts"][0]
+        self.assertEqual(
+            returned["url"],
+            absolute_uri(
+                f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/{returned['id']}/download/"
+            ),
+        )
+
         run.refresh_from_db()
         self.assertEqual(len(run.artifacts), 1)
         artifact = run.artifacts[0]
+        self.assertNotIn("url", artifact)
         self.assertIn("id", artifact)
         self.assertEqual(artifact["name"], "plan.md")
         self.assertEqual(artifact["type"], "plan")
@@ -6585,6 +6617,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_head_object.assert_called_once_with(storage_path)
         mock_tag.assert_called_once()
 
+        returned = response.json()["artifacts"][0]
+        self.assertEqual(
+            returned["url"],
+            absolute_uri(
+                f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+            ),
+        )
+
         run.refresh_from_db()
         self.assertEqual(len(run.artifacts), 1)
         artifact = run.artifacts[0]
@@ -6713,7 +6753,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_artifacts = response.json()["artifacts"]
-        # The finalize response augments each entry with a presigned download URL that is not
+        # The finalize response augments each entry with a download URL that is not
         # persisted on the manifest, so compare the stored fields separately from the URL.
         self.assertEqual([{k: v for k, v in a.items() if k != "url"} for a in returned_artifacts], run.artifacts)
         self.assertTrue(all(a.get("url") for a in returned_artifacts))
@@ -6845,6 +6885,39 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["url"], "https://example.com/artifact?sig=123")
         self.assertIn("expires_in", response.json())
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_download_artifact_by_id_redirects_to_presigned_url(self, mock_presign):
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        task = self.create_task()
+        artifact_id = uuid.uuid4().hex
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "report.pdf",
+                    "type": "output",
+                    "content_type": "application/pdf",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/report.pdf",
+                }
+            ],
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://example.com/artifact?sig=123")
+        self.assertEqual(mock_presign.call_args.kwargs["content_disposition"], 'attachment; filename="report.pdf"')
+
+        missing = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{uuid.uuid4().hex}/download/"
+        )
+        self.assertEqual(missing.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_presign_artifact_not_found(self):
         task = self.create_task()
@@ -10711,6 +10784,20 @@ class TestCloudUsageGate(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_warm_repo_less_over_limit_returns_429_and_does_not_provision(
+        self, mock_gate, _mock_warm_enabled, mock_warm
+    ):
+        mock_gate.return_value = self.OVER_LIMIT
+
+        response = self.client.post("/api/projects/@current/tasks/warm/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        mock_warm.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
