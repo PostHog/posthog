@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { CommentWithRepliesType } from 'scenes/comments/commentsLogic'
 
 import type { CommentType } from '~/types'
+import { ActivityScope } from '~/types'
 
 import { ThreadDiscussionEntry } from './ThreadDiscussions'
 
@@ -19,12 +20,16 @@ export default meta
 
 type Story = StoryObj<typeof ThreadDiscussionEntry>
 
+// Fully typed rather than cast, so a new required field on CommentType breaks this file instead of
+// letting the fixture drift away from what the card is really handed.
 function makeComment(overrides: Partial<CommentType> = {}): CommentType {
     return {
         id: '019f9582-93e7-77c1-8912-4f541d70cb13',
         content: 'Is this the same flag-eval regression we shipped a fix for last week, or something new?',
-        scope: 'Ticket',
+        rich_content: null,
+        scope: ActivityScope.TICKET,
         item_id: '019f9569-5d45-780a-8b63-ecd0dc71148e',
+        item_context: null,
         created_at: '2026-07-25T09:12:00Z',
         created_by: {
             id: 1,
@@ -34,8 +39,11 @@ function makeComment(overrides: Partial<CommentType> = {}): CommentType {
             email: 'luke@posthog.com',
         },
         version: 0,
+        is_task: false,
+        completed_at: null,
+        completed_by: null,
         ...overrides,
-    } as CommentType
+    }
 }
 
 function slackReply(id: string, name: string): CommentType {
@@ -127,7 +135,7 @@ export const SeveralDiscussions: Story = {
                             distinct_id: 'user-2',
                             first_name: 'Simon',
                             email: 'simon@posthog.com',
-                        } as CommentType['created_by'],
+                        },
                         slack_thread: {
                             channel_id: 'C0000000001',
                             channel_name: 'support-escalations',

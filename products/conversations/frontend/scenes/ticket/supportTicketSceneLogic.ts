@@ -391,7 +391,7 @@ export interface supportTicketSceneLogicActions {
     loadTicket: () => {
         value: true
     }
-    pollDiscussionCount: () => {
+    pollDiscussionThread: () => {
         value: true
     }
     recordAiReplyFeedback: (
@@ -572,7 +572,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setMessagesLoading: (loading: boolean) => ({ loading }),
         appendMessage: (message: CommentType) => ({ message }),
 
-        pollDiscussionCount: true,
+        pollDiscussionThread: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -1173,7 +1173,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Start message polling using disposables pattern
                 cache.disposables.dispose('messagePolling')
-                cache.lastDiscussionCount = null
                 cache.discussionPollTick = 0
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
@@ -1183,7 +1182,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         // at a fraction of the rate rather than starting a second one.
                         cache.discussionPollTick = (cache.discussionPollTick ?? 0) + 1
                         if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
-                            actions.pollDiscussionCount()
+                            actions.pollDiscussionThread()
                         }
                     }, MESSAGE_POLL_INTERVAL)
                     return () => clearInterval(intervalId)
@@ -1252,35 +1251,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             }
         },
-        // Counts first, reloads only on a change. Reloading the discussion outright on every tick would
-        // be simpler, but `commentsLogic` scrolls its list to the bottom on every successful load — so a
-        // teammate reading back through a long discussion in the side panel would be yanked to the
-        // newest comment every few seconds. Gating on the count means that only happens when something
-        // actually arrived, which is the moment you'd want to be moved anyway.
-        pollDiscussionCount: async () => {
+        // Refetches the whole discussion rather than checking a count first. A count only moves when a
+        // comment is added or removed, so an edit or a task being completed would leave the card and the
+        // open side panel showing text nobody has written for a while.
+        //
+        // `refreshComments` rather than `loadComments` because refreshing must not move the reader:
+        // `loadComments` scrolls the panel to the newest comment on every success, which is right when
+        // someone opens the thread and wrong every 20 seconds while they read back through it.
+        pollDiscussionThread: async () => {
             const ticketId = values.ticket?.id
             if (!values.discussionsEnabled || !ticketId) {
                 return
             }
-            try {
-                const count = await api.comments.getCount({
-                    scope: ActivityScope.TICKET,
-                    item_id: ticketId,
-                    exclude_emoji_reactions: true,
-                })
-                const previous = cache.lastDiscussionCount
-                cache.lastDiscussionCount = count
-                // First tick only establishes the baseline: the thread was already loaded when the
-                // scene mounted, so there is nothing to catch up on yet.
-                if (previous === null || previous === undefined || count === previous) {
-                    return
-                }
-                // Only refresh a discussion someone is actually looking at — findMounted, so a ticket
-                // whose thread has never been opened doesn't pay for a list request.
-                commentsLogic.findMounted({ scope: ActivityScope.TICKET, item_id: ticketId })?.actions.loadComments()
-            } catch {
-                // A dropped poll is not worth a toast; the next tick tries again.
-            }
+            // findMounted, so a ticket whose thread was never opened pays for nothing.
+            commentsLogic.findMounted({ scope: ActivityScope.TICKET, item_id: ticketId })?.actions.refreshComments()
         },
         loadMessages: async () => {
             if (props.id === 'new' || !values.ticket?.id) {

@@ -131,6 +131,28 @@ describe('commentsLogic', () => {
         expect(lastCreateBody?.source_comment).toBeUndefined()
     })
 
+    // A background poller uses refreshComments so a reader keeps their place. loadComments always
+    // scrolls to the newest comment, which is right on arrival and wrong every 20 seconds after that.
+    it('refreshComments loads the thread without scrolling to the newest comment', async () => {
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
+
+        await expectLogic(logic, () => {
+            logic.actions.refreshComments()
+        })
+            .toDispatchActions(['refreshCommentsSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+
+        expect(logic.values.commentsWithReplies.map((thread) => thread.id)).toEqual(['thread-1'])
+    })
+
+    it('loadComments still scrolls to the newest comment', async () => {
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess', sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+    })
+
     it('clears reply mode when the reply target stops rendering after a reload', async () => {
         useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
         await expectLogic(logic, () => {

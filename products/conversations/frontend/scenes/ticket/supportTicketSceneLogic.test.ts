@@ -36,7 +36,6 @@ jest.mock('~/lib/api', () => {
                 ...actual.default?.comments,
                 create: jest.fn().mockResolvedValue(undefined),
                 list: jest.fn().mockResolvedValue({ results: [] }),
-                getCount: jest.fn().mockResolvedValue(0),
             },
             persons: {
                 ...actual.default?.persons,
@@ -946,12 +945,10 @@ describe('supportTicketSceneLogic sidePanelContext', () => {
 
 describe('supportTicketSceneLogic discussion polling', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
-    const getCountMock = api.comments.getCount as jest.Mock
+    const discussionProps = { scope: ActivityScope.TICKET, item_id: 'ticket-1' }
 
     beforeEach(() => {
         initKeaTests()
-        getCountMock.mockClear()
-        getCountMock.mockResolvedValue(0)
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
         logic.actions.setTicket(makeTicket())
@@ -962,50 +959,63 @@ describe('supportTicketSceneLogic discussion polling', () => {
         stopPolling(logic)
     })
 
-    it('counts the ticket-scoped discussion, excluding emoji reactions', async () => {
-        logic.actions.pollDiscussionCount()
+    // refreshComments, not loadComments: loadComments scrolls the side panel to the newest comment on
+    // every success, so polling with it would move a reader off their place every 20 seconds.
+    it('refreshes the ticket-scoped discussion without moving the reader', async () => {
+        const discussion = commentsLogic(discussionProps)
+        discussion.mount()
+        const refreshComments = jest.spyOn(discussion.actions, 'refreshComments')
+        const loadComments = jest.spyOn(discussion.actions, 'loadComments')
+
+        logic.actions.pollDiscussionThread()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(getCountMock).toHaveBeenCalledWith({
-            scope: ActivityScope.TICKET,
-            item_id: 'ticket-1',
-            exclude_emoji_reactions: true,
-        })
-    })
-
-    it('does not count when the discussions flag is off', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: false })
-
-        logic.actions.pollDiscussionCount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(getCountMock).not.toHaveBeenCalled()
-    })
-
-    // The whole point of counting first: reloading unconditionally would scroll a reader in the open
-    // side panel back to the newest comment on every tick.
-    it('only reloads the discussion when the count actually changes', async () => {
-        const commentsLogicInstance = commentsLogic({ scope: ActivityScope.TICKET, item_id: 'ticket-1' })
-        commentsLogicInstance.mount()
-        const loadComments = jest.spyOn(commentsLogicInstance.actions, 'loadComments')
-
-        // First tick only establishes the baseline - the thread was already loaded on mount.
-        logic.actions.pollDiscussionCount()
-        await expectLogic(logic).toFinishAllListeners()
+        expect(refreshComments).toHaveBeenCalledTimes(1)
         expect(loadComments).not.toHaveBeenCalled()
 
-        // Same count again: nothing arrived, so nothing to reload.
-        logic.actions.pollDiscussionCount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(loadComments).not.toHaveBeenCalled()
-
-        // A Slack reply landed.
-        getCountMock.mockResolvedValue(1)
-        logic.actions.pollDiscussionCount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(loadComments).toHaveBeenCalledTimes(1)
-
+        refreshComments.mockRestore()
         loadComments.mockRestore()
-        commentsLogicInstance.unmount()
+        discussion.unmount()
+    })
+
+    // An edit or a completed task leaves the comment count untouched, so a count-based gate would
+    // leave the card and the open panel showing text nobody has written for a while.
+    it('refreshes even when no comment was added or removed', async () => {
+        const discussion = commentsLogic(discussionProps)
+        discussion.mount()
+        const refreshComments = jest.spyOn(discussion.actions, 'refreshComments')
+
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(refreshComments).toHaveBeenCalledTimes(2)
+
+        refreshComments.mockRestore()
+        discussion.unmount()
+    })
+
+    it('does not refresh when the discussions flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: false })
+        const discussion = commentsLogic(discussionProps)
+        discussion.mount()
+        const refreshComments = jest.spyOn(discussion.actions, 'refreshComments')
+
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(refreshComments).not.toHaveBeenCalled()
+
+        refreshComments.mockRestore()
+        discussion.unmount()
+    })
+
+    // findMounted: a ticket whose thread was never opened should not pay for a list request.
+    it('does nothing when the discussion thread was never opened', async () => {
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(commentsLogic.findMounted(discussionProps)).toBeNull()
     })
 })

@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChat } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -130,11 +131,16 @@ export function ThreadDiscussionEntry({
             </div>
             {/* Not a bubble, and marked down its edge, so it never reads as something a person said to
                 the customer. The edge is a pseudo-element so it can run the full height without fighting
-                the border radius the way a left border does. */}
+                the border radius the way a left border does.
+
+                A button rather than a styled div: this opens a panel instead of navigating, and a button
+                is what gives keyboard users the entry the mouse already has. The hover pair (background
+                and border) is the same one the ticket page's other clickable blocks use, so the card
+                announces itself the way the rest of the page does. */}
             <button
                 type="button"
                 onClick={() => onOpen(thread.id)}
-                className="relative block w-full overflow-hidden rounded border border-primary bg-surface-primary text-left transition-colors hover:border-secondary py-2 pl-4 pr-3 after:content-[''] after:absolute after:inset-y-0 after:left-0 after:w-1 after:bg-accent"
+                className="relative block w-full cursor-pointer overflow-hidden rounded border border-primary bg-surface-primary text-left transition-colors hover:border-secondary hover:bg-surface-secondary py-2 pl-4 pr-3 after:content-[''] after:absolute after:inset-y-0 after:left-0 after:w-1 after:bg-accent"
                 data-attr="ticket-thread-discussion"
             >
                 {root ? (
@@ -149,10 +155,11 @@ export function ThreadDiscussionEntry({
                         <span className="ph-no-capture truncate">{summariseSlackNames(slackNames)}</span>
                     ) : null}
                     {slackThread ? (
-                        <span className="ml-auto inline-flex items-center gap-1 shrink-0">
-                            <IconSlack />
+                        // A tag, not a link: the card is one click target, and an anchor inside a button
+                        // is invalid markup that swallows the card's own click.
+                        <LemonTag size="small" type="muted" icon={<IconSlack />} className="ml-auto shrink-0">
                             {slackThread.channel_name ? `#${slackThread.channel_name}` : 'Synced to Slack'}
-                        </span>
+                        </LemonTag>
                     ) : null}
                 </div>
             </button>
