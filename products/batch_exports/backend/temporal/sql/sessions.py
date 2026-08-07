@@ -56,6 +56,7 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
         parse_expr("$exit_current_url as exit_current_url"),
         parse_expr("$exit_pathname as exit_pathname"),
         parse_expr("$vitals_lcp as vitals_lcp"),
+        # nosemgrep: semgrep.rules.security.hogql-fstring-audit
         parse_expr(f"{SESSIONS_INSERTED_AT_SQL} as _inserted_at"),
         parse_expr("$entry_gclsrc as entry_gclsrc"),
         parse_expr("$entry_dclid as entry_dclid"),
