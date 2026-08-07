@@ -304,10 +304,10 @@ export interface SignalReportFeedbackRequestApi {
      * * `negative` - negative */
     sentiment: SentimentEnumApi
     /**
-     * Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.
+     * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
      * @maxLength 4000
      */
-    note: string
+    note?: string
 }
 
 export interface SignalReportFeedbackResponseApi {
@@ -2002,7 +2002,7 @@ export interface SignalScoutConfigApi {
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
     readonly status: ScoutConfigStatusEnumApi
-    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (its output received no human engagement), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
@@ -2046,7 +2046,7 @@ export interface SignalScoutConfigApi {
     /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
     readonly consecutive_failure_count: number
     /**
-     * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone acts on the scout's reports; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
+     * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
      * @nullable
      */
     readonly status_changed_at: string | null

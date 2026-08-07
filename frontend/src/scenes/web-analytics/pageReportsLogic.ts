@@ -1268,9 +1268,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         setPageUrlSearchTerm: ({ searchTerm }) => {
             actions.loadPages(searchTerm)
         },
-        setPageUrl: ({ url }) => {
-            router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
-        },
         loadPages: ({ searchTerm }) => {
             actions.loadPagesUrls({ searchTerm })
         },
