@@ -157,7 +157,7 @@ class Command(BaseCommand):
             counts["found_no_ownership_status"] += 1
             return
 
-        if dry_run:
+        if dry_run or pha_client is None:
             return
 
         # Scoped to just the three ownership keys: to_dict()/to_group_properties() only emit set
