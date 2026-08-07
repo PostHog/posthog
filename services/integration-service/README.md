@@ -105,16 +105,9 @@ incident anyway.
 So one thing bounds a request: the `keys` claim, which _is_ the request. A token lifted from a log
 unlocks the fields of one call, for five minutes.
 
-Signing keys live in this service's own secret, one flat entry per deployment, so the
-`PostHog/secrets` CLI and UI can manage them. Deployment names are derived from the entries
-present, not declared in code, so onboarding a caller or revoking a compromised one is a secrets
-edit with no deploy:
-
-```
-integration-service-secrets
-  CALLER_KEY_POSTHOG_DJANGO                 = "<new>,<old>"
-  CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE = "<new>,<old>"
-```
+Signing keys live in the same secret as the credentials, one flat entry per deployment
+(`CALLER_KEY_<DEPLOYMENT>`). Deployment names are derived from the entries present, not declared in
+code, so onboarding a caller or revoking a compromised one is a secrets edit with no deploy.
 
 The same value goes into that deployment's own secret as `INTEGRATION_SERVICE_JWT_SECRET`.
 Duplicating one value per deployment is inherent to shared-secret auth, and it replaces 26
@@ -125,25 +118,37 @@ can drop in later without touching the routes or the policy layer.
 
 ## Storage and rotation
 
-One AWS secret per provider, named so the `PostHog/secrets` CLI and UI resolve it
-(`integrations-stripe` → `integrations-stripe-secrets`), holding that provider's fields as flat
-`KEY: value` pairs. Flat and uppercase is not a preference: that tool only manages `[A-Z0-9_]+`
-keys with plain string values, and a nested object would be invisible to the very UI meant to
-operate this.
+**One secret holds everything**, the way every other PostHog service stores its configuration:
+`integration-service-secrets`, a flat map of `KEY: value` pairs. Flat and uppercase is not a
+preference — the `PostHog/secrets` CLI and UI only manage `[A-Z0-9_]+` keys with plain string
+values, and a nested object would be invisible to the very tooling meant to operate this.
 
-Per-provider granularity matters because AWS staging labels apply to a whole secret version:
-rotating Stripe must not disturb Google.
+```
+integration-service-secrets
+  STRIPE_APP_SECRET_KEY                 = "<credential>"
+  STRIPE_APP_SECRET_KEY_FALLBACKS       = "<outgoing value, only while rotating>"
+  INTEGRATION_RECOVERY_FIELDS           = "<comma-separated field names>"
+  CALLER_KEY_POSTHOG_DJANGO             = "<new>,<old>"
+```
 
-Rotation rides AWS's own staging labels rather than a bespoke format. `PutSecretValue` promotes the
-new version to `AWSCURRENT` and demotes the old to `AWSPREVIOUS`; the service reads both and diffs
-them **per field**, so a provider whose `client_id` did not change reports only the field that did.
-Rollback is `secrets rollback`, which the `PostHog/secrets` CLI already implements.
+**Rotation rides an explicit `<KEY>_FALLBACKS` sibling, not AWS staging labels.** That is forced:
+`AWSPREVIOUS` applies to a whole secret version, so with everything in one secret, rotating Google —
+or simply adding an unrelated key — would consume the slot Stripe's in-flight rotation was using and
+end its overlap silently. A sibling key is unaffected by edits to anything else.
 
-| State      | Condition                                    | Response                              |
-| ---------- | -------------------------------------------- | ------------------------------------- |
-| `steady`   | no `AWSPREVIOUS`, or equal values            | `value` only                          |
-| `rotating` | values differ                                | `value` + `previous`                  |
-| `recovery` | field named in `INTEGRATION_RECOVERY_FIELDS` | no value; caller raises a typed error |
+It is also the convention PostHog already uses for rotatable keys (`SECRET_KEY_FALLBACKS`,
+`JWT_SIGNING_KEY_FALLBACKS`), so the rotation guard in `PostHog/secrets` grades these automatically
+and warns before an unsafe in-place edit.
+
+Starting a rotation means writing the new value and moving the outgoing one into the sibling.
+Completing it means deleting the sibling. Every other credential in the secret is untouched
+throughout, so two rotations can be in flight at once without interfering.
+
+| State      | Condition                                        | Response                              |
+| ---------- | ------------------------------------------------ | ------------------------------------- |
+| `steady`   | no `_FALLBACKS` sibling, or it repeats the value | `value` only                          |
+| `rotating` | the sibling holds a different value              | `value` + `previous`                  |
+| `recovery` | field named in `INTEGRATION_RECOVERY_FIELDS`     | no value; caller raises a typed error |
 
 `recovery` covers a credential that is known-burned with no valid replacement yet. These are the
 client ids and secrets that authenticate _PostHog_ to the third party, so there is no per-user
@@ -167,7 +172,10 @@ That rules out observing which value a caller's third-party call actually succee
 verdict is built from something we can see instead:
 
 > `safeToRetirePrevious` is true when **every deployment known to read this key has read it since
-> the current value became `AWSCURRENT`**, and at least one such deployment exists.
+> the secret last changed**, and at least one such deployment exists.
+
+The threshold is the secret's version timestamp rather than a per-field one. An unrelated edit moves
+it forward and delays the verdict, which is the correct direction to be wrong in.
 
 This is sound only because callers do not cache. A read after activation necessarily returned the
 new value, so "has read since" means "is now on the new value". If a client-side cache is ever
@@ -251,8 +259,7 @@ local work. Point `AWS_ENDPOINT_URL` at moto to exercise the store without real 
 | `INTEGRATION_SERVICE_ENV`                  | `dev`                         | Logical env; bound into cache keys, GCM AAD and the usage artifact |
 | `INTEGRATION_SERVICE_REDIS_URL`            | —                             | Unset disables L2. Required in production                          |
 | `INTEGRATION_SERVICE_KMS_KEY_ID`           | —                             | Required in production, and whenever Redis is configured           |
-| `INTEGRATION_SERVICE_SECRET_PREFIX`        | `integrations-`               | Prefix for the per-provider secret names                           |
-| `INTEGRATION_SERVICE_KEYS_SECRET_ID`       | `integration-service-secrets` | Secret holding one signing key per deployment                      |
+| `INTEGRATION_SERVICE_SECRET_ID`            | `integration-service-secrets` | The one secret holding credentials and signing keys                |
 | `INTEGRATION_SERVICE_CACHE_TTL_SECONDS`    | `300`                         | Server-side snapshot TTL and refresh cadence                       |
 | `INTEGRATION_SERVICE_DEK_ROTATION_SECONDS` | `3600`                        | How often a new KMS data key is generated                          |
 | `INTEGRATION_SERVICE_RETIRE_QUIET_HOURS`   | `24`                          | Quiet window for `safeToRetirePrevious`                            |

@@ -16,7 +16,7 @@
 import { logger } from '../lib/logging.js'
 import { observeResolve, previousVersionServedTotal } from '../metrics.js'
 import { providerForKey } from '../providers.js'
-import type { CallerIdentity, ProviderSnapshot, ResolveOutcome } from '../types.js'
+import type { CallerIdentity, ResolveOutcome, SecretsSnapshot } from '../types.js'
 import type { UsageRecorder } from '../usage/recorder.js'
 
 /** Stand-in label for anything a caller named that the provider manifest does not define. */
@@ -37,7 +37,7 @@ export interface ResolveResponse {
 }
 
 export interface ResolveDeps {
-    loadProvider: (provider: string) => Promise<ProviderSnapshot | null>
+    loadSecrets: () => Promise<SecretsSnapshot | null>
     recorder: UsageRecorder
 }
 
@@ -46,30 +46,21 @@ export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): 
     const missing: string[] = []
     const served: string[] = []
 
-    // Group by provider so N fields of the same provider cost one snapshot load.
-    const byProvider = new Map<string, string[]>()
-    for (const key of identity.requestedKeys) {
-        const provider = providerForKey(key)
-        if (!provider) {
-            missing.push(key)
-            // Constant labels, not the key itself. A key absent from the manifest is a
-            // caller-supplied string, and putting it on a metric would let any holder of
-            // a signing key grow this process's series set without bound. The real name
-            // still reaches the response and the log line, neither of which is a label.
-            observeResolve(identity, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
-            continue
-        }
-        const bucket = byProvider.get(provider)
-        if (bucket) {
-            bucket.push(key)
-        } else {
-            byProvider.set(provider, [key])
-        }
-    }
+    const snapshot = await deps.loadSecrets()
 
-    for (const [provider, keys] of byProvider) {
-        const snapshot = await deps.loadProvider(provider)
-        for (const key of keys) {
+    for (const key of identity.requestedKeys) {
+        {
+            const provider = providerForKey(key)
+            if (!provider) {
+                missing.push(key)
+                // Constant labels, not the key itself. A key absent from the manifest is a
+                // caller-supplied string, and putting it on a metric would let any holder
+                // of a signing key grow this process's series set without bound. The real
+                // name still reaches the response and the log line, neither of which is a
+                // label.
+                observeResolve(identity, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
+                continue
+            }
             const resolved = snapshot?.secrets[key]
             if (!resolved) {
                 missing.push(key)

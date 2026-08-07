@@ -51,8 +51,7 @@ export const previousVersionServedTotal = new Counter({
 
 export const secretAgeSeconds = new Gauge({
     name: 'integration_secret_age_seconds',
-    help: 'Age of a provider secret current version, for "not rotated in N days" alerting',
-    labelNames: ['provider'],
+    help: 'Age of the integration-service secret current version',
     registers: [register],
 })
 
@@ -69,15 +68,13 @@ export const cacheHitsTotal = new Counter({
 
 export const servingStaleSeconds = new Gauge({
     name: 'integration_secret_serving_stale_seconds',
-    help: 'Age of the oldest snapshot still being served because refresh is failing (0 when healthy)',
-    labelNames: ['provider'],
+    help: 'Age of the snapshot still being served because refresh is failing (0 when healthy)',
     registers: [register],
 })
 
 export const storeErrorsTotal = new Counter({
     name: 'integration_secret_store_errors_total',
     help: 'Failed reads from the backing secret store',
-    labelNames: ['provider'],
     registers: [register],
 })
 

@@ -4,64 +4,53 @@ import { describe, expect, it } from 'vitest'
 import { createSecretsManagerStore } from '@/store/secretsManager.js'
 import type { SecretStore } from '@/store/types.js'
 
-// AWSCURRENT/AWSPREVIOUS pairs, keyed by secret id. `undefined` for a stage means the
-// stage does not exist, which is how a never-rotated secret actually looks.
-type Versions = Record<string, { current?: unknown; previous?: unknown }>
+const SECRET_ID = 'integration-service-secrets'
 
-function fakeClient(versions: Versions, createdAt = new Date('2026-01-01T00:00:00Z')): any {
+function fakeClient(fields: Record<string, unknown> | null, createdAt = new Date('2026-01-01T00:00:00Z')): any {
     return {
         send(command: unknown) {
             if (!(command instanceof GetSecretValueCommand)) {
                 throw new Error('unexpected command')
             }
-            const { SecretId, VersionStage } = command.input
-            const entry = versions[SecretId as string]
-            const payload = VersionStage === 'AWSPREVIOUS' ? entry?.previous : entry?.current
-            if (payload === undefined) {
+            if (fields === null) {
                 throw new ResourceNotFoundException({ message: 'not found', $metadata: {} })
             }
             return Promise.resolve({
-                SecretString: JSON.stringify(payload),
-                VersionId: VersionStage === 'AWSPREVIOUS' ? 'v-old' : 'v-new',
+                SecretString: JSON.stringify(fields),
+                VersionId: 'v-current',
                 CreatedDate: createdAt,
             })
         },
     }
 }
 
-const store = (versions: Versions): SecretStore =>
-    createSecretsManagerStore({ client: fakeClient(versions), secretIdFor: (p) => `integrations-${p}-secrets` })
+const store = (fields: Record<string, unknown> | null): SecretStore =>
+    createSecretsManagerStore({ client: fakeClient(fields), secretId: SECRET_ID })
 
 describe('secrets manager store', () => {
-    it('reports steady and serves no previous when the secret has never been rotated', async () => {
+    it('reads every manifest credential out of the one secret', async () => {
         const snapshot = await store({
-            'integrations-hubspot-secrets': {
-                current: { HUBSPOT_APP_CLIENT_ID: 'id', HUBSPOT_APP_CLIENT_SECRET: 'sec' },
-            },
-        }).loadProvider('hubspot')
+            HUBSPOT_APP_CLIENT_ID: 'id',
+            HUBSPOT_APP_CLIENT_SECRET: 'sec',
+            STRIPE_APP_SECRET_KEY: 'sk',
+        }).load()
 
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']).toMatchObject({ state: 'steady', value: 'sec' })
+        expect(snapshot?.secrets['STRIPE_APP_SECRET_KEY']).toMatchObject({ state: 'steady', value: 'sk' })
+    })
+
+    it('reports steady and serves no previous when there is no fallback sibling', async () => {
+        const snapshot = await store({ HUBSPOT_APP_CLIENT_SECRET: 'sec' }).load()
+
+        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('steady')
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']).not.toHaveProperty('previous')
     })
 
-    it('reports steady when a previous version exists but holds the same value', async () => {
+    it('reports rotating with both values when a fallback sibling holds the outgoing one', async () => {
         const snapshot = await store({
-            'integrations-hubspot-secrets': {
-                current: { HUBSPOT_APP_CLIENT_SECRET: 'same' },
-                previous: { HUBSPOT_APP_CLIENT_SECRET: 'same' },
-            },
-        }).loadProvider('hubspot')
-
-        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('steady')
-    })
-
-    it('reports rotating with both values when the versions differ', async () => {
-        const snapshot = await store({
-            'integrations-hubspot-secrets': {
-                current: { HUBSPOT_APP_CLIENT_SECRET: 'new' },
-                previous: { HUBSPOT_APP_CLIENT_SECRET: 'old' },
-            },
-        }).loadProvider('hubspot')
+            HUBSPOT_APP_CLIENT_SECRET: 'new',
+            HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'old',
+        }).load()
 
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']).toMatchObject({
             state: 'rotating',
@@ -70,83 +59,80 @@ describe('secrets manager store', () => {
         })
     })
 
-    // The per-field diff is the reason for one AWS secret per provider: rotating one
-    // credential must not make every other field of the same app look mid-rotation.
-    it('only marks the field that actually changed as rotating', async () => {
+    it('takes the newest entry when the fallback list holds several', async () => {
         const snapshot = await store({
-            'integrations-hubspot-secrets': {
-                current: { HUBSPOT_APP_CLIENT_ID: 'id', HUBSPOT_APP_CLIENT_SECRET: 'new' },
-                previous: { HUBSPOT_APP_CLIENT_ID: 'id', HUBSPOT_APP_CLIENT_SECRET: 'old' },
-            },
-        }).loadProvider('hubspot')
+            HUBSPOT_APP_CLIENT_SECRET: 'new',
+            HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'old, older',
+        }).load()
 
-        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_ID']?.state).toBe('steady')
-        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('rotating')
+        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.previous).toBe('old')
     })
 
-    it('serves no value at all for a field marked in recovery', async () => {
+    it('reports steady when the fallback repeats the current value', async () => {
         const snapshot = await store({
-            'integrations-hubspot-secrets': {
-                current: {
-                    HUBSPOT_APP_CLIENT_SECRET: 'burned',
-                    INTEGRATION_RECOVERY_FIELDS: 'HUBSPOT_APP_CLIENT_SECRET',
-                },
-            },
-        }).loadProvider('hubspot')
+            HUBSPOT_APP_CLIENT_SECRET: 'same',
+            HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'same',
+        }).load()
+
+        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('steady')
+    })
+
+    // The reason rotation moved off AWS staging labels: with one shared secret, rotating
+    // one credential must leave every other one alone.
+    it('leaves other credentials steady while one is mid-rotation', async () => {
+        const snapshot = await store({
+            HUBSPOT_APP_CLIENT_SECRET: 'new',
+            HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'old',
+            STRIPE_APP_SECRET_KEY: 'sk',
+            GOOGLE_ADS_APP_CLIENT_SECRET: 'ga',
+        }).load()
+
+        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('rotating')
+        expect(snapshot?.secrets['STRIPE_APP_SECRET_KEY']?.state).toBe('steady')
+        expect(snapshot?.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']?.state).toBe('steady')
+    })
+
+    it('serves no value at all for a field named in the recovery list', async () => {
+        const snapshot = await store({
+            HUBSPOT_APP_CLIENT_SECRET: 'burned',
+            INTEGRATION_RECOVERY_FIELDS: 'HUBSPOT_APP_CLIENT_SECRET',
+        }).load()
 
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('recovery')
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBeUndefined()
     })
 
-    // Adding a credential has to be a reviewed code change, not just a secrets edit —
-    // otherwise the provider manifest stops being a statement of what we hold.
-    it('ignores fields that are present in the secret but absent from the manifest', async () => {
-        const snapshot = await store({
-            'integrations-hubspot-secrets': {
-                current: { HUBSPOT_APP_CLIENT_SECRET: 'sec', SOMETHING_UNDECLARED: 'leak-me' },
-            },
-        }).loadProvider('hubspot')
-
-        expect(Object.keys(snapshot?.secrets ?? {})).toEqual(['HUBSPOT_APP_CLIENT_SECRET'])
-    })
-
-    it('never exposes the reserved recovery field as a credential', async () => {
-        const snapshot = await store({
-            'integrations-hubspot-secrets': {
-                current: {
-                    HUBSPOT_APP_CLIENT_SECRET: 'sec',
-                    INTEGRATION_RECOVERY_FIELDS: 'HUBSPOT_APP_CLIENT_ID',
-                },
-            },
-        }).loadProvider('hubspot')
-
-        expect(snapshot?.secrets).not.toHaveProperty('INTEGRATION_RECOVERY_FIELDS')
-    })
-
-    // Flat string values only: PostHog/secrets manages [A-Z0-9_]+ keys with plain string
-    // values, so a nested object here would be invisible to the CLI and the UI.
     it('handles several fields in recovery from one comma-separated value', async () => {
         const snapshot = await store({
-            'integrations-stripe-secrets': {
-                current: {
-                    STRIPE_APP_CLIENT_ID: 'id',
-                    STRIPE_APP_SECRET_KEY: 'burned',
-                    STRIPE_SIGNING_SECRET: 'also-burned',
-                    INTEGRATION_RECOVERY_FIELDS: 'STRIPE_APP_SECRET_KEY, STRIPE_SIGNING_SECRET',
-                },
-            },
-        }).loadProvider('stripe')
+            STRIPE_APP_CLIENT_ID: 'id',
+            STRIPE_APP_SECRET_KEY: 'burned',
+            STRIPE_SIGNING_SECRET: 'also-burned',
+            INTEGRATION_RECOVERY_FIELDS: 'STRIPE_APP_SECRET_KEY, STRIPE_SIGNING_SECRET',
+        }).load()
 
         expect(snapshot?.secrets['STRIPE_APP_SECRET_KEY']?.state).toBe('recovery')
         expect(snapshot?.secrets['STRIPE_SIGNING_SECRET']?.state).toBe('recovery')
         expect(snapshot?.secrets['STRIPE_APP_CLIENT_ID']?.state).toBe('steady')
     })
 
-    it('returns null for a provider with no secret in this environment', async () => {
-        expect(await store({}).loadProvider('hubspot')).toBeNull()
+    // Adding a credential has to be a reviewed code change, not just a secrets edit —
+    // otherwise the provider manifest stops being a statement of what we hold. This also
+    // keeps the signing keys sharing this secret from ever being served as credentials.
+    it.each([
+        ['an undeclared field', 'SOMETHING_UNDECLARED'],
+        ['the recovery marker', 'INTEGRATION_RECOVERY_FIELDS'],
+        ['a caller signing key', 'CALLER_KEY_POSTHOG_DJANGO'],
+        ['a fallback sibling', 'HUBSPOT_APP_CLIENT_SECRET_FALLBACKS'],
+    ])('never exposes %s as a credential', async (_label, field) => {
+        const snapshot = await store({
+            HUBSPOT_APP_CLIENT_SECRET: 'sec',
+            [field]: 'should-not-be-served',
+        }).load()
+
+        expect(snapshot?.secrets).not.toHaveProperty(field)
     })
 
-    it('returns null for a provider outside the manifest', async () => {
-        expect(await store({}).loadProvider('not-a-provider')).toBeNull()
+    it('returns null when the secret does not exist in this environment', async () => {
+        expect(await store(null).load()).toBeNull()
     })
 })

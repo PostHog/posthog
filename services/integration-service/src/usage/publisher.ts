@@ -17,8 +17,8 @@ import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3'
 
 import { logger } from '../lib/logging.js'
 import { usagePublishTotal } from '../metrics.js'
-import { PROVIDER_NAMES, providerForKey } from '../providers.js'
-import type { ProviderSnapshot, SecretState } from '../types.js'
+import { providerForKey } from '../providers.js'
+import type { SecretsSnapshot, SecretState } from '../types.js'
 import type { UsageRecorder } from './recorder.js'
 
 export const USAGE_OBJECT_KEY = 'integrations/usage/latest.json'
@@ -65,13 +65,14 @@ export function buildUsageMap(opts: {
     env: string
     generatedAt: string
     quietWindowHours: number
-    snapshots: readonly ProviderSnapshot[]
+    snapshot: SecretsSnapshot | null
     reads: ReadonlyMap<string, number>
     lastSeen: ReadonlyMap<string, number>
 }): UsageMap {
     const keys: Record<string, UsageKeyEntry> = {}
+    const snapshot = opts.snapshot
 
-    for (const snapshot of opts.snapshots) {
+    if (snapshot) {
         for (const [key, resolved] of Object.entries(snapshot.secrets)) {
             const callers = new Map<string, UsageCallerEntry>()
 
@@ -91,7 +92,7 @@ export function buildUsageMap(opts: {
                 }
             }
 
-            const activatedAt = snapshot.currentActivatedAt ? Date.parse(snapshot.currentActivatedAt) : null
+            const activatedAt = snapshot.versionCreatedAt ? Date.parse(snapshot.versionCreatedAt) : null
             for (const [field, at] of opts.lastSeen) {
                 const [fieldKey, caller] = field.split('|')
                 if (fieldKey === key && caller && callers.has(caller)) {
@@ -106,10 +107,10 @@ export function buildUsageMap(opts: {
             const entries = [...callers.values()].sort((a, b) => a.caller.localeCompare(b.caller))
 
             keys[key] = {
-                provider: providerForKey(key) ?? snapshot.provider,
+                provider: providerForKey(key) ?? 'unknown',
                 state: resolved.state,
                 currentVersionId: resolved.versionId,
-                currentActivatedAt: snapshot.currentActivatedAt,
+                currentActivatedAt: snapshot.versionCreatedAt,
                 callers: entries,
                 safeToRetirePrevious:
                     resolved.state === 'rotating' &&
@@ -134,7 +135,7 @@ export interface UsagePublisherOptions {
     env: string
     quietWindowHours: number
     recorder: UsageRecorder
-    loadSnapshot: (provider: string) => Promise<ProviderSnapshot | null>
+    loadSnapshot: () => Promise<SecretsSnapshot | null>
 }
 
 export class UsagePublisher {
@@ -143,15 +144,11 @@ export class UsagePublisher {
     async publish(): Promise<void> {
         try {
             const { reads, lastSeen } = await this.opts.recorder.summarize(this.opts.quietWindowHours)
-            const snapshots = (await Promise.all(PROVIDER_NAMES.map((p) => this.opts.loadSnapshot(p)))).filter(
-                (s): s is ProviderSnapshot => s !== null
-            )
-
             const usage = buildUsageMap({
                 env: this.opts.env,
                 generatedAt: new Date().toISOString(),
                 quietWindowHours: this.opts.quietWindowHours,
-                snapshots,
+                snapshot: await this.opts.loadSnapshot(),
                 reads,
                 lastSeen,
             })

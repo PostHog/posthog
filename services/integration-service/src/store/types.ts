@@ -1,31 +1,42 @@
 // The storage seam.
 //
-// Phase 1 stores credentials in AWS Secrets Manager. OpenBao is the eventual
-// destination (it is already deployed in dev via PostHog/charts) but is not in prod
-// yet, so it becomes a second implementation of this interface rather than a rewrite.
-// Keep everything AWS-shaped behind here.
+// Phase 1 keeps everything in ONE AWS secret, the way every other PostHog service does it:
+// `integration-service-secrets`, holding flat `KEY: value` pairs. OpenBao is the eventual
+// destination (already deployed in dev via PostHog/charts) but is not in prod yet, so it
+// becomes a second implementation of this interface rather than a rewrite.
 
-import type { ProviderSnapshot } from '../types.js'
+import type { SecretsSnapshot } from '../types.js'
 
 export interface SecretStore {
     /**
-     * Load one provider's credential fields, including whatever the previous version
-     * held so a rotation in flight can be served.
-     *
-     * Returns null when the provider has no secret in this environment — a
-     * configuration gap, not an error, since a region may legitimately not hold
-     * credentials for every provider.
+     * Load every credential field the manifest defines. Returns null when the secret does
+     * not exist in this environment — a configuration gap, not an error.
      */
-    loadProvider(provider: string): Promise<ProviderSnapshot | null>
+    load(): Promise<SecretsSnapshot | null>
 }
 
 /**
- * Reserved field inside a provider's secret naming the credentials that are in recovery,
- * comma-separated. Uppercase and flat because PostHog/secrets only manages
- * `[A-Z0-9_]+` keys with plain string values — a nested object would be invisible to
- * the CLI and the UI, which are the tools meant to operate this.
+ * Reserved field naming the credentials that are in recovery, comma-separated.
  *
- * Never a credential field: the provider manifest defines those, and this name is not
- * in it.
+ * Uppercase and flat because PostHog/secrets only manages `[A-Z0-9_]+` keys with plain
+ * string values. Never a credential itself: the provider manifest defines those, and this
+ * name is not in it.
  */
 export const RECOVERY_FIELD = 'INTEGRATION_RECOVERY_FIELDS'
+
+/**
+ * Suffix marking the outgoing value during a rotation: `STRIPE_APP_SECRET_KEY` alongside
+ * `STRIPE_APP_SECRET_KEY_FALLBACKS`, comma-separated, newest first.
+ *
+ * This is PostHog's existing convention for rotatable keys (`SECRET_KEY_FALLBACKS`,
+ * `JWT_SIGNING_KEY_FALLBACKS`), and the rotation guard in PostHog/secrets already grades
+ * a key whose `_FALLBACKS` sibling is present, so the UI warns about an unsafe in-place
+ * edit for free.
+ *
+ * It replaces what AWS staging labels used to do here, and has to. `AWSPREVIOUS` applies
+ * to a whole secret version, so with every credential in one secret, rotating Google — or
+ * simply adding an unrelated key — would consume the slot Stripe's in-flight rotation was
+ * using and end its overlap silently. An explicit sibling is unaffected by edits to
+ * anything else in the secret.
+ */
+export const FALLBACK_SUFFIX = '_FALLBACKS'

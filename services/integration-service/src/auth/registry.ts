@@ -1,9 +1,10 @@
 // The service's own signing keys, one entry per calling deployment.
 //
-// Stored in this service's AWS secret as flat uppercase keys, which is what the
-// PostHog/secrets CLI and UI can manage:
+// They live in the same secret as the credentials, as flat uppercase keys, which is what
+// the PostHog/secrets CLI and UI can manage:
 //
 //   integration-service-secrets
+//     STRIPE_APP_SECRET_KEY                      = "<credential>"
 //     CALLER_KEY_POSTHOG_DJANGO                  = "<new>,<old>"
 //     CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE  = "<new>,<old>"
 //

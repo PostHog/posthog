@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ProviderSnapshot } from '@/types.js'
+import type { SecretsSnapshot } from '@/types.js'
 import { buildUsageMap, type UsageMap } from '@/usage/publisher.js'
 
 const ACTIVATED_AT = '2026-08-01T00:00:00.000Z'
 const BEFORE = Date.parse('2026-07-30T00:00:00.000Z')
 const AFTER = Date.parse('2026-08-02T00:00:00.000Z')
 
-const ROTATING: ProviderSnapshot = {
-    provider: 'google-ads',
+const ROTATING: SecretsSnapshot = {
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v-new',
-    currentActivatedAt: ACTIVATED_AT,
+    versionCreatedAt: ACTIVATED_AT,
     secrets: {
         GOOGLE_ADS_APP_CLIENT_SECRET: {
             state: 'rotating',
@@ -24,7 +23,7 @@ const ROTATING: ProviderSnapshot = {
 }
 
 function build(opts: {
-    snapshots?: ProviderSnapshot[]
+    snapshot?: SecretsSnapshot | null
     reads?: Record<string, number>
     lastSeen?: Record<string, number>
 }): UsageMap {
@@ -32,7 +31,7 @@ function build(opts: {
         env: 'prod-us',
         generatedAt: '2026-08-06T12:00:00.000Z',
         quietWindowHours: 24,
-        snapshots: opts.snapshots ?? [ROTATING],
+        snapshot: opts.snapshot === undefined ? ROTATING : opts.snapshot,
         reads: new Map(Object.entries(opts.reads ?? {})),
         lastSeen: new Map(Object.entries(opts.lastSeen ?? {})),
     })
@@ -92,12 +91,12 @@ describe('usage map', () => {
         })
 
         it('is false for a key that is not mid-rotation, since there is nothing to retire', () => {
-            const steady: ProviderSnapshot = {
+            const steady: SecretsSnapshot = {
                 ...ROTATING,
                 secrets: { [KEY]: { state: 'steady', value: 'only', versionId: 'v-new', fetchedAt: 'now' } },
             }
             const usage = build({
-                snapshots: [steady],
+                snapshot: steady,
                 reads: { [`${KEY}|${WORKER}`]: 100 },
                 lastSeen: { [`${KEY}|${WORKER}`]: AFTER },
             })
@@ -105,9 +104,9 @@ describe('usage map', () => {
         })
 
         it('is false when the current version has no activation time to compare against', () => {
-            const undated: ProviderSnapshot = { ...ROTATING, currentActivatedAt: null }
+            const undated: SecretsSnapshot = { ...ROTATING, versionCreatedAt: null }
             const usage = build({
-                snapshots: [undated],
+                snapshot: undated,
                 reads: { [`${KEY}|${WORKER}`]: 100 },
                 lastSeen: { [`${KEY}|${WORKER}`]: AFTER },
             })

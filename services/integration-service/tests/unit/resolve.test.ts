@@ -2,38 +2,33 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { register, resolveTotal } from '@/metrics.js'
 import { resolveKeys, type ResolveDeps } from '@/policy/resolve.js'
-import type { CallerIdentity, ProviderSnapshot } from '@/types.js'
+import type { CallerIdentity, SecretsSnapshot } from '@/types.js'
 import type { UsageRecorder } from '@/usage/recorder.js'
 
-function snapshot(provider: string, secrets: ProviderSnapshot['secrets']): ProviderSnapshot {
+function snapshot(secrets: SecretsSnapshot['secrets']): SecretsSnapshot {
     return {
-        provider,
         fetchedAt: '2026-08-06T00:00:00.000Z',
         versionId: 'v1',
-        currentActivatedAt: '2026-01-01T00:00:00.000Z',
+        versionCreatedAt: '2026-01-01T00:00:00.000Z',
         secrets,
     }
 }
 
-const SNAPSHOTS: Record<string, ProviderSnapshot> = {
-    'google-ads': snapshot('google-ads', {
-        GOOGLE_ADS_APP_CLIENT_ID: { state: 'steady', value: 'ga-id', versionId: 'v1', fetchedAt: 'now' },
-        GOOGLE_ADS_APP_CLIENT_SECRET: {
-            state: 'rotating',
-            value: 'ga-new',
-            previous: 'ga-old',
-            versionId: 'v1',
-            fetchedAt: 'now',
-        },
-    }),
-    stripe: snapshot('stripe', {
-        STRIPE_APP_SECRET_KEY: { state: 'steady', value: 'sk-live', versionId: 'v1', fetchedAt: 'now' },
-    }),
-}
+const SNAPSHOT = snapshot({
+    GOOGLE_ADS_APP_CLIENT_ID: { state: 'steady', value: 'ga-id', versionId: 'v1', fetchedAt: 'now' },
+    GOOGLE_ADS_APP_CLIENT_SECRET: {
+        state: 'rotating',
+        value: 'ga-new',
+        previous: 'ga-old',
+        versionId: 'v1',
+        fetchedAt: 'now',
+    },
+    STRIPE_APP_SECRET_KEY: { state: 'steady', value: 'sk-live', versionId: 'v1', fetchedAt: 'now' },
+})
 
 function deps(overrides: Partial<ResolveDeps> = {}): ResolveDeps {
     return {
-        loadProvider: (provider) => Promise.resolve(SNAPSHOTS[provider] ?? null),
+        loadSecrets: () => Promise.resolve(SNAPSHOT),
         recorder: { record: vi.fn() } as unknown as UsageRecorder,
         ...overrides,
     }
@@ -97,26 +92,14 @@ describe('resolve', () => {
     it('serves a recovery field with no value so the caller fails fast', async () => {
         const response = await resolveKeys(identity(['STRIPE_APP_SECRET_KEY']), {
             ...deps(),
-            loadProvider: () =>
+            loadSecrets: () =>
                 Promise.resolve(
-                    snapshot('stripe', {
-                        STRIPE_APP_SECRET_KEY: { state: 'recovery', versionId: 'v1', fetchedAt: 'now' },
-                    })
+                    snapshot({ STRIPE_APP_SECRET_KEY: { state: 'recovery', versionId: 'v1', fetchedAt: 'now' } })
                 ),
         })
 
         expect(response.secrets['STRIPE_APP_SECRET_KEY']).toMatchObject({ state: 'recovery' })
         expect(response.secrets['STRIPE_APP_SECRET_KEY']?.value).toBeUndefined()
-    })
-
-    it('loads each provider once even when several of its fields are requested', async () => {
-        const loadProvider = vi.fn((provider: string) => Promise.resolve(SNAPSHOTS[provider] ?? null))
-        await resolveKeys(
-            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET', 'STRIPE_APP_SECRET_KEY']),
-            deps({ loadProvider })
-        )
-
-        expect(loadProvider).toHaveBeenCalledTimes(2)
     })
 
     // A key name a caller invents must never reach a Prometheus label. prom-client keeps

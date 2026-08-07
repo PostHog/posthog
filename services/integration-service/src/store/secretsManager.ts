@@ -1,138 +1,104 @@
 // AWS Secrets Manager implementation of SecretStore.
 //
-// Rotation rides AWS's own staging labels rather than a bespoke envelope format:
-// PutSecretValue promotes the new version to AWSCURRENT and demotes the old one to
-// AWSPREVIOUS automatically, and `secrets rollback` in PostHog/secrets already knows
-// how to move them back. So "is this key mid-rotation" is answered by diffing the two
-// versions field by field — which also means a provider whose client_id did not change
-// reports only the field that did.
+// One secret holds every platform integration credential as flat `KEY: value` pairs, which
+// is how every other PostHog service stores its configuration and what the
+// PostHog/secrets CLI and UI can manage.
+//
+// Rotation state comes from an explicit `<KEY>_FALLBACKS` sibling rather than AWS staging
+// labels — see the note on FALLBACK_SUFFIX for why the labels cannot work once everything
+// shares one secret.
 
 import { GetSecretValueCommand, ResourceNotFoundException, SecretsManagerClient } from '@aws-sdk/client-secrets-manager'
 
 import { logger } from '../lib/logging.js'
 import { PROVIDERS } from '../providers.js'
-import type { ProviderSnapshot, ResolvedSecret } from '../types.js'
-import { RECOVERY_FIELD, type SecretStore } from './types.js'
+import type { ResolvedSecret, SecretsSnapshot } from '../types.js'
+import { FALLBACK_SUFFIX, RECOVERY_FIELD, type SecretStore } from './types.js'
 
-interface VersionPayload {
-    fields: Record<string, string>
-    /** Credential fields flagged as in recovery, from the reserved flat field. */
-    inRecovery: ReadonlySet<string>
-    versionId: string
-    createdAt: string | null
-}
-
-function parsePayload(raw: string, versionId: string, createdAt: Date | undefined): VersionPayload {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new Error('secret payload is not a JSON object')
+function commaList(value: string | undefined): string[] {
+    if (!value) {
+        return []
     }
-
-    const fields: Record<string, string> = {}
-    const inRecovery = new Set<string>()
-
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-        // Non-string values would silently stringify to "[object Object]" downstream.
-        // Skipping them makes the field read as `missing`, which is loud and correct.
-        if (typeof value !== 'string') {
-            continue
-        }
-        if (key === RECOVERY_FIELD) {
-            for (const field of value.split(',').map((part) => part.trim())) {
-                if (field) {
-                    inRecovery.add(field)
-                }
-            }
-            continue
-        }
-        fields[key] = value
-    }
-
-    return { fields, inRecovery, versionId, createdAt: createdAt ? createdAt.toISOString() : null }
+    return value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
 }
 
 export interface SecretsManagerStoreOptions {
     client: SecretsManagerClient
-    /** Wraps the provider name into an AWS secret id, e.g. `integrations-stripe-secrets`. */
-    secretIdFor: (provider: string) => string
+    secretId: string
 }
 
 export function createSecretsManagerStore(opts: SecretsManagerStoreOptions): SecretStore {
-    const { client, secretIdFor } = opts
-
-    async function fetchVersion(secretId: string, stage: 'AWSCURRENT' | 'AWSPREVIOUS'): Promise<VersionPayload | null> {
-        try {
-            const response = await client.send(new GetSecretValueCommand({ SecretId: secretId, VersionStage: stage }))
-            if (!response.SecretString) {
-                return null
-            }
-            return parsePayload(response.SecretString, response.VersionId ?? '', response.CreatedDate)
-        } catch (err) {
-            // A secret with only ever one version has no AWSPREVIOUS stage. That is the
-            // steady state, not a failure, so it must not fail the whole read.
-            if (err instanceof ResourceNotFoundException) {
-                return null
-            }
-            throw err
-        }
-    }
-
     return {
-        async loadProvider(provider: string): Promise<ProviderSnapshot | null> {
-            const definition = PROVIDERS[provider]
-            if (!definition) {
+        async load(): Promise<SecretsSnapshot | null> {
+            let response
+            try {
+                response = await opts.client.send(new GetSecretValueCommand({ SecretId: opts.secretId }))
+            } catch (err) {
+                if (err instanceof ResourceNotFoundException) {
+                    logger.warn('store:secret_missing', { secretId: opts.secretId })
+                    return null
+                }
+                throw err
+            }
+            if (!response.SecretString) {
+                logger.warn('store:secret_empty', { secretId: opts.secretId })
                 return null
             }
-            const secretId = secretIdFor(provider)
 
-            const current = await fetchVersion(secretId, 'AWSCURRENT')
-            if (!current) {
-                logger.warn('store:provider_missing', { provider, secretId })
-                return null
+            const parsed: unknown = JSON.parse(response.SecretString)
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                throw new Error('secret payload is not a JSON object')
             }
-            const previous = await fetchVersion(secretId, 'AWSPREVIOUS')
 
+            // Non-string values would stringify to "[object Object]" downstream. Dropping
+            // them makes the field read as `missing`, which is loud and correct.
+            const fields: Record<string, string> = {}
+            for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+                if (typeof value === 'string') {
+                    fields[key] = value
+                }
+            }
+
+            const inRecovery = new Set(commaList(fields[RECOVERY_FIELD]))
             const fetchedAt = new Date().toISOString()
+            const versionId = response.VersionId ?? ''
             const secrets: Record<string, ResolvedSecret> = {}
 
-            // Only manifest keys are ever exposed. A field present in the secret but not
-            // in the manifest is ignored rather than served, so adding a credential is a
+            // Only manifest keys are ever exposed. A field present in the secret but not in
+            // the manifest is ignored rather than served, so adding a credential is a
             // reviewed code change and never just a secrets edit.
-            for (const key of definition.keys) {
-                const value = current.fields[key]
-                if (value === undefined) {
-                    continue
-                }
-
-                if (current.inRecovery.has(key)) {
-                    secrets[key] = {
-                        state: 'recovery',
-                        versionId: current.versionId,
-                        fetchedAt,
+            for (const definition of Object.values(PROVIDERS)) {
+                for (const key of definition.keys) {
+                    const value = fields[key]
+                    if (value === undefined) {
+                        continue
                     }
-                    continue
-                }
 
-                const previousValue = previous?.fields[key]
-                if (previousValue !== undefined && previousValue !== value) {
-                    secrets[key] = {
-                        state: 'rotating',
-                        value,
-                        previous: previousValue,
-                        versionId: current.versionId,
-                        fetchedAt,
+                    if (inRecovery.has(key)) {
+                        secrets[key] = { state: 'recovery', versionId, fetchedAt }
+                        continue
                     }
-                    continue
-                }
 
-                secrets[key] = { state: 'steady', value, versionId: current.versionId, fetchedAt }
+                    const previous = commaList(fields[`${key}${FALLBACK_SUFFIX}`])[0]
+                    if (previous !== undefined && previous !== value) {
+                        secrets[key] = { state: 'rotating', value, previous, versionId, fetchedAt }
+                        continue
+                    }
+
+                    secrets[key] = { state: 'steady', value, versionId, fetchedAt }
+                }
             }
 
             return {
-                provider,
                 fetchedAt,
-                versionId: current.versionId,
-                currentActivatedAt: current.createdAt,
+                versionId,
+                // "When did this secret last change", not "when did this field rotate". An
+                // unrelated edit moves it forward, which only makes the retirement verdict
+                // more conservative — the correct direction to be wrong in.
+                versionCreatedAt: response.CreatedDate ? response.CreatedDate.toISOString() : null,
                 secrets,
             }
         },

@@ -3,9 +3,9 @@ import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 
 import { EnvelopeCipher } from '@/cache/envelope.js'
-import { ProviderCache } from '@/cache/providerCache.js'
+import { SecretCache } from '@/cache/secretCache.js'
 import type { SecretStore } from '@/store/types.js'
-import type { ProviderSnapshot } from '@/types.js'
+import type { SecretsSnapshot } from '@/types.js'
 
 function fakeKmsClient(): any {
     return {
@@ -40,12 +40,11 @@ function fakeRedis(): any {
     }
 }
 
-function snapshotFor(provider: string, value: string, fetchedAt = new Date().toISOString()): ProviderSnapshot {
+function snapshotFor(value: string, fetchedAt = new Date().toISOString()): SecretsSnapshot {
     return {
-        provider,
         fetchedAt,
         versionId: 'v1',
-        currentActivatedAt: '2026-01-01T00:00:00.000Z',
+        versionCreatedAt: '2026-01-01T00:00:00.000Z',
         secrets: {
             HUBSPOT_APP_CLIENT_SECRET: { state: 'steady', value, versionId: 'v1', fetchedAt },
         },
@@ -53,7 +52,7 @@ function snapshotFor(provider: string, value: string, fetchedAt = new Date().toI
 }
 
 function build(opts: { store: SecretStore; redis?: any; now?: () => number; ttlSeconds?: number }): {
-    cache: ProviderCache
+    cache: SecretCache
     cipher: EnvelopeCipher
 } {
     const cipher = new EnvelopeCipher({
@@ -63,7 +62,7 @@ function build(opts: { store: SecretStore; redis?: any; now?: () => number; ttlS
         rotationMs: 3_600_000,
         ...(opts.now ? { now: opts.now } : {}),
     })
-    const cache = new ProviderCache({
+    const cache = new SecretCache({
         store: opts.store,
         cipher,
         redis: opts.redis,
@@ -74,39 +73,38 @@ function build(opts: { store: SecretStore; redis?: any; now?: () => number; ttlS
     return { cache, cipher }
 }
 
-describe('provider cache', () => {
+describe('secret cache', () => {
     it('serves a second read from memory without touching the store', async () => {
-        const loadProvider = vi.fn(() => Promise.resolve(snapshotFor('hubspot', 'sec')))
-        const { cache } = build({ store: { loadProvider } })
+        const load = vi.fn(() => Promise.resolve(snapshotFor('sec')))
+        const { cache } = build({ store: { load } })
 
-        await cache.get('hubspot')
-        await cache.get('hubspot')
+        await cache.get()
+        await cache.get()
 
-        expect(loadProvider).toHaveBeenCalledTimes(1)
+        expect(load).toHaveBeenCalledTimes(1)
     })
 
     // A burst of concurrent requests for the same provider is the normal shape of a
     // worker booting; it must not become a burst of Secrets Manager calls.
     it('collapses concurrent cold reads into a single store load', async () => {
-        const loadProvider = vi.fn(
-            () =>
-                new Promise<ProviderSnapshot>((resolve) => setTimeout(() => resolve(snapshotFor('hubspot', 'sec')), 5))
+        const load = vi.fn(
+            () => new Promise<SecretsSnapshot>((resolve) => setTimeout(() => resolve(snapshotFor('sec')), 5))
         )
-        const { cache } = build({ store: { loadProvider } })
+        const { cache } = build({ store: { load } })
 
-        await Promise.all(Array.from({ length: 10 }, () => cache.get('hubspot')))
+        await Promise.all(Array.from({ length: 10 }, () => cache.get()))
 
-        expect(loadProvider).toHaveBeenCalledTimes(1)
+        expect(load).toHaveBeenCalledTimes(1)
     })
 
     it('writes only sealed bytes to Redis', async () => {
         const redis = fakeRedis()
         const { cache } = build({
-            store: { loadProvider: () => Promise.resolve(snapshotFor('hubspot', 'sec')) },
+            store: { load: () => Promise.resolve(snapshotFor('sec')) },
             redis,
         })
 
-        await cache.get('hubspot')
+        await cache.get()
         await cache.settled()
 
         const written = [...redis.store.values()].join('')
@@ -118,19 +116,19 @@ describe('provider cache', () => {
     it('serves a warm Redis entry on a cold process without reading the store', async () => {
         const redis = fakeRedis()
         const first = build({
-            store: { loadProvider: () => Promise.resolve(snapshotFor('hubspot', 'sec')) },
+            store: { load: () => Promise.resolve(snapshotFor('sec')) },
             redis,
         })
-        await first.cache.get('hubspot')
+        await first.cache.get()
         await first.cache.settled()
 
         // A different replica: same Redis, its own memory.
-        const loadProvider = vi.fn(() => Promise.resolve(snapshotFor('hubspot', 'sec')))
-        const second = build({ store: { loadProvider }, redis })
+        const load = vi.fn(() => Promise.resolve(snapshotFor('sec')))
+        const second = build({ store: { load }, redis })
 
-        const snapshot = await second.cache.get('hubspot')
+        const snapshot = await second.cache.get()
 
-        expect(loadProvider).not.toHaveBeenCalled()
+        expect(load).not.toHaveBeenCalled()
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
     })
 
@@ -139,15 +137,15 @@ describe('provider cache', () => {
     it('falls through to the store when a Redis entry cannot be opened', async () => {
         const redis = fakeRedis()
         redis.store.set(
-            'integration-service:v1:prod-us:provider:hubspot',
+            'integration-service:v1:prod-us:secrets',
             JSON.stringify({ v: 1, dek: 'x', n: 'y', t: 'z', c: 'w' })
         )
-        const loadProvider = vi.fn(() => Promise.resolve(snapshotFor('hubspot', 'sec')))
-        const { cache } = build({ store: { loadProvider }, redis })
+        const load = vi.fn(() => Promise.resolve(snapshotFor('sec')))
+        const { cache } = build({ store: { load }, redis })
 
-        const snapshot = await cache.get('hubspot')
+        const snapshot = await cache.get()
 
-        expect(loadProvider).toHaveBeenCalledTimes(1)
+        expect(load).toHaveBeenCalledTimes(1)
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
     })
 
@@ -157,11 +155,11 @@ describe('provider cache', () => {
             set: () => Promise.reject(new Error('connection refused')),
         }
         const { cache } = build({
-            store: { loadProvider: () => Promise.resolve(snapshotFor('hubspot', 'sec')) },
+            store: { load: () => Promise.resolve(snapshotFor('sec')) },
             redis: brokenRedis,
         })
 
-        expect((await cache.get('hubspot'))?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
+        expect((await cache.get())?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
     })
 
     // Last-known-good. A Secrets Manager blip must degrade rather than fail a warehouse
@@ -169,51 +167,41 @@ describe('provider cache', () => {
     it('serves an expired snapshot when the store has started failing', async () => {
         let clock = 1_000_000
         let fail = false
-        const loadProvider = vi.fn(() => {
+        const load = vi.fn(() => {
             if (fail) {
                 return Promise.reject(new Error('secrets manager is down'))
             }
-            return Promise.resolve(snapshotFor('hubspot', 'sec', new Date(clock).toISOString()))
+            return Promise.resolve(snapshotFor('sec', new Date(clock).toISOString()))
         })
-        const { cache } = build({ store: { loadProvider }, ttlSeconds: 10, now: () => clock })
+        const { cache } = build({ store: { load }, ttlSeconds: 10, now: () => clock })
 
-        await cache.get('hubspot')
+        await cache.get()
         fail = true
         clock += 60_000
 
-        const snapshot = await cache.get('hubspot')
+        const snapshot = await cache.get()
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
     })
 
     it('propagates the error when the store fails with nothing cached', async () => {
-        const { cache } = build({ store: { loadProvider: () => Promise.reject(new Error('secrets manager is down')) } })
-        await expect(cache.get('hubspot')).rejects.toThrow('secrets manager is down')
+        const { cache } = build({ store: { load: () => Promise.reject(new Error('secrets manager is down')) } })
+        await expect(cache.get()).rejects.toThrow('secrets manager is down')
     })
 
     it('refetches once the entry has expired', async () => {
         let clock = 1_000_000
-        const loadProvider = vi.fn(() => Promise.resolve(snapshotFor('hubspot', 'sec')))
-        const { cache } = build({ store: { loadProvider }, ttlSeconds: 10, now: () => clock })
+        const load = vi.fn(() => Promise.resolve(snapshotFor('sec')))
+        const { cache } = build({ store: { load }, ttlSeconds: 10, now: () => clock })
 
-        await cache.get('hubspot')
+        await cache.get()
         clock += 11_000
-        await cache.get('hubspot')
+        await cache.get()
 
-        expect(loadProvider).toHaveBeenCalledTimes(2)
+        expect(load).toHaveBeenCalledTimes(2)
     })
 
-    it('returns null for a provider the store does not hold', async () => {
-        const { cache } = build({ store: { loadProvider: () => Promise.resolve(null) } })
-        expect(await cache.get('hubspot')).toBeNull()
-    })
-
-    it('does not let one failing provider abort warming the rest', async () => {
-        const loadProvider = vi.fn((provider: string) =>
-            provider === 'stripe' ? Promise.reject(new Error('nope')) : Promise.resolve(snapshotFor(provider, 'sec'))
-        )
-        const { cache } = build({ store: { loadProvider } })
-
-        await expect(cache.warm(['hubspot', 'stripe', 'salesforce'])).resolves.toBeUndefined()
-        expect(loadProvider).toHaveBeenCalledTimes(3)
+    it('returns null when the store holds no secret for this environment', async () => {
+        const { cache } = build({ store: { load: () => Promise.resolve(null) } })
+        expect(await cache.get()).toBeNull()
     })
 })

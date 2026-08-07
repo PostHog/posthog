@@ -21,10 +21,11 @@ export interface Config {
     /** Set only in tests / local dev to point the AWS SDK at moto. */
     awsEndpoint: string | undefined
 
-    /** Builds the AWS secret id for a provider, in the shape PostHog/secrets manages. */
-    secretIdFor: (provider: string) => string
-    /** This service's own secret, holding one signing key per calling deployment. */
-    signingKeySecretId: string
+    /**
+     * The one secret holding every platform credential AND one signing key per calling
+     * deployment, the way every other PostHog service stores its config.
+     */
+    secretId: string
 
     redisUrl: string | undefined
     kmsKeyId: string | undefined
@@ -51,11 +52,6 @@ function intFromEnv(key: Parameters<typeof getEnv>[0], fallback: number): number
 
 export function loadConfig(): Config {
     const isProduction = getEnv('NODE_ENV') === 'production'
-    // PostHog/secrets names every managed secret `<app>-secrets` and only shows secrets
-    // tagged managed-by=secrets-script, so provider credentials have to live under names
-    // its CLI and UI resolve. `integrations-stripe` -> `integrations-stripe-secrets`.
-    const secretPrefix = getEnv('INTEGRATION_SERVICE_SECRET_PREFIX') ?? 'integrations-'
-    const secretSuffix = '-secrets'
 
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -68,8 +64,7 @@ export function loadConfig(): Config {
         awsRegion: getEnv('AWS_REGION') ?? 'us-east-1',
         awsEndpoint: getEnv('AWS_ENDPOINT_URL'),
 
-        secretIdFor: (provider: string) => `${secretPrefix}${provider}${secretSuffix}`,
-        signingKeySecretId: getEnv('INTEGRATION_SERVICE_KEYS_SECRET_ID') ?? `integration-service${secretSuffix}`,
+        secretId: getEnv('INTEGRATION_SERVICE_SECRET_ID') ?? 'integration-service-secrets',
 
         redisUrl: getEnv('INTEGRATION_SERVICE_REDIS_URL'),
         kmsKeyId: getEnv('INTEGRATION_SERVICE_KMS_KEY_ID'),

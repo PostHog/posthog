@@ -19,12 +19,11 @@ import { JwtVerifier } from './auth/jwt.js'
 import { SigningKeyLoader } from './auth/registry.js'
 import { credentialProvider } from './aws/credentials.js'
 import { EnvelopeCipher } from './cache/envelope.js'
-import { ProviderCache } from './cache/providerCache.js'
+import { SecretCache } from './cache/secretCache.js'
 import { createApp, type Lifecycle } from './http/app.js'
 import { loadConfig } from './lib/config.js'
 import { logger } from './lib/logging.js'
 import { observeKms } from './metrics.js'
-import { PROVIDER_NAMES } from './providers.js'
 import { createSecretsManagerStore } from './store/secretsManager.js'
 import { UsagePublisher } from './usage/publisher.js'
 import { UsageRecorder } from './usage/recorder.js'
@@ -57,12 +56,12 @@ async function main(): Promise<void> {
     const kms = new KMSClient(awsCommon)
     const s3 = new S3Client(awsCommon)
 
-    const signingKeys = new SigningKeyLoader(secretsManager, config.signingKeySecretId)
+    const signingKeys = new SigningKeyLoader(secretsManager, config.secretId)
     try {
         await signingKeys.load()
     } catch (err) {
         logger.error('startup:signing_keys_load_failed', {
-            secretId: config.signingKeySecretId,
+            secretId: config.secretId,
             error: err instanceof Error ? err.message : String(err),
         })
         process.exit(1)
@@ -103,8 +102,8 @@ async function main(): Promise<void> {
         onKms: observeKms,
     })
 
-    const cache = new ProviderCache({
-        store: createSecretsManagerStore({ client: secretsManager, secretIdFor: config.secretIdFor }),
+    const cache = new SecretCache({
+        store: createSecretsManagerStore({ client: secretsManager, secretId: config.secretId }),
         cipher,
         redis,
         env: config.env,
@@ -118,13 +117,13 @@ async function main(): Promise<void> {
         verifier: new JwtVerifier(signingKeys),
         lifecycle,
         resolveDeps: {
-            loadProvider: (provider) => cache.get(provider),
+            loadSecrets: () => cache.get(),
             recorder,
         },
         metricsToken: config.metricsToken,
     })
 
-    await cache.warm(PROVIDER_NAMES)
+    await cache.warm()
     lifecycle.ready = true
 
     const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
@@ -134,7 +133,7 @@ async function main(): Promise<void> {
     // Background refresh keeps the cache warm ahead of expiry, so a rotation reaches
     // callers within a TTL without anyone paying a cold read.
     scheduleJittered(config.cacheTtlSeconds * 1000, async () => {
-        await cache.warm(PROVIDER_NAMES)
+        await cache.warm()
     })
     scheduleJittered(config.cacheTtlSeconds * 1000, async () => {
         await signingKeys.reload()
@@ -148,7 +147,7 @@ async function main(): Promise<void> {
             env: config.env,
             quietWindowHours: config.retireQuietHours,
             recorder,
-            loadSnapshot: (provider) => cache.get(provider),
+            loadSnapshot: () => cache.get(),
         })
         scheduleJittered(config.usagePublishIntervalMs, () => publisher.publish())
     }
