@@ -16,9 +16,18 @@
 //! this layer produces bytes and content headers only.
 
 use serde::Serialize;
-use tracing::log::error;
+use thiserror::Error;
 
-use crate::api::CaptureError;
+/// What can go wrong producing payload bytes. The caller owns the mapping
+/// into its own error vocabulary and the logging, with the context (topic,
+/// team, event) this layer does not have.
+#[derive(Debug, Error)]
+pub enum SerializationError {
+    #[error("failed to serialize event: {0}")]
+    Format(#[from] serde_json::Error),
+    #[error("failed to apply envelope: {0}")]
+    Envelope(#[from] std::io::Error),
+}
 
 /// Payload format: event → bytes. JSON is the only implementation and stamps
 /// no `content-type` — absence is the wire contract today's consumers read.
@@ -30,12 +39,9 @@ pub enum Format {
 }
 
 impl Format {
-    pub fn serialize<T: Serialize>(&self, event: &T) -> Result<Vec<u8>, CaptureError> {
+    pub fn serialize<T: Serialize>(&self, event: &T) -> Result<Vec<u8>, SerializationError> {
         match self {
-            Format::Json => serde_json::to_vec(event).map_err(|e| {
-                error!("failed to serialize event: {e:#}");
-                CaptureError::NonRetryableSinkError
-            }),
+            Format::Json => Ok(serde_json::to_vec(event)?),
         }
     }
 
@@ -59,14 +65,11 @@ pub enum Envelope {
 }
 
 impl Envelope {
-    pub fn wrap(&self, payload: Vec<u8>) -> Result<Vec<u8>, CaptureError> {
+    pub fn wrap(&self, payload: Vec<u8>) -> Result<Vec<u8>, SerializationError> {
         match self {
             Envelope::None => Ok(payload),
             Envelope::Lz4 => {
-                let compressed = lz4::block::compress(&payload, None, false).map_err(|e| {
-                    error!("failed to LZ4-compress payload: {e:#}");
-                    CaptureError::NonRetryableSinkError
-                })?;
+                let compressed = lz4::block::compress(&payload, None, false)?;
                 let uncompressed_len = payload.len() as u32;
                 let mut wrapped = Vec::with_capacity(4 + compressed.len());
                 wrapped.extend_from_slice(&uncompressed_len.to_le_bytes());
@@ -101,7 +104,7 @@ impl Serializer {
         envelope: Envelope::Lz4,
     };
 
-    pub fn serialize<T: Serialize>(&self, event: &T) -> Result<Vec<u8>, CaptureError> {
+    pub fn serialize<T: Serialize>(&self, event: &T) -> Result<Vec<u8>, SerializationError> {
         self.envelope.wrap(self.format.serialize(event)?)
     }
 

@@ -845,7 +845,13 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             (DataType::SnapshotMain, EnvelopeCompression::Lz4) => Serializer::JSON_LZ4,
             _ => Serializer::JSON,
         };
-        let payload = serializer.serialize(&event)?;
+        let payload = serializer.serialize(&event).map_err(|e| {
+            error!(
+                "failed to serialize {} event payload: {e:#}",
+                metadata.event_name
+            );
+            CaptureError::NonRetryableSinkError
+        })?;
 
         let event_key = event.key();
 
