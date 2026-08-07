@@ -33,6 +33,7 @@ import { template as linearTemplate } from './_destinations/linear/linear.templa
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as makeTemplate } from './_destinations/make/make.template'
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
+import { template as teamsTemplate } from './_destinations/microsoft_teams/teams.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
@@ -136,6 +137,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     intercomEventTemplate,
     zendeskTemplate,
     makeTemplate,
+    teamsTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

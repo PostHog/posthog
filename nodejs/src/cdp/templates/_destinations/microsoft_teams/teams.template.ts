@@ -1,16 +1,16 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+import { HogFunctionTemplate } from '~/cdp/types'
 
-template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="stable",
-    free=True,
-    type="destination",
-    id="template-microsoft-teams",
-    name="Microsoft Teams",
-    description="Sends a message to a Microsoft Teams channel",
-    icon_url="/static/services/microsoft-teams.png",
-    category=["Customer Success"],
-    code_language="hog",
-    code="""
+export const template: HogFunctionTemplate = {
+    status: 'stable',
+    free: true,
+    type: 'destination',
+    id: 'template-microsoft-teams',
+    name: 'Microsoft Teams',
+    description: 'Sends a message to a Microsoft Teams channel',
+    icon_url: '/static/services/microsoft-teams.png',
+    category: ['Customer Success'],
+    code_language: 'hog',
+    code: `
 if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and
     not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and
     not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and
@@ -50,24 +50,26 @@ let res := fetch(inputs.webhookUrl, {
 if (res.status >= 400) {
     throw Error(f'Failed to post message to Microsoft Teams: {res.status}: {res.body}');
 }
-""".strip(),
-    inputs_schema=[
+`.trim(),
+    inputs_schema: [
         {
-            "key": "webhookUrl",
-            "type": "string",
-            "label": "Webhook URL",
-            "description": "You can use any of these options: Azure Logic Apps (logic.azure.com), Power Platform webhooks (create through Microsoft Teams by adding an incoming webhook connector to your channel), Power Automate (powerautomate.com or flow.microsoft.com), or Power Platform environment endpoints (environment.api.powerplatform.com)",
-            "secret": False,
-            "required": True,
+            key: 'webhookUrl',
+            type: 'string',
+            label: 'Webhook URL',
+            description:
+                'You can use any of these options: Azure Logic Apps (logic.azure.com), Power Platform webhooks (create through Microsoft Teams by adding an incoming webhook connector to your channel), Power Automate (powerautomate.com or flow.microsoft.com), or Power Platform environment endpoints (environment.api.powerplatform.com)',
+            secret: false,
+            required: true,
         },
         {
-            "key": "text",
-            "type": "string",
-            "label": "Text",
-            "description": "(see https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook?tabs=newteams%2Cdotnet#example)",
-            "default": "**{person.name}** triggered event: '{event.event}'",
-            "secret": False,
-            "required": True,
+            key: 'text',
+            type: 'string',
+            label: 'Text',
+            description:
+                '(see https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook?tabs=newteams%2Cdotnet#example)',
+            default: "**{person.name}** triggered event: '{event.event}'",
+            secret: false,
+            required: true,
         },
     ],
-)
+}
