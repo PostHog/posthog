@@ -119,6 +119,22 @@ describe('LiquidRenderer', () => {
             expect(result).toMatchInlineSnapshot(`"$100"`)
         })
 
+        it('reads a $-prefixed property key via bracket notation', () => {
+            // Users set an email on the triggering event's $set; bracket notation is the supported way
+            // to reach a $-prefixed key, since dot notation fails to parse (asserted below).
+            globals.event.properties = { $set: { email: 'set@example.com' } }
+            const template = `{{ event.properties["$set"]["email"] }}`
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            expect(result).toMatchInlineSnapshot(`"set@example.com"`)
+        })
+
+        it('cannot parse a $-prefixed property key with dot notation', () => {
+            const template = '{{ event.properties.$set.email }}'
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(
+                /expected .* before filter/
+            )
+        })
+
         it("decodes unlayer's encoded complex example 1", () => {
             const html = `
 <div style="font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;">

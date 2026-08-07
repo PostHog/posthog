@@ -31,3 +31,22 @@ export class LiquidRenderer {
         return this.liquid.parse(decodedTemplate)
     }
 }
+
+// LiquidJS reads a `$` that follows a dot as the start of a filter, so a `$`-prefixed property in a
+// dotted path (e.g. `event.properties.$set.email`) fails to parse with a cryptic "expected '|'"
+// message. Bracket notation is the supported way to reach such keys.
+const DOLLAR_PREFIXED_KEY_IN_PATH = /\.\$/
+
+// Parse a Liquid template and return a human-readable error if it fails, or undefined if it parses.
+// When the failure is the `$`-in-dotted-path case, point the author at the bracket-notation fix.
+export function getLiquidTemplateError(template: string): string | undefined {
+    try {
+        LiquidRenderer.parse(template)
+    } catch (e: any) {
+        let error = `Liquid template error: ${e.message}`
+        if (DOLLAR_PREFIXED_KEY_IN_PATH.test(template)) {
+            error += `. Property names starting with $ need bracket notation, for example event.properties["$set"]["email"] instead of event.properties.$set.email`
+        }
+        return error
+    }
+}

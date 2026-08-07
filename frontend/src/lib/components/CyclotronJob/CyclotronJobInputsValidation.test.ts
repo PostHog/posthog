@@ -275,6 +275,18 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.errors).toEqual({})
             })
 
+            it('points $-prefixed dot-notation failures at bracket notation', () => {
+                const inputs = {
+                    template: { value: '{{ event.properties.$set.email }}', templating: 'liquid' as const },
+                }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'template', type: 'string', label: 'Template' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.template).toContain('need bracket notation')
+            })
+
             it('should not validate templating for non-liquid languages', () => {
                 const inputs = { template: { value: '{{ invalid }}', templating: 'hog' as const } }
                 const schema: CyclotronJobInputSchemaType[] = [{ key: 'template', type: 'string', label: 'Template' }]

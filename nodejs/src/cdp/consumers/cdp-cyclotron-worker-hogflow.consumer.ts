@@ -3,10 +3,40 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    CyclotronPerson,
+} from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
+
+const asPropertyRecord = (value: unknown): Record<string, any> | undefined =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : undefined
+
+// The triggering event carries the `$set` / `$set_once` person-property writes it applies during
+// ingestion. The person resolved for an invocation comes from a ~1 minute cache that can predate
+// this event's own merge, so a property the event itself sets can be missing from the cached copy.
+// Most consequentially an email set by the very event that triggered the flow is absent, so a
+// message step's `to` renders empty and the send fails. Overlay the event's writes onto the resolved
+// person — `$set` wins over the cached value, `$set_once` only fills gaps — so person-addressed steps
+// see what the trigger just set, matching the person_properties snapshot a hog function reads.
+export function applyEventPersonPropertyWrites(
+    person: CyclotronPerson,
+    event: { properties: Record<string, unknown> }
+): CyclotronPerson {
+    const set = asPropertyRecord(event.properties?.$set)
+    const setOnce = asPropertyRecord(event.properties?.$set_once)
+    if (!set && !setOnce) {
+        return person
+    }
+    return {
+        ...person,
+        properties: { ...setOnce, ...person.properties, ...set },
+    }
+}
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected override name = 'CdpCyclotronWorkerHogFlow'
@@ -92,7 +122,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
-                const [person, groups] = await Promise.all([
+                const [resolvedPerson, groups] = await Promise.all([
                     personIdOrDistinctId
                         ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
                         : undefined,
@@ -102,6 +132,13 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         `${this.config.SITE_URL}/project/${hogFlow.team_id}`
                     ),
                 ])
+
+                // Event triggers can fire on the same event that identifies the person, so overlay that
+                // event's own person-property writes to cover the stale-cache window (see helper above).
+                const person =
+                    resolvedPerson && hogFlow.trigger?.type === 'event'
+                        ? applyEventPersonPropertyWrites(resolvedPerson, hogFlowInvocationState.event)
+                        : resolvedPerson
 
                 if (!person && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {

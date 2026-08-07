@@ -356,6 +356,31 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
         })
 
+        it('overlays the triggering event $set / $set_once onto the resolved person', async () => {
+            // Person A 1's cached properties predate this event, which sets the email via $set. Without
+            // the overlay the ~1min-stale cache wins and person.properties.email is undefined, so an
+            // email step's `to` renders empty and the send fails.
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: 'distinct_A_1',
+                    properties: {
+                        $set: { email: 'fresh@example.com' },
+                        $set_once: { name: 'Should not overwrite', signup_source: 'ad' },
+                    },
+                } as any,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results[0].invocation.person?.properties).toEqual({
+                name: 'Person A 1', // $set_once does not overwrite the cached value
+                email: 'fresh@example.com', // $set fills the missing email
+                signup_source: 'ad', // $set_once fills a gap the cache lacked
+            })
+        })
+
         it('persists the resolved person UUID into state so a re-parked wait keeps its person_id', async () => {
             const results = (await processor.processInvocations(
                 invocations

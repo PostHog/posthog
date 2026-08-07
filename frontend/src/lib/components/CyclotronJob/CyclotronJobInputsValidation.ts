@@ -1,5 +1,5 @@
 import { tryJsonParse } from 'lib/utils/json'
-import { LiquidRenderer } from 'lib/utils/liquid'
+import { getLiquidTemplateError } from 'lib/utils/liquid'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
@@ -112,11 +112,7 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
 
     const getTemplatingError = (value: string): string | undefined => {
         if (language === 'liquid' && typeof value === 'string') {
-            try {
-                LiquidRenderer.parse(value)
-            } catch (e: any) {
-                return `Liquid template error: ${e.message}`
-            }
+            return getLiquidTemplateError(value)
         }
     }
 
