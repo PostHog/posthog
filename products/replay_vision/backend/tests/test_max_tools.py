@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 import products.replay_vision.backend.max_tools as max_tools_module
 from products.replay_vision.backend.max_tools import (
@@ -23,7 +24,9 @@ from products.replay_vision.backend.max_tools import (
     GetReplayVisionQuotaTool,
     LabelReplayVisionObservationTool,
     ListReplayVisionScannersTool,
+    ReadReplayVisionActionsTool,
     RetryReplayVisionObservationTool,
+    RunReplayVisionActionTool,
     ScanReplayVisionSessionsTool,
     SearchReplayVisionObservationsTool,
     SummarizeReplayVisionSummariesTool,
@@ -37,7 +40,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
-from products.replay_vision.backend.models.vision_action import VisionAction
+from products.replay_vision.backend.models.vision_action import ActionMode, VisionAction
 from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
@@ -956,6 +959,8 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
             "model": ScannerModel.GEMINI_3_6_FLASH,
             "enabled": False,
             "estimated_monthly_observations": 400,
+            # The model always stamps this alongside the count; the preview treats a missing one as stale.
+            "estimated_at": timezone.now(),
         }
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
@@ -1252,3 +1257,99 @@ class TestReplayVisionLifecycleTools(BaseTest):
 
         assert "cohort_id" not in artifact
         assert artifact["affected_sessions"] == 0
+
+
+class TestReplayVisionActionScannerAccess(BaseTest):
+    """A per-scanner restriction has to reach the action tools, not just the API.
+
+    Both holes these cover shipped in review-clean code: the object check on the action row passes even
+    when the user can't read the scanner, because `vision_action` inherits the `replay_scanner` resource
+    rather than any one scanner's ACL.
+    """
+
+    def _tool(self, tool_cls):
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return tool_cls(team=self.team, user=self.user, config=config)
+
+    def _action_on_unreadable_scanner(self) -> VisionAction:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="private",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did they check out?"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        return VisionAction.all_teams.create(
+            team=self.team,
+            scanner=scanner,
+            name="weekly digest",
+            mode=ActionMode.GROUP_SUMMARY,
+            trigger_config={"rrule": "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8"},
+        )
+
+    def _deny_scanners(self):
+        # Deny the scanner object while leaving the action row readable, which is the shape that slipped through.
+        return patch.object(
+            UserAccessControl,
+            "check_access_level_for_object",
+            side_effect=lambda obj, level, **kw: not isinstance(obj, ReplayScanner),
+        )
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_running_a_summary_needs_access_to_its_scanner(self):
+        action = await sync_to_async(self._action_on_unreadable_scanner)()
+
+        with patch(_FLAG_PATH, return_value=True), patch(_ACTIONS_FLAG_PATH, return_value=True), self._deny_scanners():
+            _, artifact = await self._tool(RunReplayVisionActionTool)._arun_impl(action_id=str(action.id))
+
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_listing_hides_actions_on_scanners_the_user_cannot_read(self):
+        # The queryset filter alone leaves these listed, along with the reports derived from them.
+        await sync_to_async(self._action_on_unreadable_scanner)()
+
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch(_ACTIONS_FLAG_PATH, return_value=True),
+            patch.object(
+                UserAccessControl,
+                "filter_queryset_by_access_level",
+                side_effect=lambda qs, **kw: qs.none() if qs.model is ReplayScanner else qs,
+            ),
+        ):
+            _, artifact = await self._tool(ReadReplayVisionActionsTool)._arun_impl()
+
+        assert artifact["actions"] == []
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_alerts_cannot_be_run_on_demand(self):
+        # The API rejects this; alerts fire from their own trigger, so a manual run would bill for nothing.
+        action = await sync_to_async(self._action_on_unreadable_scanner)()
+        action.mode = ActionMode.ALERT
+        await sync_to_async(action.save)(update_fields=["mode"])
+
+        with patch(_FLAG_PATH, return_value=True), patch(_ACTIONS_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(RunReplayVisionActionTool)._arun_impl(action_id=str(action.id))
+
+        assert artifact["error"] == "not_runnable"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_impact_reports_a_bad_filter_instead_of_crashing(self):
+        # A classifier with no tag is exactly what the tool description invites, and it used to raise.
+        scanner = await sync_to_async(ReplayScanner.objects.create)(
+            team=self.team,
+            name="themes",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "what went wrong?", "tags": ["checkout"]},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(AnalyzeReplayVisionImpactTool)._arun_impl(scanner_id=str(scanner.id))
+
+        assert artifact["error"] == "invalid_filters"

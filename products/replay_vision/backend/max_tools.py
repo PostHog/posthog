@@ -2,10 +2,12 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+from asgiref.sync import sync_to_async
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
@@ -23,6 +25,7 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.api.vision_actions import VisionActionSerializer
@@ -225,15 +228,21 @@ class ReplayVisionGatesMixin:
     def _action_for(self, action_id: str, level: AccessControlLevel = "editor") -> "VisionAction | None":
         """An action this user may act on at `level`.
 
-        Every scanner the action reads from is checked, not just the bound one, matching
-        `_check_action_scanner_access` on the API. A summary fans in observations from the scanners named
-        in its selection, and its report is derived from all of them, so access to one is not access to
-        the report.
+        Mirrors `_check_action_scanner_access` on the API. The bound scanner is checked at `level`,
+        because an action is automation attached to it and a per-scanner restriction has to block it
+        here too. Scanners named only in the selection are pure data sources the action never mutates,
+        so viewer is the bar for those, but they are checked: a summary fans in their observations and
+        its report is derived from all of them.
+
+        The object check on the action itself does not cover either, since `vision_action` inherits the
+        `replay_scanner` resource rather than any individual scanner's ACL.
         """
         if not is_uuid(action_id):
             return None
         action = VisionAction.objects.for_team(self._team.id).filter(id=action_id).select_related("scanner").first()
         if action is None or not self.user_access_control.check_access_level_for_object(action, level):
+            return None
+        if not self.user_access_control.check_access_level_for_object(action.scanner, level):
             return None
         source_ids = selection_target_ids(action.scanner_id, action.selection)
         sources = ReplayScanner.objects.filter(team_id=self._team.id, id__in=source_ids)
@@ -739,6 +748,8 @@ _INLINE_SCAN_TYPES = {ScannerType.MONITOR, ScannerType.SUMMARIZER}
 _MAX_ACTION_RUNS = 10
 # A project can hold hundreds of scanners. The whole list lands in the model's context, so cap it and say so.
 _MAX_LISTED = 50
+# Free text from a model, so it gets a ceiling before it reaches a column.
+MAX_FEEDBACK_LENGTH = 1000
 
 _CADENCE_RRULES = {
     "daily": f"FREQ=DAILY;BYHOUR={_SUMMARY_HOUR};BYMINUTE=0",
@@ -1398,8 +1409,9 @@ def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: f
     saving; when it hasn't been computed yet, say so rather than imply a small one-off charge.
     """
     observations = scanner.estimated_monthly_observations
-    if observations is None:
-        return "Its monthly volume hasn't been estimated yet, so the cost isn't known up front."
+    stale = scanner.estimated_at is None or timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER
+    if observations is None or stale:
+        return "Its monthly volume hasn't been estimated recently, so the cost isn't known up front."
     # The stored estimate is for the scanner's saved rate; rescale when the rate is changing.
     if scanner.sampling_rate:
         observations = round(observations * sampling_rate / scanner.sampling_rate)
@@ -1653,7 +1665,7 @@ class DeleteReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scanner = self._scanner_for(scanner_id)
         if scanner is None:
             return f"Delete scanner {scanner_id}"
-        observations = ReplayObservation.objects.filter(scanner_id=scanner.id).count()
+        observations = ReplayObservation.objects.filter(team_id=self._team.id, scanner_id=scanner.id).count()
         return (
             f"**Delete** scanner '{scanner.name}' and its {observations} observation(s). The results are "
             "gone for good and the credits already spent on them aren't refunded. Pausing it instead "
@@ -1842,13 +1854,40 @@ class ReadReplayVisionActionsTool(ReplayVisionGatesMixin, MaxTool):
             for r in VisionActionRun.objects.filter(team_id=self._team.id, vision_action_id=action.id).order_by(
                 "-scheduled_at"
             )[:_MAX_ACTION_RUNS]
+            if self._may_read_run(r)
         ]
         if not runs:
             return "That action hasn't run yet.", {"action_id": action_id, "runs": []}
         return f"The {len(runs)} most recent run(s) for that action.", {"action_id": action_id, "runs": runs}
 
+    def _may_read_run(self, run: VisionActionRun) -> bool:
+        """Whether this user may read the report a past run produced.
+
+        A run's `observation_ids` reflect the selection at run time, so a later selection edit, or a
+        grant revoked since, can leave the report drawing on a scanner the caller can't read. Same check
+        `VisionActionRunViewSet.retrieve` applies; viewer is the bar, as these are read-only sources.
+        """
+        ids = run.observation_ids if isinstance(run.observation_ids, list) else []
+        if not ids:
+            return True
+        scanner_ids = set(
+            ReplayObservation.objects.filter(team_id=self._team.id, id__in=ids).values_list("scanner_id", flat=True)
+        )
+        scanners = ReplayScanner.objects.filter(team_id=self._team.id, id__in=scanner_ids)
+        return all(self.user_access_control.check_access_level_for_object(s, "viewer") for s in scanners)
+
     def _readable_actions(self) -> "QuerySet[VisionAction]":
-        return self.user_access_control.filter_queryset_by_access_level(VisionAction.objects.for_team(self._team.id))
+        """Actions whose bound scanner this user may read.
+
+        The resource-level filter isn't enough alone: `vision_action` inherits the `replay_scanner`
+        resource, not any individual scanner's ACL, so a per-scanner restriction would still leave the
+        action listed along with reports derived from that scanner's observations.
+        """
+        actions = self.user_access_control.filter_queryset_by_access_level(VisionAction.objects.for_team(self._team.id))
+        readable_scanners = self.user_access_control.filter_queryset_by_access_level(
+            ReplayScanner.objects.filter(team_id=self._team.id)
+        )
+        return actions.filter(scanner_id__in=readable_scanners.values("id"))
 
 
 UPDATE_ACTION_TOOL_DESCRIPTION = """
@@ -1930,7 +1969,13 @@ class UpdateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}
-        updated = serializer.save()
+        old_enabled, old_name = action.enabled, action.name
+        # Atomic with the re-provision, matching `perform_update`: a destination failure has to roll the
+        # edit back rather than leave an action whose deliveries describe a state it's no longer in.
+        with transaction.atomic():
+            updated = serializer.save()
+            if updated.enabled != old_enabled or updated.name != old_name:
+                provision_delivery(updated, user=self._user, team=self._team)
         state = "It's running on its schedule." if updated.enabled else "It's paused, so it won't run or spend."
         return f"Updated the action. {state}", {"action_id": str(updated.id), "enabled": updated.enabled}
 
@@ -1969,8 +2014,8 @@ class DeleteReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         )
 
     async def _arun_impl(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
+        if not await self._actions_enabled():
+            return self._actions_not_enabled()
         return await self._delete(action_id)
 
     @database_sync_to_async
@@ -1978,6 +2023,8 @@ class DeleteReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         action = self._action_for(action_id)
         if action is None:
             return f"Action {action_id} not found.", {"error": "not_found"}
+        # Archive destinations before the row goes, matching `perform_destroy`.
+        archive_delivery(action, team=self._team)
         action.delete()
         return "Deleted the action and its reports.", {"action_id": action_id}
 
@@ -2028,6 +2075,8 @@ class RunReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         action = self._action_for(action_id)
         if action is None:
             return f"Action {action_id} not found.", {"error": "not_found"}
+        if action.mode != ActionMode.GROUP_SUMMARY:
+            return "Only scheduled summaries can be run on demand.", {"error": "not_runnable"}
         # scheduled_at=now anchors this run's observation window; the recurring schedule is untouched.
         _, outcome = start_process_vision_action_workflow(action.id, self._team.id, scheduled_at=timezone.now())
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
@@ -2060,6 +2109,7 @@ class LabelObservationArgs(BaseModel):
     observation_id: str = Field(description="The observation the user is judging.")
     is_correct: bool = Field(description="True if the scanner got this recording right, false if it didn't.")
     feedback: str | None = Field(
+        max_length=MAX_FEEDBACK_LENGTH,
         default=None,
         description="Optional note on what it got right or wrong, or what it should have concluded.",
     )
@@ -2087,12 +2137,18 @@ class LabelReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         observation = self._observation_for(observation_id)
         if observation is None:
             return f"Observation {observation_id} not found.", {"error": "not_found"}
-        # One shared label per observation, like the API: a second rating replaces the first.
-        label, _ = ReplayObservationLabel.objects.update_or_create(
-            observation=observation,
-            team_id=observation.team_id,
-            defaults={"is_correct": is_correct, "feedback": (feedback or "").strip(), "created_by": self._user},
-        )
+        # One shared label per observation, like the API: a second rating replaces the first. Atomic
+        # because the one-to-one turns two concurrent labels into an IntegrityError rather than a retry.
+        with transaction.atomic():
+            ReplayObservationLabel.objects.update_or_create(
+                observation=observation,
+                team_id=observation.team_id,
+                defaults={
+                    "is_correct": is_correct,
+                    "feedback": (feedback or "").strip()[:MAX_FEEDBACK_LENGTH],
+                    "created_by": self._user,
+                },
+            )
         verdict = "correct" if is_correct else "wrong"
         return f"Recorded that the scanner was {verdict} on that recording.", {
             "observation_id": observation_id,
@@ -2122,7 +2178,7 @@ and scans nothing.
 
 class ImpactArgs(BaseModel):
     scanner_id: str = Field(description="The scanner whose findings to measure.")
-    window_days: int = Field(default=30, description="How many days back to count over.")
+    window_days: int = Field(default=30, ge=1, le=365, description="How many days back to count over, 1 to 365.")
     tag: str | None = Field(default=None, description="Classifiers only: count just this tag.")
     min_score: float | None = Field(default=None, description="Scorers only: count scores at or above this.")
     max_score: float | None = Field(default=None, description="Scorers only: count scores at or below this.")
@@ -2175,7 +2231,12 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
         scanner = self._scanner_for(scanner_id, "editor" if create_cohort else "viewer")
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-        impact = compute_scanner_impact(scanner, window_days, tag=tag, min_score=min_score, max_score=max_score)
+        # Raises on filter/scanner-type mismatches the description invites Max to try, and the messages
+        # are written for a person, so hand them back instead of crashing the turn.
+        try:
+            impact = compute_scanner_impact(scanner, window_days, tag=tag, min_score=min_score, max_score=max_score)
+        except ValueError as exc:
+            return str(exc), {"error": "invalid_filters"}
         artifact: dict[str, Any] = {
             "affected_sessions": impact.affected_sessions,
             "affected_users": impact.affected_users,
@@ -2188,6 +2249,10 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
         )
         if not create_cohort:
             return content, artifact
+        # The tool's declared access covers reading the scanner, not writing a cohort. The API checks
+        # this separately for the same reason: cohort access isn't implied by the scanner's.
+        if not self.user_access_control.check_access_level_for_resource("cohort", required_level="editor"):
+            return f"{content} Saving them as a cohort needs cohort edit access.", artifact
         try:
             cohort, members = create_affected_cohort(
                 scanner, self._user, window_days, tag=tag, min_score=min_score, max_score=max_score
@@ -2233,15 +2298,21 @@ class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
     async def _arun_impl(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
         if not await self._is_enabled():
             return self._not_enabled()
-        return await self._suggest(scanner_id)
-
-    @database_sync_to_async
-    def _suggest(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
-        scanner = self._scanner_for(scanner_id, "viewer")
+        scanner = await self._resolve(scanner_id)
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         if scanner.scanner_type != ScannerType.CLASSIFIER:
             return "Only classifier scanners have a tag vocabulary.", {"error": "not_a_classifier"}
+        # Deliberately outside `database_sync_to_async`: the model call carries a 90s timeout, and the
+        # thread-sensitive executor would queue every other database operation behind it.
+        return await sync_to_async(self._suggest, thread_sensitive=False)(scanner)
+
+    @database_sync_to_async
+    def _resolve(self, scanner_id: str) -> "ReplayScanner | None":
+        return self._scanner_for(scanner_id, "viewer")
+
+    def _suggest(self, scanner: ReplayScanner) -> tuple[str, dict[str, Any]]:
+        scanner_id = str(scanner.id)
         try:
             config = scanner.scanner_config or {}
             suggestions = suggest_classifier_tags(
