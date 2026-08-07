@@ -32,8 +32,9 @@ export const manifest: ProductManifest = {
     routes: {
         '/inbox': ['Inbox', 'inbox'],
         '/inbox/:tab': ['Inbox', 'inbox'],
-        // Static memory route, registered before `:skillName` so it isn't read as a scout name.
+        // Static memory and findings routes, registered before `:skillName` so they aren't read as scout names.
         '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
+        '/inbox/scouts/findings': ['Inbox', 'inbox'],
         // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
         '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
         // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.

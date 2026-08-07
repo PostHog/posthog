@@ -210,6 +210,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/inbox': ['Inbox', 'inbox'],
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
+    '/inbox/scouts/findings': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
     '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
