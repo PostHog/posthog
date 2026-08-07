@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { ExecutionMode, PermissionRequest } from "@posthog/shared";
+import { z } from "zod";
 
 /** Option ids offered when approving ExitPlanMode (see buildExitPlanModePermissionOptions). */
 export const PLAN_APPROVAL_ACCEPT_OPTION_IDS = [
@@ -59,15 +60,15 @@ export function shouldContinueFromApprovedPlan(
   );
 }
 
+/** ExitPlanMode carries the approved plan as markdown on its tool input. */
+const planToolInputSchema = z.object({ plan: z.string() });
+
 export function extractPlanMarkdownFromPermission(
   permission: PermissionRequest,
 ): string | null {
-  const rawInput = permission.toolCall?.rawInput as
-    | { plan?: unknown }
-    | undefined;
-  const plan = rawInput?.plan;
-  if (typeof plan !== "string") return null;
-  const trimmed = plan.trim();
+  const parsed = planToolInputSchema.safeParse(permission.toolCall?.rawInput);
+  if (!parsed.success) return null;
+  const trimmed = parsed.data.plan.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 

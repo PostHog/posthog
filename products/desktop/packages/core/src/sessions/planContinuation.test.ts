@@ -74,6 +74,14 @@ describe("planContinuation", () => {
         makePermission({ toolCall: { kind: "switch_mode" } as never }),
       ),
     ).toBeNull();
+    // A non-string plan must not reach the continuation prompt.
+    expect(
+      extractPlanMarkdownFromPermission(
+        makePermission({
+          toolCall: { kind: "switch_mode", rawInput: { plan: 42 } } as never,
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("maps approve option to execution mode", () => {
