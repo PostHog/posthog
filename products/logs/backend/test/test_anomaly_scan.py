@@ -1,7 +1,10 @@
+import json
+import uuid
 import datetime as dt
 from typing import cast
 from zoneinfo import ZoneInfo
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -9,6 +12,7 @@ from django.test import SimpleTestCase
 import numpy as np
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models import Team
 
@@ -29,6 +33,7 @@ from products.logs.backend.anomaly_scan import (
     TimeRange,
     baseline_slice_ranges,
     degradation_ladder,
+    fetch_bucket_counts,
     floor_to_bucket,
     merge_ranges,
     run_scan,
@@ -280,3 +285,45 @@ class TestRunScan(SimpleTestCase):
         assert issue.resolved_at is not None
         assert issue.last_anomalous_at <= issue.resolved_at
         assert all(t <= issue.resolved_at for t in issue.anomalous_bucket_times)
+
+
+class TestFetchBucketCountsClickhouse(ClickhouseTestMixin, APIBaseTest):
+    def test_query_executes_against_clickhouse_and_prunes_days(self):
+        base = dt.datetime(2026, 8, 6, 10, 2, tzinfo=UTC)
+        rows = [
+            # Two error rows in one 5-minute bucket, one info row in the next.
+            {"timestamp": base, "severity_text": "error"},
+            {"timestamp": base + dt.timedelta(minutes=1), "severity_text": "error"},
+            {"timestamp": base + dt.timedelta(minutes=5), "severity_text": "info"},
+            # Outside the fetched ranges: a different day, and a different service.
+            {"timestamp": base - dt.timedelta(days=2), "severity_text": "error"},
+            {"timestamp": base, "severity_text": "error", "service_name": "other-svc"},
+        ]
+        payload = "\n".join(
+            json.dumps(
+                {
+                    "uuid": str(uuid.uuid4()),
+                    "team_id": self.team.id,
+                    "timestamp": row["timestamp"].strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "observed_timestamp": row["timestamp"].strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "body": "scan fixture",
+                    "severity_text": row["severity_text"],
+                    "severity_number": 9,
+                    "service_name": row.get("service_name", "checkout"),
+                    "resource_attributes": {},
+                    "instrumentation_scope": "",
+                    "event_name": "",
+                }
+                for row in rows
+            )
+        )
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow {payload}")
+
+        window = TimeRange(start=base.replace(minute=0), end=base.replace(minute=0) + dt.timedelta(hours=1))
+        counts = fetch_bucket_counts(self.team, "checkout", [window])
+
+        bucket_0 = base.replace(minute=0)
+        assert counts == {
+            "error": {bucket_0: 2},
+            "info": {bucket_0 + dt.timedelta(minutes=5): 1},
+        }
