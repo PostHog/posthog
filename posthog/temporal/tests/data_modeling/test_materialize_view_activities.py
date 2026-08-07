@@ -32,9 +32,11 @@ from posthog.temporal.data_modeling.activities import (
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
     InvalidNodeTypeException,
+    UnmaterializableColumnNamesError,
     _get_aws_storage_options,
     get_s3_client,
     hogql_table,
+    validate_materializable_column_names,
 )
 
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
@@ -1232,3 +1234,39 @@ class TestHogqlTableResolutionDeadline:
             batches = [batch async for batch in hogql_table("SELECT now() AS ts", ateam, LOGGER.bind())]
 
         assert [name for name, _ in batches[0][1]] == ["ts"]
+
+
+class _DottedColumnClient(_EmptyArrowClient):
+    # DESCRIBE names as ClickHouse returns them when an unaliased qualified column collides
+    # with an aliased copy of the same column: the unaliased one keeps its dotted name
+    describe_body = b"source_url\tString\nsales.source_url\tString\norder_date\tDateTime\n"
+
+
+class TestHogqlTableColumnNameValidation:
+    async def test_duplicate_output_columns_raise_an_actionable_error(self, ateam):
+        client = _DottedColumnClient(pa.schema([pa.field("source_url", pa.string())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs):
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            with pytest.raises(UnmaterializableColumnNamesError, match="more than one column named 'source_url'"):
+                [batch async for batch in hogql_table("SELECT 1 AS source_url", ateam, LOGGER.bind())]
+
+    @pytest.mark.parametrize(
+        "column_names,expected_error",
+        [
+            (["a", "b", "a"], "more than one column named 'a'"),
+            (["source_url", "sales.source_url"], "more than one column named 'source_url'"),
+            (["a", "t.b"], "'t.b'"),
+        ],
+    )
+    def test_conflicting_column_names_are_rejected(self, column_names, expected_error):
+        with pytest.raises(UnmaterializableColumnNamesError, match=expected_error):
+            validate_materializable_column_names(column_names)
+
+    def test_unique_column_names_pass(self):
+        validate_materializable_column_names(["a", "b", "c"])
