@@ -352,9 +352,7 @@ describe('cohortEditLogic', () => {
             // The banner must not dead-end: it links to the calculation history so the user can
             // see the actual failure, alongside contacting support.
             const historyLink = screen.getByText('calculation history')
-            expect(historyLink.closest('a')?.getAttribute('href')).toContain(
-                urls.cohortCalculationHistory(cohortId)
-            )
+            expect(historyLink.closest('a')?.getAttribute('href')).toContain(urls.cohortCalculationHistory(cohortId))
             expect(screen.getByText('contact support')).toBeInTheDocument()
 
             // Get the logic instance and verify clicking retry triggers submitCohort
