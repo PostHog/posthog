@@ -19,11 +19,11 @@ class Migration(migrations.Migration):
             sql=[
                 # Fail fast rather than queue: this waits behind an in-progress autovacuum
                 # on the same table, and a retry is cheaper than holding the lock request.
-                "SET lock_timeout = '5s'",
+                "SET LOCAL lock_timeout = '5s'",
                 f"ALTER TABLE {TABLE} SET (autovacuum_vacuum_scale_factor = {SCALE_FACTOR})",
             ],
             reverse_sql=[
-                "SET lock_timeout = '5s'",
+                "SET LOCAL lock_timeout = '5s'",
                 f"ALTER TABLE {TABLE} RESET (autovacuum_vacuum_scale_factor)",
             ],
         ),
