@@ -1851,6 +1851,10 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     signal or terminate-and-restart it.
 #   - pending_external_followups / pending_external_followups_generation are the workflow-owned
 #     durable queue; a caller could otherwise inject actor identity into a restored follow-up.
+#   - timed_out_inactivity / timed_out_wall_clock / sandbox_gone are the workflow's terminal reason
+#     markers, written only by the update_task_run_status activity. Slack reads them to decide that
+#     a FAILED run was a timeout and stays quiet (post_slack_update._post_failure_or_timeout), so a
+#     caller could otherwise stamp one on a genuine failure and suppress its error card.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1888,6 +1892,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_fallback_cleanup_complete",
         "pending_external_followups",
         "pending_external_followups_generation",
+        # Terminal reason markers owned by the workflow (see the note above). Spelled as literals
+        # rather than imported from the update_task_run_status activity, which would pull temporalio
+        # onto this module's import path; the workflow writes them through
+        # TaskRun.update_state_atomic, which does not go through this filter.
+        "timed_out_inactivity",
+        "timed_out_wall_clock",
+        "sandbox_gone",
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
