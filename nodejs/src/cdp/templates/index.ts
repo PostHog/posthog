@@ -35,6 +35,7 @@ import { template as kudosityTemplate } from './_destinations/kudosity/kudosity.
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as makeTemplate } from './_destinations/make/make.template'
+import { template as metaTemplate } from './_destinations/meta_ads/meta.template'
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as teamsTemplate } from './_destinations/microsoft_teams/teams.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
@@ -148,6 +149,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     kudosityTemplate,
     juneTemplate,
     zapierTemplate,
+    metaTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

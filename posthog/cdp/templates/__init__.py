@@ -28,7 +28,6 @@ from .mailjet.template_mailjet import (
     template_create_contact as mailjet_create_contact,
     template_update_contact_list as mailjet_update_contact_list,
 )
-from .meta_ads.template_meta_ads import template as meta_ads
 from .posthog.template_posthog import (
     TemplatePostHogMigrator,
     template as posthog,
@@ -64,7 +63,6 @@ HOG_FUNCTION_TEMPLATES = [
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
-    meta_ads,
     posthog,
     reddit_pixel,
     rudderstack,
