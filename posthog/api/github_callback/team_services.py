@@ -42,7 +42,7 @@ from posthog.models.integration import (
 )
 from posthog.models.organization import Organization
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration, user_github_integration_from_installation
+from posthog.models.user_integration import user_github_integration_from_installation
 from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
@@ -188,10 +188,7 @@ def authorize_link_existing_installation(
     if github_callback_state.has_team_management_access(user, team):
         return
 
-    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
-    user_access_token = (
-        user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-    )
+    user_access_token = usable_personal_github_token(user)
     if not user_access_token:
         raise ValidationError(
             PERSONAL_GITHUB_REQUIRED_MESSAGE,
@@ -492,7 +489,7 @@ def link_existing_team_github_integration(
         if source_team_id_int not in accessible_team_ids:
             raise ValidationError("Source team not found in your organization")
 
-        qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
+        qs = defer_repository_cache_fields(Integration.objects.filter(team_id=source_team_id_int, kind="github"))
         if installation_id_param:
             qs = qs.for_github_installation_id(str(installation_id_param))
 
@@ -502,10 +499,12 @@ def link_existing_team_github_integration(
     elif installation_id_param:
         installation_id_str = str(installation_id_param)
         existing = (
-            Integration.objects.filter(
-                team__organization_id=organization.id,
-                team_id__in=accessible_team_ids,
-                kind="github",
+            defer_repository_cache_fields(
+                Integration.objects.filter(
+                    team__organization_id=organization.id,
+                    team_id__in=accessible_team_ids,
+                    kind="github",
+                )
             )
             .for_github_installation_id(installation_id_str)
             .order_by("id")
@@ -603,24 +602,24 @@ def list_org_github_installations(
     ``adopt_orphan_installation``). Entries already present as a sibling installation are not
     duplicated.
     """
+    accessible_team_ids = _accessible_org_team_ids(user, organization)
     org_github = defer_repository_cache_fields(
-        Integration.objects.filter(
-            team__organization_id=organization.id,
-            team_id__in=_accessible_org_team_ids(user, organization),
-            kind="github",
-        )
-    )
-    if exclude_team_id is not None:
-        org_github = org_github.exclude(team_id=exclude_team_id)
-    org_github = org_github.order_by("id")
+        Integration.objects.filter(team__organization_id=organization.id, kind="github")
+    ).order_by("id")
 
+    # One pass over the org's rows yields both the sibling entries and the org-wide linked set the
+    # adoption merge below excludes against, instead of two near-identical queries.
     installations: dict[str, dict[str, Any]] = {}
+    org_linked_installation_ids: set[str] = set()
     for integration in org_github:
         config = integration.config or {}
         raw_installation_id = config.get("installation_id")
         if not raw_installation_id:
             continue
         installation_id = str(raw_installation_id)
+        org_linked_installation_ids.add(installation_id)
+        if integration.team_id not in accessible_team_ids or integration.team_id == exclude_team_id:
+            continue
         if installation_id in installations:
             continue
         account = config.get("account") or {}
@@ -632,7 +631,6 @@ def list_org_github_installations(
         }
 
     personal_installations = list_user_github_app_installations(user)
-    org_linked_installation_ids = _org_linked_github_installation_ids(organization) if personal_installations else set()
     for raw_installation in personal_installations or []:
         installation_id = str(raw_installation.get("id"))
         # Skip anything already linked in the org, even to a project this user can't access — those
