@@ -110,6 +110,12 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             errors[f"403 Client Error: Forbidden for url: {host}/reports"] = (
                 "Checkout.com denied access to reports. Please check that your access key has the reports scope."
             )
+            # Unlike disputes, a freshly-minted token still gets 401 (not 403) from the
+            # reports endpoint when the access key lacks the reports scope, so a mid-sync
+            # re-mint (which handles a genuinely expired token elsewhere) never resolves it.
+            errors[f"401 Client Error: Unauthorized for url: {host}/reports"] = (
+                "Checkout.com denied access to reports. Please check that your access key has the reports scope."
+            )
             errors[f"403 Client Error: Forbidden for url: {host}/payments/search"] = (
                 "Checkout.com denied access to payments search. Please check that your access key has the payments scope."
             )
