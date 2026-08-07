@@ -64,6 +64,12 @@ CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Scout-bypass arm: the prescriptive "validated query" a scout-style prompt ships verbatim.
+# Reuses the current-snapshot definition on purpose: it computes the measure the approved
+# last-full-calendar-month metric owns with materially different time semantics, so following
+# it verbatim is both a catalog bypass and a silently wrong number.
+SCOUT_PRESCRIBED_SNAPSHOT_SQL = CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION["query"]
+
 FAILING_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",
     "query": TOP_CUSTOMERS_METRIC_DEFINITION["query"].replace(
