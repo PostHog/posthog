@@ -9,6 +9,7 @@ pub mod print;
 pub mod producer;
 pub mod registry;
 pub mod s3;
+pub mod sink;
 pub mod split;
 #[cfg(test)]
 pub(crate) mod test_sink;
