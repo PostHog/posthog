@@ -7,3 +7,5 @@ Files left in the sandbox filesystem are temporary and cannot be downloaded afte
 On success the tool returns a presigned download URL for the uploaded file (minted by the finalize-upload endpoint), so an agent can link to the artifact directly in its final response. The URL is time-limited and not persisted on the run manifest; re-fetch the artifact through the download endpoint for a durable link.
 
 Repository changes should continue to be delivered through git rather than duplicated as task artifacts. A single uploaded artifact is limited to 30 MB.
+
+The desktop app runs scripts embedded in HTML artifacts inside an isolated preview process. The preview cannot access Node.js, Electron, PostHog credentials, remote resources, downloads, or device permissions. Use **Stop preview** if a script becomes unresponsive, then use **Restart preview** to load it in a fresh process.
