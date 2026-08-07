@@ -98,7 +98,7 @@ def _interpret(
     if not results:
         return CheckOutcome(
             status=CheckRunStatus.ERRORED,
-            compiled_query=compiled.printed_query,
+            compiled_query=compiled.printed_failing_rows_query,
             error="The check query returned no rows.",
         )
 
@@ -116,7 +116,7 @@ def _interpret(
         status=status,
         failed_row_count=failed_row_count,
         observed_value=observed,
-        compiled_query=compiled.printed_query,
+        compiled_query=compiled.printed_failing_rows_query,
     )
 
 

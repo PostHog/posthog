@@ -120,6 +120,14 @@ class TestCheckRunner(BaseTest):
         assert run.status == CheckRunStatus.PASSED
         assert run.observed_value == 42.0
 
+    def test_the_stored_query_selects_failing_rows(self) -> None:
+        check = self._check()
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+            run_check(check, self.suite_run, self.team)
+
+        run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
+        assert run.compiled_query == "SELECT 1 FROM orders WHERE isNull(customer_id)"
+
     @parameterized.expand(
         [
             ("first_failure", "", CheckSeverity.ERROR, True),
