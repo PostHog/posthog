@@ -254,7 +254,7 @@ The Rust reader (`rust/common/hypercache`) has an opt-in variant, deliberately m
 
 - Repairs only on a confirmed Redis miss. A read that fell through to S3 because Redis errored or timed out does not repair, since that tier is degraded and repair writes would add load to it.
 - Writes with `SET NX`, so a repair never overwrites an existing entry and concurrent repairs of one cold key collapse into one write.
-- Uses a short TTL (`HYPERCACHE_READ_REPAIR_TTL_SECONDS`, default 600) and does not register the entry in the expiry sorted set, so the Django refresh job stays the only owner of an entry's real lifetime. The short TTL also bounds the race where a reader that read S3 just before a writer's delete could resurrect the key.
+- Uses a short TTL (`HYPERCACHE_READ_REPAIR_TTL_SECONDS`, default 600) and does not register the entry in the expiry sorted set, so the Django refresh job stays the only owner of an entry's real lifetime. The short TTL also bounds how long a resurrected entry lingers in the `HyperCacheWriter::delete` race, where a reader that read S3 just before the delete writes the key back afterwards.
 - Is detached and best-effort: a Redis failure cannot fail a request that already has its value.
 - Refuses etag-enabled namespaces at reader construction (with a startup warning), because the payload and its companion `:etag` key are written atomically by the writer and a payload-only repair would leave the pair inconsistent.
 
@@ -297,6 +297,8 @@ Operational controls:
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
 
 Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
+
+`skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
 
 ## Debugging
 

@@ -211,13 +211,15 @@ pub struct HyperCacheConfig {
     /// When set, an S3 hit that followed a Redis miss writes the payload back into Redis
     /// with this TTL, so the next reader for the same key is served by Redis. `None`
     /// (the default) leaves the reader read-only. Not supported on etag-enabled
-    /// namespaces: `HyperCacheReader` construction warns and disables it there.
+    /// namespaces: `HyperCacheReader` construction warns and disables it there. A value
+    /// above `HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS` is capped there too.
     ///
     /// Keep this short. It is a stampede damper for cold keys, not a substitute for the
     /// writer: repaired entries are deliberately not registered in `expiry_sorted_set_key`,
-    /// so Django's refresh job stays the only thing that owns an entry's real lifetime. A
-    /// short TTL also bounds the `HyperCacheWriter::delete` race, where a reader that read
-    /// S3 just before the delete could otherwise resurrect the key in Redis.
+    /// so Django's refresh job stays the only thing that owns an entry's real lifetime.
+    /// Whether a repair can resurrect a key deleted by `HyperCacheWriter::delete` is fixed
+    /// at read time by whether the S3 read preceded the delete; the TTL doesn't affect that.
+    /// What the TTL bounds is how long a resurrected entry lingers before it expires.
     pub read_repair_ttl_seconds: Option<u64>,
 }
 
@@ -321,6 +323,12 @@ pub struct HyperCacheReader {
 }
 
 impl HyperCacheReader {
+    /// Read repair is a stampede damper, not a writer. A TTL beyond this would outlive the
+    /// refresh cycle and widen how long a `HyperCacheWriter::delete` race can resurrect a
+    /// deleted key for. Caps a misconfigured env var (e.g. seconds vs. milliseconds) instead
+    /// of letting it silently disable the short-TTL invariant.
+    const MAX_READ_REPAIR_TTL_SECONDS: u64 = 3_600; // 1 hour
+
     pub async fn new(
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         config: HyperCacheConfig,
@@ -363,6 +371,19 @@ impl HyperCacheReader {
                 "read repair is not supported for etag-enabled namespaces; disabling it for this reader"
             );
             config.read_repair_ttl_seconds = None;
+        }
+
+        if let Some(ttl) = config.read_repair_ttl_seconds {
+            if ttl > Self::MAX_READ_REPAIR_TTL_SECONDS {
+                warn!(
+                    namespace = %config.namespace,
+                    value = %config.object_name,
+                    configured_ttl_seconds = ttl,
+                    max_ttl_seconds = Self::MAX_READ_REPAIR_TTL_SECONDS,
+                    "read repair TTL exceeds maximum; capping at maximum"
+                );
+                config.read_repair_ttl_seconds = Some(Self::MAX_READ_REPAIR_TTL_SECONDS);
+            }
         }
 
         Self {
@@ -1476,6 +1497,44 @@ mod tests {
         let fixture = redis_miss_s3_hit_fixture(config, r#"{"key":"value"}"#);
         let calls = redis_calls_after_s3_hit(&fixture).await;
         assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[test]
+    fn test_read_repair_ttl_is_capped_at_construction() {
+        // A misconfigured env var (e.g. seconds vs. milliseconds) must not silently disable
+        // the short-TTL invariant that bounds a resurrected orphan's lifetime.
+        let mut config = create_test_config();
+        config.read_repair_ttl_seconds = Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS + 1);
+
+        let reader = HyperCacheReader::new_with_s3_client(
+            Arc::new(MockRedisClient::new()) as Arc<dyn RedisClient + Send + Sync>,
+            create_dummy_s3_client(),
+            config,
+        );
+
+        assert_eq!(
+            reader.config().read_repair_ttl_seconds,
+            Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS)
+        );
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[test]
+    fn test_read_repair_ttl_at_max_is_unchanged() {
+        let mut config = create_test_config();
+        config.read_repair_ttl_seconds = Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS);
+
+        let reader = HyperCacheReader::new_with_s3_client(
+            Arc::new(MockRedisClient::new()) as Arc<dyn RedisClient + Send + Sync>,
+            create_dummy_s3_client(),
+            config,
+        );
+
+        assert_eq!(
+            reader.config().read_repair_ttl_seconds,
+            Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS)
+        );
     }
 
     #[tokio::test(start_paused = true)]
