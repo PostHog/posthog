@@ -84,21 +84,25 @@ function ScannerPromptField({
 
     return (
         <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="text-sm font-medium">{label}</label>
-                {openMax && (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={<IconAI />}
-                        onClick={() => openMax()}
-                        data-attr="replay-vision-write-prompt-with-ai"
-                    >
-                        Write with PostHog AI
-                    </LemonButton>
-                )}
-            </div>
-            <LemonField name="scanner_config.prompt">
+            <LemonField
+                name="scanner_config.prompt"
+                label={
+                    <span className="flex w-full flex-wrap items-center justify-between gap-2">
+                        {label}
+                        {openMax && (
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconAI />}
+                                onClick={() => openMax()}
+                                data-attr="replay-vision-write-prompt-with-ai"
+                            >
+                                Write with PostHog AI
+                            </LemonButton>
+                        )}
+                    </span>
+                }
+            >
                 <LemonTextArea placeholder={placeholder} minRows={6} />
             </LemonField>
             {caption && <div className="text-xs text-muted">{caption}</div>}

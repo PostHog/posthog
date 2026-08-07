@@ -295,9 +295,9 @@ function ConfigureStep(): JSX.Element {
                 </div>
             )}
 
-            <div className="flex flex-col gap-1 items-start">
-                <LemonField name="model" label="Model" className="items-start">
-                    <LemonSelect className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
+            <div className="flex flex-col gap-1">
+                <LemonField name="model" label="Model">
+                    <LemonSelect fullWidth className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
                 </LemonField>
                 <div className="text-xs text-muted">
                     Newer models tend to produce higher-quality observations, but cost more per observation.
