@@ -8,7 +8,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { dataVisualizationLogic } from '../../../dataVisualizationLogic'
-import { ScatterPoint, buildScatterData } from './scatterUtils'
+import { ScatterPoint, buildScatterData, describeSkippedRows } from './scatterUtils'
 
 const NO_ROWS: any[] = []
 
@@ -81,10 +81,7 @@ export function ScatterPlot(): JSX.Element {
                                 title: (context) => (context[0]?.raw as ScatterPoint)?.label ?? '',
                                 label: (context) => {
                                     const point = context.raw as ScatterPoint
-                                    return [
-                                        `${xAxisLabel}: ${point.x.toLocaleString()}`,
-                                        `${yAxisLabel}: ${point.y.toLocaleString()}`,
-                                    ]
+                                    return [`${xAxisLabel}: ${point.xDisplay}`, `${yAxisLabel}: ${point.yDisplay}`]
                                 },
                             },
                         },
@@ -124,25 +121,19 @@ export function ScatterPlot(): JSX.Element {
         )
     }
 
+    const skippedRowsMessage = describeSkippedRows(scatterData.skippedRowCount, Boolean(xLogScale || yLogScale))
+
     if (scatterData.points.length === 0) {
         return (
             <div className="flex items-center justify-center h-full">
-                <InsightEmptyState heading="No data for selected columns" detail="" />
+                <InsightEmptyState heading="No data for selected columns" detail={skippedRowsMessage} />
             </div>
         )
     }
 
     return (
         <div className="flex flex-col flex-1 gap-2 p-2 h-full">
-            {scatterData.skippedRowCount > 0 && (
-                <LemonBanner type="warning">
-                    {`${scatterData.skippedRowCount} row${
-                        scatterData.skippedRowCount === 1 ? ' was' : 's were'
-                    } skipped because the X or Y value is missing or not numeric${
-                        xLogScale || yLogScale ? ', or not positive on a logarithmic scale' : ''
-                    }.`}
-                </LemonBanner>
-            )}
+            {skippedRowsMessage && <LemonBanner type="warning">{skippedRowsMessage}</LemonBanner>}
             <div className="relative flex-1 min-h-[300px]">
                 <canvas ref={canvasRef} />
             </div>
