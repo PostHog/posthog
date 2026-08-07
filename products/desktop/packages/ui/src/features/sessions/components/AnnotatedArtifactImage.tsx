@@ -14,7 +14,7 @@ import {
 /** Whose pin it is, for the marker's label. */
 function authorName(comment: ResourceComment): string {
   const user = comment.created_by;
-  if (!user) return "you";
+  if (!user) return "Deleted user";
   return (
     [user.first_name, user.last_name].filter(Boolean).join(" ") || user.email
   );
