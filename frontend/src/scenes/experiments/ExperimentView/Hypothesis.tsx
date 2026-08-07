@@ -34,13 +34,16 @@ export function Hypothesis(): JSX.Element {
                 />
             </div>
             {experiment.description ? (
-                <p className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap">
+                <p
+                    className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap cursor-pointer"
+                    onClick={openDescriptionModal}
+                >
                     {experiment.description}
                 </p>
             ) : (
-                <p className="metric-cell font-normal m-0 mt-1 leading-relaxed italic">
+                <LemonButton type="tertiary" size="small" className="-ml-2 mt-1" onClick={openDescriptionModal}>
                     Add your hypothesis for this test
-                </p>
+                </LemonButton>
             )}
 
             <LemonModal

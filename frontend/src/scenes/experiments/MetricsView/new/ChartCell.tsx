@@ -149,7 +149,15 @@ export function ChartCell({
                                         style={{
                                             cursor: isClickable ? 'pointer' : 'default',
                                         }}
-                                        onClick={onTimeseriesClick}
+                                        onClick={
+                                            onTimeseriesClick
+                                                ? (e) => {
+                                                      // The row is clickable too; don't let the bar's click bubble and fire twice
+                                                      e.stopPropagation()
+                                                      onTimeseriesClick()
+                                                  }
+                                                : undefined
+                                        }
                                         onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
                                         onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
                                     />
@@ -180,7 +188,15 @@ export function ChartCell({
                                         style={{
                                             cursor: isClickable ? 'pointer' : 'default',
                                         }}
-                                        onClick={onTimeseriesClick}
+                                        onClick={
+                                            onTimeseriesClick
+                                                ? (e) => {
+                                                      // The row is clickable too; don't let the bar's click bubble and fire twice
+                                                      e.stopPropagation()
+                                                      onTimeseriesClick()
+                                                  }
+                                                : undefined
+                                        }
                                         onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
                                         onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
                                     />

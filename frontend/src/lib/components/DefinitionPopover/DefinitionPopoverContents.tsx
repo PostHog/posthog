@@ -76,6 +76,7 @@ export function PropertyStatusControl({
     return (
         <>
             <LemonSegmentedButton
+                fullWidth
                 value={currentStatus}
                 onChange={(value) => {
                     const status = value as PropertyDefinitionVerificationStatus
@@ -110,7 +111,11 @@ export function PropertyStatusControl({
                         : []),
                 ]}
             />
-            {!compact && <p className="italic">{copy[currentStatus]}</p>}
+            {compact ? (
+                <p className="mt-2 mb-0 text-xs text-secondary">{copy[currentStatus]}</p>
+            ) : (
+                <p className="italic">{copy[currentStatus]}</p>
+            )}
         </>
     )
 }

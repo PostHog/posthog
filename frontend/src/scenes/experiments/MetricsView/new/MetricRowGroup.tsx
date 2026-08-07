@@ -119,6 +119,7 @@ interface CollapsibleBreakdownSectionProps {
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
     handleTooltipMouseLeave: (e: React.MouseEvent) => void
     handleTooltipMouseMove: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
+    handleTimeseriesClick: (variantResult: ExperimentVariantResult) => void
 }
 
 function CollapsibleBreakdownSection({
@@ -138,6 +139,7 @@ function CollapsibleBreakdownSection({
     handleTooltipMouseEnter,
     handleTooltipMouseLeave,
     handleTooltipMouseMove,
+    handleTimeseriesClick,
 }: CollapsibleBreakdownSectionProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const mainTableRef = useRef<HTMLTableRowElement>(null)
@@ -379,8 +381,11 @@ function CollapsibleBreakdownSection({
                                                                     return (
                                                                         <tr
                                                                             key={`${metric.uuid}-${variant.key}`}
-                                                                            className="hover:bg-bg-hover"
+                                                                            className="hover:bg-bg-hover cursor-pointer"
                                                                             style={FIXED_HEIGHT_STYLE}
+                                                                            onClick={() =>
+                                                                                handleTimeseriesClick(variant)
+                                                                            }
                                                                             onMouseEnter={(e) =>
                                                                                 handleTooltipMouseEnter(e, variant)
                                                                             }
@@ -1095,8 +1100,9 @@ export function MetricRowGroup({
                 return (
                     <tr
                         key={`${metric.uuid}-${variant.key}`}
-                        className="hover:bg-bg-hover group"
+                        className="hover:bg-bg-hover group cursor-pointer"
                         style={FIXED_HEIGHT_STYLE}
+                        onClick={() => handleTimeseriesClick(variant)}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                         onMouseLeave={handleTooltipMouseLeave}
                         onMouseMove={(e) => handleTooltipMouseMove(e, variant)}
@@ -1216,6 +1222,7 @@ export function MetricRowGroup({
                     handleTooltipMouseEnter={handleTooltipMouseEnter}
                     handleTooltipMouseLeave={handleTooltipMouseLeave}
                     handleTooltipMouseMove={handleTooltipMouseMove}
+                    handleTimeseriesClick={handleTimeseriesClick}
                 />
             )}
 
