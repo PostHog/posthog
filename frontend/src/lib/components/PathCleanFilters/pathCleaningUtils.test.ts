@@ -37,6 +37,11 @@ describe('pathCleaningUtils', () => {
             '\\10',
             'a0',
         ],
+        // re2 is case-sensitive, so a case-mismatched rule must not clean here either — otherwise the
+        // preview promises a cleaning the query never performs.
+        ['case mismatch does not match', '/users/42', '/Users/(\\d+)', '/u/\\1', '/users/42'],
+        // `(?i)` is how re2 opts into case-insensitive matching, and JavaScript rejects it inline.
+        ['a (?i) prefix matches case-insensitively', '/users/42', '(?i)/Users/(\\d+)', '/u/\\1', '/u/42'],
     ])('applyPathCleaningRule: %s', (_name, path, regex, alias, expected) => {
         expect(applyPathCleaningRule(path, { regex, alias })).toBe(expected)
     })
@@ -44,6 +49,7 @@ describe('pathCleaningUtils', () => {
     it('skips invalid or empty regexes without throwing', () => {
         expect(applyPathCleaningRule('/x', { regex: '(', alias: '/y' })).toBe('/x')
         expect(applyPathCleaningRule('/x', { regex: '', alias: '/y' })).toBe('/x')
+        expect(applyPathCleaningRule('/x', { regex: '(?i)', alias: '/y' })).toBe('/x')
     })
 
     it('chains rules in order, each feeding the next', () => {

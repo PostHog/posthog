@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { isValidRegexp } from 'lib/utils/regexp'
 import { AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 
 import { PathCleaningFilter } from '~/types'
+
+import { isValidPathCleaningRegex } from './pathCleaningUtils'
 
 export interface PathRegexModalProps {
     isOpen: boolean
@@ -24,7 +25,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
         ? 'Alias is required'
         : !regex
           ? 'Regex is required'
-          : !isValidRegexp(regex)
+          : !isValidPathCleaningRegex(regex)
             ? 'Malformed regex'
             : null
 
