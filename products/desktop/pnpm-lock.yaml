@@ -7,17 +7,17 @@ settings:
 catalogs:
   default:
     '@earendil-works/pi-agent-core':
-      specifier: 0.83.0
-      version: 0.83.0
+      specifier: 0.84.1
+      version: 0.84.1
     '@earendil-works/pi-ai':
-      specifier: 0.83.0
-      version: 0.83.0
+      specifier: 0.84.1
+      version: 0.84.1
     '@earendil-works/pi-coding-agent':
-      specifier: 0.83.0
-      version: 0.83.0
+      specifier: 0.84.1
+      version: 0.84.1
     '@earendil-works/pi-tui':
-      specifier: 0.83.0
-      version: 0.83.0
+      specifier: 0.84.1
+      version: 0.84.1
     '@hono/trpc-server':
       specifier: ^0.3.4
       version: 0.3.4
@@ -794,13 +794,13 @@ importers:
         version: 0.109.0(zod@4.4.3)
       '@earendil-works/pi-agent-core':
         specifier: 'catalog:'
-        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        version: 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-ai':
         specifier: 'catalog:'
-        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        version: 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
         specifier: 'catalog:'
-        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        version: 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@hono/node-server':
         specifier: 1.19.13
         version: 1.19.13(hono@4.12.28)
@@ -1082,13 +1082,13 @@ importers:
     dependencies:
       '@earendil-works/pi-ai':
         specifier: 'catalog:'
-        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        version: 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
         specifier: 'catalog:'
-        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+        version: 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-tui':
         specifier: 'catalog:'
-        version: 0.83.0
+        version: 0.84.1
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -1122,7 +1122,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.1.8
-        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.20.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@22.20.0)(typescript@5.9.3))(vite@7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@22.20.0)(typescript@5.9.3))(vite@7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/host-router:
     dependencies:
@@ -3005,22 +3005,34 @@ packages:
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
 
-  '@earendil-works/pi-agent-core@0.83.0':
-    resolution: {integrity: sha512-RorGp9OH5l3ElpuC5a5ZQ2eWcchZGXflXRzVGkV99y3y6tT+LLNyxoYIdVKvTKWEObwhExeQbTH0fI2tE4iX4g==}
+  '@earendil-works/pi-agent-core@0.84.1':
+    resolution: {integrity: sha512-evyzXYWCLQGmcaBYHlmSku02r8qoN4SGI60GZABo6iV+H+nqX+P9ud8fEZ4GmRq9mUSREvvfX+w9dA9ThF9C6w==}
     engines: {node: '>=22.19.0'}
 
-  '@earendil-works/pi-ai@0.83.0':
-    resolution: {integrity: sha512-m3IZD4g3er0V8TC9+Vpgw/sjTKqcJlkcIBy/JvsgRubuuik3tAVzyugUg4rVrShIkkOT69mEd34NEqKUIsl6JQ==}
-    engines: {node: '>=22.19.0'}
-    hasBin: true
-
-  '@earendil-works/pi-coding-agent@0.83.0':
-    resolution: {integrity: sha512-uYhF+FsZxogoSX/AxBcUdiY+ZklubwaXyAoEGA2eQwsHcyEAhUYIKh/WLXe/a8+k8eTCmxb+ZN2Zo9mzQtzbWw==}
+  '@earendil-works/pi-ai@0.84.1':
+    resolution: {integrity: sha512-wMsAdJMxuNri08vLqTyYVI201DQQezGhPSTkzYsHdw5dYX3rCNwEmSvpaAwhi7ELKI/2tE/CEgSWg/6iRxSgdQ==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
-  '@earendil-works/pi-tui@0.83.0':
-    resolution: {integrity: sha512-IoYrb0rORjELmEpNtoCA/U8je3KopMkRAVJRdSzvXRvgb+Huo1gNh8Q5CSZvNOiYtDxJdj2tYZZHZ4B3+IN3hA==}
+  '@earendil-works/pi-client@0.84.1':
+    resolution: {integrity: sha512-/V5hGHE4Zq+jG0GtwIB9PyBUOGd6gBLZ7lkQYFKchKnxYHeH3rmWC5xw4kpnZKKBuBuFTdLVbU9vEjlAGMMb2A==}
+    engines: {node: '>=22.19.0'}
+
+  '@earendil-works/pi-coding-agent@0.84.1':
+    resolution: {integrity: sha512-ncAqFrG+iybuPGOhMiZoEHkEzTpJgz3guYD32pD+M7ucc0WeHmauP6wa7qwP8V/KWvsZDVNa5XGsdZ7fkC7w7A==}
+    engines: {node: '>=22.19.0'}
+    hasBin: true
+
+  '@earendil-works/pi-protocol@0.84.1':
+    resolution: {integrity: sha512-Ox1pciyeSPGEEUcxvR0/dJcrY7C6hrEGA8y71rOsvSIUlXN1Cbp/be/eoL71OGDBk5O97TeQPfWN6Ju/2Ehjww==}
+    engines: {node: '>=22.19.0'}
+
+  '@earendil-works/pi-telemetry@0.84.1':
+    resolution: {integrity: sha512-180/xGJtsq7IoR3p9EKWjRd0e9M4DkxInhlo9xyD7prDC7Qrhqq+nhvwrW0lFjPfXcEI2FSHmGCSyvSJE9GsaQ==}
+    engines: {node: '>=22.19.0'}
+
+  '@earendil-works/pi-tui@0.84.1':
+    resolution: {integrity: sha512-udeXFbgEhJ6JiB0uguwNVNkDy2FENfmtQwPcY+/iJ8GWeq18wkal1tKqa5YyeH0IqtX1vG0cGh8zfSYzyzVuLA==}
     engines: {node: '>=22.19.0'}
 
   '@ecies/ciphers@0.2.6':
@@ -3108,11 +3120,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.hirok.io'
+    deprecated: 'Merged into tsx: https://tsx.is'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.hirok.io'
+    deprecated: 'Merged into tsx: https://tsx.is'
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -11556,6 +11568,10 @@ packages:
     resolution: {integrity: sha512-DKKrynuQRne0PNpEbzuEdHlYOMksHSUI8Zc9Unei5gTsMNA2/vMpoMz/yKba50pejK56qj98qM0SjYxAKi13gQ==}
     engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
 
+  grok-mermaid@0.2.2:
+    resolution: {integrity: sha512-XcJEP5dDC8liHBh52mlLjU18fNvu1ckFsu0QpIG3+APZ270fsj9wxpiA6cOURmbUEuoMVgjbC2+UYgTdCqqgzA==}
+    engines: {node: '>=18'}
+
   gsap@3.14.2:
     resolution: {integrity: sha512-P8/mMxVLU7o4+55+1TCnQrPmgjPKnwkzkXOK1asnR9Jg2lna4tEY5qBJjMmAaOBDDZWtlRjBXjLa0w53G/uBLA==}
 
@@ -15597,6 +15613,10 @@ packages:
     resolution: {integrity: sha512-xamtWoB1EshgjpmlXd7GGm2VfdDtw1+rD8uhry8pSNW3If6S8E0m2T2+orSKeZXEn/aPJMviCpDBA65WJt8zhg==}
     engines: {node: '>=22.19.0'}
 
+  undici@8.9.0:
+    resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
+    engines: {node: '>=22.19.0'}
+
   unicode-canonical-property-names-ecmascript@2.0.1:
     resolution: {integrity: sha512-dA8WbNeb2a6oQzAQ55YlT5vQAWGV9WXOsi3SskE3bcCdM0P4SDd+24zS/OCacdRq5BkdsRj9q3Pg6YyQoxIGqg==}
     engines: {node: '>=4'}
@@ -17935,9 +17955,10 @@ snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
 
-  '@earendil-works/pi-agent-core@0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-agent-core@0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@earendil-works/pi-ai': 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-ai': 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-telemetry': 0.84.1
       diff: 8.0.4
       ignore: 7.0.5
       typebox: 1.3.7
@@ -17950,10 +17971,11 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-ai@0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
+      '@earendil-works/pi-telemetry': 0.84.1
       '@google/genai': 1.52.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
       '@mistralai/mistralai': 2.2.6(@opentelemetry/api@1.9.0)
       '@opentelemetry/api': 1.9.0
@@ -17971,16 +17993,23 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-coding-agent@0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-client@0.84.1':
     dependencies:
-      '@earendil-works/pi-agent-core': 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-ai': 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-tui': 0.83.0
+      '@earendil-works/pi-protocol': 0.84.1
+
+  '@earendil-works/pi-coding-agent@0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+    dependencies:
+      '@earendil-works/pi-agent-core': 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-ai': 0.84.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-client': 0.84.1
+      '@earendil-works/pi-protocol': 0.84.1
+      '@earendil-works/pi-tui': 0.84.1
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
       cross-spawn: 7.0.6
       diff: 8.0.4
       glob: 13.0.6
+      grok-mermaid: 0.2.2
       highlight.js: 10.7.3
       hosted-git-info: 9.0.3
       ignore: 7.0.5
@@ -17989,7 +18018,7 @@ snapshots:
       proper-lockfile: 4.1.2
       semver: 7.8.0
       typebox: 1.3.7
-      undici: 8.5.0
+      undici: 8.9.0
       yaml: 2.9.0
     optionalDependencies:
       '@mariozechner/clipboard': 0.3.9
@@ -18001,7 +18030,13 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-tui@0.83.0':
+  '@earendil-works/pi-protocol@0.84.1':
+    dependencies:
+      typebox: 1.3.7
+
+  '@earendil-works/pi-telemetry@0.84.1': {}
+
+  '@earendil-works/pi-tui@0.84.1':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
@@ -23838,7 +23873,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.1.0
-      vitest: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.12.0)(@vitest/coverage-v8@4.1.9)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@24.12.0)(typescript@5.9.3))(rolldown-vite@7.3.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@24.12.0)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
+      vitest: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.12.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@24.12.0)(typescript@5.9.3))(rolldown-vite@7.3.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@24.12.0)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
 
   '@vitest/utils@3.2.4':
     dependencies:
@@ -26771,6 +26806,8 @@ snapshots:
   graceful-fs@4.2.11: {}
 
   graphql@16.12.0: {}
+
+  grok-mermaid@0.2.2: {}
 
   gsap@3.14.2: {}
 
@@ -32133,6 +32170,8 @@ snapshots:
 
   undici@8.5.0: {}
 
+  undici@8.9.0: {}
+
   unicode-canonical-property-names-ecmascript@2.0.1: {}
 
   unicode-match-property-ecmascript@2.0.0:
@@ -32447,36 +32486,6 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.20.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@22.20.0)(typescript@5.9.3))(vite@7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0)):
-    dependencies:
-      '@vitest/expect': 4.1.8
-      '@vitest/mocker': 4.1.8(msw@2.12.8(@types/node@22.20.0)(typescript@5.9.3))(vite@7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.8
-      '@vitest/runner': 4.1.8
-      '@vitest/snapshot': 4.1.8
-      '@vitest/spy': 4.1.8
-      '@vitest/utils': 4.1.8
-      es-module-lexer: 2.0.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.1
-      pathe: 2.0.3
-      picomatch: 4.0.3
-      std-env: 4.1.0
-      tinybench: 2.9.0
-      tinyexec: 1.0.2
-      tinyglobby: 0.2.15
-      tinyrainbow: 3.1.0
-      vite: 7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.0
-      '@types/node': 22.20.0
-      '@vitest/ui': 4.1.8(vitest@4.1.8)
-      jsdom: 26.1.0
-    transitivePeerDependencies:
-      - msw
-
   vitest@4.1.8(@opentelemetry/api@1.9.1)(@types/node@20.19.41)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@20.19.41)(typescript@5.9.3))(vite@7.3.5(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.8
@@ -32502,6 +32511,36 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 20.19.41
+      '@vitest/ui': 4.1.8(vitest@4.1.8)
+      jsdom: 26.1.0
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.8(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@22.20.0)(typescript@5.9.3))(vite@7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0)):
+    dependencies:
+      '@vitest/expect': 4.1.8
+      '@vitest/mocker': 4.1.8(msw@2.12.8(@types/node@22.20.0)(typescript@5.9.3))(vite@7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.8
+      '@vitest/runner': 4.1.8
+      '@vitest/snapshot': 4.1.8
+      '@vitest/spy': 4.1.8
+      '@vitest/utils': 4.1.8
+      es-module-lexer: 2.0.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.3
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.0.2
+      tinyglobby: 0.2.15
+      tinyrainbow: 3.1.0
+      vite: 7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+      '@types/node': 22.20.0
       '@vitest/ui': 4.1.8(vitest@4.1.8)
       jsdom: 26.1.0
     transitivePeerDependencies:
@@ -32533,6 +32572,36 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.12.0
       '@vitest/coverage-v8': 4.1.9(vitest@4.1.8)
+      '@vitest/ui': 4.1.8(vitest@4.1.8)
+      jsdom: 26.1.0
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.12.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@24.12.0)(typescript@5.9.3))(rolldown-vite@7.3.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@24.12.0)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0)):
+    dependencies:
+      '@vitest/expect': 4.1.8
+      '@vitest/mocker': 4.1.8(msw@2.12.8(@types/node@24.12.0)(typescript@5.9.3))(rolldown-vite@7.3.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@24.12.0)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.8
+      '@vitest/runner': 4.1.8
+      '@vitest/snapshot': 4.1.8
+      '@vitest/spy': 4.1.8
+      '@vitest/utils': 4.1.8
+      es-module-lexer: 2.0.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.3
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.0.2
+      tinyglobby: 0.2.15
+      tinyrainbow: 3.1.0
+      vite: rolldown-vite@7.3.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@24.12.0)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+      '@types/node': 24.12.0
       '@vitest/ui': 4.1.8(vitest@4.1.8)
       jsdom: 26.1.0
     transitivePeerDependencies:

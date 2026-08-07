@@ -1,10 +1,10 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { AgentConversationEvent } from "@posthog/shared";
 import { createPiMessageTranslator } from "./translatePiMessage";
 
 type AgentMessage = Extract<
-  AgentSessionEvent,
+  JsonAgentSessionEvent,
   { type: "message_end" }
 >["message"];
 
@@ -105,13 +105,14 @@ export interface PiConversationTranslator {
   completeDirectBash(result: PiDirectBashResult): AgentConversationEvent[];
   failDirectBash(message: string): AgentConversationEvent[];
   translateHistoryMessage(message: AgentMessage): AgentConversationEvent[];
-  translateEvent(event: AgentSessionEvent): AgentConversationEvent[];
+  translateEvent(event: JsonAgentSessionEvent): AgentConversationEvent[];
 }
 
 export function createPiConversationTranslator(): PiConversationTranslator {
   const messageTranslator = createPiMessageTranslator();
   const streamedAssistantTimestamps = new Set<number>();
   let historyTurnActive = false;
+  let activeAssistantTimestamp: number | undefined;
   let latestRuntimeTimestamp = 0;
   let latestConversationTimestamp = 0;
   let pendingRuntimeError: AgentConversationEvent | undefined;
@@ -260,37 +261,52 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     return events;
   }
 
-  function translateEvent(event: AgentSessionEvent): AgentConversationEvent[] {
-    if (event.type === "message_update") {
-      const update = event.assistantMessageEvent;
+  function translateEvent(
+    event: JsonAgentSessionEvent,
+  ): AgentConversationEvent[] {
+    if (event.type === "message_start") {
+      if (event.message.role !== "assistant") {
+        return [];
+      }
+
+      activeAssistantTimestamp = event.message.timestamp;
       latestRuntimeTimestamp = Math.max(
         latestRuntimeTimestamp,
-        event.message.timestamp,
+        activeAssistantTimestamp,
       );
       latestConversationTimestamp = Math.max(
         latestConversationTimestamp,
-        event.message.timestamp,
+        activeAssistantTimestamp,
       );
+      return [];
+    }
 
+    if (event.type === "message_update") {
+      const timestamp = activeAssistantTimestamp;
+      if (timestamp === undefined) {
+        return [];
+      }
+
+      const update = event.assistantMessageEvent;
       if (update.type === "text_delta" && update.delta) {
-        streamedAssistantTimestamps.add(event.message.timestamp);
+        streamedAssistantTimestamps.add(timestamp);
         return [
-          ...completeRetry(event.message.timestamp),
+          ...completeRetry(timestamp),
           {
             type: "assistant_message_chunk",
-            timestamp: event.message.timestamp,
+            timestamp,
             content: { type: "text", text: update.delta },
           },
         ];
       }
 
       if (update.type === "thinking_delta" && update.delta) {
-        streamedAssistantTimestamps.add(event.message.timestamp);
+        streamedAssistantTimestamps.add(timestamp);
         return [
-          ...completeRetry(event.message.timestamp),
+          ...completeRetry(timestamp),
           {
             type: "assistant_thought_chunk",
-            timestamp: event.message.timestamp,
+            timestamp,
             content: { type: "text", text: update.delta },
           },
         ];
@@ -377,6 +393,10 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     }
 
     if (event.type === "message_end") {
+      if (event.message.role === "assistant") {
+        activeAssistantTimestamp = undefined;
+      }
+
       latestRuntimeTimestamp = Math.max(
         latestRuntimeTimestamp,
         event.message.timestamp,

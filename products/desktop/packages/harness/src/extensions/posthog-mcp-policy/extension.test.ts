@@ -89,6 +89,7 @@ describe("posthog MCP policy extension", () => {
     await expect(runtime.call("mcp_Cloudflare_search")).resolves.toEqual({
       block: true,
       reason: "Permission rejected for Cloudflare.search.",
+      terminate: true,
     });
   });
 
@@ -98,6 +99,7 @@ describe("posthog MCP policy extension", () => {
     await expect(runtime.call("mcp_Cloudflare_search")).resolves.toEqual({
       block: true,
       reason: "The Cloudflare tool search is disabled in PostHog MCP settings.",
+      terminate: true,
     });
   });
 
