@@ -55,6 +55,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
+  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -321,15 +322,7 @@ export function ActivityView() {
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   const visibleItems = useMemo(
-    () =>
-      commentsEnabled
-        ? items
-        : items.filter(
-            (item) =>
-              item.activityKind !== "mention" &&
-              item.activityKind !== "thread_reply" &&
-              item.activityKind !== "owned_item_comment",
-          ),
+    () => getVisibleActivityItems(items, commentsEnabled),
     [commentsEnabled, items],
   );
   const unreadItems = useMemo(

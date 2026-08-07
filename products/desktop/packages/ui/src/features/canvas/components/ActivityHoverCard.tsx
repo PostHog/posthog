@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
+  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -50,9 +51,7 @@ export function ActivityHoverCard({
     root: scrollRoot,
     rootMargin: "100px 0px",
   });
-  const visibleItems = commentsEnabled
-    ? items
-    : items.filter((item) => !item.commentId);
+  const visibleItems = getVisibleActivityItems(items, commentsEnabled);
   const unreadItems = getUnreadActivityItems(visibleItems);
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();

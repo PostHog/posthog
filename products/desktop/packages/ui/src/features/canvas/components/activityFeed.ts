@@ -6,6 +6,13 @@ export function getUnreadActivityItems(
   return items.filter((item) => item.isUnread);
 }
 
+export function getVisibleActivityItems(
+  items: TaskActivityItem[],
+  commentsEnabled: boolean,
+): TaskActivityItem[] {
+  return commentsEnabled ? items : items.filter((item) => !item.commentId);
+}
+
 export function activityReadPayload(items: TaskActivityItem[]) {
   return items.map((item) => ({
     task_id: item.taskId,
