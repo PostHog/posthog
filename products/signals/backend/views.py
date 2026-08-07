@@ -1792,16 +1792,21 @@ class SignalReportViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        note = data["note"].strip()
+
         if _is_person_at_the_ui(request):
+            # The inbox posts the bare rating on click and the optional note afterwards, so a
+            # note-carrying request amends a rating the row already counted — bumping again
+            # would record one thumb choice as two interactions.
             SignalReportAction.record(
                 team_id=self.team.id,
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.FEEDBACK,
                 metadata={"sentiment": data["sentiment"]},
+                bump_count=not note,
             )
 
-        note = data["note"].strip()
         if not note:
             return Response(SignalReportFeedbackResponseSerializer({"forwarded": False}).data)
 

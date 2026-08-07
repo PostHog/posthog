@@ -1144,14 +1144,21 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         user_id: int,
         action_type: "SignalReportAction.ActionType",
         metadata: dict[str, Any] | None = None,
+        bump_count: bool = True,
     ) -> None:
         """Upsert one interaction: bump the existing row or create it.
 
         Update-then-create rather than get_or_create so the common case (a repeat view) is one
         UPDATE; the create's unique-constraint race falls back to the update path.
+
+        ``bump_count=False`` refreshes an existing row (metadata, ``last_at``) without counting
+        it as a new interaction — for follow-up requests that amend one the row already counted,
+        like the note trailing a thumbs rating. A create still starts at 1.
         """
         now = timezone.now()
-        updates: dict[str, Any] = {"last_at": now, "count": models.F("count") + 1}
+        updates: dict[str, Any] = {"last_at": now}
+        if bump_count:
+            updates["count"] = models.F("count") + 1
         if metadata is not None:
             updates["metadata"] = metadata
         row = cls.objects.for_team(team_id).filter(report_id=report_id, user_id=user_id, type=action_type)

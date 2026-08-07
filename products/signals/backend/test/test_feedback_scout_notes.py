@@ -180,6 +180,32 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert action.count == 2
         assert action.metadata == {"sentiment": "negative"}
 
+    def test_a_note_following_a_rating_counts_as_one_interaction(self) -> None:
+        # The inbox posts the bare rating on click and the optional note afterwards — one thumb
+        # choice. The note request must amend the action row, not count a second interaction.
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+
+        self._feedback(report, sentiment="positive")
+        self._feedback(report, sentiment="positive", note="the staging spike is a known issue")
+
+        action = SignalReportAction.objects.get(report=report, user=self.user)
+        assert action.count == 1
+        assert action.metadata == {"sentiment": "positive"}
+        assert len(self._notes()) == 1
+
+    def test_a_note_carrying_rating_with_no_prior_row_still_records_the_action(self) -> None:
+        # A client may send rating and note in one request; skipping the count bump must not
+        # skip creating the consumption record itself.
+        report = self._create_report()
+
+        self._feedback(report, sentiment="negative", note="not useful")
+
+        action = SignalReportAction.objects.get(report=report, user=self.user)
+        assert action.count == 1
+        assert action.metadata == {"sentiment": "negative"}
+
     def test_feedback_still_succeeds_when_the_note_cannot_be_written(self) -> None:
         self._create_scout_skill()
         report = self._create_report()
