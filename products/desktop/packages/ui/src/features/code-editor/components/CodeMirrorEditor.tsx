@@ -41,8 +41,8 @@ export interface EditorSelection {
   /** 1-based line numbers. */
   fromLine: number;
   toLine: number;
-  /** Viewport pixel anchor below the selection, or null when off-screen. */
-  anchor: { top: number; left: number } | null;
+  /** Viewport position of the selection's end caret, or null when off-screen. */
+  anchor: { top: number; endX: number; bottom: number } | null;
 }
 
 interface CodeMirrorEditorProps {
@@ -75,7 +75,9 @@ export function CodeMirrorEditor({
 
   // Ref-stable listener: a changing extension would tear down the editor.
   const onSelectionChangeRef = useRef(onSelectionChange);
-  onSelectionChangeRef.current = onSelectionChange;
+  useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
   const selectionExtension = useMemo(
     () =>
       EditorView.updateListener.of((update) => {
@@ -100,13 +102,16 @@ export function CodeMirrorEditor({
           return;
         }
         const endRect = update.view.coordsAtPos(sel.to);
-        const startRect = update.view.coordsAtPos(doc.lineAt(sel.to).from);
         cb({
           text: doc.sliceString(sel.from, sel.to),
           fromLine: doc.lineAt(sel.from).number,
           toLine: doc.lineAt(sel.to).number,
           anchor: endRect
-            ? { top: endRect.bottom, left: (startRect ?? endRect).left }
+            ? {
+                top: endRect.top,
+                endX: endRect.right,
+                bottom: endRect.bottom,
+              }
             : null,
         });
       }),

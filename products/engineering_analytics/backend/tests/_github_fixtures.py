@@ -120,8 +120,10 @@ def _user(login: str) -> str:
     return f'{{"login": "{login}", "avatar_url": "https://avatars/{login}"}}'
 
 
-def _base(full_name: str, ref: str = "") -> str:
-    return f'{{"ref": "{ref}", "repo": {{"full_name": "{full_name}"}}}}'
+def _base(full_name: str, ref: str = "", default_branch: str = "") -> str:
+    # Mirrors the real payload: base.repo is a full repository object, so it carries default_branch.
+    repo = f'{{"full_name": "{full_name}", "default_branch": "{default_branch}"}}'
+    return f'{{"ref": "{ref}", "repo": {repo}}}'
 
 
 def _labels(*names: str) -> str:
@@ -141,6 +143,7 @@ def _pr_row(
     head_ref: str = "",
     base_ref: str = "",
     full_name: str = "PostHog/posthog",
+    default_branch: str = "",
     labels: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     return {
@@ -156,7 +159,7 @@ def _pr_row(
         "merge_commit_sha": merge_commit_sha,
         "user": _user(login),
         "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
-        "base": _base(full_name, base_ref),
+        "base": _base(full_name, base_ref, default_branch),
         "labels": _labels(*labels),
     }
 

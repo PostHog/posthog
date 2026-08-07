@@ -6,11 +6,13 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
 import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
+import { QuotaImminentBanner } from '../../components/QuotaImminentBanner'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import {
     QUOTA_STATUS_STYLES,
     type QuotaStatus,
+    daysUntilCapReached,
     hasCreditLimit,
     projectQuota,
     splitProjectedPct,
@@ -59,6 +61,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
     const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
+
+    // No estimate means the projection isn't about the scanner being edited.
+    const imminentDays = projectedCredits !== null ? daysUntilCapReached(projection) : null
 
     const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)
     const [freeWidth, billedWidth, othersWidth, thisWidth] = quotaMeterWidths(usedPct, usedFreePct, [
@@ -126,8 +131,8 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 ) : (
                     <div className="text-sm text-muted">—</div>
                 )}
-                {/* The exhausted note below carries this status, so don't say it twice. */}
-                {hasCap && !projection.exhausted && (
+                {/* The exhausted note and the imminent banner below carry this status, so don't say it twice. */}
+                {hasCap && !projection.exhausted && imminentDays === null && (
                     <span className="text-xs tabular-nums">
                         <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
                     </span>
@@ -145,6 +150,10 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             )}
 
             {hasCap && projection.exhausted && <QuotaExhaustedNote onFreePlan={onFreePlan} />}
+
+            {imminentDays !== null && projection.capReachDate && (
+                <QuotaImminentBanner capReachDate={projection.capReachDate} onFreePlan={onFreePlan} />
+            )}
 
             {hasCap && projectedCredits !== null && (
                 <>
