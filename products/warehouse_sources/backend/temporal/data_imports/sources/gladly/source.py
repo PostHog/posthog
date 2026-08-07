@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    REPORT_ENDPOINTS,
+    REPORT_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -72,7 +74,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
 
-Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports.""",
+Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversations table is built from Gladly's Conversation Export report instead, so it is not limited to the 14-day export window.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -116,7 +118,14 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Report rows restate in place as records change, so appending would
+        # duplicate them (merge_only) and incremental runs re-read a trailing
+        # window to catch the restatements (lookback).
+        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=REPORT_ENDPOINTS)
+        for schema in schemas:
+            if schema.name in REPORT_ENDPOINTS:
+                schema.default_incremental_lookback_seconds = REPORT_INCREMENTAL_LOOKBACK_SECONDS
+        return schemas
 
     def validate_credentials(
         self,

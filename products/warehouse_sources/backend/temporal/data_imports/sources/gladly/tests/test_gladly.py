@@ -1,7 +1,10 @@
+import io
 import json
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 import requests
@@ -11,11 +14,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
     GladlyResumeConfig,
     _base_url,
     _clean_organization,
+    _normalize_report_column,
     get_rows,
     gladly_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import ENDPOINTS, GLADLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
+    ENDPOINTS,
+    GLADLY_ENDPOINTS,
+    REPORT_BACKFILL_DAYS,
+    REPORT_WINDOW_DAYS,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly"
 
@@ -46,6 +55,18 @@ def _jsonl_response(rows: list[dict[str, Any]], junk_lines: list[str] | None = N
 
 def _job(job_id: str, updated_at: str, files: list[str] | None = None) -> dict[str, Any]:
     return {"id": job_id, "updatedAt": updated_at, "files": files or ["customers.jsonl", "agents.jsonl"]}
+
+
+class _RawBytes(io.BytesIO):
+    """BytesIO subclass, so the transport can set decode_content on it."""
+
+
+def _csv_response(text: str) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.raw = _RawBytes(text.encode())
+    resp.status_code = 200
+    resp.ok = True
+    return resp
 
 
 class TestCleanOrganization:
@@ -270,6 +291,166 @@ class TestGetRows:
         batches = list(get_rows("myorg", "agent@x.com", "token", "customers", mock.MagicMock(), manager))
 
         assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
+
+
+class TestNormalizeReportColumn:
+    @pytest.mark.parametrize(
+        "header, expected",
+        [
+            ("Conversation ID", "conversation_id"),
+            ("Assigned Agent ID - Current", "assigned_agent_id_current"),
+            ("Created-to-First Closed Time", "created_to_first_closed_time"),
+            ("Billable Resolution (Y/N)", "billable_resolution_y_n"),
+            ("  Topics with Hierarchy ", "topics_with_hierarchy"),
+        ],
+    )
+    def test_headers_become_stable_snake_case_columns(self, header, expected):
+        assert _normalize_report_column(header) == expected
+
+
+class TestGetReportRows:
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_incremental_windows_start_behind_watermark_and_rows_are_normalized(self, mock_session):
+        header = (
+            "Created At,Conversation ID,Customer ID,Status,"
+            "Assigned Agent ID - Current,Inbox ID - Current,First Closed At,Last Closed At\n"
+        )
+        mock_session.return_value.post.side_effect = [
+            _csv_response(
+                header
+                + "2024-03-04T10:00:00.000Z,conv-1,cust-1,CLOSED,agent-1,inbox-1,"
+                + "2024-03-05T00:00:00.000Z,2024-03-05T00:00:00.000Z\n"
+            ),
+            _csv_response(header + '2024-03-11T10:00:00.000Z,conv-2,"cust, 2",OPEN,,inbox-1,,\n'),
+        ]
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "conversations",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-10T05:00:00.000Z",
+            )
+        )
+
+        # One window per REPORT_WINDOW_DAYS, oldest first, starting one full
+        # window behind the watermark date.
+        calls = mock_session.return_value.post.call_args_list
+        assert all(call.args[0] == "https://myorg.gladly.com/api/v1/reports" for call in calls)
+        assert [call.kwargs["json"] for call in calls] == [
+            {
+                "metricSet": "ConversationExportReport",
+                "timezone": "UTC",
+                "startAt": "2024-03-03",
+                "endAt": "2024-03-09",
+            },
+            {
+                "metricSet": "ConversationExportReport",
+                "timezone": "UTC",
+                "startAt": "2024-03-10",
+                "endAt": "2024-03-15",
+            },
+        ]
+
+        flat = [row for batch in batches for row in batch]
+        assert flat == [
+            {
+                "created_at": "2024-03-04T10:00:00.000Z",
+                "conversation_id": "conv-1",
+                "customer_id": "cust-1",
+                "status": "CLOSED",
+                "assigned_agent_id_current": "agent-1",
+                "inbox_id_current": "inbox-1",
+                "first_closed_at": "2024-03-05T00:00:00.000Z",
+                "last_closed_at": "2024-03-05T00:00:00.000Z",
+            },
+            {
+                "created_at": "2024-03-11T10:00:00.000Z",
+                "conversation_id": "conv-2",
+                "customer_id": "cust, 2",
+                "status": "OPEN",
+                "assigned_agent_id_current": None,
+                "inbox_id_current": "inbox-1",
+                "first_closed_at": None,
+                "last_closed_at": None,
+            },
+        ]
+
+        # State saved after each fully-processed window.
+        assert [call.args[0].last_report_window_end for call in manager.save_state.call_args_list] == [
+            "2024-03-09",
+            "2024-03-15",
+        ]
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_first_sync_starts_at_the_backfill_horizon(self, mock_session):
+        mock_session.return_value.post.side_effect = [_csv_response("Conversation ID\nconv-1\n")]
+
+        manager = _make_manager()
+        rows_iterator = get_rows("myorg", "agent@x.com", "token", "conversations", mock.MagicMock(), manager)
+
+        assert next(rows_iterator) == [{"conversation_id": "conv-1"}]
+        horizon = date(2024, 3, 15) - timedelta(days=REPORT_BACKFILL_DAYS)
+        payload = mock_session.return_value.post.call_args.kwargs["json"]
+        assert payload["startAt"] == horizon.isoformat()
+        assert payload["endAt"] == (horizon + timedelta(days=REPORT_WINDOW_DAYS - 1)).isoformat()
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resume_state_restarts_at_the_saved_window_and_empty_windows_save_progress(self, mock_session):
+        mock_session.return_value.post.side_effect = [_csv_response("Created At,Conversation ID\n")]
+
+        # Resume state (mid-March) supersedes the older watermark, and the saved
+        # window end itself is re-read rather than skipped.
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-12"))
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "conversations",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-01T00:00:00.000Z",
+            )
+        )
+
+        assert batches == []
+        payload = mock_session.return_value.post.call_args.kwargs["json"]
+        assert payload["startAt"] == "2024-03-12"
+        assert payload["endAt"] == "2024-03-15"
+        assert [call.args[0].last_report_window_end for call in manager.save_state.call_args_list] == ["2024-03-15"]
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_large_report_windows_are_chunked(self, mock_session):
+        csv_text = "Conversation ID\n" + "\n".join(f"conv-{i}" for i in range(CHUNK_SIZE + 1)) + "\n"
+        mock_session.return_value.post.side_effect = [_csv_response(csv_text)]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "conversations", mock.MagicMock(), manager))
+
+        assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.REPORT_ROW_WARNING_THRESHOLD", 2)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_windows_near_the_report_row_cap_log_a_truncation_warning(self, mock_session):
+        mock_session.return_value.post.side_effect = [_csv_response("Conversation ID\nconv-1\nconv-2\n")]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        logger = mock.MagicMock()
+        list(get_rows("myorg", "agent@x.com", "token", "conversations", logger, manager))
+
+        logger.warning.assert_called_once()
 
 
 class TestGladlySourceResponse:
