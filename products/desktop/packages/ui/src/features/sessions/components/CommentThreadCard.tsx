@@ -125,16 +125,16 @@ export function CommentThreadCard({
       } ${resolved ? "opacity-70" : ""}`}
       data-comment-thread-id={threadId}
     >
-      <CardContent className="p-3">
-        <div className="relative w-full text-left">
-          <Button
-            type="button"
-            variant="outline"
-            className="absolute inset-0 h-auto w-full opacity-0"
-            aria-label="Open comment thread"
-            onClick={onSelect}
-          />
-          <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+      <CardContent className="relative p-3">
+        <Button
+          type="button"
+          variant="outline"
+          className="absolute inset-0 h-auto w-full opacity-0"
+          aria-label="Open comment thread"
+          onClick={onSelect}
+        />
+        <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+          <div className="w-full text-left">
             {source}
             {resolution === "orphaned" && (
               <div className="mb-1.5 flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
@@ -147,22 +147,26 @@ export function CommentThreadCard({
         </div>
         {/* Replies sit at the root's indentation: a thread this narrow reads as
             one conversation, and nesting only stole width from the text. */}
-        {replies.map((entry) => (
-          <CommentBody key={entry.id} entry={entry} />
-        ))}
+        <div className="pointer-events-none relative">
+          {replies.map((entry) => (
+            <CommentBody key={entry.id} entry={entry} />
+          ))}
+        </div>
         {/* A conversation comment can only be read here and acted on in GitHub;
             dead Reply/Resolve buttons would just discard whatever was typed, so
             it gets a link out instead. */}
         {(canReply || canResolve || viewHref) && <Separator className="my-2" />}
         {!canReply && !canResolve && viewHref ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => openExternalUrl(viewHref)}
-          >
-            <ArrowSquareOutIcon />
-            View on GitHub
-          </Button>
+          <div className="relative">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => openExternalUrl(viewHref)}
+            >
+              <ArrowSquareOutIcon />
+              View on GitHub
+            </Button>
+          </div>
         ) : replying ? (
           <CommentComposer
             value={reply}
@@ -184,7 +188,7 @@ export function CommentThreadCard({
           />
         ) : (
           (canReply || canResolve) && (
-            <div className="flex gap-1">
+            <div className="relative flex gap-1">
               {canReply && (
                 <Button size="sm" onClick={() => setReplying(true)}>
                   <ChatCircle />

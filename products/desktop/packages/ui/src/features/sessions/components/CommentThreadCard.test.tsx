@@ -73,4 +73,49 @@ describe("CommentThreadCard", () => {
 
     await waitFor(() => expect(onResolve).toHaveBeenCalledWith(true));
   });
+
+  it("selects the thread when a reply is clicked", () => {
+    const onSelect = vi.fn();
+    render(
+      <CommentThreadCard
+        threadId="thread-1"
+        entries={[
+          {
+            id: "comment-1",
+            authorName: "Reviewer",
+            user: null,
+            avatarUrl: null,
+            createdAt: "2026-08-07T00:00:00Z",
+            body: "Root comment",
+            format: "mentions",
+          },
+          {
+            id: "comment-2",
+            authorName: "Author",
+            user: null,
+            avatarUrl: null,
+            createdAt: "2026-08-07T00:01:00Z",
+            body: "Reply text",
+            format: "mentions",
+          },
+        ]}
+        selected={false}
+        pulsing={false}
+        resolved={false}
+        members={[]}
+        busy={false}
+        onSelect={onSelect}
+        onReply={vi.fn()}
+        onResolve={vi.fn()}
+      />,
+    );
+
+    const selectThread = screen.getByLabelText("Open comment thread");
+    expect(selectThread.parentElement).toContainElement(
+      screen.getByText("Reply text"),
+    );
+    fireEvent.click(selectThread);
+
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
 });
