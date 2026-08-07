@@ -108,7 +108,7 @@ export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
  * one event so the readout can tell the modes apart by `step`.
  */
 export function captureExportNudgeCheckFailed(
-    step: 'limit' | 'check' | 'timeout',
+    step: 'limit' | 'check' | 'timeout' | 'toast-gone',
     properties: Record<string, unknown> = {}
 ): void {
     posthog.capture('dashboard export nudge check failed', { step, ...properties })

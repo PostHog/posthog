@@ -97,7 +97,7 @@ describe('export completion toast', () => {
 
         // A stall reports its own step, otherwise the readout cannot tell it from an exporter who
         // was simply ineligible.
-        expect(captureExportNudgeCheckFailed).toHaveBeenCalledWith('timeout')
+        expect(captureExportNudgeCheckFailed).toHaveBeenCalledWith('timeout', { dashboard_id: 7 })
     })
 
     it('does not offer the exports panel when the export failed', async () => {
