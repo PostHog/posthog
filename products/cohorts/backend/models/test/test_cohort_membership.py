@@ -118,6 +118,48 @@ class TestRemoveUserByUuid(BaseTest):
 
         get_active_fake().assert_called("get_person_by_uuid")
 
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
+    def test_prefetched_person_skips_redundant_lookup(self, mock_get_size, mock_remove_ch):
+        person = create_person(team=self.team, distinct_ids=["d1"])
+        cohort = self._create_static_cohort()
+        add_cohort_members(cohort, [person])
+
+        result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id, person=person)
+
+        assert result is True
+        mock_remove_ch.assert_called_once()
+        get_active_fake().assert_not_called("get_person_by_uuid")
+
+    @parameterized.expand(
+        [
+            # (transient failures before success, whether removal ultimately raises)
+            ("retries_then_succeeds", 2, False),
+            ("exhausts_and_raises", 3, True),
+        ]
+    )
+    @patch("products.cohorts.backend.models.cohort.time.sleep")
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
+    def test_clickhouse_capacity_error_is_retried(
+        self, _name, failures, raises, mock_get_size, mock_remove_ch, mock_sleep
+    ):
+        # A transient capacity error on the fragile static-cohort delete must retry rather than
+        # surface a 500, matching the insert path; only a persistent one propagates (as a 503).
+        person = create_person(team=self.team, distinct_ids=["d1"])
+        cohort = self._create_static_cohort()
+        add_cohort_members(cohort, [person])
+        mock_remove_ch.side_effect = [ClickHouseAtCapacity()] * failures + [None]
+
+        if raises:
+            with self.assertRaises(ClickHouseAtCapacity):
+                cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id, person=person)
+            assert mock_remove_ch.call_count == 3
+        else:
+            result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id, person=person)
+            assert result is True
+            assert mock_remove_ch.call_count == failures + 1
+
 
 class TestCheckCohortMembership(BaseTest):
     def test_returns_true_for_member(self):

@@ -23,7 +23,7 @@ from pydantic import (
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -47,6 +47,7 @@ from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -102,6 +103,14 @@ from products.cohorts.backend.models.util import (
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
+
+
+class CohortPersonRemovalFailed(APIException):
+    status_code = 500
+    default_detail = (
+        "Couldn't remove this person from the cohort. Try again, and if it keeps happening contact support."
+    )
+    default_code = "cohort_person_removal_failed"
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -1876,15 +1885,28 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_id must be a valid UUID")
 
         # Check if person exists and belongs to this team. Only person.uuid is used, so skip the
-        # distinct-id fetch.
+        # distinct-id fetch. Pass the resolved person straight to remove_user_by_uuid so it doesn't
+        # look the same person up again (halves the personhog surface, and closes the race between
+        # the two lookups).
         with personhog_caller_tag("cohorts/remove-person"):
             person = get_person_by_uuid(team_id=self.team_id, uuid=person_id, distinct_id_limit=0)
         if person is None:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
-        person_uuid = person.uuid
 
-        # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
-        cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
+        # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues).
+        # ClickHouseAtCapacity already carries a 503 and a retry message, so let it surface as-is;
+        # translate anything else into a clear error rather than DRF's generic 500 text.
+        try:
+            removed = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team_id, person=person)
+        except ClickHouseAtCapacity:
+            raise
+        except Exception:
+            raise CohortPersonRemovalFailed()
+
+        # A removal that found nobody to remove is not an activity worth logging, and reporting
+        # success for it would be a lie.
+        if not removed:
+            return Response({"success": False}, status=200)
 
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),

@@ -1038,12 +1038,15 @@ export function DataTable({
                                 sorting={null}
                                 useURLForSorting={false}
                                 emptyState={
+                                    // Retry with 'blocking' rather than 'force_blocking': the failure is
+                                    // usually a client-side abort, so prefer a cached result over forcing
+                                    // the same expensive recompute that just aborted.
                                     responseError ? (
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}
                                                 excludeDetail
-                                                onRetry={() => loadData('force_blocking')}
+                                                onRetry={() => loadData('blocking')}
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
@@ -1053,10 +1056,7 @@ export function DataTable({
                                                 }
                                             />
                                         ) : (
-                                            <InsightErrorState
-                                                query={query}
-                                                onRetry={() => loadData('force_blocking')}
-                                            />
+                                            <InsightErrorState query={query} onRetry={() => loadData('blocking')} />
                                         )
                                     ) : (
                                         <InsightEmptyState

@@ -142,6 +142,10 @@ export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(1)
+// The cohort persons list is the main query on its page; keep it off the app-wide limit-of-one
+// controller so an unrelated DataNode query elsewhere can't queue behind it (or, on a reload,
+// drop it with an abort that reads as a user cancellation).
+const cohortConcurrencyController = new ConcurrencyController(4)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
@@ -152,6 +156,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.MarketingAnalytics) {
         return marketingAnalyticsConcurrencyController
+    }
+
+    if (activeScene === Scene.Cohort) {
+        return cohortConcurrencyController
     }
 
     if (

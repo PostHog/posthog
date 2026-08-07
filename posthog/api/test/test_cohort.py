@@ -4756,6 +4756,59 @@ email@example.org,
         assert response.status_code == 404
         assert "Person with this UUID does not exist" in response.json()["detail"]
 
+    @patch("products.cohorts.backend.models.cohort.Cohort.remove_user_by_uuid")
+    def test_remove_person_backend_failure_returns_clear_error_not_generic_500(self, mock_remove):
+        # A failure inside removal used to bubble up as DRF's generic 500 text; the user should
+        # get a clear, stable error instead, and no activity should be logged for a failed removal.
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        person = _create_person(team_id=self.team.pk, distinct_ids=["fail-person"], properties={})
+        flush_persons_and_events()
+        mock_remove.side_effect = Exception("clickhouse mutation blew up")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": str(person.uuid)},
+            format="json",
+        )
+
+        assert response.status_code == 500
+        assert response.json()["code"] == "cohort_person_removal_failed"
+        assert self._get_cohort_activity(static_cohort.id)["results"] == []
+
+    @patch("products.cohorts.backend.models.cohort.Cohort.remove_user_by_uuid")
+    def test_remove_person_capacity_error_surfaces_as_503(self, mock_remove):
+        from posthog.exceptions import ClickHouseAtCapacity
+
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        person = _create_person(team_id=self.team.pk, distinct_ids=["busy-person"], properties={})
+        flush_persons_and_events()
+        mock_remove.side_effect = ClickHouseAtCapacity()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": str(person.uuid)},
+            format="json",
+        )
+
+        assert response.status_code == 503
+
+    @patch("products.cohorts.backend.models.cohort.Cohort.remove_user_by_uuid", return_value=False)
+    def test_remove_person_noop_reports_no_success_and_logs_nothing(self, mock_remove):
+        # A removal that found nothing to remove must not report success or write an activity entry.
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        person = _create_person(team_id=self.team.pk, distinct_ids=["ghost-person"], properties={})
+        flush_persons_and_events()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": str(person.uuid)},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"success": False}
+        assert self._get_cohort_activity(static_cohort.id)["results"] == []
+
     def test_remove_person_from_static_cohort_person_in_ch_but_not_pg(self):
         """
         Test that removal succeeds when person exists in ClickHouse but not PostgreSQL.
