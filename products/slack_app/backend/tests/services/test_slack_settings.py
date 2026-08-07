@@ -86,6 +86,21 @@ def _stub_task_runtime_helpers():
             return None
         return f"Reasoning effort '{effort}' is not supported for {adapter}/{model}."
 
+    models_by_adapter = {
+        "claude": ("claude-opus-4-7", "claude-sonnet-4-6"),
+        "codex": ("gpt-5", "gpt-5.5"),
+    }
+
+    def fake_validate_selection(adapter, model, effort):
+        if adapter is not None and adapter not in models_by_adapter:
+            raise ValidationError(f"Unknown runtime_adapter '{adapter}'.")
+        owning = next((a for a, models in models_by_adapter.items() if model in models), None)
+        if adapter is not None and owning is not None and owning != adapter:
+            raise ValidationError(f"Model '{model}' runs on runtime_adapter '{owning}', not '{adapter}'.")
+        error = fake_get_error(adapter, model, effort)
+        if error:
+            raise ValidationError(error)
+
     class _Adapter:
         def __init__(self, value):
             self.value = value
@@ -119,6 +134,8 @@ def _stub_task_runtime_helpers():
     fake: Any = ModuleType(module_name)
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
+    fake.get_models_for_runtime_adapter = lambda adapter: models_by_adapter.get(adapter, ())
+    fake.validate_model_selection = fake_validate_selection
     fake.RuntimeAdapter = _RuntimeAdapter()
     fake.PUBLIC_REASONING_EFFORTS = public_efforts
 
@@ -290,6 +307,12 @@ class TestValidateAIPreferences:
     def test_unknown_runtime_adapter_rejected(self):
         with pytest.raises(ValidationError, match="Unknown runtime_adapter"):
             validate_ai_preferences("nonsense", "claude-opus-4-7", None)
+
+    def test_model_from_another_runtime_rejected(self):
+        # The modal offers both runtimes' models, so nothing but this check stops a
+        # Claude + GPT pair from being written and handed to a run.
+        with pytest.raises(ValidationError, match="runs on runtime_adapter"):
+            validate_ai_preferences("claude", "gpt-5.5", None)
 
     def test_unknown_reasoning_effort_rejected(self):
         with pytest.raises(ValidationError, match="Unknown reasoning_effort"):

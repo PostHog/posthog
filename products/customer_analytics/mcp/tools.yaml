@@ -119,7 +119,9 @@ tools:
             properties:
                 description: >
                     Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`,
-                    `zendesk_id` are optional string identifiers for the account in external systems. All fields are
+                    `zendesk_id` are optional string identifiers for the account in external systems. `email_domains`
+                    (company email domains, e.g. ["acme.com"]) and `known_emails` (individual addresses, for contacts on
+                    personal domains) match synced touchpoints such as calendar meetings to this account. All fields are
                     optional.
             tags:
                 description: >
@@ -206,6 +208,9 @@ tools:
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
         feature_flag: customer-analytics-csp
+    accounts-meetings-list:
+        operation: accounts_meetings_list
+        enabled: false
     accounts-notebooks-create:
         operation: accounts_notebooks_create
         enabled: true
@@ -285,8 +290,10 @@ tools:
                 description: >
                     Typed account properties. The server replaces the `properties` object as a whole, so include any
                     existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`,
-                    `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems). To assign
-                    users (CSM, account executive, ...), use `accounts-relationships-create` instead.
+                    `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems), plus
+                    `email_domains` (company email domains, e.g. ["acme.com"]) and `known_emails` (individual addresses,
+                    for contacts on personal domains) which match synced touchpoints such as calendar meetings to this
+                    account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.
             tags:
                 description: >
                     Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
@@ -473,6 +480,12 @@ tools:
             when it failed, and `slack_message_ts` plus `sent_at` when it succeeded. Use this to check delivery progress
             after `announcements-create`.
         feature_flag: customer-analytics-csp
+    calendar-sync-list:
+        operation: calendar_sync_list
+        enabled: false
+    calendar-sync-sync-now-create:
+        operation: calendar_sync_sync_now_create
+        enabled: false
     custom-property-definitions-create:
         operation: custom_property_definitions_create
         enabled: true
