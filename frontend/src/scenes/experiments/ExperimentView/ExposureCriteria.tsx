@@ -212,9 +212,9 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                 <LemonBanner type="warning" className="mb-4">
                     <strong>{dynamicCohorts.map((cohort) => cohort.name || `Cohort ${cohort.id}`).join(', ')}</strong>{' '}
                     {dynamicCohorts.length === 1 ? 'is a dynamic cohort' : 'are dynamic cohorts'}. Cohort membership
-                    recalculates periodically, while the feature flag routes users from live person properties — users
-                    who qualify between recalculations are routed into a variant before exposure counts reflect them,
-                    which can grow into a sample ratio mismatch. Prefer filtering on person properties directly.
+                    recalculates periodically, while the feature flag routes users from live person properties, so users
+                    who qualify between recalculations will be routed into a variant before exposure counts reflect
+                    them. This can grow into a sample ratio mismatch. Filter directly on person properties instead.
                 </LemonBanner>
             )}
             <div className="w-[405px]">

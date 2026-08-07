@@ -45,6 +45,16 @@ export function DynamicCohortWarning(): JSX.Element | null {
         </span>
     ))
 
+    // The remedy below points at the flag's release conditions, so name the flag where the action
+    // is. feature_flag_key is always set; the linkable flag object is not, so fall back to text.
+    const flagLabel = experiment.feature_flag ? (
+        <Link to={urls.featureFlag(experiment.feature_flag.id)} target="_blank">
+            <strong>{experiment.feature_flag_key}</strong>
+        </Link>
+    ) : (
+        <strong>{experiment.feature_flag_key}</strong>
+    )
+
     return (
         <LemonBanner type="warning" className="mt-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -55,14 +65,15 @@ export function DynamicCohortWarning(): JSX.Element | null {
                             : 'Exposure criteria uses dynamic cohorts'}
                     </div>
                     <p className="m-0">
-                        This experiment filters exposures on {cohortLinks}. The feature flag routes users by evaluating
-                        the cohort's filters against live person properties, but the exposure query reads the cohort's
-                        stored membership list, which only recalculates periodically. Users who qualify in the gap
-                        between recalculations are routed into a variant before exposure counts reflect them.
+                        This experiment filters exposures using the {risk.cohorts.length === 1 ? 'cohort' : 'cohorts'}{' '}
+                        {cohortLinks}. The feature flag routes users by evaluating the cohort's filters against live
+                        person properties, but the exposure query reads the cohort's stored membership list, which only
+                        recalculates periodically. Users who qualify in the gap between recalculations are routed into a
+                        variant before exposure counts reflect them.
                     </p>
                     <p className="m-0 mt-1">
-                        That drift can grow into a sample ratio mismatch. Filter on the person properties directly
-                        instead — ideally in both the flag's release conditions and the{' '}
+                        This drift can grow into a sample ratio mismatch. Filter on the person properties directly
+                        instead — ideally in both {flagLabel}'s release conditions and the{' '}
                         <Link to="https://posthog.com/docs/experiments/exposures" target="_blank">
                             exposure criteria
                         </Link>{' '}
