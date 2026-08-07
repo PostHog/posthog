@@ -157,7 +157,12 @@ jobs:
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
-                      "personhog-stateright": 700,
+                      # Re-measure this one after the next master run. The
+                      # previous 700 was calibrated before the model-checker
+                      # work below and understated the observed job by 2.5x
+                      # (1756s, of which 1572s was `cargo test`); this is the
+                      # post-change estimate, not an observation.
+                      "personhog-stateright": 600,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
                       "posthog-replay-anonymizer": 20,
@@ -295,9 +300,14 @@ jobs:
             matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-24.04-4
+        # The stateright shard is the model checker, and both halves of it
+        # scale with cores: one scenario explores multi-threaded with the
+        # machine to itself, the rest explore single-threaded across nextest's
+        # lanes. Depot bills per core-minute, so twice the cores costs nothing
+        # extra as long as the wall clock more than halves.
+        runs-on: ${{ contains(matrix.packages, 'personhog-stateright') && 'depot-ubuntu-24.04-8' || 'depot-ubuntu-24.04-4' }}
         # stateright model checks need more headroom than the other shards
-        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 40 || 20 }}
+        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 25 || 20 }}
         permissions:
             contents: read
         env:
