@@ -25,7 +25,7 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogL
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FoldPersonDocumentRequest, GetPersonRequest, LifecycleOpType, Person,
-    ReleaseFenceRequest, ReleaseOutcome, UpdatePersonPropertiesRequest,
+    ReleaseFenceRequest, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
@@ -1193,19 +1193,47 @@ fn fold_request(
     event_set: serde_json::Value,
     event_set_once: serde_json::Value,
 ) -> FoldPersonDocumentRequest {
+    // List position becomes the ordinal, so tests read naturally:
+    // earlier in the list = higher precedence.
+    let with_ordinals = snapshots
+        .into_iter()
+        .enumerate()
+        .map(|(index, person)| (person, index as i32))
+        .collect();
+    fold_request_with_ordinals(
+        team_id,
+        person_id,
+        op_id,
+        with_ordinals,
+        event_set,
+        event_set_once,
+    )
+}
+
+fn fold_request_with_ordinals(
+    team_id: i64,
+    person_id: i64,
+    op_id: &Uuid,
+    snapshots: Vec<(Person, i32)>,
+    event_set: serde_json::Value,
+    event_set_once: serde_json::Value,
+) -> FoldPersonDocumentRequest {
     // Unset identity fields get the target's team and a distinct source
     // id, mirroring what FencePerson seals; tests probing the identity
     // checks set them explicitly.
     let sealed_snapshots = snapshots
         .into_iter()
-        .map(|mut snapshot| {
-            if snapshot.team_id == 0 {
-                snapshot.team_id = team_id;
+        .map(|(mut person, ordinal)| {
+            if person.team_id == 0 {
+                person.team_id = team_id;
             }
-            if snapshot.id == 0 {
-                snapshot.id = person_id + 1_000;
+            if person.id == 0 {
+                person.id = person_id + 1_000 + i64::from(ordinal);
             }
-            snapshot
+            SealedSourceSnapshot {
+                person: Some(person),
+                ordinal,
+            }
         })
         .collect();
     FoldPersonDocumentRequest {
@@ -1645,6 +1673,31 @@ async fn invalid_fold_requests_are_rejected_before_any_work() {
         )
     };
 
+    let duplicate_ordinals = fold_request_with_ordinals(
+        harness.team_id,
+        harness.person_id,
+        &op,
+        vec![
+            (snapshot(serde_json::json!({"x": "1"}), 2, 1_650_000_000), 0),
+            (snapshot(serde_json::json!({"y": "2"}), 3, 1_650_000_000), 0),
+        ],
+        serde_json::json!({}),
+        serde_json::json!({}),
+    );
+    let missing_person = FoldPersonDocumentRequest {
+        sealed_snapshots: vec![SealedSourceSnapshot {
+            person: None,
+            ordinal: 0,
+        }],
+        ..fold_request(
+            harness.team_id,
+            harness.person_id,
+            &op,
+            valid_snapshot(),
+            serde_json::json!({}),
+            serde_json::json!({}),
+        )
+    };
     let wrong_team = fold_request(
         harness.team_id,
         harness.person_id,
@@ -1683,6 +1736,8 @@ async fn invalid_fold_requests_are_rejected_before_any_work() {
         ("empty snapshots", no_snapshots),
         ("malformed op_id", bad_op_id),
         ("non-object event_set", non_object_event_set),
+        ("duplicate ordinals", duplicate_ordinals),
+        ("snapshot missing its person", missing_person),
         ("wrong-team snapshot", wrong_team),
         ("snapshot is the target", snapshot_is_target),
         ("death-document snapshot", death_document_snapshot),
@@ -2041,6 +2096,64 @@ async fn a_non_object_target_stays_an_object_through_the_unremediable_path() {
         .unwrap();
 
     assert_eq!(person_properties(&folded), serde_json::json!({}));
+}
+
+/// Precedence follows the recorded ordinals, not the request order: the
+/// same sources listed differently fold to the same document — the
+/// convergence a re-driven saga step depends on.
+#[tokio::test]
+async fn precedence_follows_ordinals_not_request_order() {
+    let op = Uuid::now_v7();
+    let mut harness = start_marked_fold_harness(
+        CachedPerson {
+            properties: serde_json::json!({}),
+            version: 1,
+            ..test_cached_person()
+        },
+        &op,
+    )
+    .await;
+
+    let winner = snapshot(
+        serde_json::json!({"contested": "winner", "a": "winner"}),
+        4,
+        1_600_000_000,
+    );
+    let loser = snapshot(
+        serde_json::json!({"contested": "loser", "b": "loser"}),
+        5,
+        1_650_000_000,
+    );
+
+    // The request lists the lower-precedence source first; the ordinals,
+    // not the list order, decide the contested key.
+    let folded = harness
+        .client
+        .fold_person_document(with_partition(
+            fold_request_with_ordinals(
+                harness.team_id,
+                harness.person_id,
+                &op,
+                vec![(loser, 1), (winner, 0)],
+                serde_json::json!({}),
+                serde_json::json!({}),
+            ),
+            harness.partition,
+        ))
+        .await
+        .expect("fold succeeds")
+        .into_inner()
+        .person
+        .unwrap();
+
+    assert_eq!(
+        person_properties(&folded),
+        serde_json::json!({
+            "contested": "winner",
+            "a": "winner",
+            "b": "loser",
+        })
+    );
 }
 
 /// Cache dirt on the target — state loaded from Postgres or warmed from
