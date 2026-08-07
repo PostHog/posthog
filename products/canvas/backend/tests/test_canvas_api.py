@@ -492,6 +492,10 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
             ActivityLog.objects.filter(team_id=self.team.id, scope="Canvas", activity=activity).order_by("created_at")
         )
 
+    def _changes(self, entry: ActivityLog) -> list[dict[str, Any]]:
+        assert entry.detail is not None
+        return entry.detail["changes"]
+
     def test_publish_snapshots_capabilities_and_logs_the_diff(self):
         canvas_id = self._create_canvas()
         first = self._publish(canvas_id, expected_current_version_id=None)
@@ -516,7 +520,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
         entries = self._activity("published")
         assert len(entries) == 2
         assert entries[0].user == self.user
-        changes = entries[1].detail["changes"]
+        changes = self._changes(entries[1])
         assert len(changes) == 1
         assert changes[0]["field"] == "capabilities"
         assert changes[0]["before"] == default_capabilities
@@ -541,7 +545,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
 
         entries = self._activity("reverted")
         assert len(entries) == 1
-        changes = entries[0].detail["changes"]
+        changes = self._changes(entries[0])
         assert changes[0]["field"] == "current_source_version"
         assert changes[0]["before"] == v2
         assert changes[0]["after"] == v1
@@ -554,7 +558,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         entries = self._activity("updated")
         assert len(entries) == 1
-        assert entries[0].detail["changes"] == [
+        assert self._changes(entries[0]) == [
             {"type": "Canvas", "action": "changed", "field": "name", "before": "My canvas", "after": "Renamed"}
         ]
 
