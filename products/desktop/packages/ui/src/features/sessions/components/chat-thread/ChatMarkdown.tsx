@@ -10,6 +10,7 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
+import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import {
   markOpenLinkDestination,
   parseOpenFence,
@@ -23,6 +24,7 @@ import {
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
+import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useMemo } from "react";
 import Markdown, { type Components } from "react-markdown";
@@ -81,7 +83,7 @@ const components: Components = {
         </output>
       );
     }
-    return (
+    const link = (
       <a
         href={href}
         target="_blank"
@@ -90,6 +92,13 @@ const components: Components = {
       >
         {children}
       </a>
+    );
+    const artifactTarget = parseArtifactLink(href);
+    if (!artifactTarget || !href) return link;
+    return (
+      <ArtifactRefChip target={artifactTarget} href={href} fallback={link}>
+        {children}
+      </ArtifactRefChip>
     );
   },
   img: ({ alt }) => (
