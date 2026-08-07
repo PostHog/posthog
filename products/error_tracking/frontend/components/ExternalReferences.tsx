@@ -3,9 +3,8 @@ import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link, lemonToast } from '@posthog/lemon-ui'
 
-import api, { ExternalIssueSearchResult } from 'lib/api'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { GitHubRepositoryPicker, GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -24,17 +23,26 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
 
+import { errorTrackingExternalReferencesSearchIssuesRetrieve } from '../generated/api'
+import {
+    ErrorTrackingExternalIssueResultApi,
+    ErrorTrackingExternalIssueResultApiExternalContext,
+} from '../generated/api.schemas'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ERROR_TRACKING_INTEGRATIONS = ['linear', 'github', 'gitlab', 'jira'] as const satisfies readonly IntegrationKind[]
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
-type onSubmitLinkType = (integrationId: number, externalContext: Record<string, string | number>) => void
+type onSubmitLinkType = (
+    integrationId: number,
+    externalContext: ErrorTrackingExternalIssueResultApiExternalContext
+) => void
 type ErrorTrackingIntegrationKind = (typeof ERROR_TRACKING_INTEGRATIONS)[number]
 type ErrorTrackingIntegration = IntegrationType & { kind: ErrorTrackingIntegrationKind }
 
@@ -375,7 +383,7 @@ function linkExistingIssueForm(integration: ErrorTrackingIntegration, onSubmit: 
     LemonDialog.openForm({
         title: `Link existing ${label} issue`,
         shouldAwaitSubmit: true,
-        initialValues: { externalContext: null as Record<string, string | number> | null },
+        initialValues: { externalContext: null as ErrorTrackingExternalIssueResultApiExternalContext | null },
         content: (
             <LemonField name="externalContext" label="Issue">
                 <ExistingIssueSelect integrationId={integration.id} kind={integration.kind} />
@@ -401,12 +409,12 @@ function ExistingIssueSelect({
 }: {
     integrationId: number
     kind: ErrorTrackingIntegrationKind
-    value?: Record<string, string | number> | null
-    onChange?: (value: Record<string, string | number> | null) => void
+    value?: ErrorTrackingExternalIssueResultApiExternalContext | null
+    onChange?: (value: ErrorTrackingExternalIssueResultApiExternalContext | null) => void
 }): JSX.Element {
     const requiresRepository = kind === 'github'
     const [repository, setRepository] = useState<string>('')
-    const [results, setResults] = useState<ExternalIssueSearchResult[]>([])
+    const [results, setResults] = useState<ErrorTrackingExternalIssueResultApi[]>([])
     const [loading, setLoading] = useState<boolean>(false)
     const [selectedKey, setSelectedKey] = useState<string | null>(null)
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -418,21 +426,25 @@ function ExistingIssueSelect({
         if (requiresRepository && !repository) {
             return
         }
-        // The search endpoint rejects blank queries, and LemonInputSelect emits an empty
-        // input on blur/selection - keep whatever results are already shown.
-        if (!query.trim()) {
-            return
-        }
         if (debounceRef.current) {
             clearTimeout(debounceRef.current)
         }
         // Allocate the sequence token now, not when the timeout fires, so a repository
-        // change (which bumps the sequence) reliably invalidates pending searches.
+        // change or a cleared input reliably invalidates pending searches.
         const seq = ++searchSeqRef.current
+        // The search endpoint rejects blank queries, and LemonInputSelect emits an empty
+        // input on blur/selection - keep whatever results are already shown.
+        if (!query.trim()) {
+            setLoading(false)
+            return
+        }
         debounceRef.current = setTimeout(() => {
             setLoading(true)
-            api.errorTracking
-                .searchExternalIssues(integrationId, query, requiresRepository ? repository : undefined)
+            errorTrackingExternalReferencesSearchIssuesRetrieve(String(teamLogic.values.currentTeamId), {
+                integration_id: integrationId,
+                search: query,
+                repository: requiresRepository ? repository : undefined,
+            })
                 .then(({ issues }) => {
                     if (seq === searchSeqRef.current) {
                         setResults(issues)
@@ -441,6 +453,7 @@ function ExistingIssueSelect({
                 .catch(() => {
                     if (seq === searchSeqRef.current) {
                         setResults([])
+                        lemonToast.error("Couldn't search issues. Try again.")
                     }
                 })
                 .finally(() => {
@@ -459,7 +472,7 @@ function ExistingIssueSelect({
         }
     }, [])
 
-    const optionKey = (result: ExternalIssueSearchResult): string => result.url || `${result.id}`
+    const optionKey = (result: ErrorTrackingExternalIssueResultApi): string => result.url || `${result.id}`
     const options = results.map((result) => ({
         key: optionKey(result),
         label: result.title,
@@ -493,6 +506,9 @@ function ExistingIssueSelect({
                 }
                 disabled={requiresRepository && !repository}
                 loading={loading}
+                // Results are already filtered by the provider; the client-side fuzzy filter
+                // would hide valid matches whose titles don't contain the raw query text.
+                disableFiltering
                 options={options}
                 value={selectedKey ? [selectedKey] : []}
                 onInputChange={runSearch}

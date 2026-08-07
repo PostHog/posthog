@@ -30,6 +30,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { Params } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -58,6 +59,8 @@ import {
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import { errorTrackingExternalReferencesLinkIssueCreate } from '../../generated/api'
+import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../generated/api.schemas'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
@@ -205,9 +208,9 @@ export interface errorTrackingIssueSceneLogicActions {
     }
     linkExternalReference: (
         integrationId: IntegrationType['id'],
-        externalContext: Record<string, number | string>
+        externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
     ) => {
-        externalContext: Record<string, number | string>
+        externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
         integrationId: number
     }
     linkExternalReferenceFailure: (
@@ -623,7 +626,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         }),
         linkExternalReference: (
             integrationId: IntegrationType['id'],
-            externalContext: Record<string, number | string>
+            externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
         ) => ({
             integrationId,
             externalContext,
@@ -700,11 +703,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
             linkExternalReference: async ({ integrationId, externalContext }) => {
                 if (values.issue) {
-                    const response = await api.errorTracking.linkExternalReference(
-                        props.id,
-                        integrationId,
-                        externalContext
-                    )
+                    // The generated client types integration.kind as a plain string; the
+                    // canonical schema type narrows it to IntegrationKind.
+                    const response = (await errorTrackingExternalReferencesLinkIssueCreate(
+                        String(teamLogic.values.currentTeamId),
+                        { integration_id: integrationId, issue: props.id, external_context: externalContext }
+                    )) as ErrorTrackingExternalReference
                     posthog.capture('error_tracking_issue_pushed', {
                         issue_id: props.id,
                         destination: response.integration.kind,
