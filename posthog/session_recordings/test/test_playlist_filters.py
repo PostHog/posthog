@@ -40,6 +40,17 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
         assert len(props) == 2
         assert all(isinstance(p, RecordingPropertyFilter) and p.key == "visited_page" for p in props)
 
+    def test_recording_typed_session_duration_is_rewritten_to_duration_predicate(self):
+        # A recording-typed $session_duration prints as a bare field and fails to resolve; the
+        # converter must rewrite it to the equivalent recording-length predicate.
+        session_duration = {"type": "recording", "key": "$session_duration", "value": 300, "operator": "gt"}
+        query = convert_filters_to_recordings_query(_filters("AND", "AND", [session_duration]))
+        predicates = query.having_predicates or []
+        assert len(predicates) == 1
+        assert isinstance(predicates[0], RecordingPropertyFilter)
+        assert predicates[0].key == "duration"
+        assert predicates[0].value == 300
+
     def test_nested_filters_are_flattened(self):
         # Filters nested one extra level deep must still be extracted, not dropped
         filters = {

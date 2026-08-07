@@ -223,6 +223,12 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
                 properties.append(f)
             elif f.get("key") == "snapshot_source" and f.get("value"):
                 having_predicates.append(f)
+            elif f.get("key") == "$session_duration":
+                # $session_duration only resolves as a session property; typed as a recording it
+                # prints as a bare, unqualified field and the query fails to resolve. Rewrite it to
+                # the equivalent recording-length predicate so a bad filter degrades into a correct
+                # query instead of a resolver crash.
+                having_predicates.append(asRecordingPropertyFilter({**f, "key": "duration"}))
             else:
                 having_predicates.append(asRecordingPropertyFilter(f))
         else:

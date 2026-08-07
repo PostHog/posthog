@@ -73,6 +73,8 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
         **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
 
+        **CRITICAL — recording length**: To filter by how long a recording lasted, do NOT use `$session_duration`. Put the constraint in the `duration` array with `key: "duration"` (or `active_seconds`/`inactive_seconds`) and `type: "recording"`. `$session_duration` is a session property and is ONLY ever valid with `type: "session"` — never `type: "recording"`. Using `$session_duration` with `type: "recording"` produces an invalid query that fails to resolve.
+
         # Filter Completion Strategy
 
         Always aim to complete filters as much as possible:
@@ -93,7 +95,8 @@ class FilterSessionRecordingsToolArgs(BaseModel):
 
         ## duration (REQUIRED)
         Array of duration constraints. Default to `[]` unless user asks about recording length.
-        Duration types: "duration", "active_seconds", "inactive_seconds"
+        This — NOT a `$session_duration` filter — is how recording length is expressed.
+        Duration keys: "duration", "active_seconds", "inactive_seconds", each with `type: "recording"`
         Example (longer than 5 minutes):
         ```json
         {{"duration":[{{"key":"duration","type":"recording","operator":"gt","value":300}}]}}
