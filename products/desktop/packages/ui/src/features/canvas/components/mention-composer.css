@@ -1,8 +1,11 @@
 /* Tiptap placeholder - targets the empty first paragraph */
+.mention-composer p.is-editor-empty:first-child {
+  position: relative;
+}
+
 .mention-composer p.is-editor-empty:first-child::before {
-  float: left;
-  width: 100%;
-  height: 0;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   color: var(--muted-foreground);
   text-overflow: ellipsis;
