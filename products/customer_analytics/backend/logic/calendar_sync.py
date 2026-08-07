@@ -38,7 +38,7 @@ ORDER BY is_identified DESC, created_at ASC, id ASC
 GROUP_KEY_BY_DISTINCT_ID_QUERY = """
 SELECT distinct_id, argMaxIf({group_col}, timestamp, {group_col} != '') AS group_key
 FROM events
-WHERE distinct_id IN {distinct_ids} AND timestamp > now() - INTERVAL 90 DAY
+WHERE distinct_id IN {{distinct_ids}} AND timestamp > now() - INTERVAL 90 DAY
 GROUP BY distinct_id
 """
 
