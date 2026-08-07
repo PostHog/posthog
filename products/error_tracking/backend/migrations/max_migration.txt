@@ -1,1 +1,1 @@
-0021_remove_errortrackingsettings_autocapture_exceptions_opt_in
+0022_drop_redundant_symbolset_team_ref_idx
