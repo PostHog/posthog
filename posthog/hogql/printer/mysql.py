@@ -208,7 +208,7 @@ class MySQLPrinter(PostgresPrinter):
         return MYSQL_PASSTHROUGH_FUNCTIONS
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() in {"percentile_cont", "percentile_disc"}:
+        if node.name.lower() in {"percentile_cont", "percentile_disc", "median", "quantile"}:
             raise QueryError(f"Aggregation '{node.name}' is not supported in the MySQL dialect")
 
         if node.name == "dateDiff":

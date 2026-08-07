@@ -119,6 +119,9 @@ class PostgresPrinter(BasePrinter):
         if node.name.lower() in {"percentile_cont", "percentile_disc"}:
             return super().visit_call(node)
 
+        if node.name.lower() in {"median", "quantile"}:
+            return self._visit_percentile_aggregate(node)
+
         if node.name in {
             "toStartOfSecond",
             "toStartOfMinute",
@@ -206,6 +209,33 @@ class PostgresPrinter(BasePrinter):
             return f"{func_name}({args_str})"
 
         raise QueryError(f"Function '{node.name}' is not supported in the {self.DIALECT_LABEL} dialect.")
+
+    def _visit_percentile_aggregate(self, node: ast.Call) -> str:
+        # ClickHouse's median(x) and quantile(level)(x) have no plain-call equivalent in
+        # Postgres; they map to the ordered-set aggregate PERCENTILE_CONT, which interpolates
+        # the same way ClickHouse's continuous quantile does. Ordered-set aggregates carry the
+        # value in the ORDER BY of a WITHIN GROUP clause, so DISTINCT and a caller-supplied
+        # ORDER BY have no meaning here — reject them rather than emit invalid SQL.
+        if node.distinct:
+            raise QueryError(f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect.")
+        if node.order_by:
+            raise QueryError(f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect.")
+
+        if len(node.args) != 1:
+            raise QueryError(f"Aggregation '{node.name}' expects 1 argument, found {len(node.args)}")
+
+        if node.name.lower() == "median":
+            if node.params:
+                raise QueryError(f"Aggregation '{node.name}' does not take parameters")
+            level = "0.5"
+        else:  # quantile
+            if not node.params or len(node.params) != 1:
+                found = len(node.params) if node.params is not None else 0
+                raise QueryError(f"Aggregation '{node.name}' expects 1 parameter, found {found}")
+            level = self.visit(node.params[0])
+
+        value = self.visit(node.args[0])
+        return f"PERCENTILE_CONT({level}) WITHIN GROUP (ORDER BY {value})"
 
     def _get_function_renames(self) -> dict[str, str]:
         """Lowercased HogQL-name → target-name map for simple function renames. Overridable by subclasses."""

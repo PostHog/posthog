@@ -7254,6 +7254,25 @@ class TestPostgresPrinter(BaseTest):
             f"{function_name}(0.5) WITHIN GROUP (ORDER BY events.timestamp DESC)",
         )
 
+    @parameterized.expand(
+        [
+            ("median", "median(timestamp)", "0.5"),
+            ("quantile", "quantile(0.9)(timestamp)", "0.9"),
+        ]
+    )
+    def test_median_and_quantile_render_as_percentile_cont_in_postgres(
+        self, _name: str, expr: str, expected_level: str
+    ):
+        self.assertEqual(
+            self._expr(expr),
+            f"PERCENTILE_CONT({expected_level}) WITHIN GROUP (ORDER BY events.timestamp)",
+        )
+
+    @parameterized.expand([("median", "median(distinct timestamp)"), ("quantile", "quantile(0.9)(distinct timestamp)")])
+    def test_median_and_quantile_reject_distinct_in_postgres(self, _name: str, expr: str):
+        with self.assertRaisesMessage(QueryError, "does not support DISTINCT in the Postgres dialect"):
+            self._expr(expr)
+
     def test_in_operations_render_value_lists(self):
         self.assertEqual(self._expr("1 in (1, 2, 3)"), "(1 IN (1, 2, 3))")
         self.assertEqual(self._expr("1 in (1)"), "(1 IN (1))")
@@ -8190,6 +8209,11 @@ class TestMySQLPrinter(BaseTest):
     def test_mysql_percentile_raises(self):
         with self.assertRaisesMessage(QueryError, "not supported in the MySQL dialect"):
             self._expr("percentile_cont(0.5) WITHIN GROUP (ORDER BY timestamp)")
+
+    @parameterized.expand([("median", "median(timestamp)"), ("quantile", "quantile(0.9)(timestamp)")])
+    def test_mysql_median_and_quantile_raise(self, _name: str, expr: str):
+        with self.assertRaisesMessage(QueryError, "not supported in the MySQL dialect"):
+            self._expr(expr)
 
     def test_mysql_identifier_escaping(self):
         from posthog.hogql.printer.mysql import MySQLPrinter
