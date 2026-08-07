@@ -1,3 +1,4 @@
+import { Button } from "@posthog/quill";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
@@ -50,11 +51,13 @@ function GridCell({
   zoom,
   isDragActive,
   isActive,
+  pendingPlacement,
 }: {
   cell: CommandCenterCellData;
   zoom: number;
   isDragActive: boolean;
   isActive: boolean;
+  pendingPlacement: { taskId: string; taskTitle: string } | null;
 }) {
   const cellRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -116,6 +119,24 @@ function GridCell({
     [cell.cellIndex, cell.terminalId],
   );
 
+  const handleReplacement = useCallback(() => {
+    if (!pendingPlacement) return;
+    if (cell.terminalId) {
+      destroyShellTerminal(getTerminalCellStateKey(cell.terminalId));
+    }
+    useCommandCenterStore
+      .getState()
+      .assignTask(cell.cellIndex, pendingPlacement.taskId);
+  }, [cell.cellIndex, cell.terminalId, pendingPlacement]);
+
+  const replacementLabel = cell.terminalId
+    ? "Replace terminal"
+    : cell.isBrainrot
+      ? "Replace Brainrot"
+      : cell.task?.title
+        ? `Replace ${cell.task.title}`
+        : "Use this tile";
+
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: click delegates focus to ActionSelector within
     <div
@@ -150,6 +171,16 @@ function GridCell({
           onDrop={handleDrop}
         />
       )}
+      {pendingPlacement && (
+        <button
+          type="button"
+          className="absolute inset-0 z-10 flex cursor-pointer items-center justify-center bg-gray-12/60 p-4 text-center font-medium text-sm text-white transition-colors hover:bg-accent-9/80 focus-visible:bg-accent-9/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-7 focus-visible:ring-inset"
+          onClick={handleReplacement}
+          aria-label={`${replacementLabel} with ${pendingPlacement.taskTitle}`}
+        >
+          {replacementLabel}
+        </button>
+      )}
     </div>
   );
 }
@@ -159,24 +190,48 @@ export function CommandCenterGrid({ layout, cells }: CommandCenterGridProps) {
   const zoom = useCommandCenterStore((s) => s.zoom);
   const activeCellIndex = useCommandCenterStore((s) => s.activeCellIndex);
   const isDragActive = useTaskDragActive();
+  const pendingPlacement = useCommandCenterStore((s) => s.pendingPlacement);
+  const cancelPlacement = useCommandCenterStore((s) => s.cancelPlacement);
+
+  useEffect(() => {
+    if (!pendingPlacement) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancelPlacement();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [cancelPlacement, pendingPlacement]);
 
   return (
-    <div
-      className="grid h-full gap-[1px] bg-gray-6"
-      style={{
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gridTemplateRows: `repeat(${rows}, 1fr)`,
-      }}
-    >
-      {cells.map((cell) => (
-        <GridCell
-          key={cell.cellIndex}
-          cell={cell}
-          zoom={zoom}
-          isDragActive={isDragActive}
-          isActive={activeCellIndex === cell.cellIndex}
-        />
-      ))}
+    <div className="relative h-full">
+      {pendingPlacement && (
+        <div className="-translate-x-1/2 absolute top-3 left-1/2 z-20 flex items-center gap-3 rounded-md border border-gray-7 bg-gray-1 px-3 py-2 shadow-lg">
+          <span className="whitespace-nowrap text-sm">
+            Choose a tile for {pendingPlacement.taskTitle}
+          </span>
+          <Button variant="outline" size="xs" onClick={cancelPlacement}>
+            Cancel
+          </Button>
+        </div>
+      )}
+      <div
+        className="grid h-full gap-[1px] bg-gray-6"
+        style={{
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          gridTemplateRows: `repeat(${rows}, 1fr)`,
+        }}
+      >
+        {cells.map((cell) => (
+          <GridCell
+            key={cell.cellIndex}
+            cell={cell}
+            zoom={zoom}
+            isDragActive={isDragActive}
+            isActive={activeCellIndex === cell.cellIndex}
+            pendingPlacement={pendingPlacement}
+          />
+        ))}
+      </div>
     </div>
   );
 }

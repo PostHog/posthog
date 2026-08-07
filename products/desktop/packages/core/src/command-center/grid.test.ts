@@ -3,8 +3,10 @@ import {
   BRAINROT_CELL,
   clampZoom,
   countActiveTaskCells,
+  findCommandCenterPlacement,
   getCellCount,
   getCellSessionId,
+  getExpandedLayout,
   getGridDimensions,
   getTerminalCellCwd,
   getTerminalCellId,
@@ -30,6 +32,61 @@ describe("getGridDimensions / getCellCount", () => {
       expect(getCellCount(preset)).toBe(count);
     },
   );
+});
+
+describe("findCommandCenterPlacement", () => {
+  const live = new Set(["task-1", "task-2"]);
+
+  it.each([
+    {
+      name: "an empty cell",
+      cells: ["task-1", null],
+      layout: "2x1",
+      expected: { cellIndex: 1, layout: "2x1" },
+    },
+    {
+      name: "a stale task cell",
+      cells: ["task-1", "deleted-task"],
+      layout: "2x1",
+      expected: { cellIndex: 1, layout: "2x1" },
+    },
+    {
+      name: "a new cell in an expanded grid",
+      cells: ["task-1", "task-2"],
+      layout: "2x1",
+      expected: { cellIndex: 2, layout: "2x2" },
+    },
+  ] as const)("uses $name", ({ cells, layout, expected }) => {
+    expect(findCommandCenterPlacement(cells, layout, live)).toEqual(expected);
+  });
+
+  it("does not replace terminal or Brainrot cells", () => {
+    expect(
+      findCommandCenterPlacement(
+        [BRAINROT_CELL, makeTerminalCellValue("term")],
+        "2x1",
+        live,
+      ),
+    ).toEqual({ cellIndex: 2, layout: "2x2" });
+  });
+
+  it("requires a replacement when the largest grid is occupied", () => {
+    const cells = Array.from({ length: 9 }, (_, index) => `task-${index}`);
+    expect(findCommandCenterPlacement(cells, "3x3", new Set(cells))).toBeNull();
+  });
+});
+
+describe("getExpandedLayout", () => {
+  it.each([
+    ["1x1", "2x1"],
+    ["2x1", "2x2"],
+    ["1x2", "2x2"],
+    ["2x2", "3x2"],
+    ["3x2", "3x3"],
+    ["3x3", null],
+  ] as const)("expands %s to %s", (layout, expected) => {
+    expect(getExpandedLayout(layout)).toBe(expected);
+  });
 });
 
 describe("resizeCells", () => {

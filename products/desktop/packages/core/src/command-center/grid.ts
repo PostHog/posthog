@@ -7,6 +7,11 @@ export type LayoutPreset =
   | "3x2"
   | "3x3";
 
+export interface CommandCenterPlacement {
+  cellIndex: number;
+  layout: LayoutPreset;
+}
+
 export interface GridDimensions {
   cols: number;
   rows: number;
@@ -79,6 +84,42 @@ export function getGridDimensions(preset: LayoutPreset): GridDimensions {
 export function getCellCount(preset: LayoutPreset): number {
   const { cols, rows } = getGridDimensions(preset);
   return cols * rows;
+}
+
+export function getExpandedLayout(preset: LayoutPreset): LayoutPreset | null {
+  switch (preset) {
+    case "1x1":
+      return "2x1";
+    case "2x1":
+    case "1x2":
+      return "2x2";
+    case "2x2":
+      return "3x2";
+    case "3x2":
+      return "3x3";
+    case "3x3":
+      return null;
+  }
+}
+
+export function findCommandCenterPlacement(
+  cells: readonly (string | null)[],
+  layout: LayoutPreset,
+  liveTaskIds: ReadonlySet<string>,
+): CommandCenterPlacement | null {
+  const cellIndex = cells.findIndex(
+    (cell) =>
+      cell == null ||
+      (!isBrainrotCell(cell) &&
+        !isTerminalCell(cell) &&
+        !liveTaskIds.has(cell)),
+  );
+  if (cellIndex !== -1) return { cellIndex, layout };
+
+  const expandedLayout = getExpandedLayout(layout);
+  return expandedLayout
+    ? { cellIndex: cells.length, layout: expandedLayout }
+    : null;
 }
 
 export function resizeCells(
