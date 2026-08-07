@@ -482,27 +482,35 @@ class DeltaWriter:
                 data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
             try:
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await execute_with_conflict_retry(
                     delta_table,
-                    data,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode=mode,
-                    schema_mode=schema_mode,
-                    commit_properties=commit_properties,
+                    lambda: _write_deltalake(
+                        delta_table,
+                        data,
+                        partition_by=PARTITION_KEY if use_partitioning else None,
+                        mode=mode,
+                        schema_mode=schema_mode,
+                        commit_properties=commit_properties,
+                    ),
+                    "write: overwrite",
+                    self._logger,
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
 
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await execute_with_conflict_retry(
                     delta_table,
-                    data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode="overwrite",
-                    commit_properties=commit_properties,
+                    lambda: _write_deltalake(
+                        delta_table,
+                        data,
+                        partition_by=None,
+                        mode=mode,
+                        schema_mode="overwrite",
+                        commit_properties=commit_properties,
+                    ),
+                    "write: overwrite (schema retry)",
+                    self._logger,
                 )
         elif write_type == "append":
             if delta_table is None:
@@ -527,14 +535,18 @@ class DeltaWriter:
 
             await self._logger.adebug(f"write: write_type = append")
 
-            await asyncio.to_thread(
-                _write_deltalake,
+            await execute_with_conflict_retry(
                 delta_table,
-                data,
-                partition_by=PARTITION_KEY if use_partitioning else None,
-                mode="append",
-                schema_mode="merge",
-                commit_properties=commit_properties,
+                lambda: _write_deltalake(
+                    delta_table,
+                    data,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="append",
+                    schema_mode="merge",
+                    commit_properties=commit_properties,
+                ),
+                "write: append",
+                self._logger,
             )
 
         delta_table = await self._table.get_delta_table()
