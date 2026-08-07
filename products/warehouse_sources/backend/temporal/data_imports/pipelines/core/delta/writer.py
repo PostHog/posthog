@@ -129,6 +129,23 @@ class DeltaWriter:
         self._table = table
         self._logger = table.logger
 
+    async def _create_or_open_table(self, schema: pa.Schema, use_partitioning: bool) -> deltalake.DeltaTable:
+        storage_options = self._table.get_storage_options()
+        delta_uri = await self._table.get_table_uri()
+        # mode="ignore": a zombie Temporal attempt (heartbeat-timed-out but still running
+        # while its retry starts — see this package's README) or a stale get_delta_table()
+        # check can race another writer that already created this table. "ignore" opens
+        # the winner's table instead of erroring; the write below then applies our data on
+        # top of it, so the race can only change who created the table, never the outcome.
+        return await asyncio.to_thread(
+            deltalake.DeltaTable.create,
+            table_uri=delta_uri,
+            schema=schema,
+            storage_options=storage_options,
+            partition_by=PARTITION_KEY if use_partitioning else None,
+            mode="ignore",
+        )
+
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
@@ -294,18 +311,32 @@ class DeltaWriter:
 
         delta_table = await self._table.get_delta_table()
 
-        if delta_table:
-            delta_table = await evolve_delta_schema(delta_table, data.schema)
-
-        is_first_sync = self._table.is_first_sync
-        await self._logger.adebug(
-            f"write: is_first_sync = {is_first_sync}. should_overwrite_table = {should_overwrite_table}"
-        )
-
         use_partitioning = False
         if PARTITION_KEY in data.column_names:
             use_partitioning = True
             await self._logger.adebug(f"Using partitioning on {PARTITION_KEY}")
+
+        is_first_sync = self._table.is_first_sync
+
+        if write_type == "incremental" and delta_table is None:
+            # An object-store listing can lag a write another run committed moments earlier, so
+            # `get_delta_table` can report "no table" for a table that exists (observed on
+            # S3-compatible dev/CI stores). Trusting that here routes chunk 0 to an overwrite that
+            # destroys the earlier run's commits. Opening with mode="ignore" reconciles: a version
+            # above 0 proves the table pre-existed, so the write must take the merge path.
+            delta_table = await self._create_or_open_table(data.schema, use_partitioning)
+            if delta_table.version() > 0:
+                await self._logger.awarning(
+                    "write: listing reported no delta table but it exists on storage - using the merge path"
+                )
+                is_first_sync = False
+
+        if delta_table:
+            delta_table = await evolve_delta_schema(delta_table, data.schema)
+
+        await self._logger.adebug(
+            f"write: is_first_sync = {is_first_sync}. should_overwrite_table = {should_overwrite_table}"
+        )
 
         # The column can exist without the table being partitioned by it; defer to the
         # table's real partition_columns or delta-rs rejects the write as a mismatch.
@@ -456,21 +487,7 @@ class DeltaWriter:
             await self._logger.adebug(f"write: mode = {mode}")
 
             if delta_table is None:
-                storage_options = self._table.get_storage_options()
-                delta_uri = await self._table.get_table_uri()
-                # mode="ignore": a zombie Temporal attempt (heartbeat-timed-out but still running
-                # while its retry starts — see this package's README) or a stale get_delta_table()
-                # check can race another writer that already created this table. "ignore" opens
-                # the winner's table instead of erroring; the write below then applies our data on
-                # top of it, so the race can only change who created the table, never the outcome.
-                delta_table = await asyncio.to_thread(
-                    deltalake.DeltaTable.create,
-                    table_uri=delta_uri,
-                    schema=data.schema,
-                    storage_options=storage_options,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode="ignore",
-                )
+                delta_table = await self._create_or_open_table(data.schema, use_partitioning)
 
             try:
                 await asyncio.to_thread(

@@ -235,6 +235,46 @@ def _v3_batch(*, partitioned: bool = False) -> pa.Table:
     return pa.table(data_dict)
 
 
+class TestStaleListingReconciliation:
+    @pytest.mark.asyncio
+    async def test_incremental_write_merges_when_listing_misses_existing_table(self, tmp_path: Path) -> None:
+        # An object-store listing can lag a write committed moments earlier, so a retriggered run's
+        # ref can report "no table" for a table that exists. Trusting that routes chunk 0 to an
+        # overwrite that destroys the earlier run's rows (observed on CI's S3-compatible store).
+        delta_path = str(tmp_path / "table")
+        first_run_ref = make_local_table_ref(delta_path)
+        await DeltaWriter(first_run_ref).write(
+            data=pa.table({"id": [1], "value": ["a"]}),
+            write_type="incremental",
+            should_overwrite_table=True,
+            primary_keys=["id"],
+        )
+
+        stale_ref = make_local_table_ref(delta_path)
+        real_get_delta_table = stale_ref.get_delta_table
+        state = {"first_call": True}
+
+        async def stale_once():
+            if state["first_call"]:
+                state["first_call"] = False
+                return None
+            return await real_get_delta_table()
+
+        patch.object(stale_ref, "get_delta_table", new=stale_once).start()
+        stale_ref._is_first_sync = True
+
+        result = await DeltaWriter(stale_ref).write(
+            data=pa.table({"id": [2], "value": ["b"]}),
+            write_type="incremental",
+            should_overwrite_table=True,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert set(final.column("id").to_pylist()) == {1, 2}
+        assert result.history()[0]["operation"] == "MERGE"
+
+
 class TestLegacyDltTableReconciliation:
     """Pipeline_v3 must handle dlt-created Delta tables with NOT NULL _dlt_* columns."""
 
