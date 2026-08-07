@@ -1,6 +1,13 @@
 import type { TaskRunArtifact } from "@posthog/shared";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowSquareOut, Warning, X } from "phosphor-react-native";
+import {
+  ArrowSquareOut,
+  ArrowsClockwise,
+  Stop,
+  Warning,
+  X,
+} from "phosphor-react-native";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -17,6 +24,7 @@ import { applyCspToHtml } from "@/features/mcp/sandbox/mcpAppCsp";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { useThemeColors } from "@/lib/theme";
 import { useCloudAttachmentPreview } from "../hooks/useCloudAttachmentPreview";
+import { removeAutomaticRedirects } from "../utils/artifactHtml";
 import { artifactPreviewKind } from "../utils/artifactPreview";
 
 interface ArtifactPreviewProps {
@@ -36,6 +44,7 @@ export function ArtifactPreview({
   const themeColors = useThemeColors();
   const name = artifact.name ?? "artifact";
   const kind = artifactPreviewKind(name);
+  const [stopped, setStopped] = useState(false);
 
   const { data: url, isLoading: urlLoading } = useCloudAttachmentPreview(
     taskId,
@@ -62,6 +71,19 @@ export function ArtifactPreview({
   });
 
   const loading = urlLoading || (needsText && textLoading);
+  const htmlControlsVisible =
+    kind === "html" && !!url && !textError && !loading;
+  const previewControl = stopped
+    ? {
+        label: "Restart preview",
+        Icon: ArrowsClockwise,
+        onPress: () => setStopped(false),
+      }
+    : { label: "Stop preview", Icon: Stop, onPress: () => setStopped(true) };
+  const html = useMemo(
+    () => applyCspToHtml(removeAutomaticRedirects(text ?? "")),
+    [text],
+  );
 
   return (
     <Modal
@@ -78,6 +100,16 @@ export function ArtifactPreview({
           >
             {name}
           </Text>
+          {htmlControlsVisible ? (
+            <Pressable
+              onPress={previewControl.onPress}
+              hitSlop={8}
+              className="active:opacity-60"
+              accessibilityLabel={previewControl.label}
+            >
+              <previewControl.Icon size={20} color={themeColors.gray[12]} />
+            </Pressable>
+          ) : null}
           {url ? (
             <Pressable
               onPress={() => openExternalUrl(url)}
@@ -121,18 +153,25 @@ export function ArtifactPreview({
             >
               <MarkdownText content={text ?? ""} disableRemoteImages />
             </ScrollView>
+          ) : stopped ? (
+            <PreviewStopped />
           ) : (
+            // Untrusted agent scripts run in the WebView's isolated web-content
+            // process; keep it sealed. Do not add onMessage or injectedJavaScript
+            // (a bridge back into the app). The rest of the props deny file,
+            // network, and device access, and only a genuine tap opens externally.
             <WebView
               originWhitelist={["*"]}
-              source={{ html: applyCspToHtml(text ?? "") }}
-              // Untrusted agent output: no scripts, and the sandbox never
-              // navigates to a remote page. Only a genuine tap ("click") opens
-              // externally — automatic redirects (e.g. a <meta http-equiv=
-              // "refresh">) are dropped so previewing a file can't silently
-              // launch an attacker URL. The injected CSP blocks remote resource
-              // loads on top of that.
-              javaScriptEnabled={false}
+              source={{ html }}
+              javaScriptEnabled
               setSupportMultipleWindows={false}
+              allowFileAccess={false}
+              allowFileAccessFromFileURLs={false}
+              allowUniversalAccessFromFileURLs={false}
+              geolocationEnabled={false}
+              mediaPlaybackRequiresUserAction
+              mediaCapturePermissionGrantType="deny"
+              onFileDownload={() => {}}
               onShouldStartLoadWithRequest={(req) => {
                 if (
                   req.url.startsWith("http://") ||
@@ -149,6 +188,16 @@ export function ArtifactPreview({
         </View>
       </View>
     </Modal>
+  );
+}
+
+function PreviewStopped() {
+  return (
+    <View className="flex-1 items-center justify-center px-8">
+      <Text className="text-center text-[14px] text-gray-11">
+        Preview stopped. Restart it to run the HTML again.
+      </Text>
+    </View>
   );
 }
 
