@@ -15,6 +15,7 @@ import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -483,6 +484,36 @@ describe('dashboardLogic', () => {
             ).toBe(false)
             expect(logic.values.dataColorThemeId).toBe(logic.values.dashboard?.data_color_theme_id ?? null)
             expect(logic.values.hasUnsavedColorChanges).toBe(false)
+        })
+
+        it('exiting edit mode via the colors modal save source persists color changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardInsightColorsModal)
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: expect.arrayContaining([
+                        expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                    ]),
+                })
+            )
         })
 
         it('auto-assigns colors to multi-tile breakdown values only behind the dashboard colors flag', async () => {
@@ -1197,6 +1228,72 @@ describe('dashboardLogic', () => {
                     expect(logic.values.hasUnsavedLayoutChanges).toBe(expectedUnsaved)
                 }
             )
+        })
+
+        describe('colors modal cancel', () => {
+            beforeEach(() => {
+                dashboardInsightColorsModalLogic.mount()
+            })
+
+            it('discards color edits and exits edit mode when the modal was opened from view mode', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.showInsightColorsModal(5)
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'x',
+                        breakdownType: 'event',
+                        colorToken: 'preset-1',
+                    })
+                    logic.actions.setDataColorThemeId(123)
+                }).toFinishAllListeners()
+
+                expect(logic.values.hasUnsavedColorChanges).toBe(true)
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.cancelColorChanges()
+                }).toFinishAllListeners()
+
+                expect(dashboardInsightColorsModalLogic.values.isOpen).toBe(false)
+                expect(logic.values.dashboardMode).toBeNull()
+                expect(logic.values.hasUnsavedColorChanges).toBe(false)
+                expect(logic.values.dataColorThemeId).toBe(logic.values.dashboard?.data_color_theme_id ?? null)
+            })
+
+            it('reverts only the modal color edits and stays in edit mode when edit mode predates the modal', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-7d', null)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'x',
+                        breakdownType: 'event',
+                        colorToken: 'preset-1',
+                    })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.showInsightColorsModal(5)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'y',
+                        breakdownType: 'event',
+                        colorToken: 'preset-2',
+                    })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.cancelColorChanges()
+                }).toFinishAllListeners()
+
+                expect(dashboardInsightColorsModalLogic.values.isOpen).toBe(false)
+                expect(logic.values.dashboardMode).toBe(DashboardMode.Edit)
+                expect(logic.values.effectiveEditBarFilters.date_from).toBe('-7d')
+                expect(logic.values.temporaryBreakdownColors).toEqual([
+                    expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                ])
+            })
         })
     })
 
