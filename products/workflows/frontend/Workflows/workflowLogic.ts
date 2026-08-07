@@ -16,7 +16,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
+import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -149,6 +149,7 @@ export interface workflowLogicValues {
     currentSchedule: HogFlowSchedule | null
     edgesByActionId: Record<string, HogFlowEdge[]>
     externallyEdited: boolean
+    hasAttemptedSave: boolean
     hasUnsavedChanges: boolean
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
     hogFunctionTemplatesByIdLoading: boolean
@@ -2930,6 +2931,17 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
+        // Gates when per-field step messages become visible. A freshly opened step is still
+        // validated (so the node badge and enable-gate work), but its messages only appear once
+        // the user tries to save or enable — the point where they can act on them.
+        hasAttemptedSave: [
+            false as boolean,
+            {
+                submitWorkflow: () => true,
+                saveWorkflowPartial: () => true,
+                loadWorkflowSuccess: () => false,
+            },
+        ],
         // Set when another channel (another UI tab, MCP, or the API) saved this workflow while we had
         // unsaved local edits. Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
         // we reload or save, since both reconcile us with the server copy.
@@ -3053,12 +3065,19 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading, s.scheduleStartsAt],
+            (s) => [
+                s.workflow,
+                s.hogFunctionTemplatesById,
+                s.hogFunctionTemplatesByIdLoading,
+                s.scheduleStartsAt,
+                s.hasAttemptedSave,
+            ],
             (
                 workflow: HogFlow,
                 hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
                 hogFunctionTemplatesByIdLoading: boolean,
-                scheduleStartsAt: string | null
+                scheduleStartsAt: string | null,
+                hasAttemptedSave: boolean
             ): Record<string, HogFlowActionValidationResult | null> => {
                 // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
                 // step types make no sense without a person, so we block them at save time.
@@ -3096,35 +3115,38 @@ export const workflowLogic = kea<workflowLogicType>([
                             const emailValue = action.config.inputs?.email?.value as any | undefined
                             const emailTemplating = action.config.inputs?.email?.templating
 
-                            const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html:
-                                    !emailValue?.html && !emailValue?.text
-                                        ? 'HTML or plain text is required'
-                                        : emailValue?.html
+                            const bodyError =
+                                !emailValue?.html && !emailValue?.text
+                                    ? 'Add some content to the email body'
+                                    : ((emailValue?.html
                                           ? getTemplatingError(emailValue?.html, emailTemplating)
-                                          : undefined,
-                                text: emailValue?.text
-                                    ? getTemplatingError(emailValue?.text, emailTemplating)
-                                    : undefined,
+                                          : undefined) ??
+                                      (emailValue?.text
+                                          ? getTemplatingError(emailValue?.text, emailTemplating)
+                                          : undefined))
+
+                            const emailErrors: EmailFieldErrors = {
+                                body: bodyError,
                                 subject: !emailValue?.subject
-                                    ? 'Subject is required'
+                                    ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
                                 from: !emailValue?.from?.integrationId
-                                    ? 'Choose who to send this email from'
+                                    ? 'Choose an email sender, or connect a new one'
                                     : undefined,
                                 to: !emailValue?.to?.email
-                                    ? 'To is required'
+                                    ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
 
-                            const combinedErrors = Object.values(emailTemplateErrors)
-                                .filter((v) => !!v)
-                                .join(', ')
+                            const hasEmailErrors = Object.values(emailErrors).some((v) => !!v)
 
-                            if (combinedErrors) {
+                            if (hasEmailErrors) {
                                 result.valid = false
-                                result.errors = {
-                                    email: combinedErrors,
+                                // Placed on each input by the templater, not joined into one blob under
+                                // the whole field. Held back until a save/enable attempt so opening a
+                                // template-started step (which always lacks a sender) reads as clean.
+                                if (hasAttemptedSave) {
+                                    result.emailErrors = emailErrors
                                 }
                             }
                         } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {
@@ -3162,6 +3184,13 @@ export const workflowLogic = kea<workflowLogicType>([
                                 result.valid = result.valid && configValidation.valid
                                 result.errors = { ...configValidation.errors, ...result.errors }
                                 result.warnings = { ...result.warnings, ...configValidation.warnings }
+
+                                if (action.type === 'function_email') {
+                                    // The generic validator also joins the email sub-fields into one
+                                    // blob under the `email` key; drop it so nothing renders under the
+                                    // whole input. Per-field messages come from `emailErrors` instead.
+                                    delete result.errors.email
+                                }
                             }
                         }
 
