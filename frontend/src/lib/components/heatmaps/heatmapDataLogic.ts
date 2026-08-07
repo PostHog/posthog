@@ -157,11 +157,11 @@ export interface heatmapDataLogicValues {
     heatmapColorPalette: string | null
     heatmapElements: HeatmapElement[]
     heatmapEmpty: boolean
-    heatmapInteractionCount: number
-    heatmapSparse: boolean
     heatmapFilters: HeatmapFilters
     heatmapFixedPositionMode: HeatmapFixedPositionMode
+    heatmapInteractionCount: number
     heatmapJsData: HeatmapJsData
+    heatmapSparse: boolean
     heatmapTooltipLabel: string
     heatmapTooltipSuppressed: boolean
     heightOverride: number
