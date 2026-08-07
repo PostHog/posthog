@@ -96,6 +96,21 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert mock_warm.call_args.kwargs["sandbox_environment_id"] == sandbox_environment.id
         assert mock_warm.call_args.kwargs["custom_image_id"] == custom_image.id
 
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_accepts_repo_less_request(self, mock_warm, _mock_warm_enabled):
+        mock_warm.return_value = None
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"repository": None, "github_integration": None, "branch": None},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert mock_warm.call_args.kwargs["repository"] is None
+        assert mock_warm.call_args.kwargs["github_integration_id"] is None
+
     def test_provisions_selected_sandbox_environment_and_custom_image(self):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=self.team,
@@ -142,6 +157,18 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert task.github_integration_id == self.integration.id
         assert task.description == ""
         assert task.runs.filter(id=result.run_id).exists()
+
+    def test_births_repo_less_draft_and_returns_warm_dto(self):
+        def fake_warm(self_warmer, **kwargs):
+            run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
+            return WarmResult(run=run, just_created=True)
+
+        with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
+            result = self._warm(repository=None, github_integration_id=None, branch=None)
+
+        assert result is not None
+        task = Task.objects.get(id=result.task_id)
+        assert task.repository is None
 
     def test_returns_none_and_soft_deletes_draft_when_capped(self):
         with patch(f"{WARM_SRC}.warm", side_effect=Throttled()):
@@ -273,7 +300,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=created_by or self.user,
             repository=repository,
-            github_integration=self.integration,
+            github_integration=self.integration if repository else None,
         )
         run = task.create_run(
             mode="interactive",
@@ -305,6 +332,15 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         # The agent-server re-reads run state on the forwarded first message, so this
         # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
+
+    def test_reuses_matching_repo_less_warm_task(self):
+        warm_task, run = self._warm_run(repository=None, branch=None)
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(repository=None, branch=None)
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert "await_user_message" not in run.state
 
     def test_does_not_overwrite_existing_warm_description(self):
         warm_task, _ = self._warm_run()

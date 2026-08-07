@@ -22,7 +22,6 @@ import {
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -121,7 +120,6 @@ describe('IngestionConsumer', () => {
                 ...infra,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
-                aiSubpipelineFactory: createAiEventSubpipeline,
                 hogTransformer: createHogTransformerService(infra.config, {
                     ...infra,
                     monitoringOutputs: createTestMonitoringOutputs(mockProducer),
@@ -847,134 +845,6 @@ describe('IngestionConsumer', () => {
             const recentEventMessage = eventsTopicMessages.find((m) => m.value.event === 'recent-event')
             expect(recentEventMessage).toBeDefined()
             expect(recentEventMessage?.value.historical_migration).toBeUndefined()
-        })
-
-        it('should process AI events with invalid token properties by nulling the bad values', async () => {
-            const events = [
-                createEvent({
-                    distinct_id: 'user-valid-ai',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_input_tokens: 100,
-                        $ai_cache_read_input_tokens: 50,
-                        $ai_model: 'gpt-4',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-invalid-ai',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_input_tokens: 'invalid-not-a-number',
-                        $ai_model: 'gpt-4',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-invalid-ai-cache',
-                    event: '$ai_embedding',
-                    properties: {
-                        $ai_input_tokens: 100,
-                        $ai_cache_read_input_tokens: { nested: 'object' },
-                        $ai_model: 'text-embedding-3-small',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-nested-token-objects',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_input_tokens: { total: 10585, noCache: 10585, cacheRead: 0, cacheWrite: 0 },
-                        $ai_output_tokens: { total: 163, text: 163, reasoning: 0 },
-                        $ai_provider: 'amazon-bedrock',
-                        $ai_model: 'anthropic.claude-sonnet-4-6',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-non-ai',
-                    event: '$pageview',
-                    properties: {
-                        $ai_input_tokens: 'invalid-but-not-ai-event',
-                    },
-                }),
-            ]
-
-            const messages = createKafkaMessages(events)
-            await ingester.handleKafkaBatch(messages)
-
-            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
-            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
-
-            // Valid AI event should be processed with tokens intact
-            const validAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-valid-ai')
-            expect(validAiEvent).toBeDefined()
-
-            // AI event with invalid string token should be processed with token nulled
-            const invalidAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai')
-            expect(invalidAiEvent).toBeDefined()
-            expect(parseJSON(invalidAiEvent?.value.properties as any).$ai_input_tokens).toBeNull()
-
-            // AI event with non-normalizable object token should be processed with token nulled
-            const invalidCacheEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai-cache')
-            expect(invalidCacheEvent).toBeDefined()
-            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_cache_read_input_tokens).toBeNull()
-            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_input_tokens).toBe(100)
-
-            // AI event with nested token objects (Bedrock/Vercel V3) should be normalized
-            const nestedTokenEvent = eventsTopicMessages.find(
-                (m) => m.value.distinct_id === 'user-nested-token-objects'
-            )
-            expect(nestedTokenEvent).toBeDefined()
-            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_input_tokens).toBe(10585)
-            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_output_tokens).toBe(163)
-
-            // Non-AI event with invalid token property should still be processed unchanged
-            const nonAiEvent = eventsTopicMessages.find((m) => m.value.event === '$pageview')
-            expect(nonAiEvent).toBeDefined()
-            expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
-        })
-
-        it('should split AI events with large properties into events + ai_events', async () => {
-            await ingester.stop()
-            ingester = await createIngestionConsumer(infra)
-
-            const events = [
-                createEvent({
-                    distinct_id: 'user-ai-split',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_model: 'gpt-4',
-                        $ai_provider: 'openai',
-                        $ai_input_tokens: 100,
-                        $ai_output_tokens: 50,
-                        $ai_input: 'What is the meaning of life?',
-                        $ai_output: 'The meaning of life is 42.',
-                    },
-                }),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
-            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
-            const aiEventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_ai_events_json_test')
-
-            // Main events topic: stripped of large AI properties
-            expect(eventsTopicMessages).toHaveLength(1)
-            const mainEvent = eventsTopicMessages[0]
-            expect(mainEvent.value.event).toBe('$ai_generation')
-            expect(typeof mainEvent.value.properties).toBe('string')
-            const mainProps = parseJSON(mainEvent.value.properties as any)
-            expect(mainProps.$ai_model).toBe('gpt-4')
-            expect(mainProps.$ai_input).toBeUndefined()
-            expect(mainProps.$ai_output).toBeUndefined()
-
-            // AI events topic: full event with all properties
-            expect(aiEventsTopicMessages).toHaveLength(1)
-            const aiEvent = aiEventsTopicMessages[0]
-            expect(aiEvent.value.event).toBe('$ai_generation')
-            expect(typeof aiEvent.value.properties).toBe('string')
-            const aiProps = parseJSON(aiEvent.value.properties as any)
-            expect(aiProps.$ai_model).toBe('gpt-4')
-            expect(aiProps.$ai_input).toBe('What is the meaning of life?')
-            expect(aiProps.$ai_output).toBe('The meaning of life is 42.')
         })
     })
 

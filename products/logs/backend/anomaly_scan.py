@@ -262,12 +262,12 @@ def _scan_settings(max_execution_seconds: int) -> HogQLGlobalSettings:
     )
 
 
-def _covered_days(ranges: list[TimeRange]) -> list[dt.datetime]:
-    days: set[dt.datetime] = set()
+def _covered_days(ranges: list[TimeRange]) -> list[dt.date]:
+    days: set[dt.date] = set()
     for r in ranges:
         day = r.start.astimezone(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         while day < r.end:
-            days.add(day)
+            days.add(day.date())
             day += dt.timedelta(days=1)
     return sorted(days)
 
@@ -292,9 +292,12 @@ def fetch_bucket_counts(
     # Day-level primary-key pruning: the logs table sorts on time_bucket
     # (day-truncated). Pin the truncation to UTC — convertToProjectTimezone is
     # off, so the constants are UTC and an unpinned toStartOfDay would compare
-    # against server-local day boundaries.
+    # against server-local day boundaries. Both sides must be Date: HogQL
+    # prints datetime constants as DateTime64, and ClickHouse's IN section
+    # refuses to coerce DateTime64 elements against a DateTime left side
+    # (ordered comparisons coerce; IN does not).
     day_prune = parse_expr(
-        "toStartOfDay(time_bucket, 'UTC') IN {days}",
+        "toDate(toStartOfDay(time_bucket, 'UTC')) IN {days}",
         placeholders={"days": ast.Tuple(exprs=[ast.Constant(value=day) for day in _covered_days(ranges)])},
     )
     where = ast.And(

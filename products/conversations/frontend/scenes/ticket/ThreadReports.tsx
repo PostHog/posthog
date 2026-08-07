@@ -7,16 +7,18 @@ import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { STATUS_LABELS, STATUS_TOOLTIPS } from '~/scenes/inbox/components/badges/SignalReportStatusBadge'
-import type { SignalReportStatus } from '~/scenes/inbox/types'
+import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    STATUS_LABELS,
+    STATUS_TOOLTIPS,
+} from 'products/signals/frontend/inbox/components/badges/SignalReportStatusBadge'
+import type { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
     parsePrUrlParts,
     safeHttpUrl,
-} from '~/scenes/inbox/utils/reportPresentation'
-
-import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+} from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import type { TimelineExtra } from '../../components/Chat/MessageList'
 import { TeamOnlyBadge } from '../../components/Chat/TeamOnlyBadge'
