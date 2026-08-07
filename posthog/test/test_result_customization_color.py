@@ -24,7 +24,9 @@ def test_result_customization_union_resolves_by_value_for_high_token() -> None:
     # `resultCustomizations` is a union of by-value and by-position dicts. A by-value
     # entry with a >15 token must resolve to the by-value variant, not fall through
     # and surface a confusing `assignmentBy` error from the by-position variant.
-    adapter = TypeAdapter(dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition])
+    adapter: TypeAdapter[dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition]] = (
+        TypeAdapter(dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition])
+    )
     resolved = adapter.validate_python({"k": {"assignmentBy": "value", "color": "preset-16"}})["k"]
     assert isinstance(resolved, ResultCustomizationByValue)
     assert resolved.color == "preset-16"

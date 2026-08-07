@@ -91,7 +91,7 @@ export interface retentionLogicValues {
     getRetentionColorToken: (
         rawBreakdownValue: number | string | null | undefined,
         seriesIndex: number
-    ) => [DataColorTheme | null, DataColorToken | null]
+    ) => [DataColorTheme | null, null | `preset-${number}`]
     hasEntityPropertyFilters: boolean
     hasValidBreakdown: boolean
     isPropertyValueAggregation: boolean
@@ -191,12 +191,12 @@ export interface retentionLogicMeta {
         ) => (
             rawBreakdownValue: number | string | null | undefined,
             seriesIndex: number
-        ) => [DataColorTheme | null, DataColorToken | null]
+        ) => [DataColorTheme | null, null | `preset-${number}`]
         getRetentionColor: (
             getRetentionColorToken: (
                 rawBreakdownValue: number | string | null | undefined,
                 seriesIndex: number
-            ) => [DataColorTheme | null, DataColorToken | null]
+            ) => [DataColorTheme | null, null | `preset-${number}`]
         ) => (rawBreakdownValue: number | string | null | undefined, seriesIndex: number) => string | undefined
     }
 }

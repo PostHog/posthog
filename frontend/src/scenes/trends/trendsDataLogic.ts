@@ -166,7 +166,7 @@ export interface trendsDataLogicValues {
     currentPeriodResult: IndexedTrendResult | undefined
     getIsOnlyVisibleSeriesInLegend: (dataset: IndexedTrendResult) => boolean
     getTrendsColor: (dataset: IndexedTrendResult) => string
-    getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
+    getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, null | `preset-${number}`]
     getTrendsHidden: (dataset: IndexedTrendResult) => boolean
     hasBreakdownMore: boolean
     hasPersonsModal: boolean
@@ -394,9 +394,9 @@ export interface trendsDataLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null
-        ) => (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
+        ) => (dataset: IndexedTrendResult) => [DataColorTheme | null, null | `preset-${number}`]
         getTrendsColor: (
-            getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
+            getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, null | `preset-${number}`]
         ) => (dataset: IndexedTrendResult) => string
         getTrendsHidden: (
             resultCustomizationBy: ResultCustomizationBy,

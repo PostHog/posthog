@@ -33,7 +33,7 @@ export type DataThemeLogicProps = {
 export interface dataThemeLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     defaultTheme: DataColorThemeModel | null
-    getAvailableColorTokens: (themeId: number | string | null | undefined) => DataColorToken[] | null
+    getAvailableColorTokens: (themeId: number | string | null | undefined) => `preset-${number}`[] | null
     getColorFromToken: (themeId: number | string | null | undefined, colorToken: string) => string | null
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
     posthogTheme: DataColorThemeModel | null | undefined
@@ -81,7 +81,7 @@ export interface dataThemeLogicMeta {
         ) => (themeId: number | string | null | undefined, colorToken: string) => string | null
         getAvailableColorTokens: (
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
-        ) => (themeId: number | string | null | undefined) => DataColorToken[] | null
+        ) => (themeId: number | string | null | undefined) => `preset-${number}`[] | null
     }
 }
 

@@ -29,12 +29,12 @@ export interface resultCustomizationsModalLogicValues {
     funnelsResultCustomizations: Record<string, ResultCustomizationByValue> | undefined // funnelDataLogic
     getFunnelsColorToken: (
         dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
-    ) => [DataColorTheme | null, DataColorToken | null] // funnelDataLogic
+    ) => [DataColorTheme | null, null | number] // funnelDataLogic
     insightFilter: InsightFilter | null | undefined // insightVizDataLogic
     isFunnels: boolean // insightVizDataLogic
     isStickiness: boolean // insightVizDataLogic
     isTrends: boolean // insightVizDataLogic
-    getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null] // trendsDataLogic
+    getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, null | number] // trendsDataLogic
     resultCustomizationBy: ResultCustomizationBy // trendsDataLogic
     trendsResultCustomizations:
         | Record<string, ResultCustomizationByValue>
@@ -71,7 +71,7 @@ export interface resultCustomizationsModalLogicActions {
         value: true
     }
     setColorToken: (token: DataColorToken) => {
-        token: DataColorToken
+        token: `preset-${number}`
     }
 }
 
@@ -81,18 +81,18 @@ export interface resultCustomizationsModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         modalVisible: (dataset: FlattenedFunnelStepByBreakdown | IndexedTrendResult | null) => boolean
         colorToken: (
-            localColorToken: DataColorToken | null,
+            localColorToken: null | `preset-${number}`,
             localColorTokenTouched: boolean,
-            colorTokenFromQuery: DataColorToken | null
+            colorTokenFromQuery: null | `preset-${number}`
         ) => DataColorToken | null
         colorTokenFromQuery: (
             isTrends: boolean,
             isStickiness: boolean,
             isFunnels: boolean,
-            getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null],
+            getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, number | null],
             getFunnelsColorToken: (
                 dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
-            ) => [DataColorTheme | null, DataColorToken | null],
+            ) => [DataColorTheme | null, number | null],
             dataset: FlattenedFunnelStepByBreakdown | IndexedTrendResult | null
         ) => DataColorToken | null
         resultCustomizations: (

@@ -224,7 +224,7 @@ export interface funnelDataLogicValues {
     getFunnelsColor: (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => string
     getFunnelsColorToken: (
         dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
-    ) => [DataColorTheme | null, DataColorToken | null]
+    ) => [DataColorTheme | null, null | `preset-${number}`]
     hasFunnelResults: boolean
     hiddenLegendBreakdowns: string[] | undefined
     histogramGraphData: HistogramGraphDatum[] | null
@@ -484,11 +484,11 @@ export interface funnelDataLogicMeta {
             querySource: FunnelsQuery | null
         ) => (
             dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
-        ) => [DataColorTheme | null, DataColorToken | null]
+        ) => [DataColorTheme | null, null | `preset-${number}`]
         getFunnelsColor: (
             getFunnelsColorToken: (
                 dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
-            ) => [DataColorTheme | null, DataColorToken | null]
+            ) => [DataColorTheme | null, null | `preset-${number}`]
         ) => (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => string
         isStepOptional: (querySource: FunnelsQuery | null) => (step: number) => boolean
         isFunnelWithEnoughSteps: (series: FunnelsQuerySeriesNodeUnion[] | null) => boolean
