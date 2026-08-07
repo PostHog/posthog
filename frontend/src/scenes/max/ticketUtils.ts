@@ -145,7 +145,7 @@ export function getTicketSummaryData(
 export function composeTicketBody({ note, summary }: { note: string; summary?: string }): string {
     const trimmedNote = note.trim()
     if (summary) {
-        return trimmedNote ? `${trimmedNote}\n\n----\nPostHog AI's analysis:\n${summary}` : summary
+        return trimmedNote ? `${trimmedNote}\n\n----\n${summary}` : summary
     }
     return trimmedNote
 }

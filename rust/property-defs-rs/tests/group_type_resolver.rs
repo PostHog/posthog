@@ -418,7 +418,6 @@ fn make_config(addr: &str) -> property_defs_rs::config::Config {
     config.personhog_max_retries = 2;
     config.personhog_initial_backoff_ms = 1;
     config.personhog_max_backoff_ms = 10;
-    config.skip_writes = true;
     config.skip_reads = false;
     config
 }
@@ -432,9 +431,6 @@ fn make_group_update(team_id: i32, group_name: &str) -> Update {
         property_type: None,
         event_type: PropertyParentType::Group,
         group_type_index: Some(GroupType::Unresolved(group_name.to_string())),
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     })
 }
 
@@ -873,7 +869,6 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
 
     let addr = start_mock_server(mock).await;
     let mut config = make_config(&format!("http://{addr}"));
-    config.skip_writes = false;
     // TTL 0 makes round 1's negative-cache entry immediately stale, so round 2 re-drives personhog.
     // This is the deterministic stand-in for "the TTL lapsed" between the two sparse events.
     config.group_type_negative_ttl_secs = 0;
