@@ -24,6 +24,8 @@ import type {
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
+    CalendarSyncTriggerApi,
+    CalendarSyncTriggerResponseApi,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
     CustomPropertyDefinitionsValuesRetrieveParams,
@@ -692,6 +694,27 @@ export const announcementsChannelsList = async (
     return apiMutator<AnnouncementChannelApi[]>(getAnnouncementsChannelsListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCalendarSyncSyncNowCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/sync_now/`
+}
+
+/**
+ * Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.
+ * @summary Sync a connected calendar now
+ */
+export const calendarSyncSyncNowCreate = async (
+    projectId: string,
+    calendarSyncTriggerApi: CalendarSyncTriggerApi,
+    options?: RequestInit
+): Promise<CalendarSyncTriggerResponseApi> => {
+    return apiMutator<CalendarSyncTriggerResponseApi>(getCalendarSyncSyncNowCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncTriggerApi),
     })
 }
 
