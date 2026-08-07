@@ -79,8 +79,12 @@ describe('flagSelectionLogic bulk archive', () => {
             { id: 1, errorMessage: expect.any(String), approvalPending: true },
             { id: 2, errorMessage: 'Server error', approvalPending: false },
         ])
-        // The approvals UI only learns about the bulk-archive change request through this dispatch
+        // Only the approval-pending flag announces a change request; the 500 failure must not
+        expect(dispatchChangeRequestCreated).toHaveBeenCalledTimes(1)
         expect(dispatchChangeRequestCreated).toHaveBeenCalledWith({ resourceType: 'feature_flag', resourceId: 1 })
+        // Failed flags still advance the progress counter, and the run ends
+        expect(logic.values.bulkArchiveProgress).toEqual({ done: 3, total: 3 })
+        expect(logic.values.bulkArchiveRunning).toBe(false)
     })
 
     it.each([
