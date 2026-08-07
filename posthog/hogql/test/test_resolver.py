@@ -132,6 +132,16 @@ class TestResolver(BaseTest):
         # programmatic ASTs consume columns positionally, so the default context allows repeats
         resolve_types(self._select("SELECT e.uuid, e.uuid FROM events e"), self.context, dialect="clickhouse")
 
+    def test_colliding_synthesized_expression_names_resolve(self):
+        # issue_id and issue_id_v2 are different columns, but both print through the same lazy
+        # join, so their auto-generated labels collide without either being a real duplicate
+        self.context.enforce_unique_output_columns = True
+        resolve_types(
+            self._select("SELECT toString(issue_id), toString(issue_id_v2) FROM events"),
+            self.context,
+            dialect="clickhouse",
+        )
+
     def test_root_duplicate_output_columns_lint_as_error_in_hogql_dialect(self):
         self.context.enforce_unique_output_columns = True
         resolve_types(self._select("SELECT e.uuid, e.uuid FROM events e"), self.context, dialect="hogql")

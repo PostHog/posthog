@@ -970,6 +970,10 @@ class Resolver(CloningVisitor):
         columns_with_visible_alias: dict[str, bool] = {}
         output_name_counts: dict[str, int] = {}
         for new_expr in select_nodes:
+            # unaliased expressions get a label synthesized from their printed form, which can
+            # collide for genuinely different columns (two fields resolving through one lazy join),
+            # so they are named but never counted as duplicates
+            name_is_synthesized = False
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
@@ -982,11 +986,13 @@ class Resolver(CloningVisitor):
                 from posthog.hogql.printer import print_prepared_ast
 
                 alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
+                name_is_synthesized = True
             else:
                 alias = None
 
             if alias:
-                output_name_counts[alias] = output_name_counts.get(alias, 0) + 1
+                if not name_is_synthesized:
+                    output_name_counts[alias] = output_name_counts.get(alias, 0) + 1
                 # Make a reference of the first visible or last hidden expr for each unique alias name.
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
                     if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
