@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { resolveExportNudgeEligibility } from 'scenes/dashboard/dashboardExportNudgeLogic'
+import { ExportNudgeCandidate, resolveExportNudgeEligibility } from 'scenes/dashboard/dashboardExportNudgeLogic'
 import { ExportNudgeRenderer, claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -237,6 +237,7 @@ describe('exportsLogic', () => {
         })
 
         it('folds an eligible nudge into the completion toast rather than raising a second one', async () => {
+            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 7 })
             jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
             jest.spyOn(api.exports, 'create').mockResolvedValue(
                 asset({ id: 19, export_format: ExporterFormat.PNG, has_content: true, dashboard: 7 })
@@ -276,6 +277,30 @@ describe('exportsLogic', () => {
             // The Download hand-off moves into the nudge's button row, so leaving it in the slot too
             // would render it twice.
             expect(jest.mocked(lemonToast.success).mock.calls.at(-1)![1]).not.toHaveProperty('button')
+        })
+
+        it('does not claim the nudge for an async export that renders none', async () => {
+            // Eligibility needs another round trip, so it lands after the kickoff toast settled.
+            // Claiming there would mark the dashboard and report an exposure for a nudge nobody saw.
+            let resolveEligibility: (candidate: ExportNudgeCandidate | null) => void = () => {}
+            jest.mocked(resolveExportNudgeEligibility).mockReturnValue(
+                new Promise((resolve) => {
+                    resolveEligibility = resolve
+                })
+            )
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
+            jest.spyOn(api.exports, 'create').mockResolvedValue(
+                asset({ id: 25, export_format: ExporterFormat.MP4, has_content: false, dashboard: 9 })
+            )
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.MP4, dashboard: 9 } })
+            await flush()
+            resolveEligibility({ dashboardId: 9 })
+            await flush()
+
+            expect(claimExportNudgeMessage).not.toHaveBeenCalled()
+            expect(lemonToast.updatePendingMessage).not.toHaveBeenCalled()
+            expect(lemonToast.updateToSuccess).not.toHaveBeenCalled()
         })
 
         it('offers a Download button when the create call outlived the user gesture', async () => {

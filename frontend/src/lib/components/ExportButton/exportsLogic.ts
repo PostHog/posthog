@@ -470,16 +470,28 @@ export const exportsLogic = kea<exportsLogicType>([
                         label: 'View exports',
                         action: () => actions.openSidePanel(SidePanelTab.Exports),
                     }
-                    // Claimed once: the same nudge renders under both headlines and must not count
-                    // as two.
-                    const nudgePromise: Promise<ExportNudgeRenderer | null> = exportData.dashboard
-                        ? settleNudgeCandidate(resolveExportNudgeEligibility(exportData.dashboard)).then((candidate) =>
-                              claimExportNudgeMessage(candidate, exportToastId)
-                          )
-                        : Promise.resolve(null)
-                    // Held in a box because it is assigned from the nudge's own callback:
-                    // TypeScript cannot see across closures and would narrow a plain `let` to null.
-                    const nudge: { renderer: ExportNudgeRenderer | null } = { renderer: null }
+                    let candidate: ExportNudgeCandidate | null = null
+                    let claimed = false
+                    let nudgeRenderer: ExportNudgeRenderer | null = null
+                    // Claimed as the nudge is rendered rather than when eligibility resolves, so an
+                    // export that never renders one does not spend it. Memoized because the same
+                    // nudge renders under both headlines and must not count as two.
+                    const claimNudge = (): ExportNudgeRenderer | null => {
+                        if (candidate && !claimed) {
+                            claimed = true
+                            nudgeRenderer = claimExportNudgeMessage(candidate, exportToastId)
+                        }
+                        return nudgeRenderer
+                    }
+                    // Resolved before any consumer registers on it, so `candidate` is always set by
+                    // the time one of them claims.
+                    const nudgeResolved: Promise<void> = (
+                        exportData.dashboard
+                            ? settleNudgeCandidate(resolveExportNudgeEligibility(exportData.dashboard))
+                            : Promise.resolve(null)
+                    ).then((resolved) => {
+                        candidate = resolved
+                    })
                     let settled = false
 
                     // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
@@ -519,10 +531,9 @@ export const exportsLogic = kea<exportsLogicType>([
                                 // react-toastify re-renders from the success config on settle, so
                                 // the nudge has to be in the resolved value. The secondary action
                                 // comes from the promise's own button option.
-                                nudge.renderer = await nudgePromise
-                                return nudge.renderer
-                                    ? nudge.renderer(EXPORT_COMPLETE_MESSAGE)
-                                    : EXPORT_COMPLETE_MESSAGE
+                                await nudgeResolved
+                                const renderer = claimNudge()
+                                return renderer ? renderer(EXPORT_COMPLETE_MESSAGE) : EXPORT_COMPLETE_MESSAGE
                             }
                             actions.addFresh(response)
                             throw new ExportAwaitingDownload(response)
@@ -545,9 +556,12 @@ export const exportsLogic = kea<exportsLogicType>([
                     // react-toastify queues the toast's own success or error render.
                     void exportPromise.then(markSettled, markSettled)
 
-                    void nudgePromise.then((renderer) => {
-                        nudge.renderer = renderer
-                        if (renderer && !settled) {
+                    void nudgeResolved.then(() => {
+                        if (settled) {
+                            return
+                        }
+                        const renderer = claimNudge()
+                        if (renderer) {
                             lemonToast.updatePendingMessage(
                                 exportToastId,
                                 renderer(EXPORT_PENDING_MESSAGE, viewExportsButton)
@@ -566,12 +580,13 @@ export const exportsLogic = kea<exportsLogicType>([
                                 },
                                 { toastId: exportToastId, button: viewExportsButton }
                             )
-                            if (nudge.renderer) {
+                            const settledRenderer = claimNudge()
+                            if (settledRenderer) {
                                 // autoClose is fixed before the nudge resolves, so rewrite the
                                 // settled toast.
                                 lemonToast.updateToSuccess(
                                     exportToastId,
-                                    nudge.renderer(EXPORT_COMPLETE_MESSAGE, viewExportsButton),
+                                    settledRenderer(EXPORT_COMPLETE_MESSAGE, viewExportsButton),
                                     { autoClose: false }
                                 )
                             }
@@ -584,12 +599,13 @@ export const exportsLogic = kea<exportsLogicType>([
                                     label: 'Download',
                                     action: () => actions.downloadExport(error.asset),
                                 }
+                                const renderer = claimNudge()
                                 lemonToast.updateToSuccess(
                                     exportToastId,
-                                    nudge.renderer
-                                        ? nudge.renderer(EXPORT_COMPLETE_MESSAGE, downloadButton)
+                                    renderer
+                                        ? renderer(EXPORT_COMPLETE_MESSAGE, downloadButton)
                                         : EXPORT_COMPLETE_MESSAGE,
-                                    nudge.renderer ? { autoClose: false } : { button: downloadButton }
+                                    renderer ? { autoClose: false } : { button: downloadButton }
                                 )
                                 return
                             }
