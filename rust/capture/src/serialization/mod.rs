@@ -1,12 +1,16 @@
 //! Serialization seam: format × envelope.
 //!
-//! A payload's encoding is a contract with the consumers of a destination,
-//! not a property of a transport. [`Format`] turns an event into payload
-//! bytes; [`Envelope`] wraps payload bytes at the byte level. A
-//! [`Serializer`] composes one of each, and the sink calls it instead of
-//! inlining the JSON conversion and the lz4 branch — so a format cutover
-//! (e.g. protobuf) or a new envelope becomes a per-destination config change
-//! behind this seam, with content headers carrying coexistence on a topic.
+//! [`Format`] turns an event into payload bytes; [`Envelope`] wraps payload
+//! bytes at the byte level. A [`Serializer`] composes one of each, and the
+//! sink calls it instead of inlining the JSON conversion and the lz4 branch —
+//! so a format cutover (e.g. protobuf) or a new envelope becomes a config
+//! change behind this seam, with content headers carrying coexistence on a
+//! topic.
+//!
+//! The sink resolves the composition by `data_type`, before routing: a replay
+//! event redirected to the DLQ or a custom topic keeps the lz4 envelope, with
+//! its `content-encoding` header travelling along. Resolution per routed
+//! destination belongs to the outputs layer, not this seam.
 //!
 //! Partition keys, routing headers, and topics are deliberately not here:
 //! this layer produces bytes and content headers only.

@@ -835,9 +835,11 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
-        // Encoding is a consumer contract resolved per destination: session
-        // replay gets the lz4 envelope when configured, everything else the
-        // plain JSON contract. See `crate::serialization` for the formats,
+        // Encoding is resolved by data_type, not by the routed destination:
+        // session replay gets the lz4 envelope when configured, everything
+        // else the plain JSON contract — so a replay event redirected to the
+        // DLQ or a custom topic keeps the envelope, with its content-encoding
+        // header travelling along. See `crate::serialization` for the formats,
         // the envelope byte layout, and the coexistence story.
         let serializer = match (metadata.data_type, self.replay_envelope_compression) {
             (DataType::SnapshotMain, EnvelopeCompression::Lz4) => Serializer::JSON_LZ4,
