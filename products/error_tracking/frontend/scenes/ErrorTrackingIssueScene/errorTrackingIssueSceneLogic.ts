@@ -219,9 +219,6 @@ export interface errorTrackingIssueSceneLogicActions {
             timestamp: string
         }
     }
-    retryDetailLoad: () => {
-        value: true
-    }
     loadIssue: () => {
         value: true
     }
@@ -293,6 +290,9 @@ export interface errorTrackingIssueSceneLogicActions {
         payload?: {
             value: true
         }
+    }
+    retryDetailLoad: () => {
+        value: true
     }
     selectEvent: (event: ErrorEventType | null) => {
         event: ErrorEventType | null
