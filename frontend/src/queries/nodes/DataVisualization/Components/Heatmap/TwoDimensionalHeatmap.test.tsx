@@ -140,4 +140,19 @@ describe('TwoDimensionalHeatmap', () => {
         expect(await screen.findAllByText('(cell null)')).toHaveLength(2)
         expect(await screen.findAllByText('(header null)')).toHaveLength(2)
     })
+
+    it('does not render a dense grid when sparse results produce too many cells', async () => {
+        const sparseResponse = {
+            ...response,
+            results: Array.from({ length: 101 }, (_, index) => [`Region ${index}`, `Segment ${index}`, index]),
+        }
+
+        setup('(header null)', '', sparseResponse)
+
+        expect(await screen.findByText('Too many cells to display')).toBeInTheDocument()
+        expect(
+            screen.getByText('Use columns with fewer unique values or reduce the query result size.')
+        ).toBeInTheDocument()
+        expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    })
 })
