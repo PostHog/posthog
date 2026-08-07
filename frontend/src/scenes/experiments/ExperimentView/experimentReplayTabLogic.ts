@@ -226,11 +226,11 @@ export interface experimentReplayTabLogicActions {
     recordingsLoaded: (sessionIds: string[]) => {
         sessionIds: string[]
     }
-    selectWatchCard: (card: ExperimentWatchCardApi | null) => {
-        card: ExperimentWatchCardApi | null
-    }
     setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
         mode: ExperimentReplayMetricFilterMode
+    }
+    selectWatchCard: (card: ExperimentWatchCardApi | null) => {
+        card: ExperimentWatchCardApi | null
     }
     setMetricSelected: (
         metricUuid: string,
@@ -327,9 +327,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         playlistFiltersChanged: (filters: RecordingUniversalFilters) => ({ filters }),
         recordingsLoaded: (sessionIds: string[]) => ({ sessionIds }),
         recordingOpened: (sessionId: string) => ({ sessionId }),
-        prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         toggleBehaviorComparison: true,
         selectWatchCard: (card: ExperimentWatchCardApi | null) => ({ card }),
+        prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
     }),
     loaders(({ values, props }) => ({
         sessionBucket: [
