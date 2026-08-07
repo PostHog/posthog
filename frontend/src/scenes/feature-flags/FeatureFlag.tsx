@@ -80,6 +80,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -178,6 +180,27 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+
+    // Expose the flag's release conditions to PostHog AI so it can answer "who does this match?"
+    // and build an equivalent insight. The blast-radius endpoint only returns counts, so without
+    // this the agent on a flag page has no visibility into the targeting.
+    useAttachedContext(
+        isNewFeatureFlag || !featureFlag?.key
+            ? null
+            : [
+                  {
+                      type: 'feature_flag',
+                      key: featureFlag.key,
+                      label: featureFlag.name || featureFlag.key,
+                      value: JSON.stringify({
+                          key: featureFlag.key,
+                          name: featureFlag.name,
+                          active: featureFlag.active,
+                          release_conditions: featureFlag.filters?.groups ?? [],
+                      }),
+                  },
+              ]
+    )
 
     // Mounting the edit form is a multi-second render (Monaco editors + dnd-kit sortables). Mount it
     // immediately when the scene first renders already in form mode (deep-link/new flag), but when the

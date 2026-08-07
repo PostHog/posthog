@@ -48,7 +48,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -86,6 +86,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { matchingActorsUrl } from './matchingActorsUrl'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
@@ -497,13 +498,11 @@ const ConditionContent = ({
     }
 
     const resolvedTargetName = aggregationTargetName(group.aggregation_group_type_index)
-    const resolvedSingularTargetName = aggregationLabel(
-        resolveAggregationGroupTypeIndex(
-            group.aggregation_group_type_index,
-            releaseFilters.aggregation_group_type_index
-        ),
-        true
-    ).singular
+    const resolvedGroupTypeIndex = resolveAggregationGroupTypeIndex(
+        group.aggregation_group_type_index,
+        releaseFilters.aggregation_group_type_index
+    )
+    const resolvedSingularTargetName = aggregationLabel(resolvedGroupTypeIndex, true).singular
 
     return (
         <div
@@ -690,10 +689,7 @@ const ConditionContent = ({
                                                         calculateBlastRadiusForCondition(
                                                             group.sort_key,
                                                             group.properties,
-                                                            resolveAggregationGroupTypeIndex(
-                                                                group.aggregation_group_type_index,
-                                                                releaseFilters.aggregation_group_type_index
-                                                            )
+                                                            resolvedGroupTypeIndex
                                                         )
                                                     }
                                                 >
@@ -732,10 +728,7 @@ const ConditionContent = ({
                                                                         resolvedTargetName
                                                                     )}
                                                                 </b>
-                                                                {resolveAggregationGroupTypeIndex(
-                                                                    group.aggregation_group_type_index,
-                                                                    releaseFilters.aggregation_group_type_index
-                                                                ) == null && (
+                                                                {resolvedGroupTypeIndex == null && (
                                                                     <Tooltip
                                                                         title={MATCHING_ESTIMATE_TOOLTIP}
                                                                         interactive
@@ -756,6 +749,17 @@ const ConditionContent = ({
                                                                 </b>{' '}
                                                                 - <b className="tabular-nums">{rolloutPct}%</b>
                                                             </span>
+                                                            <Link
+                                                                to={matchingActorsUrl(
+                                                                    group.properties,
+                                                                    resolvedGroupTypeIndex
+                                                                )}
+                                                                target="_blank"
+                                                                className="flex items-center gap-1 w-fit mt-1"
+                                                            >
+                                                                View matching {resolvedTargetName}
+                                                                <IconOpenInNew />
+                                                            </Link>
                                                         </div>
                                                     )
                                                 })()}
