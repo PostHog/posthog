@@ -608,7 +608,7 @@ jobs:
                   mask-aws-account-id: true
                   unset-current-credentials: true
 
-            # No Linux auto-updater consumes latest-linux*.yml today (updates are
+            # No Linux auto-updater consumes latest-linux*.yml (updates are
             # macOS and Windows only), so the manifests can ship with the binaries
             # instead of waiting for the finalize flip.
             - name: Upload artifacts to the S3 update feed
