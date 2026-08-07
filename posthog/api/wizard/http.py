@@ -75,6 +75,17 @@ _LIVE_TASK_RUN_STATUSES = (
     tasks_facade.TaskRunStatus.IN_PROGRESS,
 )
 
+# Backstop for a trigger that crashes between taking its lock and the finally that releases it;
+# comfortably above a trigger request's worst-case latency.
+WIZARD_REPOSITORY_DETECTION_TRIGGER_LOCK_SECONDS = 30
+
+ERROR_DETECTION_SCAN_ALREADY_RUNNING = "A scan for this repository is already running. Wait for it to finish."
+
+
+def _detection_trigger_lock_key(team_id: int, repository: str, kind: str) -> str:
+    return f"wizard_repository_detection_trigger_lock:{team_id}:{repository}:{kind}"
+
+
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
     "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied/throttled)",
@@ -689,53 +700,61 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         kind = serializer.validated_data["kind"]
 
-        # One scan per (repository, kind) at a time: overlapping scans race their completion
-        # posts, so the older scan could overwrite the newer stamp with stale results. Checked
-        # before the attempt reservation so a rejected trigger never charges the daily budget.
-        existing = wizard_facade.get_wizard_repository_detection(team_id, repository, kind)
-        if existing is not None and existing.task_run_id is not None:
-            run_status = tasks_facade.task_run_statuses(team_id, [existing.task_run_id]).get(existing.task_run_id)
-            if run_status in _LIVE_TASK_RUN_STATUSES:
-                return Response(
-                    {"detail": "A scan for this repository is already running. Wait for it to finish."},
-                    status=status.HTTP_409_CONFLICT,
-                )
-
-        self._reserve_wizard_repository_detection_attempt(cast(User, request.user).id)
-
+        # cache.add is atomic, so the first of two simultaneous triggers wins the key and the
+        # loser 409s instead of both passing the live-run check below and double-booting sandboxes.
+        lock_key = _detection_trigger_lock_key(team_id, repository, kind)
+        if not cache.add(lock_key, "1", timeout=WIZARD_REPOSITORY_DETECTION_TRIGGER_LOCK_SECONDS):
+            return Response({"detail": ERROR_DETECTION_SCAN_ALREADY_RUNNING}, status=status.HTTP_409_CONFLICT)
         try:
-            result = tasks_facade.create_wizard_repository_detection_run(
-                team=project.passthrough_team,
-                user_id=cast(User, request.user).id,
-                repository=repository,
-                kind=kind,
-            )
-        except ValueError as e:
-            # e.g. unknown kind, or no GitHub integration with access to the repository.
-            raise exceptions.ValidationError(str(e))
+            # One scan per (repository, kind) at a time: overlapping scans race their completion
+            # posts, so the older scan could overwrite the newer stamp with stale results. Checked
+            # before the attempt reservation so a rejected trigger never charges the daily budget.
+            existing = wizard_facade.get_wizard_repository_detection(team_id, repository, kind)
+            if existing is not None and existing.task_run_id is not None:
+                run_status = tasks_facade.task_run_statuses(team_id, [existing.task_run_id]).get(existing.task_run_id)
+                if run_status in _LIVE_TASK_RUN_STATUSES:
+                    return Response(
+                        {"detail": ERROR_DETECTION_SCAN_ALREADY_RUNNING},
+                        status=status.HTTP_409_CONFLICT,
+                    )
 
-        latest_run = result.latest_run
-        if latest_run is not None:
-            # Best-effort: the stamp only feeds the status read below, so it must not fail a
-            # scan that is already dispatched.
+            self._reserve_wizard_repository_detection_attempt(cast(User, request.user).id)
+
             try:
-                wizard_facade.record_wizard_repository_detection_run(
-                    team_id=team_id,
+                result = tasks_facade.create_wizard_repository_detection_run(
+                    team=project.passthrough_team,
+                    user_id=cast(User, request.user).id,
                     repository=repository,
                     kind=kind,
-                    task_run_id=str(latest_run.id),
-                    created_by_id=cast(User, request.user).id,
                 )
-            except Exception as e:
-                capture_exception(e)
+            except ValueError as e:
+                # e.g. unknown kind, or no GitHub integration with access to the repository.
+                raise exceptions.ValidationError(str(e))
 
-        return Response(
-            {
-                "task_id": str(result.task_id),
-                "run_id": str(latest_run.id) if latest_run else "",
-                "status": latest_run.status if latest_run else "queued",
-            }
-        )
+            latest_run = result.latest_run
+            if latest_run is not None:
+                # Best-effort: the stamp only feeds the status read below, so it must not fail a
+                # scan that is already dispatched.
+                try:
+                    wizard_facade.record_wizard_repository_detection_run(
+                        team_id=team_id,
+                        repository=repository,
+                        kind=kind,
+                        task_run_id=str(latest_run.id),
+                        created_by_id=cast(User, request.user).id,
+                    )
+                except Exception as e:
+                    capture_exception(e)
+
+            return Response(
+                {
+                    "task_id": str(result.task_id),
+                    "run_id": str(latest_run.id) if latest_run else "",
+                    "status": latest_run.status if latest_run else "queued",
+                }
+            )
+        finally:
+            cache.delete(lock_key)
 
     @validated_request(
         query_serializer=SetupWizardRepositoryDetectionListQuerySerializer,

@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
+from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT, _detection_trigger_lock_key
 from posthog.cloud_utils import get_api_host
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.scoping import team_scope
@@ -675,6 +675,20 @@ class SetupWizardCloudRunTests(APIBaseTest):
         )
         accepted = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
         assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_rejects_trigger_while_another_holds_the_lock(self, mock_create):
+        # Guards the cache.add mutex that closes the both-pass-the-check race between two
+        # simultaneous triggers; happy-path release is covered by the sequential retriggers
+        # in the stamp test.
+        lock_key = _detection_trigger_lock_key(self.team.id, "acme/app", self.KIND)
+        assert cache.add(lock_key, "1", timeout=30)
+        try:
+            response = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        finally:
+            cache.delete(lock_key)
+        assert response.status_code == status.HTTP_409_CONFLICT
+        mock_create.assert_not_called()
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
     def test_detection_trigger_stamps_the_row_and_keeps_the_previous_report(self, mock_create):
