@@ -8551,10 +8551,12 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertIn("groups[0].rollout_percentage", body["detail"])
 
     def test_patch_empty_filters_is_a_validated_noop(self):
+        # Deliberately un-normalized: no aggregation_group_type_index at either level. A
+        # fixture already carrying those keys cannot fail this assertion, since the only other
+        # thing normalization does is coerce the rollout to a float, and 50 == 50.0 in Python.
         original: dict = {
-            "groups": [{"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None}],
+            "groups": [{"properties": [], "rollout_percentage": 50}],
             "payloads": {"true": '"yes"'},
-            "aggregation_group_type_index": None,
         }
         flag = self._create_flag_via_orm("noop-flag", original)
 
@@ -8564,6 +8566,23 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         flag.refresh_from_db()
+        self.assertEqual(flag.filters, original)
+
+    def test_patch_without_filters_leaves_them_untouched(self):
+        # DRF hands DictField an empty dict rather than "absent" for form-encoded input, so a
+        # request that never mentions filters still reaches validate_filters.
+        original: dict = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+        flag = self._create_flag_via_orm("untouched-flag", original)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            data="name=renamed",
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.name, "renamed")
         self.assertEqual(flag.filters, original)
 
     def test_patch_partial_filters_merges_with_stored_state(self):

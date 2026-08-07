@@ -26,7 +26,6 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
-from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
@@ -1000,34 +999,6 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[tuple[int, int, dict[s
                 yield group_index, prop_index, cast(dict[str, Any], prop)
 
 
-@extend_schema_field(FeatureFlagFiltersSchemaSerializer)
-class FeatureFlagFiltersField(FeatureFlagFiltersSerializer):
-    """Feature flag targeting configuration: release condition groups, multivariate variants, and payloads."""
-
-    # Raw passthrough in BOTH directions:
-    # - Reads must return the stored JSON byte-identical to the DictField this replaced:
-    #   stored filters legitimately carry unknown legacy keys, encrypted payload ciphertext,
-    #   and (for the #50084 leave-and-block flags) data the schema rejects.
-    # - Writes are validated exactly once, on the merged state in validate_filters. A
-    #   field-level pass would validate the same bytes twice (on create `merged` IS this
-    #   dict; on update incoming keys always win the merge) and double-log every violation
-    #   in log-only mode, which would corrupt the bake's per-rule counts.
-    #
-    # OpenAPI stays pinned to the pre-enforcement FeatureFlagFiltersSchemaSerializer via
-    # extend_schema_field: the generated MCP tool schemas hard-enforce their zod shape before
-    # a request reaches this API, so publishing the strict shape here would gate clients
-    # ahead of the server while enforcement is still off. The flip PR republishes it.
-
-    def to_representation(self, value: Any) -> Any:
-        return value
-
-    def run_validation(self, data: Any = empty) -> Any:
-        if data is empty or data is None:
-            return super().run_validation(data)
-        # deepcopy: validate_filters merges and normalizes in place; never mutate request.data.
-        return copy.deepcopy(data)
-
-
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     key = serializers.CharField(required=False, help_text="Feature flag key.")
     name = serializers.CharField(
@@ -1035,7 +1006,7 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Feature flag description (stored in the `name` field for backwards compatibility).",
     )
-    filters = FeatureFlagFiltersField(required=False, help_text="Feature flag targeting configuration.")
+    filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
     archived = serializers.BooleanField(
         required=False,
@@ -1085,7 +1056,7 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Feature flag description (stored in the `name` field for backwards compatibility).",
     )
-    filters = FeatureFlagFiltersField(required=False, help_text="Feature flag targeting configuration.")
+    filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
     archived = serializers.BooleanField(
         required=False,
@@ -1147,12 +1118,8 @@ class FeatureFlagSerializer(
     version = serializers.IntegerField(required=False, default=0)
     last_modified_by = UserBasicSerializer(read_only=True)
 
-    # :TRICKY: source="get_filters" is needed for backwards compatibility
-    filters = FeatureFlagFiltersField(
-        source="get_filters",
-        required=False,
-        help_text="Feature flag targeting configuration: release condition groups, multivariate variants, and payloads.",
-    )
+    # :TRICKY: Needed for backwards compatibility
+    filters = serializers.DictField(source="get_filters", required=False)
     status = serializers.SerializerMethodField()
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
@@ -1481,8 +1448,18 @@ class FeatureFlagSerializer(
             raise
 
     def _validate_filters_inner(self, filters, operation: str):
-        # `filters` arrives as the raw request dict: the field is a passthrough, so the
-        # structural tier runs once below, on the merged state.
+        # An empty filters dict on an update carries no instruction, so the merged state is
+        # the stored state and there is nothing to validate. Returning it untouched also
+        # keeps normalization off flags the request never addressed: DRF hands DictField an
+        # empty dict rather than "absent" for form-encoded requests, so a PATCH of just
+        # `active` would otherwise rewrite stored filters. Creates still fall through, where
+        # the empty-groups rule rejects them.
+        if self.instance is not None and not filters:
+            assert isinstance(self.instance, FeatureFlag)
+            return self.instance.filters
+
+        # `filters` arrives as the raw request dict, so the structural tier runs once below,
+        # on the merged state.
         enforcement: bool = settings.FEATURE_FLAG_FILTERS_ENFORCEMENT
 
         # Log-only mode must never accept what the pre-enforcement validator rejected, so the
@@ -1516,7 +1493,9 @@ class FeatureFlagSerializer(
                 if stored_payloads:
                     merged["payloads"] = dict.fromkeys(stored_payloads, REDACTED_PAYLOAD_VALUE)
         else:
-            merged = filters
+            # deepcopy: the normalization below writes into the condition dicts, and on create
+            # these are the request body's own objects.
+            merged = copy.deepcopy(filters)
 
         # Size first: validating a 20MB filters object materializes a violation and a metric
         # increment per offending entry, so the cheap check has to come before that work
