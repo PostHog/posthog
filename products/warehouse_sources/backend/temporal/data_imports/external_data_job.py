@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
+    get_row_tracking_residual_metric,
     get_v3_lock_skipped_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
@@ -97,6 +98,14 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+# Seeded from the source's row-count estimate and decremented as rows load, the row-tracking counter
+# normally ends a COMPLETED job slightly positive: the estimate rarely matches the loaded count
+# exactly. Report only a residual that suggests the load path dropped work — large in absolute terms,
+# or a large fraction of the estimated total (rows loaded + residual). Everything else is expected drift.
+ROW_TRACKING_RESIDUAL_ABS_THRESHOLD = 10_000
+ROW_TRACKING_RESIDUAL_FRACTION = 0.05
+ROW_TRACKING_RESIDUAL_FRACTION_MIN_ROWS = 1_000
 
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
@@ -187,11 +196,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     logger = LOGGER.bind()
 
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
-    if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
-        msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
-        logger.debug(msg)
-        capture_exception(Exception(msg))
-
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
     if inputs.job_id is None:
@@ -228,6 +232,9 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         job_id = str(job.pk)
     else:
         job_id = inputs.job_id
+
+    if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
+        await _report_row_tracking_residual(inputs, job_id, rows_tracked, logger)
 
     if inputs.internal_error:
         logger.exception(
@@ -293,6 +300,52 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     # set and the schedule stays paused — a human looks at it before resuming.
     if inputs.status == ExternalDataJob.Status.COMPLETED:
         await _maybe_unpause_schedule_after_admin_run(inputs.schema_id, logger)
+
+
+def _row_tracking_residual_is_significant(rows_tracked: int, rows_synced: int | None) -> bool:
+    if rows_tracked >= ROW_TRACKING_RESIDUAL_ABS_THRESHOLD:
+        return True
+    # Without a known loaded count we can't reason about the fraction, so fall back to the absolute test.
+    if rows_synced is None or rows_tracked < ROW_TRACKING_RESIDUAL_FRACTION_MIN_ROWS:
+        return False
+    # rows_synced is what actually loaded; adding the residual back approximates the source's estimated
+    # total, so a large ratio means most of the expected rows never loaded.
+    estimated_total = rows_synced + rows_tracked
+    return estimated_total > 0 and rows_tracked / estimated_total >= ROW_TRACKING_RESIDUAL_FRACTION
+
+
+async def _report_row_tracking_residual(
+    inputs: UpdateExternalDataJobStatusInputs, job_id: str, rows_tracked: int, logger
+) -> None:
+    def _get_rows_synced() -> int | None:
+        return ExternalDataJob.objects.filter(pk=job_id).values_list("rows_synced", flat=True).first()
+
+    rows_synced = await database_sync_to_async_pool(_get_rows_synced)()
+    significant = _row_tracking_residual_is_significant(rows_tracked, rows_synced)
+
+    # Always keep the debug log and the metric; only raise for residuals worth investigating. The
+    # message is static and the count lives in structured properties, so error tracking groups every
+    # occurrence into one issue instead of minting a new one per distinct residual.
+    logger.debug(
+        "Row tracking counter still positive on a completed data import job",
+        rows_tracked=rows_tracked,
+        rows_synced=rows_synced,
+        job_id=job_id,
+    )
+    get_row_tracking_residual_metric(reported=significant).add(1)
+
+    if significant:
+        capture_exception(
+            Exception("Row tracking counter still positive on a completed data import job"),
+            additional_properties={
+                "rows_tracked": rows_tracked,
+                "rows_synced": rows_synced,
+                "schema_id": inputs.schema_id,
+                "source_id": inputs.source_id,
+                "team_id": inputs.team_id,
+                "job_id": job_id,
+            },
+        )
 
 
 async def _maybe_unpause_schedule_after_admin_run(schema_id: str, logger) -> None:

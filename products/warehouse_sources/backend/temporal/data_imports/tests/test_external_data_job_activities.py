@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
@@ -10,6 +12,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    _row_tracking_residual_is_significant,
     trigger_schedule_buffer_one_activity,
 )
 
@@ -56,3 +59,28 @@ class TestTriggerScheduleBufferOneActivity(BaseTest):
         assert isinstance(inputs, ExternalDataWorkflowInputs)
         assert inputs.billable is False
         assert inputs.external_data_schema_id == schema.id
+
+
+class TestRowTrackingResidualSignificance(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Small residuals from estimate drift are the noise we want to stop reporting.
+            ("single_row", 1, 500_000, False),
+            ("hundreds_of_rows_on_a_big_sync", 291, 1_000_000, False),
+            ("below_fraction_floor_on_small_sync", 900, 100, False),
+            # Large absolute residuals point at dropped work regardless of the estimate.
+            ("large_absolute_residual", 43_415, 5_000_000, True),
+            ("at_absolute_threshold", 10_000, 5_000_000, True),
+            # A residual that is a large fraction of the estimated total also matters.
+            ("half_the_estimate_dropped", 5_000, 5_000, True),
+            ("just_over_the_fraction", 2_000, 30_000, True),
+            ("just_under_the_fraction", 1_000, 40_000, False),
+            # Missing rows_synced falls back to the absolute test only.
+            ("no_rows_synced_small", 2_000, None, False),
+            ("no_rows_synced_large", 12_000, None, True),
+        ]
+    )
+    def test_only_large_or_high_fraction_residuals_are_significant(
+        self, _name: str, rows_tracked: int, rows_synced: int | None, expected: bool
+    ):
+        assert _row_tracking_residual_is_significant(rows_tracked, rows_synced) is expected

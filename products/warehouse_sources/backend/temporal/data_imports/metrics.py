@@ -2,8 +2,8 @@ import logging
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from temporalio import workflow
-from temporalio.common import MetricCounter
+from temporalio import activity, workflow
+from temporalio.common import MetricCounter, MetricMeter
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -40,6 +40,16 @@ def get_data_import_finished_metric(source_type: str | None, status: str) -> Met
         workflow.metric_meter()
         .with_additional_attributes({"source_type": source_type, "status": status})
         .create_counter("data_import_finished", "Number of data imports finished, for any reason (including failure).")
+    )
+
+
+def get_row_tracking_residual_metric(reported: bool) -> MetricCounter:
+    # Emitted from the finalization activity (not the workflow body), so use the activity meter.
+    # `reported` distinguishes residuals large enough to raise an error from the expected small drift.
+    meter = activity.metric_meter() if activity.in_activity() else MetricMeter.noop
+    return meter.with_additional_attributes({"reported": str(reported).lower()}).create_counter(
+        "data_import_row_tracking_residual",
+        "Completed data import jobs finalized with a positive row-tracking residual.",
     )
 
 
