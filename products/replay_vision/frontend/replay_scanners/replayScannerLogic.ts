@@ -546,7 +546,7 @@ export interface replayScannerLogicMeta {
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
-            observationBackfillFilter: any
+            observationBackfillFilter: string | null
         ) => boolean
         observationDetailLinkParams: (
             observationStatusFilter: ObservationStatusEnumApi[],
@@ -556,7 +556,7 @@ export interface replayScannerLogicMeta {
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
-            observationBackfillFilter: any,
+            observationBackfillFilter: string | null,
             observationsSort: ObservationsSorting | null,
             scanner: ReplayScanner
         ) => Record<string, string>
