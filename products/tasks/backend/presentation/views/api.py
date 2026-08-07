@@ -110,6 +110,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsDismissRequestSerializer,
+    TaskRunArtifactsDismissResponseSerializer,
     TaskRunArtifactsFinalizeUploadRequestSerializer,
     TaskRunArtifactsFinalizeUploadResponseSerializer,
     TaskRunArtifactsPrepareUploadRequestSerializer,
@@ -1662,6 +1664,46 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": 3600})
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsDismissRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsDismissResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Dismiss or restore task run artifacts",
+        description=(
+            "Hides artifacts from clients without deleting them from storage, so a file dismissed "
+            "by mistake can be restored."
+        ),
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/dismiss",
+        required_scopes=["task:write"],
+    )
+    def artifacts_dismiss(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        manifest, error = tasks_facade.set_task_run_artifacts_dismissed(
+            pk,
+            task_id,
+            self.team_id,
+            artifact_ids=request.validated_data["artifact_ids"],
+            dismissed=request.validated_data["dismissed"],
+        )
+        if error == "not_found":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if manifest is None:
+            raise NotFound()
+        return Response(TaskRunArtifactsDismissResponseSerializer({"artifacts": manifest}).data)
 
     @validated_request(
         request_serializer=TaskRunArtifactPresignRequestSerializer,
