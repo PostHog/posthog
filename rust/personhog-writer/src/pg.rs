@@ -43,6 +43,14 @@ impl PgStore {
             ALLOWED_TABLES
         );
 
+        // Most columns take the record's value outright — the record is the
+        // leader's authoritative snapshot and the version guard orders
+        // records — but three merge against the existing row instead. The
+        // meta columns coalesce because changelog records carry no meta
+        // (the leader does not maintain those columns; ingestion's direct
+        // writer does), so assignment would erase real values. last_seen_at
+        // takes GREATEST — which ignores NULL — because records may predate
+        // the field, and the column's invariant is that it only advances.
         let upsert_sql = format!(
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
@@ -61,12 +69,14 @@ impl PgStore {
             ON CONFLICT (team_id, id) DO UPDATE SET
                 uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
-                properties_last_updated_at = EXCLUDED.properties_last_updated_at,
-                properties_last_operation = EXCLUDED.properties_last_operation,
+                properties_last_updated_at =
+                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
+                properties_last_operation =
+                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
-                last_seen_at = EXCLUDED.last_seen_at
+                last_seen_at = GREATEST(EXCLUDED.last_seen_at, {table}.last_seen_at)
             WHERE EXCLUDED.version > COALESCE({table}.version, -1)",
             table = table_name
         );
