@@ -1,4 +1,8 @@
-import { createJSONStorage, type StateStorage } from "zustand/middleware";
+import {
+  createJSONStorage,
+  type PersistOptions,
+  type StateStorage,
+} from "zustand/middleware";
 import { logger } from "./logger";
 
 export type RendererStateStorage = StateStorage;
@@ -171,3 +175,73 @@ export const stateStorage: StateStorage = {
 };
 
 export const electronStorage = createJSONStorage(() => stateStorage);
+
+/**
+ * Build `persist` options with a guaranteed migration fallback.
+ *
+ * When a persisted payload's `version` differs from the store's configured
+ * `version` and no `migrate` can produce usable state, zustand discards the
+ * saved slice, hydrates with defaults, and logs a bare `console.error` from
+ * inside `zustand/middleware`. On desktop that reset is silent to the user
+ * (their panel layout, settings, terminal, or theme quietly revert) and the
+ * console.error surfaces in error tracking as an exception pointing at
+ * node_modules rather than at our code.
+ *
+ * Routing a versioned store's options through here means any version bump — or
+ * a build-skew mismatch from a rollback or an older install writing a payload a
+ * newer build can't place — degrades to a deliberate reset to `resetState`,
+ * logged through the shell logger. A store's own `migrate` still runs first;
+ * the fallback only takes over when `migrate` is absent, throws, or yields
+ * nothing.
+ */
+export function createPersistOptions<S, PersistedState = S>(
+  options: PersistOptions<S, PersistedState> & {
+    // The persisted slice to fall back to. Defaults to an empty slice, which
+    // `merge` combines with the store's initializer — i.e. a reset to initial
+    // state without listing every default here.
+    resetState?: () => PersistedState;
+  },
+): PersistOptions<S, PersistedState> {
+  const { resetState = () => ({}) as PersistedState, migrate, ...rest } =
+    options;
+
+  const reset = (
+    level: "warn" | "error",
+    reason: string,
+    version: number,
+    error?: unknown,
+  ): PersistedState => {
+    log[level](`Resetting persisted store to defaults: ${reason}`, {
+      store: rest.name,
+      version,
+      ...(error === undefined ? {} : { error }),
+    });
+    return resetState();
+  };
+
+  return {
+    ...rest,
+    migrate: (persisted, version) => {
+      if (!migrate) {
+        return reset("warn", "no migration for this version", version);
+      }
+      try {
+        const migrated = migrate(persisted, version);
+        if (migrated instanceof Promise) {
+          return migrated.then(
+            (value) =>
+              value == null
+                ? reset("warn", "migration produced no state", version)
+                : value,
+            (error) => reset("error", "migration threw", version, error),
+          );
+        }
+        return migrated == null
+          ? reset("warn", "migration produced no state", version)
+          : migrated;
+      } catch (error) {
+        return reset("error", "migration threw", version, error);
+      }
+    },
+  };
+}

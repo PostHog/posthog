@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createPersistOptions } from "./rendererStorage";
 
 export type ThemePreference = "light" | "dark" | "system";
 
@@ -46,7 +47,7 @@ export const useThemeStore = create<ThemeStore>()(
           return { theme: next, isDarkMode: resolveIsDarkMode(next) };
         }),
     }),
-    {
+    createPersistOptions({
       name: "theme-storage",
       version: 1,
       migrate: (persistedState: unknown, version: number) => {
@@ -70,7 +71,7 @@ export const useThemeStore = create<ThemeStore>()(
         return merged;
       },
       partialize: (state) => ({ theme: state.theme }) as unknown as ThemeStore,
-    },
+    }),
   ),
 );
 

@@ -6,7 +6,10 @@ import type {
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
-import { electronStorage } from "@posthog/ui/shell/rendererStorage";
+import {
+  createPersistOptions,
+  electronStorage,
+} from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -520,7 +523,7 @@ export const useSettingsStore = create<SettingsStore>()(
       _hasHydrated: false,
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
     }),
-    {
+    createPersistOptions({
       name: "settings-storage",
       storage: electronStorage,
       version: 1,
@@ -643,7 +646,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }
         return merged;
       },
-    },
+    }),
   ),
 );
 

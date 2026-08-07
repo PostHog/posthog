@@ -10,7 +10,10 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   } as unknown as typeof ResizeObserver;
 }
 
-vi.mock("@posthog/ui/shell/rendererStorage", () => ({
+vi.mock("@posthog/ui/shell/rendererStorage", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@posthog/ui/shell/rendererStorage")
+  >()),
   electronStorage: {
     getItem: () => null,
     setItem: () => {},

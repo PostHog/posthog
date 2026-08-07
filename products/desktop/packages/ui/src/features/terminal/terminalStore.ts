@@ -1,3 +1,4 @@
+import { createPersistOptions } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { terminalManager } from "./TerminalManager";
@@ -126,7 +127,7 @@ export const useTerminalStore = create<TerminalStoreState>()(
         });
       },
     }),
-    {
+    createPersistOptions({
       name: "terminal-store",
       version: 1,
       migrate: (persistedState) =>
@@ -139,7 +140,7 @@ export const useTerminalStore = create<TerminalStoreState>()(
           ]),
         ),
       }),
-    },
+    }),
   ),
 );
 

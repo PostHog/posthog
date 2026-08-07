@@ -1,4 +1,5 @@
 import {
+  createPersistOptions,
   electronStorage,
   flushRendererStateWrites,
 } from "@posthog/ui/shell/rendererStorage";
@@ -58,13 +59,13 @@ export const useLoopBuilderSessionStore = create<LoopBuilderSessionState>()(
       },
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
     }),
-    {
+    createPersistOptions({
       name: "posthog-code-loop-builder-sessions",
       storage: electronStorage,
       partialize: (state) => ({ sessions: state.sessions }),
       // v0 entries had no identity and can't be attributed; drop them.
       version: 1,
-      migrate: () => ({ sessions: [] as LoopBuilderSession[] }),
+      resetState: () => ({ sessions: [] as LoopBuilderSession[] }),
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.setHasHydrated(true);
@@ -72,6 +73,6 @@ export const useLoopBuilderSessionStore = create<LoopBuilderSessionState>()(
         }
         useLoopBuilderSessionStore.setState({ _hasHydrated: true });
       },
-    },
+    }),
   ),
 );

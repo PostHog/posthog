@@ -30,6 +30,7 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 import { createWithEqualityFn } from "zustand/traditional";
+import { createPersistOptions } from "../../shell/rendererStorage";
 import { track } from "../../shell/analytics";
 import { updateTaskLayout } from "./panelStoreHelpers";
 import type { PanelNode, Tab } from "./panelTypes";
@@ -523,12 +524,12 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         set({ taskLayouts: {} });
       },
     }),
-    {
+    createPersistOptions({
       name: "panel-layout-store",
       version: 10,
-      migrate: () => ({ taskLayouts: {} }),
+      resetState: () => ({ taskLayouts: {} }),
       storage: createJSONStorage(() => panelLayoutStorage),
-    },
+    }),
   ),
 );
 

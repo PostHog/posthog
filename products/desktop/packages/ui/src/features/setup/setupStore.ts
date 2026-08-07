@@ -16,6 +16,7 @@ import {
 } from "@posthog/core/setup/setupState";
 import type { DiscoveredTask } from "@posthog/core/setup/types";
 import { logger } from "@posthog/ui/shell/logger";
+import { createPersistOptions } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -184,11 +185,12 @@ export const useSetupStore = create<SetupStore>()(
         set({ ...INITIAL_SETUP_STATE });
       },
     }),
-    {
+    createPersistOptions({
       name: "setup-store",
       version: 2,
       migrate: migrateSetupState,
       partialize: (state) => partializeSetupState(state),
-    },
+      resetState: () => partializeSetupState(INITIAL_SETUP_STATE),
+    }),
   ),
 );

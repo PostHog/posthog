@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { WRITE_DEBOUNCE_MS } from "./rendererStorage";
+import { clearCapturedLogs, formatCapturedLogs } from "./logCapture";
+import { createPersistOptions, WRITE_DEBOUNCE_MS } from "./rendererStorage";
 
 type RendererStorageModule = typeof import("./rendererStorage");
 
@@ -297,5 +298,82 @@ describe("rendererStorage", () => {
     // The debounce timer was cancelled by the flush; no duplicate write.
     await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS);
     expect(backend.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  describe("createPersistOptions", () => {
+    beforeEach(() => {
+      clearCapturedLogs();
+    });
+
+    // Every branch that can't produce usable state must resolve to the reset
+    // slice rather than letting zustand drop the payload with a bare
+    // console.error — the exact failure this helper exists to prevent.
+    it.each([
+      ["no migrate is provided", undefined],
+      [
+        "the store migrate throws",
+        () => {
+          throw new Error("boom");
+        },
+      ],
+      ["the store migrate returns undefined", () => undefined],
+      ["the store migrate returns null", () => null],
+      ["the store migrate rejects", () => Promise.reject(new Error("boom"))],
+      ["the store migrate resolves nothing", () => Promise.resolve(undefined)],
+    ])("resets when %s", async (_case, migrate) => {
+      const options = createPersistOptions<{ value: number }>({
+        name: "reset-case",
+        version: 2,
+        resetState: () => ({ value: 0 }),
+        // biome-ignore lint/suspicious/noExplicitAny: exercising failure inputs
+        migrate: migrate as any,
+      });
+
+      // `await` resolves both the sync and async (rejected-promise) paths.
+      expect(await options.migrate?.({ value: 99 }, 1)).toEqual({ value: 0 });
+    });
+
+    it("defaults the reset slice to an empty object when resetState is omitted", async () => {
+      const options = createPersistOptions<{ value: number }>({
+        name: "empty-reset",
+        version: 1,
+      });
+
+      expect(await options.migrate?.({ value: 99 }, 0)).toEqual({});
+    });
+
+    it("uses the store migrate's result when it succeeds", async () => {
+      const options = createPersistOptions<{ value: number }>({
+        name: "happy-migrate",
+        version: 2,
+        resetState: () => ({ value: 0 }),
+        migrate: (persisted) => ({
+          value: (persisted as { value: number }).value + 1,
+        }),
+      });
+
+      expect(await options.migrate?.({ value: 41 }, 1)).toEqual({ value: 42 });
+      // A successful migration is not a reset, so nothing is logged.
+      expect(formatCapturedLogs()).not.toContain(
+        "Resetting persisted store to defaults",
+      );
+    });
+
+    it("logs the reset through the shell logger, not console.error", async () => {
+      const options = createPersistOptions<{ value: number }>({
+        name: "logged-reset",
+        version: 2,
+        resetState: () => ({ value: 0 }),
+        migrate: () => {
+          throw new Error("boom");
+        },
+      });
+
+      await options.migrate?.({ value: 99 }, 1);
+
+      const logs = formatCapturedLogs();
+      expect(logs).toContain("renderer-storage");
+      expect(logs).toContain("Resetting persisted store to defaults");
+    });
   });
 });

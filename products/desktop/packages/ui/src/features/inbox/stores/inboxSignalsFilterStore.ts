@@ -3,6 +3,7 @@ import type {
   SignalReportPriority,
   SourceProduct,
 } from "@posthog/shared/types";
+import { createPersistOptions } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -84,7 +85,7 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
           priorityFilter: [],
         }),
     }),
-    {
+    createPersistOptions({
       name: "inbox-signals-filter-storage",
       version: 2,
       migrate: (persisted, version) => {
@@ -105,6 +106,6 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
         sourceProductFilter: state.sourceProductFilter,
         priorityFilter: state.priorityFilter,
       }),
-    },
+    }),
   ),
 );

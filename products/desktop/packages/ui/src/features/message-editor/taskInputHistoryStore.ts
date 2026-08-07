@@ -1,3 +1,4 @@
+import { createPersistOptions } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -34,7 +35,7 @@ export const useTaskInputHistoryStore = create<TaskInputHistoryStore>()(
           return { entries: updated };
         }),
     }),
-    {
+    createPersistOptions({
       name: "task-input-history",
       version: 1,
       partialize: (state) => ({ entries: state.entries }),
@@ -55,6 +56,6 @@ export const useTaskInputHistoryStore = create<TaskInputHistoryStore>()(
         }
         return persisted as TaskInputHistoryState;
       },
-    },
+    }),
   ),
 );

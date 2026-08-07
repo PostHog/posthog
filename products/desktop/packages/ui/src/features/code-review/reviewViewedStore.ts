@@ -1,3 +1,4 @@
+import { createPersistOptions } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -39,13 +40,13 @@ export const useReviewViewedStore = create<ReviewViewedStore>()(
           return changed ? { viewed: next } : state;
         }),
     }),
-    {
+    createPersistOptions({
       name: "review-viewed-storage",
       version: 1,
       migrate: (persisted, version) => {
         if (version < 1) return { viewed: {} };
         return persisted as ReviewViewedStoreState;
       },
-    },
+    }),
   ),
 );
