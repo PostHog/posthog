@@ -4076,6 +4076,80 @@ describe('PersonState.processEvent()', () => {
             }
         })
 
+        it('tombstone-mode merge stamps the exact death version on the source row and its death message', async () => {
+            const target = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const source = await createPerson(
+                hub,
+                timestamp,
+                { plan: 'pro' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                { distinctId: secondUserDistinctId }
+            )
+
+            const producerObserver = new KafkaProducerObserver(kafkaProducer)
+            // The delete mode is a repository option, separate from the context flag.
+            const tombstoneRepository = new PostgresPersonRepository(hub.postgres, {
+                personMergeTombstoneTeamAllowlist: '*',
+            })
+            const mergeService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: firstUserDistinctId,
+                    properties: { alias: secondUserDistinctId },
+                    uuid: new UUIDT().toString(),
+                },
+                hub,
+                tombstoneRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                undefined,
+                undefined,
+                true
+            )
+
+            const result = await mergeService.mergePeople({
+                mergeInto: target,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: source,
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            // The source row survives as a tombstone at exactly death version
+            // (source.version + 1) with scrubbed properties — not a hard delete.
+            const sourceRows = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT is_deleted, version, properties FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                [teamId, secondUserUuid],
+                'fetchTombstonedSource'
+            )
+            expect(sourceRows.rows).toEqual([{ is_deleted: true, version: '1', properties: {} }])
+
+            // Filtered reads hide the tombstone: only the target remains visible.
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.map((p) => p.uuid)).toEqual([firstUserUuid])
+
+            // The death message carries the exact death version, not the +100 fudge.
+            const deathMessages = producerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_PERSON)
+                .filter((m) => (m.value as any)?.id === secondUserUuid && (m.value as any)?.is_deleted === 1)
+            expect(deathMessages).toHaveLength(1)
+            expect(deathMessages[0].value).toMatchObject({ is_deleted: 1, version: 1, properties: '{}' })
+        })
+
         describe('SYNC mode with batch processing', () => {
             it('merges all distinct IDs when batch size is larger than total distinct IDs', async () => {
                 const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
