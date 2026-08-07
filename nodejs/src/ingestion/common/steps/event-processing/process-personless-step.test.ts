@@ -472,6 +472,56 @@ describe('createProcessPersonlessStep', () => {
         })
     })
 
+    describe('personless writes disabled', () => {
+        const buildGatedStep = () => createProcessPersonlessStep('*', '*')
+
+        it('ignores the is_merged race hint and stays personless', async () => {
+            const personUuid = new UUIDT().toString()
+            const person = await createPerson(infra, timestamp, {}, {}, {}, teamId, null, false, personUuid, {
+                distinctId: 'merge-target',
+            })
+
+            // A concurrent merge left an is_merged hint; with the gate on it is never read, so the
+            // event stays on the implied person id and the always-written override corrects it later.
+            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(true)
+            const fetchForUpdateSpy = jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(person)
+
+            const step = buildGatedStep()
+            const result = await step(createInput())
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                const returnedPerson = result.value.personlessPerson!
+                expect(returnedPerson.uuid).not.toBe(personUuid)
+                expect(returnedPerson.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z')
+            }
+            expect(fetchForUpdateSpy).not.toHaveBeenCalled()
+        })
+
+        it('defaults $feature_flag_called to personless without recording the distinct ID', async () => {
+            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+
+            const step = buildGatedStep()
+            const result = await step(
+                createInput({
+                    processPerson: true,
+                    normalizedEvent: {
+                        ...pluginEvent,
+                        event: '$feature_flag_called',
+                        properties: { $feature_flag: 'new-homepage', $feature_flag_response: 'test' },
+                    },
+                })
+            )
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                expect(result.value.processPerson).toBe(false)
+                expect(result.value.personlessPerson).toBeDefined()
+            }
+            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('force_upgrade logic', () => {
         it('sets force_upgrade=true when event timestamp > person.created_at + 1 minute', async () => {
             const personUuid = new UUIDT().toString()

@@ -1,6 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonCheckbox, LemonDivider, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -48,6 +57,8 @@ function SlackChannelSection(): JSX.Element {
         slackNotifyOnJoin,
         slackNotifyOnLeave,
         slackAlertChannelId,
+        slackNudgeEnabled,
+        slackNeedsReconnect,
         currentTeamLoading,
     } = useValues(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -64,6 +75,7 @@ function SlackChannelSection(): JSX.Element {
         setSlackNotifyOnJoin,
         setSlackNotifyOnLeave,
         setSlackAlertChannel,
+        setSlackNudgeEnabled,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -90,6 +102,20 @@ function SlackChannelSection(): JSX.Element {
                         Add SupportHog to Slack
                     </LemonButton>
                 )}
+                {slackNeedsReconnect && (
+                    <LemonBanner
+                        type="warning"
+                        className="mt-2"
+                        action={{
+                            children: 'Reconnect',
+                            disabledReason: adminRestrictionReason,
+                            onClick: () => connectSlack(window.location.pathname),
+                        }}
+                    >
+                        Files sent in Slack won't appear on tickets, and images you send from PostHog arrive as links
+                        instead of attachments. Reconnect SupportHog to give it access to files.
+                    </LemonBanner>
+                )}
             </div>
             {slackConnected && (
                 <>
@@ -107,9 +133,9 @@ function SlackChannelSection(): JSX.Element {
                             <LemonInputSelect
                                 mode="multiple"
                                 value={slackChannelIds}
-                                options={slackChannels.map((c: { id: string; name: string }) => ({
+                                options={slackChannels.map((c) => ({
                                     key: c.id,
-                                    label: `#${c.name}`,
+                                    label: `#${c.name ?? c.id}`,
                                 }))}
                                 onChange={(newValue: string[]) => setSlackChannels(newValue)}
                                 loading={slackChannelsLoading}
@@ -124,6 +150,24 @@ function SlackChannelSection(): JSX.Element {
                                 Refresh
                             </LemonButton>
                         </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex flex-col gap-2">
+                        <div>
+                            <label className="font-medium">Ticket nudges</label>
+                            <p className="text-xs text-muted-alt">
+                                When enabled, SupportHog replies in-thread asking whether the customer wants to open a
+                                ticket. This means customers don't have to remember the emoji reaction or @mention.
+                                'Support channels' will still have tickets created for every thread, and no nudge is
+                                sent.
+                            </p>
+                        </div>
+                        <LemonCheckbox
+                            checked={slackNudgeEnabled}
+                            onChange={setSlackNudgeEnabled}
+                            disabled={currentTeamLoading}
+                            label="Nudge users to open tickets"
+                        />
                     </div>
                     {memberAlertsEnabled && (
                         <>
@@ -152,9 +196,9 @@ function SlackChannelSection(): JSX.Element {
                                     <LemonInputSelect
                                         mode="single"
                                         value={slackAlertChannelId ? [slackAlertChannelId] : []}
-                                        options={slackChannels.map((c: { id: string; name: string }) => ({
+                                        options={slackChannels.map((c) => ({
                                             key: c.id,
-                                            label: `#${c.name}`,
+                                            label: `#${c.name ?? c.id}`,
                                         }))}
                                         onChange={(newValue: string[]) => setSlackAlertChannel(newValue[0] ?? null)}
                                         loading={slackChannelsLoading}

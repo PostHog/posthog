@@ -42,7 +42,7 @@ class PreparedSeries:
     label: str
 
 
-def _prepare_series(series: TrendResult, is_non_time_series: bool) -> PreparedSeries | None:
+def _prepare_series(series: TrendResult, is_non_time_series: bool, *, drop_current: bool) -> PreparedSeries | None:
     """Extract data + dates from a TrendResult and drop the incomplete interval.
 
     Returns None if the series has too few points for detection.
@@ -56,7 +56,7 @@ def _prepare_series(series: TrendResult, is_non_time_series: bool) -> PreparedSe
         return None
 
     dates: list[str] = series.get("days") or series.get("labels") or []
-    data, dates = _drop_incomplete_current_interval(data, dates, is_non_time_series)
+    data, dates = _drop_incomplete_current_interval(data, dates, is_non_time_series, drop_current=drop_current)
 
     return PreparedSeries(data=data, dates=dates, label=series.get("label", "Series"))
 
@@ -101,12 +101,19 @@ def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
     # Use the configured window, falling back to the default
     window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOW
 
-    # Account for preprocessing that consumes usable data points
+    # Statistical detectors exclude training_offset_n trailing points from the fit (default 1);
+    # a caller-configured larger offset needs the same headroom here as detect()/detect_batch()
+    # apply, or every check silently falls short of _validate_data's minimum and never fires.
+    offset = max(detector_config.get("training_offset_n") or 1, 1)
+
+    # Account for preprocessing that consumes usable data points. diffs_n only ever runs a single
+    # first-difference pass regardless of its configured magnitude (preprocess_data treats it as a
+    # boolean), so only one synthetic leading point is ever introduced.
     preprocessing = detector_config.get("preprocessing") or {}
     lags_n = preprocessing.get("lags_n") or 0
-    diffs_n = preprocessing.get("diffs_n") or 0
+    diffs_n = 1 if preprocessing.get("diffs_n") else 0
 
-    samples_needed = window + 1 + lags_n + diffs_n
+    samples_needed = window + offset + lags_n + diffs_n
 
     # Never go below the per-detector minimum guard
     return max(samples_needed, guard)
@@ -121,6 +128,10 @@ def _date_range_override_for_detector(query: TrendsQuery, min_samples: int) -> d
             date_from = f"-{min_samples}w"
         case IntervalType.MONTH:
             date_from = f"-{min_samples}m"
+        case IntervalType.QUARTER:
+            date_from = f"-{min_samples}q"
+        case IntervalType.YEAR:
+            date_from = f"-{min_samples}y"
         case _:
             date_from = f"-{min_samples}h"
 

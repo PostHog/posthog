@@ -14,6 +14,7 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { dateMapping } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -32,10 +33,10 @@ import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
+import { AIObservabilityDigestScoutButton } from './AIObservabilityDigestScoutButton'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
 import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlaylist'
-import { AIObservabilitySetupPrompt } from './AIObservabilitySetupPrompt'
 import {
     buildApplyUrlStatePayload,
     AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID,
@@ -44,6 +45,7 @@ import {
 import { AIObservabilityTools } from './AIObservabilityTools'
 import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
+import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
@@ -63,7 +65,13 @@ export const scene: SceneExport = {
     component: AIObservabilityScene,
     logic: aiObservabilitySharedLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: aiObservabilityEmptyState,
 }
+
+const SENTIMENT_DATE_VALUES = new Set(['-1h', '-24h', '-7d', '-14d', '-30d'])
+const SENTIMENT_DATE_OPTIONS = dateMapping.filter(({ values }) =>
+    values.some((value) => SENTIMENT_DATE_VALUES.has(value))
+)
 
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
     const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
@@ -77,23 +85,24 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
-            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+            <DateFilter
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onChange={setDates}
+                dateOptions={activeTab === 'sentiment' ? SENTIMENT_DATE_OPTIONS : undefined}
+                showRollingRangePicker={activeTab !== 'sentiment'}
+                showCustomRangeOptions={activeTab !== 'sentiment'}
+            />
             {!hidePropertyFilters && (
-                <>
-                    <PropertyFilters
-                        propertyFilters={propertyFilters}
-                        taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
-                        onChange={setPropertyFilters}
-                        pageKey="llm-analytics"
-                    />
-                    <div className="flex-1" />
-                    <TestAccountFilterSwitch
-                        checked={shouldFilterTestAccounts}
-                        onChange={setShouldFilterTestAccounts}
-                    />
-                </>
+                <PropertyFilters
+                    propertyFilters={propertyFilters}
+                    taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                    onChange={setPropertyFilters}
+                    pageKey="llm-analytics"
+                />
             )}
-            {hidePropertyFilters && <div className="flex-1" />}
+            <div className="flex-1" />
+            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
             {activeTab === 'dashboard' && selectedDashboardId && (
                 <AccessControlAction
                     resourceType={AccessControlResourceType.LlmAnalytics}
@@ -157,19 +166,21 @@ function AIObservabilityDashboard(): JSX.Element {
     }, [currentExternalFilters, nextExternalFilters, selectedDashboardId, setExternalFilters])
 
     return (
-        <AIObservabilitySetupPrompt>
-            <div className="@container/dashboard" data-attr="llm-analytics-costs">
-                <Filters />
+        <div className="@container/dashboard" data-attr="llm-analytics-costs">
+            <Filters />
 
-                {availableDashboardsLoading || !selectedDashboardId ? (
-                    <div className="text-center p-8">
-                        <Spinner captureTime />
-                    </div>
-                ) : (
-                    <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
-                )}
-            </div>
-        </AIObservabilitySetupPrompt>
+            {availableDashboardsLoading || !selectedDashboardId ? (
+                <div className="text-center p-8">
+                    <Spinner captureTime />
+                </div>
+            ) : (
+                <Dashboard
+                    id={selectedDashboardId.toString()}
+                    placement={DashboardPlacement.Builtin}
+                    showCreateAnomalyAlertButton
+                />
+            )}
+        </div>
     )
 }
 
@@ -504,33 +515,21 @@ function AIObservabilitySceneContent(): JSX.Element {
         {
             key: 'traces',
             label: 'Traces',
-            content: (
-                <AIObservabilitySetupPrompt thing="trace">
-                    <AIObservabilityTraces />
-                </AIObservabilitySetupPrompt>
-            ),
+            content: <AIObservabilityTraces />,
             link: combineUrl(urls.aiObservabilityTraces(), searchParams).url,
             'data-attr': 'traces-tab',
         },
         {
             key: 'generations',
             label: 'Generations',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <AIObservabilityGenerations />
-                </AIObservabilitySetupPrompt>
-            ),
+            content: <AIObservabilityGenerations />,
             link: combineUrl(urls.aiObservabilityGenerations(), searchParams).url,
             'data-attr': 'generations-tab',
         },
         {
             key: 'users',
             label: 'Users',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <AIObservabilityUsers />
-                </AIObservabilitySetupPrompt>
-            ),
+            content: <AIObservabilityUsers />,
             link: combineUrl(urls.aiObservabilityUsers(), searchParams).url,
             'data-attr': 'users-tab',
         },
@@ -539,11 +538,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'errors',
         label: 'Errors',
-        content: (
-            <AIObservabilitySetupPrompt>
-                <AIObservabilityErrors />
-            </AIObservabilitySetupPrompt>
-        ),
+        content: <AIObservabilityErrors />,
         link: combineUrl(urls.aiObservabilityErrors(), searchParams).url,
         'data-attr': 'errors-tab',
     })
@@ -551,11 +546,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'tools',
         label: 'Tools',
-        content: (
-            <AIObservabilitySetupPrompt>
-                <AIObservabilityTools />
-            </AIObservabilitySetupPrompt>
-        ),
+        content: <AIObservabilityTools />,
         link: combineUrl(urls.aiObservabilityTools(), searchParams).url,
         'data-attr': 'tools-tab',
     })
@@ -564,10 +555,11 @@ function AIObservabilitySceneContent(): JSX.Element {
         key: 'sentiment',
         label: 'Sentiment',
         content: (
-            <AIObservabilitySetupPrompt>
-                <Filters />
+            <>
+                {/* Sentiment filters evaluation results, not generations, so the generation property filters don't apply */}
+                <Filters hidePropertyFilters />
                 <AIObservabilitySentiment />
-            </AIObservabilitySetupPrompt>
+            </>
         ),
         link: combineUrl(urls.aiObservabilitySentiment(), searchParams).url,
         'data-attr': 'llma-sentiment-tab',
@@ -577,10 +569,10 @@ function AIObservabilitySceneContent(): JSX.Element {
         key: 'sessions',
         label: 'Sessions',
         content: (
-            <AIObservabilitySetupPrompt>
+            <>
                 <Filters />
                 <AIObservabilitySessionsPlaylist />
-            </AIObservabilitySetupPrompt>
+            </>
         ),
         link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
         'data-attr': 'sessions-tab',
@@ -589,11 +581,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     tabs.push({
         key: 'reviews',
         label: 'Reviews',
-        content: (
-            <AIObservabilitySetupPrompt thing="trace">
-                <AIObservabilityHumanReviews />
-            </AIObservabilitySetupPrompt>
-        ),
+        content: <AIObservabilityHumanReviews />,
         link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
         'data-attr': 'llma-reviews-tab',
     })
@@ -615,6 +603,7 @@ function AIObservabilitySceneContent(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {activeTab === 'dashboard' ? <AIObservabilityDigestScoutButton /> : null}
                         <LemonButton
                             to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                             type="secondary"

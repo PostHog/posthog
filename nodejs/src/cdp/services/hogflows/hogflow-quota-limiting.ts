@@ -34,13 +34,18 @@ export async function checkHogFlowQuotaLimits(
     }
 
     // Check which quotas the team is limited on
-    const [isEmailQuotaLimited, isDestinationQuotaLimited] = await Promise.all([
+    const [isEmailQuotaLimited, isPushQuotaLimited, isDestinationQuotaLimited] = await Promise.all([
         quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_emails'),
+        quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_push'),
         quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_destinations_dispatched'),
     ])
 
     // Check if any billable action type is quota limited
     if (isEmailQuotaLimited && billableActionTypes.includes('function_email')) {
+        return { isLimited: true }
+    }
+
+    if (isPushQuotaLimited && billableActionTypes.includes('function_push')) {
         return { isLimited: true }
     }
 
@@ -76,6 +81,7 @@ export async function shouldBlockHogFlowDueToQuota(
                 metric_kind: 'failure',
                 metric_name: 'quota_limited',
                 count: 1,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             },
             'hog_flow'
         )

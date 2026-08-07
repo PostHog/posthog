@@ -11,6 +11,7 @@ from temporalio.service import RPCError
 
 from posthog.models import OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.temporal.common.test_utils import start_test_worker
@@ -38,6 +39,16 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.client.force_login(self.user)
+
+    def _create_aws_s3_integration(self, team: Team) -> Integration:
+        return Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.AWS_S3,
+            integration_id="prod-aws",
+            config={"name": "prod-aws", "aws_account_id": "123456789012"},
+            sensitive_config={"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+            created_by=self.user,
+        )
 
     @freeze_time("2022-02-08")
     def test_delete_team_activity_log(self):
@@ -76,6 +87,33 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 "client": None,
                 "created_at": ANY,
                 "ip_address": None,
+            },
+            {
+                # The env→project rewrite routes the delete through the project-delete path, which cascades
+                # the project and logs a Project "deleted" activity alongside the Team one.
+                "_state": ANY,
+                "activity": "deleted",
+                "created_at": ANY,
+                "detail": {
+                    "changes": None,
+                    "context": None,
+                    # The org's first project holds the plain default name, so this team's
+                    # implicit project got the suffixed one
+                    "name": "Default project 2",
+                    "short_id": None,
+                    "trigger": None,
+                    "type": None,
+                },
+                "id": ANY,
+                "is_system": False,
+                "organization_id": ANY,
+                "team_id": team.pk,
+                "item_id": str(team.pk),
+                "scope": "Project",
+                "user_id": self.user.pk,
+                "was_impersonated": False,
+                "client": None,
+                "ip_address": "127.0.0.1",
             },
             {
                 "_state": ANY,
@@ -143,17 +181,17 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
 
     def test_delete_batch_exports(self):
         team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        integration = self._create_aws_s3_integration(team)
 
         batch_export_data = {
             "name": "my-production-s3-bucket-destination",
             "destination": {
                 "type": "AwsS3",
+                "integration": integration.id,
                 "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",
                     "prefix": "posthog-events/",
-                    "aws_access_key_id": "abc123",
-                    "aws_secret_access_key": "secret",
                 },
             },
             "interval": "hour",
@@ -188,17 +226,17 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
     def test_delete_team_with_already_deleted_batch_export(self):
         """Team deletion should succeed even if batch exports were already soft-deleted."""
         team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        integration = self._create_aws_s3_integration(team)
 
         batch_export_data = {
             "name": "my-production-s3-bucket-destination",
             "destination": {
                 "type": "AwsS3",
+                "integration": integration.id,
                 "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",
                     "prefix": "posthog-events/",
-                    "aws_access_key_id": "abc123",
-                    "aws_secret_access_key": "secret",
                 },
             },
             "interval": "hour",

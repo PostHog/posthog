@@ -1,6 +1,17 @@
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
+
+import { initKeaTests } from '~/test/init'
 import { PathCleaningFilter, PropertyOperator } from '~/types'
 
-import { buildPageUrlOptions, cleanPageURLForDisplay, createPageReportsFilters } from './pageReportsLogic'
+import {
+    buildPageUrlOptions,
+    cleanPageURLForDisplay,
+    createPageReportsFilters,
+    pageReportsLogic,
+} from './pageReportsLogic'
 
 describe('createPageReportsFilters', () => {
     const hostFilters = (
@@ -46,6 +57,11 @@ describe('createPageReportsFilters', () => {
 
         expect(hostFilters(filters).map((filter) => filter.value)).toEqual(expectedHostValues)
         expect(filters.map((filter) => filter.key).sort()).toEqual([...expectKeys].sort())
+    })
+
+    // kea-router JSON-parses query params, so ?pageURL=123 arrives (and gets persisted) as a number
+    test.each([123, true, null])('non-string page URL %p does not crash the filter builder', (url) => {
+        expect(() => createPageReportsFilters(url as unknown as string, true, null)).not.toThrow()
     })
 
     test.each([
@@ -131,6 +147,12 @@ describe('cleanPageURLForDisplay', () => {
             expected: 'posthog.com/files/:id',
         },
         {
+            name: 'decodes an already-cleaned alias after URL parsing',
+            url: 'posthog.com/files/<id>',
+            filters: [{ regex: '\\d+', alias: '<id>' }],
+            expected: 'posthog.com/files/<id>',
+        },
+        {
             name: 'applies rules in order',
             url: 'posthog.com/files/123',
             filters: [
@@ -187,5 +209,34 @@ describe('buildPageUrlOptions', () => {
         expect(buildPageUrlOptions(urls('a.com/p/1'), 'a.com/p/9', idRule, true)).toEqual([
             { key: 'a.com/p/9', label: 'a.com/p/:id' },
         ])
+    })
+})
+
+describe('pageReportsLogic setPageUrl', () => {
+    let logic: ReturnType<typeof pageReportsLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        logic = pageReportsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    test('picking a page URL keeps other search params instead of replacing them', () => {
+        router.actions.push('/web/page-reports', { domain: 'posthog.com' })
+        const paramsBeforePick = router.values.searchParams
+
+        logic.actions.setPageUrl('/pricing')
+
+        expect(router.values.searchParams).toEqual({ ...paramsBeforePick, pageURL: '/pricing' })
+        expect(router.values.searchParams.domain).toEqual('posthog.com')
     })
 })

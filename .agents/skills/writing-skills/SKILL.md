@@ -21,7 +21,7 @@ hogli lint:skills
 # 4. Build to verify
 hogli build:skills
 
-# 5. Test locally with PostHog Code or a coding agent
+# 5. Test locally with PostHog Desktop or a coding agent
 hogli sync:skill -- --name <skill-name>
 
 # 6. Delete the test skill (optional)
@@ -38,6 +38,15 @@ it's about how an experienced person would approach a job using those tools.
 
 Ask: "If a customer asked an agent to do X with my feature, would the agent know the right approach?"
 If not, write a skill.
+
+### How many is too many?
+
+Skill count is a budgeted, shared resource — agents pick from a list of _all_ skill descriptions, and many harnesses truncate that list once it grows long, so every extra skill makes the others less likely to fire.
+Prefer a small set of focused skills, each with rich `references/`, over many thin ones:
+
+- **New trigger → new skill.** A skill earns its own entry point only when its "when to use it" is clearly distinct from every existing skill.
+- **More detail → `references/`, not a new skill.** Another failure mode, SDK variant, or query catalog is depth on an existing job — add it to that skill's `references/` instead of spending a new slot.
+- **Consolidate near-duplicate siblings.** Skills sharing a diagnosis, bug class, or trigger should be one skill with references, not two.
 
 ## Key rules
 

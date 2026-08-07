@@ -7,7 +7,7 @@ Called by facade/api.py. Do not call from outside this module.
 
 import math
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -15,7 +15,12 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
+
+from products.customer_analytics.backend.events import emit_account_custom_property_changed
 from products.customer_analytics.backend.models import (
+    CANONICAL_LAST_SLACK_MESSAGE_AT,
     Account,
     CustomPropertyDefinition,
     CustomPropertyValue,
@@ -65,6 +70,8 @@ def set_custom_property_value(
     definition_id: str | UUID,
     value: Any,
     created_by_id: int | None = None,
+    actor: User | None = None,
+    workflow_id: str | None = None,
 ) -> CustomPropertyValue:
     """Set an account's value for a custom property, preserving history.
 
@@ -82,7 +89,13 @@ def set_custom_property_value(
         raise CustomPropertyDefinitionNotFound(definition_id) from exc
     _assert_account_in_team(team_id=team_id, account_id=account_id)
     return _set_value(
-        team_id=team_id, account_id=account_id, definition=definition, value=value, created_by_id=created_by_id
+        team_id=team_id,
+        account_id=account_id,
+        definition=definition,
+        value=value,
+        created_by_id=created_by_id,
+        actor=actor,
+        workflow_id=workflow_id,
     )
 
 
@@ -92,6 +105,8 @@ def set_account_custom_properties_by_id(
     account_id: str | UUID,
     properties: dict[str, Any],
     created_by_id: int | None = None,
+    actor: User | None = None,
+    workflow_id: str | None = None,
 ) -> list[CustomPropertyValue]:
     """Set several of an account's custom property values, addressing each by definition id.
 
@@ -112,13 +127,62 @@ def set_account_custom_properties_by_id(
             raise CustomPropertyDefinitionNotFound(definition_id) from exc
         try:
             row = _set_value(
-                team_id=team_id, account_id=account_id, definition=definition, value=value, created_by_id=created_by_id
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                value=value,
+                created_by_id=created_by_id,
+                actor=actor,
+                workflow_id=workflow_id,
             )
         except InvalidCustomPropertyValue as exc:
             exc.field = str(definition_id)
             raise
         rows.append(row)
     return rows
+
+
+MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES = timedelta(hours=1)
+_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS = 3
+
+
+def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
+    """Record when a customer last messaged in the Slack channel bound to `account_id`.
+
+    Creates the canonical definition on first write for the team — no user owns it, so
+    `created_by` stays null and no activity-log entry is written. Skips the write when the stored
+    value is newer than `timestamp` (Slack events can arrive out of order) or less than
+    `MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES` behind it. Returns whether it wrote.
+
+    Raises `InvalidCustomPropertyValue` when the team already has a property under the canonical
+    name with a non-datetime type.
+    """
+    definition, _ = CustomPropertyDefinition.objects.for_team(team_id).get_or_create(
+        team_id=team_id,
+        name=CANONICAL_LAST_SLACK_MESSAGE_AT,
+        defaults={"display_type": DisplayType.DATETIME},
+    )
+    for _attempt in range(_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS):
+        current = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+            .values_list("value_datetime", flat=True)
+            .first()
+        )
+        if current is not None and timestamp - current < MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES:
+            return False
+        try:
+            _set_value(
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                value=timestamp,
+                created_by_id=None,
+            )
+        except CustomPropertyValueConflict:
+            continue
+        return True
+    return False
 
 
 def _set_value(
@@ -128,20 +192,33 @@ def _set_value(
     definition: CustomPropertyDefinition,
     value: Any,
     created_by_id: int | None,
+    actor: User | None = None,
+    workflow_id: str | None = None,
 ) -> CustomPropertyValue:
     """Coerce `value` and atomically supersede the account's active row for `definition`."""
     column, coerced = _coerce_to_column(definition, value)
     try:
         with transaction.atomic():
-            CustomPropertyValue.objects.for_team(team_id).filter(
+            active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
                 account_id=account_id, definition_id=definition.id, is_deleted=False
-            ).update(is_deleted=True)
+            )
+            previous_row = active_rows.first()
+            active_rows.update(is_deleted=True)
             row = CustomPropertyValue.objects.for_team(team_id).create(
                 team_id=team_id,
                 account_id=account_id,
                 definition_id=definition.id,
                 created_by_id=created_by_id,
                 **{column: coerced},
+            )
+            _schedule_value_changed_event(
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                previous_row=previous_row,
+                current_value=coerced,
+                actor=actor,
+                workflow_id=workflow_id,
             )
     except IntegrityError as exc:
         if _is_active_value_conflict(exc):
@@ -153,6 +230,46 @@ def _set_value(
     # lazy FK load against the fail-closed manager (which would raise outside request scope).
     row.definition = definition
     return row
+
+
+def _schedule_value_changed_event(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition: CustomPropertyDefinition,
+    previous_row: CustomPropertyValue | None,
+    current_value: CoercedValue,
+    actor: User | None,
+    workflow_id: str | None,
+) -> None:
+    """Emit $account_custom_property_changed post-commit when the stored value actually changes.
+
+    A first set emits with a null previous_value. Rewriting the same value stays silent: the view
+    sync rewrites every value each run, and a workflow re-setting the same value must not
+    retrigger itself.
+    """
+    previous_value: CoercedValue | None = None
+    if previous_row is not None:
+        previous_row.definition = definition
+        previous_value = value_of(previous_row)
+    if previous_value == current_value:
+        return
+    account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
+
+    def emit() -> None:
+        try:
+            emit_account_custom_property_changed(
+                account=account,
+                definition=definition,
+                previous_value=previous_value,
+                current_value=current_value,
+                actor=actor,
+                workflow_id=workflow_id,
+            )
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
 
 
 def _is_active_value_conflict(exc: IntegrityError) -> bool:
@@ -167,6 +284,70 @@ def list_active_custom_property_values(*, team_id: int, account_id: str | UUID) 
         .select_related("definition", "created_by")
         .order_by("-created_at")
     )
+
+
+VALUE_SUGGESTIONS_LIMIT = 50
+
+
+def list_custom_property_value_suggestions(*, team_id: int, definition_id: str | UUID, search: str | None) -> list[str]:
+    """Suggested filter values for a custom property: a select's option labels, a boolean's
+    true/false, otherwise distinct active values across the team's accounts. Empty when the
+    definition doesn't exist — suggestions are best-effort, not an error surface."""
+    try:
+        definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
+    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+        return []
+
+    needle = (search or "").strip().lower()
+
+    if definition.display_type == DisplayType.SELECT:
+        labels = [str(option.get("label") or "") for option in definition.options or []]
+        return [label for label in labels if label and needle in label.lower()][:VALUE_SUGGESTIONS_LIMIT]
+    if definition.data_type == DataType.BOOLEAN:
+        return [value for value in ("true", "false") if needle in value]
+    if definition.data_type == DataType.DATETIME:
+        # Date filters render a date picker, not text suggestions.
+        return []
+
+    queryset = CustomPropertyValue.objects.for_team(team_id).filter(definition_id=definition.id, is_deleted=False)
+
+    if definition.data_type == DataType.NUMERIC:
+        numeric_values = (
+            queryset.exclude(value_num__isnull=True)
+            .values_list("value_num", flat=True)
+            .distinct()
+            .order_by("value_num")
+        )
+        # The needle matches the *formatted* numeric string, which the database can't compute —
+        # filter in Python and stop once the limit fills, instead of slicing the queryset first.
+        suggestions: list[str] = []
+        for value in numeric_values.iterator():
+            formatted = _format_numeric_suggestion(value)
+            if formatted is None or needle not in formatted:
+                continue
+            suggestions.append(formatted)
+            if len(suggestions) == VALUE_SUGGESTIONS_LIMIT:
+                break
+        return suggestions
+
+    if needle:
+        queryset = queryset.filter(value_str__icontains=needle)
+    string_values = (
+        queryset.exclude(value_str__isnull=True)
+        .values_list("value_str", flat=True)
+        .distinct()
+        .order_by("value_str")[:VALUE_SUGGESTIONS_LIMIT]
+    )
+    return [value for value in string_values if value is not None]
+
+
+def _format_numeric_suggestion(value: float | None) -> str | None:
+    # Integral floats render without a trailing ".0", matching how the filter column displays
+    # them. Non-finite values can't pass write-path coercion; skip a stray row rather than crash.
+    # None only occurs in the type, not at runtime — the caller excludes null rows.
+    if value is None or not math.isfinite(value):
+        return None
+    return str(int(value)) if value == int(value) else str(value)
 
 
 def _assert_account_in_team(*, team_id: int, account_id: str | UUID) -> None:

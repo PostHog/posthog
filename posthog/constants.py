@@ -49,9 +49,16 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
+    LOGS_RETENTION_30D = "logs_retention_30d"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
+    POSTHOG_CODE_USAGE = "posthog_code_usage"
+
+
+LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
+    30: AvailableFeature.LOGS_RETENTION_30D,
+}
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -323,6 +330,9 @@ PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
 SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
+EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
+    "experiments-retention-metric-events-preaggregation"
+)
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

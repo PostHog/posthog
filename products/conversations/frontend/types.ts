@@ -1,6 +1,10 @@
-import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import type { AccessControlLevel } from '~/types'
 
-import type { TicketAssignee } from './components/Assignee'
+import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
+import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
+import type { TicketViewFiltersApi } from './generated/api.schemas'
+
+export type { AssigneeFilterEntry }
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
@@ -15,13 +19,35 @@ export type TicketChannelDetail =
     | 'widget_api'
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
-export type TicketPriority = 'low' | 'medium' | 'high'
+export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
+/** Legacy single-value shape, still present in old saved views and persisted filter state. */
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
+
+function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
+    if (value === 'unassigned' || value === 'me') {
+        return true
+    }
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const candidate = value as { type?: unknown; id?: unknown }
+    return (
+        (candidate.type === 'user' || candidate.type === 'role') &&
+        (typeof candidate.id === 'string' || typeof candidate.id === 'number')
+    )
+}
+
+export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
+    if (Array.isArray(value)) {
+        return value.filter(isAssigneeFilterEntry).slice(0, MAX_ASSIGNEE_FILTER_ENTRIES)
+    }
+    return isAssigneeFilterEntry(value) ? [value] : []
+}
 
 export type TicketTagsMatch = 'any' | 'all'
 
@@ -47,8 +73,11 @@ export interface AITriage {
     finished_at?: string
     workflow_id?: string
     run_id?: string
+    ai_trace_id?: string
     missing?: string[]
 }
+
+export type AiReplyFeedbackRating = 'good' | 'bad'
 
 export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
 
@@ -64,20 +93,13 @@ export interface KnowledgeGapSuggestion {
     created_at: string
 }
 
-export interface TicketViewFilters {
-    status?: TicketStatus[]
-    priority?: TicketPriority[]
-    channel?: TicketChannel | 'all'
-    sla?: TicketSlaState | 'all'
-    aiTriageResult?: AITriageFilterValue[]
-    assignee?: AssigneeFilterValue
-    tags?: string[]
-    tagsMatch?: TicketTagsMatch
-    tagsExclude?: string[]
-    dateFrom?: string | null
-    dateTo?: string | null
-    sorting?: Sorting | null
-    search?: string
+/**
+ * Canonical saved-view filter shape, generated from the backend's TicketViewFiltersSerializer.
+ * `assignee` is widened locally: the API stores filters raw, so old saved views can still
+ * return the legacy single-value shape — always read it through normalizeAssigneeFilter.
+ */
+export type TicketViewFilters = Omit<TicketViewFiltersApi, 'assignee'> & {
+    assignee?: AssigneeFilterEntry[] | AssigneeFilterValue
 }
 
 export interface SavedTicketView {
@@ -87,6 +109,7 @@ export interface SavedTicketView {
     filters: TicketViewFilters
     created_at: string
     created_by: { id: number; first_name?: string; email?: string } | null
+    is_favorited: boolean
 }
 
 export interface UserBasic {
@@ -145,10 +168,14 @@ export interface Ticket {
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
+    zendesk_ticket_id?: number | null
     organization_id?: string | null
+    organization_id_source?: string | null
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
+    /** The effective access level the current user has for this ticket. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface ConversationTicket {
@@ -179,6 +206,7 @@ export interface ConversationMessage {
 }
 
 export interface MessageAuthor {
+    id?: number
     first_name?: string
     last_name?: string
     email?: string
@@ -196,7 +224,12 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    /** Edit count from the comment row. 0 means never edited. */
+    version?: number
     emailDeliveryStatus?: EmailDeliveryStatus
+    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+     * is rendered with external image auto-loading disabled. */
+    fromZendesk?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -229,6 +262,7 @@ export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+    { value: 'critical', label: 'Critical' },
 ]
 
 // Multiselect-compatible options for LemonInputSelect
@@ -236,6 +270,7 @@ export const priorityMultiselectOptions: { key: TicketPriority; label: string }[
     { key: 'low', label: 'Low' },
     { key: 'medium', label: 'Medium' },
     { key: 'high', label: 'High' },
+    { key: 'critical', label: 'Critical' },
 ]
 
 export const channelOptions: { value: TicketChannel | 'all'; label: string }[] = [

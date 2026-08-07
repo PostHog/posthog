@@ -3,15 +3,14 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
+import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -50,6 +49,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
+        insightFilter,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const {
@@ -59,9 +59,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showConfidenceIntervals,
         showMovingAverage,
     } = useValues(trendsDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
-    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
+    // Hide weekends is superseded by the days-of-week date filter and is being sunset: the option
+    // only renders on insights that already have it on, so it can be turned off but not on. Gating
+    // on the value rather than the key matters — the key is persisted as false on most insights.
+    const hasHideWeekends = !!trendsFilter?.hideWeekends
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -92,11 +93,16 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
     // also get the position selector since they render the quill legend via config.legend.
-    const useQuillLegendOptions = usesInChartLegend || (quillLegendEnabled && showFunnelLegendConfig)
+    const useQuillLegendOptions = usesInChartLegend || showFunnelLegendConfig
 
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
+    // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
+    // graphs) draw curves, so they're the only ones with curvature to straighten. Retention and
+    // funnel trends default to their line graph when display is unset.
+    const isLineChartInsight = isLineDisplay || ((isRetention || isTrendsFunnel) && !display)
+    const showLineStyleConfig = (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight
 
     // The box plot and slope graph only show a couple of options each; everything else falls
     // through to the full shared list.
@@ -156,7 +162,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
         }
-        if (isTrends && !hideContinuousChartOptions && hideWeekendsEnabled) {
+        if (isTrends && !hideContinuousChartOptions && hasHideWeekends) {
             displayItems.push(DisplayOptions.HideWeekends)
         }
         if (showAnnotationsConfig) {
@@ -201,6 +207,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
 
     if (showYAxisScale) {
         items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
+    }
+
+    if (showLineStyleConfig) {
+        items.push({ title: 'Line style', items: [DisplayOptions.LineStyle] })
     }
 
     if (showYAxisScale && !isBoxPlot) {
@@ -248,10 +258,11 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             : 0) +
         ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
+        (hasHideWeekends ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +

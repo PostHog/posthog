@@ -126,6 +126,44 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
     return context
 }
 
+export function convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals({
+    team,
+    externalId,
+    groupType,
+    siteUrl,
+}: {
+    team: Team
+    externalId: string
+    groupType: string
+    siteUrl: string
+}): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            event: '$batch_hog_flow_invocation',
+            // $groups drives the worker's group hydration, so account actions defaulting to
+            // {groups.<type>.id} resolve without any account-specific plumbing.
+            properties: { $groups: { [groupType]: externalId } },
+            uuid: new UUIDT().toString(),
+            // The account's group key doubles as the invocation's distinct_id so
+            // invocation_results are filterable per account. Account runs carry no person;
+            // the hogflow worker skips person resolution for account audiences.
+            distinct_id: externalId,
+            elements_chain: '',
+            timestamp: DateTime.now().toISO(),
+            url: '',
+        },
+    }
+
+    return context
+}
+
 export function convertInternalEventToHogFunctionInvocationGlobals(
     data: CdpInternalEvent,
     team: Team,
@@ -155,7 +193,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
         'exception_props' in properties &&
         typeof properties.exception_props === 'object'
     ) {
-        properties = { ...properties, ...properties.exception_props }
+        properties = { ...properties.exception_props, ...properties }
         delete properties.exception_props
     }
 
@@ -245,7 +283,11 @@ export function isNativeHogFunction(hogFunction: Pick<HogFunctionType, 'template
 }
 
 export function isInternalErrorTrackingEvent(event: CdpInternalEvent['event']): boolean {
-    return ['$error_tracking_issue_created', '$error_tracking_issue_reopened'].includes(event.event)
+    return [
+        '$error_tracking_issue_created',
+        '$error_tracking_issue_reopened',
+        '$error_tracking_issue_spiking',
+    ].includes(event.event)
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {

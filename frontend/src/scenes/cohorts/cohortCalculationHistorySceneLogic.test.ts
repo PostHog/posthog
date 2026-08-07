@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
@@ -164,6 +165,9 @@ describe('cohortCalculationHistorySceneLogic', () => {
     })
 
     describe('error handling', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         beforeEach(async () => {
             await initLogic({ cohortId: 123 })
         })

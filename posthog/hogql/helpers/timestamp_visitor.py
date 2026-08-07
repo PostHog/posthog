@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from posthog.hogql import ast
@@ -8,6 +8,24 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.visitor import Visitor
+
+
+def parse_zoned_datetime_string(value: object) -> Optional[datetime]:
+    """Parse a datetime string that has an explicit timezone ('Z' or an offset); None if naive or invalid."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    try:
+        # Dates too close to datetime.min/max overflow when converted to another timezone.
+        parsed.astimezone(UTC)
+    except (OverflowError, ValueError):
+        return None
+    return parsed
 
 
 def is_simple_timestamp_field_expression(

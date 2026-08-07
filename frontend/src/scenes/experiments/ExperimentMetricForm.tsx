@@ -41,6 +41,7 @@ import {
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
+import { EXPOSURE_DEFAULT_EVENT, isDefaultExposureConfig } from './exposureContract'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -52,10 +53,13 @@ import {
     getMathAvailability,
 } from './utils'
 
-export function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
+export function getExposureCriteriaLabel(
+    exposureCriteria: ExperimentExposureCriteria | undefined,
+    defaultEvent: string = EXPOSURE_DEFAULT_EVENT
+): string {
     const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig) {
-        return '$feature_flag_called'
+    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
+        return defaultEvent
     }
 
     return getExposureConfigDisplayName(exposureConfig)
@@ -125,6 +129,7 @@ export function ExperimentMetricForm({
     filterTestAccounts,
     exposureCriteria,
     openExposureCriteriaModal,
+    resolvedExposureEvent = EXPOSURE_DEFAULT_EVENT,
 }: {
     metric: ExperimentMetric
     isSharedMetric?: boolean
@@ -132,6 +137,11 @@ export function ExperimentMetricForm({
     filterTestAccounts: boolean
     exposureCriteria?: ExperimentExposureCriteria | undefined
     openExposureCriteriaModal?: (exposureCriteria?: ExperimentExposureCriteria) => void
+    /**
+     * The experiment's server-resolved default exposure event. Omitted for shared metrics, which
+     * aren't tied to one experiment and so have no resolvable event.
+     */
+    resolvedExposureEvent?: string
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
@@ -302,11 +312,12 @@ export function ExperimentMetricForm({
                         {exposureCriteria ? (
                             <>
                                 Counts only after exposure event{' '}
-                                <LemonTag>{getExposureCriteriaLabel(exposureCriteria)}</LemonTag>
+                                <LemonTag>{getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}</LemonTag>
                             </>
                         ) : (
                             <>
-                                Counts only after exposure event (<LemonTag>$feature_flag_called</LemonTag> by default)
+                                Counts only after exposure event (<LemonTag>{resolvedExposureEvent}</LemonTag> by
+                                default)
                             </>
                         )}
                         <Tooltip

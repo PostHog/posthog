@@ -42,6 +42,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
+import { extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
+import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -51,7 +53,11 @@ import {
     PropertyDefinitionType,
 } from '~/types'
 
-import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
+import {
+    cleanedInsightActorsQueryOptions,
+    funnelBreakdownSelectValue,
+    funnelStepBreakdownFromSelectValue,
+} from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 import { SessionActorDisplay } from './SessionActorDisplay'
@@ -191,8 +197,49 @@ export function PersonsModal({
                     ) : null}
 
                     {query &&
-                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) =>
-                            key === 'breakdowns'
+                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) => {
+                            if (query.kind === NodeKind.FunnelsActorsQuery) {
+                                // Funnel actor queries use their own field names (funnelStepBreakdown),
+                                // and Baseline maps to "no breakdown filter".
+                                if (key === 'breakdown' && options.length > 1) {
+                                    return (
+                                        <div key={key}>
+                                            <LemonSelect
+                                                fullWidth
+                                                className="mb-2"
+                                                value={funnelBreakdownSelectValue(query.funnelStepBreakdown, options)}
+                                                onChange={(v) =>
+                                                    updateActorsQuery({
+                                                        funnelStepBreakdown: funnelStepBreakdownFromSelectValue(v),
+                                                    })
+                                                }
+                                                options={options}
+                                            />
+                                        </div>
+                                    )
+                                }
+                                if (key === 'compare' && options.length > 1) {
+                                    return (
+                                        <div key={key}>
+                                            <LemonSelect
+                                                fullWidth
+                                                className="mb-2"
+                                                value={query.compare ?? 'current'}
+                                                onChange={(v) =>
+                                                    v &&
+                                                    updateActorsQuery({
+                                                        compare: v as FunnelsActorsQuery['compare'],
+                                                    })
+                                                }
+                                                options={options}
+                                            />
+                                        </div>
+                                    )
+                                }
+                                // The step (and converted/dropped status) is fixed at click time.
+                                return null
+                            }
+                            return key === 'breakdowns'
                                 ? options.map(({ values }, index) => (
                                       <div key={`${key}_${index}`}>
                                           <LemonSelect
@@ -224,7 +271,7 @@ export function PersonsModal({
                                           />
                                       </div>
                                   )
-                        )}
+                        })}
 
                     <div className="flex items-center justify-between gap-2 text-secondary">
                         <div className="flex items-center gap-2">
@@ -260,7 +307,11 @@ export function PersonsModal({
                     <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {errorObject ? (
                             validationError ? (
-                                <InsightValidationError query={query} detail={validationError} />
+                                <InsightValidationError
+                                    query={query}
+                                    detail={validationError}
+                                    validationErrorCode={extractValidationErrorCode(errorObject)}
+                                />
                             ) : (
                                 <InsightErrorState query={query} />
                             )

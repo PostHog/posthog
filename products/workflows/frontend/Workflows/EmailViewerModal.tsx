@@ -1,11 +1,7 @@
-import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconLetter } from '@posthog/icons'
 import { LemonModal, Link } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { HogFlow } from './hogflows/types'
 import { getMessageAssetContentUrl } from './messageAssetsApi'
@@ -52,12 +48,8 @@ export function EmailViewerChip({
     workflowId: HogFlow['id']
     invocationId: string
     actionId: string
-}): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
+}): JSX.Element {
     const [open, setOpen] = useState(false)
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOW_EMAIL_ASSETS_UI]) {
-        return null
-    }
     return (
         <>
             <Link

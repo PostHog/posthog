@@ -7,13 +7,9 @@ import { Team } from '../../types'
 // A destination that fetches one of PostHog's own ingestion endpoints, authenticating
 // as its own project, re-enters the event pipeline. If that re-ingested event then
 // re-triggers the same destination, the chain forms an event-forwarding loop that
-// doubles traffic on every hop.
-//
-// - 'disabled': no-op.
-// - 'warn': detect the shape and emit a metric, but never block (observe-only).
-// - 'enforce': bound the loop by counting how many times *this specific destination* has
-//   re-fed the pipeline - allow the first SELF_LOOP_MAX_DEPTH hops, then break it.
-export type SelfLoopGuardMode = 'disabled' | 'warn' | 'enforce'
+// doubles traffic on every hop. The guard bounds the loop by counting how many times
+// *this specific destination* has re-fed the pipeline - allowing the first
+// SELF_LOOP_MAX_DEPTH hops, then breaking it.
 
 // Event property carrying the self-loop depth *per hog function*, keyed by function id:
 //   { "<functionId>": <hops this destination has re-fed itself> }

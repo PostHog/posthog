@@ -20,6 +20,15 @@ pub struct SerializedKafkaMessage {
 pub struct IngestBatchRequest {
     pub batch_id: String,
     pub messages: Vec<SerializedKafkaMessage>,
+    /// Identifies this consumer process incarnation. The worker's feed-order
+    /// sentinel rebaselines a key when the sender changes (restart/rebalance
+    /// legitimately replays uncommitted offsets).
+    pub consumer_id: String,
+    /// True when this request may repeat previously sent messages (an HTTP
+    /// retry, or a deferred-flush re-route after a send failure). The worker's
+    /// sentinel counts repeats on replay requests as at-least-once replays
+    /// rather than order violations.
+    pub replay: bool,
 }
 
 /// Matches `IngestBatchResponse` in `nodejs/src/ingestion/api/types.ts`.

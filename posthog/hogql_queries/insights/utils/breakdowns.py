@@ -5,8 +5,11 @@ from posthog.hogql.visitor import CloningVisitor
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+# Keep in sync with BREAKDOWN_BASELINE_STRING_LABEL in frontend/src/scenes/insights/utils.tsx
+BREAKDOWN_BASELINE_STRING_LABEL = "$$_posthog_breakdown_baseline_$$"
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
+BREAKDOWN_BASELINE_DISPLAY = "Baseline"
 BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["",""]'
 
 ALL_USERS_COHORT_ID = 0
@@ -14,10 +17,15 @@ ALL_USERS_COHORT_ID = 0
 NOT_IN_COHORT_ID = 2**52
 
 
-def humanize_breakdown_label(label: str) -> str:
+def humanize_breakdown_label(label: str | None) -> str:
     """Swap the internal breakdown sentinels for their display strings. The sentinels are globally
     unique tokens, so a substring replace covers every label shape — standalone, action-prefixed
-    ("signed_up - <sentinel>"), and "::"-joined multi-breakdown values — without fragile splitting."""
+    ("signed_up - <sentinel>"), and "::"-joined multi-breakdown values — without fragile splitting.
+
+    A series can reach here with no label at all (no name, custom_name, or breakdown_value), so coerce
+    a missing label to an empty string rather than crashing on `None.replace(...)`."""
+    if label is None:
+        return ""
     return label.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY).replace(
         BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
     )

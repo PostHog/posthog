@@ -9,6 +9,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -22,7 +23,7 @@ _EVENT_SOURCE = "replay_vision"
 
 
 @activity.defn
-@track_activity()
+@track_activity(side_effect="event")
 async def emit_observation_event_activity(inputs: EmitObservationEventInputs) -> None:
     """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id."""
     await database_sync_to_async(_emit_event, thread_sensitive=False)(inputs)
@@ -63,13 +64,16 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "triggered_by_user_id": observation.triggered_by_user_id,
         "model_used": snapshot.model,
         "provider_used": snapshot.provider,
+        # Priced at emit time, so it can drift from quota.py's repriced-at-current-rates totals.
+        "credits": observation_credits_for_model(snapshot.model),
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
     }
     distinct_id = (
         str(observation.triggered_by_user_id)
-        if observation.triggered_by_user_id is not None and observation.triggered_by == ObservationTrigger.ON_DEMAND
+        if observation.triggered_by_user_id is not None
+        and observation.triggered_by in (ObservationTrigger.ON_DEMAND, ObservationTrigger.RETRY)
         else replay_vision_distinct_id(observation.team_id)
     )
 

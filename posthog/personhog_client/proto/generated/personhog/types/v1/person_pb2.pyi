@@ -320,7 +320,8 @@ class UpdatePersonPropertiesRequest(_message.Message):
         "set_properties",
         "set_once_properties",
         "unset_properties",
-        "partition",
+        "is_identified",
+        "last_seen_at",
     )
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
@@ -328,14 +329,16 @@ class UpdatePersonPropertiesRequest(_message.Message):
     SET_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
     SET_ONCE_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
     UNSET_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
-    PARTITION_FIELD_NUMBER: _ClassVar[int]
+    IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
+    LAST_SEEN_AT_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     event_name: str
     set_properties: bytes
     set_once_properties: bytes
     unset_properties: _containers.RepeatedScalarFieldContainer[str]
-    partition: int
+    is_identified: bool
+    last_seen_at: int
 
     def __init__(
         self,
@@ -345,7 +348,8 @@ class UpdatePersonPropertiesRequest(_message.Message):
         set_properties: _Optional[bytes] = ...,
         set_once_properties: _Optional[bytes] = ...,
         unset_properties: _Optional[_Iterable[str]] = ...,
-        partition: _Optional[int] = ...,
+        is_identified: bool = ...,
+        last_seen_at: _Optional[int] = ...,
     ) -> None: ...
 
 class UpdatePersonPropertiesResponse(_message.Message):

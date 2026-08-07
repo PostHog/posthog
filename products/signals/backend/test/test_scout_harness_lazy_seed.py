@@ -10,6 +10,7 @@ from unittest.mock import patch
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import (
+    _MAX_SKILL_FILE_COUNT,
     CanonicalSkill,
     CanonicalSkillFile,
     CanonicalSkillParseError,
@@ -363,8 +364,8 @@ class TestDiscoverCanonicalSkills:
             discover_canonical_skills(tmp_path)
 
     def test_too_many_bundled_files_raises(self, tmp_path: Path) -> None:
-        # File count limit mirrors MAX_SKILL_FILE_COUNT (50).
-        bundled = {f"references/file_{i:03d}.md": f"# file {i}\n" for i in range(51)}
+        # File count limit mirrors MAX_SKILL_FILE_COUNT.
+        bundled = {f"references/file_{i:03d}.md": f"# file {i}\n" for i in range(_MAX_SKILL_FILE_COUNT + 1)}
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-too-many",
@@ -377,7 +378,7 @@ class TestDiscoverCanonicalSkills:
             body="# Body\n",
             bundled_files=bundled,
         )
-        with pytest.raises(CanonicalSkillParseError, match="exceeding the 50 limit"):
+        with pytest.raises(CanonicalSkillParseError, match=f"exceeding the {_MAX_SKILL_FILE_COUNT} limit"):
             discover_canonical_skills(tmp_path)
 
     def test_overlong_path_raises(self, tmp_path: Path) -> None:
@@ -639,9 +640,7 @@ class TestSyncCanonicalSkills(BaseTest):
         beta = _make_canonical("signals-scout-beta", body="beta body")
         with self._patch_canonicals((alpha, beta)):
             sync_canonical_skills(self.team)
-        assert LLMSkill.objects.filter(
-            team=self.team, name="signals-scout-beta", is_latest=True, deleted=False
-        ).exists()
+        beta_before = LLMSkill.objects.get(team=self.team, name="signals-scout-beta", is_latest=True, deleted=False)
 
         # beta is deleted from disk — only alpha remains canonical.
         with self._patch_canonicals((alpha,)):
@@ -653,6 +652,10 @@ class TestSyncCanonicalSkills(BaseTest):
         beta_row = LLMSkill.objects.get(team=self.team, name="signals-scout-beta")
         assert beta_row.deleted is True
         assert beta_row.is_latest is False
+        # The queryset tombstone bypasses auto_now — it must bump updated_at itself, or the
+        # marketplace plugin version (Max(updated_at) over all rows) never advances and the cached
+        # repo keeps serving the pruned scout.
+        assert beta_row.updated_at > beta_before.updated_at
         assert LLMSkill.objects.filter(
             team=self.team, name="signals-scout-alpha", is_latest=True, deleted=False
         ).exists()

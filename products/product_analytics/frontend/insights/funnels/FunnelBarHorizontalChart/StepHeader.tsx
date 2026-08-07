@@ -18,7 +18,7 @@ interface StepHeaderProps {
 }
 
 export function StepHeader({ step, stepIndex, previousStep, isUnordered, isOptional }: StepHeaderProps): JSX.Element {
-    const showAverageTime = step.average_conversion_time != null && step.average_conversion_time >= Number.EPSILON
+    const showMedianTime = step.median_conversion_time != null && step.median_conversion_time >= Number.EPSILON
 
     return (
         <div className={clsx('flex flex-wrap items-center justify-between leading-5', isOptional && 'opacity-60')}>
@@ -36,9 +36,9 @@ export function StepHeader({ step, stepIndex, previousStep, isUnordered, isOptio
                 )}
                 <FunnelStepMore stepIndex={stepIndex} className="ml-1" />
             </div>
-            {showAverageTime ? (
-                <div className="text-secondary text-xs" title="Average time of conversion from previous step">
-                    Avg time: <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
+            {showMedianTime ? (
+                <div className="text-secondary text-xs" title="Median time of conversion from previous step">
+                    Median time: <b>{humanFriendlyDuration(step.median_conversion_time, { maxUnits: 2 })}</b>
                 </div>
             ) : null}
         </div>

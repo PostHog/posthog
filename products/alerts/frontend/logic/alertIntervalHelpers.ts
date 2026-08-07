@@ -66,6 +66,8 @@ const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
     day: 60 * 24,
     week: 60 * 24 * 7,
     month: 60 * 24 * 30,
+    quarter: 60 * 24 * 30 * 3,
+    year: 60 * 24 * 365,
 }
 
 /** An alert re-checks the insight's last completed bucket, whose size is the insight's grouping

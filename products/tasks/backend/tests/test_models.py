@@ -13,6 +13,7 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -83,6 +84,51 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
         self.assertEqual(task_run.task, task)
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
+        from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+            TaskProcessingContext,
+        )
+
+        user = User.objects.create(email="test@test.com")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Scout run",
+                description="repo-less run wanting gh evidence access",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                github_read_access=True,
+            )
+
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        # Provisioning reads the flag back only through this property — the writer and reader agree
+        # on nothing but the state key, and a drift on either side silently drops the token.
+        ctx = TaskProcessingContext(
+            task_id="t",
+            run_id="r",
+            team_id=1,
+            team_uuid="u",
+            organization_id="o",
+            github_integration_id=None,
+            repository=None,
+            distinct_id="d",
+            state=state,
+        )
+        self.assertTrue(ctx.github_read_access)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain run",
+                description="no gh access requested",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+            )
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertNotIn("github_read_access", state)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_initial_permission_mode_into_state(self, mock_execute_workflow):
@@ -255,11 +301,16 @@ class TestTask(TestCase):
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_falls_back_to_user_integration(self, mock_execute_workflow):
-        # Signal reports are BOT-authored. When the team has no Integration row but the task
-        # creator has a UserIntegration that grants access to the repo, we should accept it
-        # instead of raising "Team does not have a GitHub integration".
+        # Signal reports are BOT-authored. A broken team installation must not override the
+        # healthy user integration that repository selection used for the report.
         user = User.objects.create(email="signal-report@test.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+            config={"installation_unavailable_since": 1},
+        )
         user_integration = UserIntegration.objects.create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
@@ -406,6 +457,52 @@ class TestTask(TestCase):
 
         task.refresh_from_db()
         self.assertTrue(task.internal)
+
+
+class TestTaskSlackPrNotification(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+
+    def test_mark_slack_pr_notified_records_overrides_and_persists(self):
+        # Records the announced PR, overrides on a new one, and survives a reload.
+        task = self._task()
+        self.assertIsNone(task.slack_notified_pr_url)
+
+        pr_1 = "https://github.com/org/repo/pull/1"
+        pr_2 = "https://github.com/org/repo/pull/2"
+        task.mark_slack_pr_notified(pr_1)
+        self.assertEqual(task.slack_notified_pr_url, pr_1)
+
+        task.mark_slack_pr_notified(pr_2)
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+        task.refresh_from_db()
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+    def test_mark_slack_pr_notified_preserves_other_state_keys(self):
+        # It's a merge into the shared state bag, not a wholesale write.
+        task = self._task()
+        task.state = {"unrelated": "keep-me"}
+        task.save(update_fields=["state"])
+
+        task.mark_slack_pr_notified("https://github.com/org/repo/pull/1")
+
+        task.refresh_from_db()
+        self.assertEqual(task.state["unrelated"], "keep-me")
+        self.assertEqual(task.slack_notified_pr_url, "https://github.com/org/repo/pull/1")
 
 
 class TestTaskSlug(TestCase):
@@ -555,6 +652,28 @@ class TestTaskRun(TestCase):
 
         self.assertNotIn("initial_permission_mode", run.state)
 
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "sandbox_id": "old-sandbox",
+                "sandbox_url": "https://old-sandbox.test",
+                "sandbox_jwt_kid": "old-key",
+                "snapshot_external_id": "snapshot-1",
+            },
+        )
+
+        run.prepare_for_cloud_handoff()
+
+        self.assertNotIn("sandbox_id", run.state)
+        self.assertNotIn("sandbox_url", run.state)
+        self.assertNotIn("sandbox_jwt_kid", run.state)
+        self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
+        self.assertTrue(run.state["handoff_resumed"])
+
     def test_s3_prefixes_keep_existing_logs_and_artifact_paths(self):
         run = TaskRun.objects.create(
             task=self.task,
@@ -599,6 +718,42 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.state["sandbox_url"], "https://sandbox.example.com")
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
+
+    def test_clear_sandbox_connection_state_atomic_removes_matching_sandbox(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={
+                "sandbox_id": "sandbox-123",
+                "sandbox_url": "https://sandbox.example.com",
+                "sandbox_connect_token": "token",
+                "sandbox_jwt_kid": "key",
+                "mode": "interactive",
+            },
+        )
+
+        TaskRun.clear_sandbox_connection_state_atomic(run.id, "sandbox-123")
+
+        run.refresh_from_db()
+        self.assertEqual(run.state, {"mode": "interactive"})
+
+    def test_clear_sandbox_connection_state_atomic_preserves_newer_sandbox(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={
+                "sandbox_id": "new-sandbox",
+                "sandbox_url": "https://new-sandbox.example.com",
+                "sandbox_connect_token": "new-token",
+                "sandbox_jwt_kid": "new-key",
+            },
+        )
+
+        TaskRun.clear_sandbox_connection_state_atomic(run.id, "old-sandbox")
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["sandbox_id"], "new-sandbox")
+        self.assertEqual(run.state["sandbox_connect_token"], "new-token")
 
     def test_mutate_state_atomic_can_derive_values_under_lock(self):
         run = TaskRun.objects.create(
@@ -735,13 +890,35 @@ class TestTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
         )
 
-        error_msg = "Something went wrong"
-        run.mark_failed(error_msg)
+        error_msg = "x" * 1400 + "Error: the root cause sits at the tail"
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            run.mark_failed(error_msg, error_type="stale_queued_cleanup")
 
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertEqual(run.error_message, error_msg)
         self.assertIsNotNone(run.completed_at)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(len(captured), 1)
+        props = captured[0].kwargs["properties"]
+        self.assertEqual(props["error_type"], "stale_queued_cleanup")
+        self.assertEqual(len(props["error_message"]), 500)
+        self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
+
+    @parameterized.expand(
+        [
+            ("loop_run", {"loop_id": "loop-abc", "loop_trigger_id": "trig-xyz"}, "loop-abc", "trig-xyz"),
+            ("non_loop_run", {}, None, None),
+        ]
+    )
+    def test_task_run_created_carries_loop_attribution(self, _name, extra_state, expected_loop_id, expected_trigger_id):
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            self.task.create_run(extra_state=extra_state or None)
+        created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_created"]
+        self.assertEqual(len(created), 1)
+        props = created[0].kwargs["properties"]
+        self.assertEqual(props["loop_id"], expected_loop_id)
+        self.assertEqual(props["loop_trigger_id"], expected_trigger_id)
 
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(
@@ -1393,10 +1570,17 @@ class TestSandboxEnvironment(TestCase):
                 "NODE_OPTIONS": "--import=evil",
                 "LD_PRELOAD": "/tmp/evil.so",
                 "GITHUB_TOKEN": "stolen",
+                # Forging either would redirect the agent's model calls to an
+                # attacker host, so both must be reserved.
+                "AI_GATEWAY_URL": "https://evil.example.com",
+                "AI_GATEWAY_PRODUCTS": "signals_scout",
             }
         )
         self.assertEqual(safe, {"SAFE_VAR": "ok"})
-        self.assertEqual(sorted(skipped), ["GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"])
+        self.assertEqual(
+            sorted(skipped),
+            ["AI_GATEWAY_PRODUCTS", "AI_GATEWAY_URL", "GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"],
+        )
 
     @parameterized.expand(
         [

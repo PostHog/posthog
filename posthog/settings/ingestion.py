@@ -1,11 +1,7 @@
 import os
 
-import structlog
-
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
-
-logger = structlog.get_logger(__name__)
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
@@ -59,10 +55,25 @@ CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://l
 # empty = emission disabled (the activity skips/raises rather than shipping to the wrong place); set
 # per-region via charts in prod, and to the local capture proxy when testing locally.
 OTLP_LOGS_INGEST_ENDPOINT = os.getenv("OTLP_LOGS_INGEST_ENDPOINT", "")
+# Project token used as the OTLP Bearer for first-party log emission to a fixed internal project
+# (dogfooding a product's own backend logs), not a per-team token. Pairs with
+# OTLP_LOGS_INGEST_ENDPOINT. Both empty means emission is disabled. Mirrors OTEL_METRICS_EXPORT_TOKEN.
+OTLP_LOGS_INGEST_TOKEN = os.getenv("OTLP_LOGS_INGEST_TOKEN", "")
+
+# Internal OTLP/HTTP endpoint for first-party metric emission into the Metrics product (the
+# `capture-logs` service, path `/i/v1/metrics`), with a project token as the OTLP Bearer.
+# Names match the Node twins (nodejs/src/common/metrics/otel-metrics.ts) so one env pair
+# configures both runtimes. Defaults to empty = emission disabled (posthog/otel_metrics.py
+# records into a no-op meter).
+OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")
+OTEL_METRICS_EXPORT_TOKEN = os.getenv("OTEL_METRICS_EXPORT_TOKEN", "")
+OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS", type_cast=int, default=60_000)
+
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 
 NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
+
 
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)
@@ -71,6 +82,15 @@ CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
 )
 # Chunk fan-out reuses CAPTURE_INTERNAL_MAX_WORKERS (above) for its thread pool.
 CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
+
+# Inbound bounds for /report/. The endpoint is unauthenticated and expands each CSP violation in
+# the body into its own event (a reports+json bundle may also carry other Reporting API types,
+# which are accepted but ignored), so without these the generic upload limit
+# (DATA_UPLOAD_MAX_MEMORY_SIZE) is the only ceiling and one request can fan out into an unbounded
+# batch. A real browser report bundle is a handful of violations of a few KB each, so both caps sit
+# far above legitimate traffic.
+CSP_REPORT_MAX_BODY_BYTES = get_from_env("CSP_REPORT_MAX_BODY_BYTES", type_cast=int, default=256 * 1024)
+CSP_REPORT_MAX_REPORTS = get_from_env("CSP_REPORT_MAX_REPORTS", type_cast=int, default=100)
 
 # Buffered CSP capture-forward: when enabled, /report/ enqueues accepted reports to a
 # bounded in-process buffer and returns 204 immediately; a background thread batches

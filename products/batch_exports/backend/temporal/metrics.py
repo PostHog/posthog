@@ -79,6 +79,21 @@ def get_export_finished_metric(status: str, model: str) -> MetricCounter:
     )
 
 
+class CumulativeTimer:
+    """Accumulate wall-clock time spent across many timed sections."""
+
+    def __init__(self) -> None:
+        self.total_seconds: float = 0.0
+
+    @contextmanager
+    def time(self) -> typing.Iterator[None]:
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.total_seconds += time.perf_counter() - start
+
+
 Attributes = dict[str, str | int | float | bool]
 
 
@@ -536,6 +551,20 @@ class SLAWaiter:
     async def wait_for_sla(self) -> None:
         """Coroutine used to wait for SLA seconds."""
         await asyncio.sleep(self.sla.total_seconds())
+
+        # Only log when the timer resolves live, not when it re-resolves from history during a
+        # replay (worker recovery, cache eviction, queries).
+        #
+        # A breach that already happened was logged closely to the first time the timer fired,
+        # so we don't expect a breach to be missed; suppressing replays just avoids logging it again. A run
+        # that hasn't breached yet — including one recovering mid-flight — replays up to the
+        # live edge and then fires its still-pending timer live, so it logs as normal.
+        #
+        # The guard sits here (after the timer resolves) rather than around task creation
+        # because the sleep is a deterministic Temporal timer: the task must be created on
+        # every replay or history diverges. So we suppress the log, never the timer.
+        if workflow.in_workflow() and workflow.unsafe.is_replaying():
+            return
 
         self._over_sla.set()
         LOGGER.warning(

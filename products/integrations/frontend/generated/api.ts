@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
     GitHubOAuthAuthorizeRequestApi,
@@ -17,7 +18,6 @@ import type {
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
-    GoogleSearchConsoleSitesResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
@@ -33,6 +33,8 @@ import type {
     PaginatedRoleExternalReferenceListApi,
     PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
+    PostHogConnectionForwardApi,
+    PostHogConnectionForwardResponseApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
@@ -546,27 +548,6 @@ export const integrationsGoogleConversionActionsRetrieve = async (
     })
 }
 
-export const getIntegrationsGoogleSearchConsoleSitesRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/google_search_console_sites/`
-}
-
-/**
- * List the Search Console properties the connected Google account has access to.
- */
-export const integrationsGoogleSearchConsoleSitesRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<GoogleSearchConsoleSitesResponseApi> => {
-    return apiMutator<GoogleSearchConsoleSitesResponseApi>(
-        getIntegrationsGoogleSearchConsoleSitesRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
 export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
 }
@@ -691,6 +672,30 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
+export const getIntegrationsGithubAvailableInstallationsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/available_installations/`
+}
+
+/**
+ * List the org's existing GitHub installations this project can reuse.
+ *
+ * A GitHub App installs once per organization, so a second project links an existing
+ * installation rather than reinstalling. This backs the picker: when the org has more than
+ * one installation, the client passes the chosen installation_id to github/link_existing.
+ */
+export const integrationsGithubAvailableInstallationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GitHubAvailableInstallationsResponseApi> => {
+    return apiMutator<GitHubAvailableInstallationsResponseApi>(
+        getIntegrationsGithubAvailableInstallationsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/link_existing/`
 }
@@ -771,5 +776,27 @@ export const integrationsRequestAccessCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(integrationAccessRequestApi),
+    })
+}
+
+export const getPosthogConnectionsForwardCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/posthog_connections/${id}/forward/`
+}
+
+/**
+ * Replay an API request against the connected PostHog project. The server injects the connection's token; the response is passed through.
+ * @summary Forward a request through a PostHog connection
+ */
+export const posthogConnectionsForwardCreate = async (
+    projectId: string,
+    id: string,
+    postHogConnectionForwardApi: PostHogConnectionForwardApi,
+    options?: RequestInit
+): Promise<PostHogConnectionForwardResponseApi> => {
+    return apiMutator<PostHogConnectionForwardResponseApi>(getPosthogConnectionsForwardCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(postHogConnectionForwardApi),
     })
 }

@@ -72,8 +72,9 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
@@ -82,6 +83,7 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import hash_key_value
+from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -184,6 +186,14 @@ SESSION_RECORDING_THROTTLED = Counter(
     "Throttled responses from the session recording API",
     labelnames=["location", "auth_type"],
 )
+
+_OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
+
+
+def _count_session_recording_throttled(location: str, auth_type: str) -> None:
+    SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type).inc()
+    _OTEL_PLAYBACK.record_counter_twin(SESSION_RECORDING_THROTTLED, 1, {"location": location, "auth_type": auth_type})
+
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -783,7 +793,7 @@ def get_replay_listing_throttle_error(request, view) -> str | None:
             continue
         wait = throttle.wait()
         scope = throttle.scope or "listing"
-        SESSION_RECORDING_THROTTLED.labels(location=scope, auth_type=auth_type).inc()
+        _count_session_recording_throttled(location=scope, auth_type=auth_type)
         if wait:
             return f"Rate limit exceeded. Expected available in {wait} seconds."
         return "Rate limit exceeded. Try again later."
@@ -817,7 +827,7 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
             return True
         if super().allow_request(request, view):
             return True
-        SESSION_RECORDING_THROTTLED.labels(location=self.scope, auth_type="sharing_token").inc()
+        _count_session_recording_throttled(location=self.scope, auth_type="sharing_token")
         return False
 
 
@@ -943,9 +953,9 @@ class SessionRecordingViewSet(
                     )
 
                     return response
-        except CHQueryErrorTooManySimultaneousQueries:
-            SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
-            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except ClickHouseAtCapacity:
+            _count_session_recording_throttled(location="clickhouse_at_capacity", auth_type=auth_type)
+            raise Throttled(detail="ClickHouse is at capacity. Try again later.")
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
             # event) is the caller's problem, not a server error. Surface the actual reason as a 400
@@ -958,7 +968,7 @@ class SessionRecordingViewSet(
             raise
         except (ServerException, Exception) as e:
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
+                _count_session_recording_throttled(location="query_timeout_exceeded", auth_type=auth_type)
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
@@ -1032,7 +1042,13 @@ class SessionRecordingViewSet(
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
-        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        try:
+            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        except Exception as e:
+            # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
+            # it should just render empty like a session with no matching event would.
+            capture_exception(e)
+            properties = None
         return Response({"properties": properties})
 
     # Returns metadata about the recording
@@ -1483,7 +1499,7 @@ class SessionRecordingViewSet(
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
+            is_ch_error = isinstance(e, ClickHouseAtCapacity)
 
             message = (
                 "ClickHouse over capacity. Please retry"
@@ -1529,7 +1545,7 @@ class SessionRecordingViewSet(
             )
 
     @retry(
-        retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
+        retry=retry_if_exception_type(ClickHouseAtCapacity),
         # if retrying doesn't work, raise the actual error, not a retry error
         reraise=True,
         # try again after 0.2 seconds
@@ -1546,7 +1562,7 @@ class SessionRecordingViewSet(
     ) -> Response:
         sources: list[dict] = []
 
-        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2").time():
+        with _OTEL_PLAYBACK.timed_histogram_twin(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
             if recording.full_recording_v2_path:
                 # Parse S3 URL to extract prefix (path without query parameters)
                 # Example: s3://bucket/path?range=bytes=0-1372588 -> path
@@ -1676,12 +1692,6 @@ class SessionRecordingViewSet(
 
         recording = self.get_object()
 
-        cache_key = f"summarize_recording_{self.team.pk}_{recording.session_id}"
-        # Check if the response is cached
-        cached_response = cache.get(cache_key)
-        if cached_response is not None:
-            return Response(cached_response)
-
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
@@ -1766,7 +1776,9 @@ class SessionRecordingViewSet(
         blob_key: str,
         decompress: bool = True,
     ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
+        with _OTEL_PLAYBACK.timed_histogram_twin(
+            STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
+        ):
             with (
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
@@ -1891,7 +1903,7 @@ class SessionRecordingViewSet(
         span_name = f"fetch_{compress_label}_blocks"
 
         async with recording_api_client() as storage:
-            with FETCH_BLOCKS_HISTOGRAM.labels(decompress=str(decompress)).time():
+            with _OTEL_PLAYBACK.timed_histogram_twin(FETCH_BLOCKS_HISTOGRAM, {"decompress": str(decompress)}):
                 with timer(span_name), tracer.start_as_current_span(span_name):
                     return await self._fetch_blocks_parallel(
                         blocks, min_blob_key, max_blob_key, recording, storage, decompress
@@ -1907,7 +1919,9 @@ class SessionRecordingViewSet(
         decompress: bool = True,
     ) -> HttpResponse:
         async def _run() -> HttpResponse:
-            with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
+            with _OTEL_PLAYBACK.timed_histogram_twin(
+                STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
+            ):
                 blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
 
                 blocks_data = await self._fetch_blocks_with_storage(
@@ -1992,6 +2006,12 @@ def _load_recording_if_matches_filters(
     Check if a specific recording matches the current filters (ignoring pagination).
     Returns the recording if it matches, None otherwise.
     """
+    # An explicit id set is itself a filter: callers that pass session_ids (pinned recordings,
+    # comment search, the experiment recordings tab's session buckets) are asking for that set
+    # and nothing else, so an id outside it does not match however well it fits the rest.
+    if query.session_ids is not None and session_id not in query.session_ids:
+        return None
+
     prepend_check_query = query.model_copy(
         update={
             "session_ids": [session_id],
@@ -2070,27 +2090,24 @@ def list_recordings_from_query(
 
     timer = ServerTimingsGathered()
 
-    # If session_recording_id is provided, add it to session_ids to fetch it along with the rest
+    # An explicitly requested recording gets the same treatment whatever else the query asks for.
+    # Folding it into session_ids instead would load it straight from Postgres by id, which skips
+    # both the match check (so it is never flagged) and, for a recording not yet persisted to S3,
+    # the guarantee that it comes back at all.
     if session_recording_id_to_prepend:
-        if all_session_ids:
-            all_session_ids = [session_recording_id_to_prepend] + [
-                sid for sid in all_session_ids if sid != session_recording_id_to_prepend
-            ]
-        else:
-            # We need to fetch this specific recording alongside the filtered results
-            with timer("load_prepend_recording"):
-                prepend_recording = _load_recording_if_matches_filters(
-                    session_recording_id_to_prepend,
-                    query,
-                    team,
-                    allow_event_property_expansion,
-                )
-                if prepend_recording is None:
-                    # The recording was explicitly requested (e.g. a shared link) but doesn't match
-                    # the current filters - include it anyway so the link still opens it
-                    prepend_recording = _load_selected_recording_ignoring_filters(session_recording_id_to_prepend, team)
-                if prepend_recording:
-                    recordings.append(prepend_recording)
+        with timer("load_prepend_recording"):
+            prepend_recording = _load_recording_if_matches_filters(
+                session_recording_id_to_prepend,
+                query,
+                team,
+                allow_event_property_expansion,
+            )
+            if prepend_recording is None:
+                # The recording was explicitly requested (e.g. a shared link) but doesn't match
+                # the current filters - include it anyway so the link still opens it
+                prepend_recording = _load_selected_recording_ignoring_filters(session_recording_id_to_prepend, team)
+            if prepend_recording:
+                recordings.append(prepend_recording)
 
     if all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
@@ -2154,12 +2171,13 @@ def list_recordings_from_query(
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
 
-            # If we have specified session_ids we need to sort them by the order they were specified
-            if all_session_ids:
-                recordings = sorted(
-                    recordings,
-                    key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
-                )
+    # If we have specified session_ids we need to sort them by the order they were specified. This sits
+    # outside the ClickHouse branch because a request whose ids are all already persisted skips that
+    # branch entirely, and it needs the caller's ordering just the same. An explicitly requested
+    # recording outside the set sorts first, which is where prepending already put it.
+    if all_session_ids:
+        ordering = {session_id: index for index, session_id in enumerate(all_session_ids)}
+        recordings = sorted(recordings, key=lambda x: ordering.get(x.session_id, -1))
 
     # Deduplicate recordings by session_id (if session_recording_id was fetched separately and also in results)
     if session_recording_id_to_prepend:

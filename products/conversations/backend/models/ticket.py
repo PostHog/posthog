@@ -105,8 +105,17 @@ class Ticket(UUIDTModel):
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
-    # Customer's PostHog org group key, resolved once at creation (local org pk or cross-region analytics key).
+    # Customer's PostHog org group key, resolved once at creation or on a later message
+    # (local org pk, cross-region analytics key, or the person's organization_id property).
     organization_id = models.CharField(max_length=400, null=True, blank=True)
+    # How organization_id was resolved: "person" (the requester's identity) or
+    # "slack_channel_account" (inferred from the customer analytics account linked to the Slack channel).
+    organization_id_source = models.CharField(max_length=32, null=True, blank=True)
+
+    # Zendesk import dedup — set when a ticket is imported from Zendesk Support.
+    # No standalone index: the partial unique constraint below covers the dedup lookup
+    # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
+    zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -133,15 +142,48 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
             # Dashboard filtered + ordered queries
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
-            # SLA sort/filter queries
-            models.Index(fields=["team", "sla_due_at"], name="posthog_con_team_sla_idx"),
-            # Snooze: dashboard filter/sort by team
-            models.Index(fields=["team", "snoozed_until"], name="posthog_con_team_snooze_idx"),
+            # SLA sort + filter. The dashboard sorts by "sla_due_at <dir> NULLS LAST, ticket_number
+            # DESC"; one expression index per direction makes each page a top-N index scan instead
+            # of a full sort of the mostly-NULL table (a plain ascending index can't serve DESC
+            # NULLS LAST, and lacks the ticket_number tiebreaker). The leading (team_id, sla_due_at)
+            # prefix also serves the SLA state filter, so these supersede a plain (team, sla_due_at).
+            models.Index(
+                models.F("team_id"),
+                models.F("sla_due_at").asc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_sla_asc_idx",
+            ),
+            models.Index(
+                models.F("team_id"),
+                models.F("sla_due_at").desc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_sla_desc_idx",
+            ),
+            # Snooze sort + filter: same asc/desc expression-index pair. The leading prefix serves
+            # the snoozed isnull filter, so these supersede a plain (team, snoozed_until) index.
+            models.Index(
+                models.F("team_id"),
+                models.F("snoozed_until").asc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_snooze_asc_idx",
+            ),
+            models.Index(
+                models.F("team_id"),
+                models.F("snoozed_until").desc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_snooze_desc_idx",
+            ),
             # Snooze: wake task (cross-team, only non-null rows)
             models.Index(
                 fields=["snoozed_until"],
                 name="posthog_con_snooze_wake_idx",
                 condition=models.Q(snoozed_until__isnull=False),
+            ),
+            models.Index(fields=["organization_id"], name="posthog_org_id_idx"),
+            models.Index(
+                fields=["organization_id", "slack_channel_id"],
+                name="posthog_org_slack_ch_idx",
+                condition=models.Q(channel_source="slack"),
             ),
         ]
         constraints = [
@@ -150,6 +192,11 @@ class Ticket(UUIDTModel):
                 fields=["team", "github_repo", "github_issue_number"],
                 condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
                 name="posthog_con_github_issue_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "zendesk_ticket_id"],
+                condition=models.Q(zendesk_ticket_id__isnull=False),
+                name="posthog_con_zendesk_ticket_uniq",
             ),
         ]
 

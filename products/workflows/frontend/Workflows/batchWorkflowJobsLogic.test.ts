@@ -29,17 +29,17 @@ describe('batchWorkflowJobsLogic', () => {
         logic.mount()
     })
 
-    it('fetches once when entering the logs tab', async () => {
-        router.actions.push(urls.workflow(WORKFLOW_ID, 'logs'))
+    it('fetches once when entering the invocations tab', async () => {
+        router.actions.push(urls.workflow(WORKFLOW_ID, 'invocations'))
         await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsSuccess'])
         expect(getCalls).toBe(1)
     })
 
-    it('fetches on initial mount when the URL is already on the logs tab (deep link)', async () => {
-        // Tear down the logic mounted by the outer beforeEach, then re-mount on the logs URL
+    it('fetches on initial mount when the URL is already on the invocations tab (deep link)', async () => {
+        // Tear down the logic mounted by the outer beforeEach, then re-mount on the invocations URL
         // so urlToAction fires its afterMount initial-fire while the path already matches.
         logic.unmount()
-        router.actions.push(urls.workflow(WORKFLOW_ID, 'logs'))
+        router.actions.push(urls.workflow(WORKFLOW_ID, 'invocations'))
         getCalls = 0
 
         logic = batchWorkflowJobsLogic({ id: WORKFLOW_ID })
@@ -48,25 +48,25 @@ describe('batchWorkflowJobsLogic', () => {
         expect(getCalls).toBe(1)
     })
 
-    // Regression: typing in the LogsViewer search box writes to URL search params on every keystroke.
+    // Regression: typing in the invocations search box writes to URL search params on every keystroke.
     // Before the fix, that re-triggered loadBatchWorkflowJobs and unmounted the expanded LemonCollapse.
-    it('does not refetch when only the URL search params change on the logs tab', async () => {
-        router.actions.push(urls.workflow(WORKFLOW_ID, 'logs'))
+    it('does not refetch when only the URL search params change on the invocations tab', async () => {
+        router.actions.push(urls.workflow(WORKFLOW_ID, 'invocations'))
         await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsSuccess'])
 
         await expectLogic(logic, () => {
-            router.actions.push(`${urls.workflow(WORKFLOW_ID, 'logs')}?search=hi`)
-            router.actions.push(`${urls.workflow(WORKFLOW_ID, 'logs')}?search=hi+there`)
+            router.actions.push(`${urls.workflow(WORKFLOW_ID, 'invocations')}?search=hi`)
+            router.actions.push(`${urls.workflow(WORKFLOW_ID, 'invocations')}?search=hi+there`)
         }).toNotHaveDispatchedActions(['loadBatchWorkflowJobs'])
     })
 
-    it('refetches when navigating away and back to the logs tab', async () => {
-        router.actions.push(urls.workflow(WORKFLOW_ID, 'logs'))
+    it('refetches when navigating away and back to the invocations tab', async () => {
+        router.actions.push(urls.workflow(WORKFLOW_ID, 'invocations'))
         await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsSuccess'])
         expect(getCalls).toBe(1)
 
         router.actions.push(urls.workflow(WORKFLOW_ID, 'workflow'))
-        router.actions.push(urls.workflow(WORKFLOW_ID, 'logs'))
+        router.actions.push(urls.workflow(WORKFLOW_ID, 'invocations'))
         await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsSuccess'])
         expect(getCalls).toBe(2)
     })

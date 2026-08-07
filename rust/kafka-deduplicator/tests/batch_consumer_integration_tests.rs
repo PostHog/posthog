@@ -236,58 +236,41 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
         .expect("Timeout waiting for partition assignment")
         .expect("ready_tx was dropped without sending");
 
-    // Schedule shutdown after a short delay to allow the consumer to poll messages
-    let _shutdown_handle = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let _ = shutdown_tx.send(());
-    });
-
-    // Retry loop to wait for messages with timeout
+    // Collect batches until every message has been received. Waiting on the
+    // channel with a per-iteration timeout (rather than sleeping a fixed amount)
+    // lets a slow consumer — cold start, rebalance — catch up without failing
+    // the test spuriously.
     let mut msgs_recv = 0;
-    let max_attempts = 10;
-    let wait_duration = Duration::from_millis(500);
-
-    for attempt in 0..max_attempts {
-        // Try to receive all available batches without blocking
-        loop {
-            match batch_rx.try_recv() {
-                Ok(batch_result) => {
-                    let (msgs, errs) = batch_result.unpack();
-                    if !errs.is_empty() {
-                        panic!("Errors in batch: {errs:?}");
-                    }
-                    assert!(
-                        msgs.len() <= 3,
-                        "Batch size should be at most 3, got: {}",
-                        msgs.len()
-                    );
-                    msgs_recv += msgs.len();
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while msgs_recv < expected_msg_count && std::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(200), batch_rx.recv()).await {
+            Ok(Some(batch_result)) => {
+                let (msgs, errs) = batch_result.unpack();
+                if !errs.is_empty() {
+                    panic!("Errors in batch: {errs:?}");
                 }
-                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break, // No more messages right now
-                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break, // Channel closed
+                assert!(
+                    msgs.len() <= batch_size,
+                    "Batch size should be at most {batch_size}, got: {}",
+                    msgs.len()
+                );
+                msgs_recv += msgs.len();
             }
-        }
-
-        // If we've received all messages, break early
-        if msgs_recv >= expected_msg_count {
-            break;
-        }
-
-        // Wait before next attempt (unless this is the last attempt)
-        if attempt < max_attempts - 1 {
-            tokio::time::sleep(wait_duration).await;
+            Ok(None) => break, // channel closed
+            Err(_) => {}       // nothing this interval; keep polling until the deadline
         }
     }
 
     assert_eq!(
-        msgs_recv,
-        expected_msg_count,
-        "Should have received all messages after {} attempts (waited up to {}ms), got: {msgs_recv}",
-        max_attempts,
-        (max_attempts - 1) * wait_duration.as_millis()
+        msgs_recv, expected_msg_count,
+        "Should have received all {expected_msg_count} messages within the deadline, got: {msgs_recv}"
     );
 
-    // Wait for graceful shutdown
+    // Shut down only AFTER all messages are received. The previous version armed
+    // a fixed 500ms timer to send shutdown, which raced message delivery: on a
+    // slow runner the consumer could be torn down before any batch arrived
+    // (msgs_recv == 0). Signalling here makes shutdown causally follow receipt.
+    let _ = shutdown_tx.send(());
     let _ = consumer_handle.await;
 
     Ok(())

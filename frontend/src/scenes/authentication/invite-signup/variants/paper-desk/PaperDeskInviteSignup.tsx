@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { type ReactNode, useEffect } from 'react'
 
-import { HedgehogJudge } from '@posthog/brand/hoggies'
+import * as judgePng from '@posthog/brand/hoggies/png/judge'
 
-import { PostHogLogo } from 'lib/brand/v2'
+import { Logomark } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
@@ -30,6 +31,8 @@ import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite, SSOProvider } from '~/types'
 
 import { ErrorCodes, inviteSignupLogic } from '../../inviteSignupLogic'
+
+const HedgehogJudge = pngHoggie(judgePng)
 
 /**
  * Invite-signup alternatives row: social/SSO icons plus an optional passkey signup icon.
@@ -96,7 +99,6 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
         passkeyRegistered,
         isPasskeyRegistering,
         passkeyError,
-        passkeySignupEnabled,
         challengeRequired,
         turnstileSiteKey,
         turnstileToken,
@@ -117,7 +119,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
             <div className="flex gap-3 items-center">
                 <OrgTile name={org} />
                 <span className="PaperDesk__inviteHeader-mark inline-flex opacity-90">
-                    <PostHogLogo wordmark={false} className="h-7 w-auto" />
+                    <Logomark variant="gradient" size="md" />
                 </span>
             </div>
             <div className="text-center">
@@ -164,7 +166,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
                         <Link
                             data-attr="invite-signup-error-contact-support"
-                            onClick={() => openSupportForm({ kind: 'support', target_area: 'login' })}
+                            onClick={() => openSupportForm({ kind: 'support' })}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                         >
                             Need help?
@@ -269,7 +271,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                 {!extraFieldsHidden && (
                     <InviteAlternativeLogins
                         invite={invite}
-                        showPasskey={passkeySignupEnabled && !passkeyRegistered}
+                        showPasskey={!passkeyRegistered}
                         onRegisterPasskey={() => registerPasskey()}
                         passkeyRegistering={isPasskeyRegistering}
                     />
@@ -461,12 +463,7 @@ function InviteInvalid(): JSX.Element {
                                 Try again
                             </LemonButton>
                         ) : null}
-                        <LemonButton
-                            size="large"
-                            center
-                            fullWidth
-                            onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
-                        >
+                        <LemonButton size="large" center fullWidth onClick={() => openSupportForm({ kind: 'bug' })}>
                             Contact support
                         </LemonButton>
                     </div>

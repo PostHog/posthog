@@ -1,4 +1,7 @@
+import { UniversalFiltersGroup } from '~/types'
+
 import {
+    buildLogsSessionFilters,
     formatFilterGroupValues,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
@@ -37,6 +40,18 @@ describe('logs utils', () => {
     ])('isDistinctIdKey(%s)', (key, expected) => {
         it(`returns ${expected}`, () => {
             expect(isDistinctIdKey(key)).toBe(expected)
+        })
+    })
+
+    describe('isDistinctIdKey with configured keys', () => {
+        it('matches a configured key exactly, without dot-suffix expansion', () => {
+            expect(isDistinctIdKey('user.id', ['user.id'])).toBe(true)
+            expect(isDistinctIdKey('prefixed.user.id', ['user.id'])).toBe(false)
+        })
+
+        it('keeps matching the built-in conventions alongside configured keys', () => {
+            expect(isDistinctIdKey('posthogDistinctId', ['user.id'])).toBe(true)
+            expect(isDistinctIdKey('unrelated', ['user.id'])).toBe(false)
         })
     })
 
@@ -90,6 +105,91 @@ describe('logs utils', () => {
                     resourceAttributes as Record<string, unknown> | undefined
                 )
             ).toBe(expected)
+        })
+    })
+
+    describe('configured session ID keys', () => {
+        it.each([
+            [
+                'configured key wins over a built-in convention key',
+                ['my.custom.key'],
+                { session_id: 'builtin', 'my.custom.key': 'custom' },
+                undefined,
+                'custom',
+            ],
+            [
+                'configured keys are checked in list order',
+                ['second.key', 'first.key'],
+                { 'first.key': 'first', 'second.key': 'second' },
+                undefined,
+                'second',
+            ],
+            [
+                'configured key found in resource_attributes',
+                ['my.custom.key'],
+                undefined,
+                { 'my.custom.key': 'from-resource' },
+                'from-resource',
+            ],
+            [
+                'falls back to built-in conventions when configured keys are absent',
+                ['my.custom.key'],
+                { $session_id: 'builtin' },
+                undefined,
+                'builtin',
+            ],
+            [
+                'configured keys match exactly, not by dot suffix',
+                ['custom.key'],
+                { 'prefix.custom.key': 'suffixed' },
+                undefined,
+                null,
+            ],
+        ])('%s', (_, configuredKeys, attributes, resourceAttributes, expected) => {
+            expect(
+                getSessionIdFromLogAttributes(
+                    attributes as Record<string, unknown> | undefined,
+                    resourceAttributes as Record<string, unknown> | undefined,
+                    configuredKeys
+                )
+            ).toBe(expected)
+        })
+
+        it.each([
+            ['my.custom.key', ['my.custom.key'], true],
+            ['prefix.my.custom.key', ['my.custom.key'], false],
+        ])('isSessionIdKey(%s, %j) returns %s', (key, configuredKeys, expected) => {
+            expect(isSessionIdKey(key, configuredKeys)).toBe(expected)
+        })
+    })
+
+    describe('buildLogsSessionFilters', () => {
+        it.each([
+            ['defaults to the SDK convention key', undefined, ['posthogSessionId']],
+            ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
+            ['empty configured list falls back to default', [], ['posthogSessionId']],
+        ])('%s', (_, configuredKeys, expectedKeys) => {
+            const filters = buildLogsSessionFilters('sess-1', configuredKeys)
+
+            const innerGroup = filters.filterGroup!.values[0] as UniversalFiltersGroup
+            expect(innerGroup.type).toBe('OR')
+            expect(innerGroup.values).toEqual(
+                expectedKeys.map((key) => ({
+                    key,
+                    value: ['sess-1'],
+                    operator: 'exact',
+                    type: 'log_attribute',
+                }))
+            )
+            expect(filters.dateRange).toBeUndefined()
+        })
+
+        it('scopes the date range around the timestamp', () => {
+            const filters = buildLogsSessionFilters('sess-1', undefined, '2026-03-24T12:00:00.000Z')
+            expect(filters.dateRange).toEqual({
+                date_from: '2026-03-24T11:30:00.000Z',
+                date_to: '2026-03-24T12:30:00.000Z',
+            })
         })
     })
 

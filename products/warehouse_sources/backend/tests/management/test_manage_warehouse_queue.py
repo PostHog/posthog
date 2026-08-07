@@ -1,15 +1,17 @@
 import json
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import timedelta
 from io import StringIO
 from typing import Any
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.utils import timezone
 
 import psycopg
 import fakeredis
@@ -17,6 +19,7 @@ import fakeredis
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
+from products.warehouse_sources.backend.management.commands.manage_warehouse_queue import Command
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -108,9 +111,10 @@ def _create_pipeline(
     return source, schema, job
 
 
-def _insert_batch(conn: psycopg.Connection[Any], **overrides: Any) -> str:
+def _insert_batch(conn: psycopg.Connection[Any], *, age_hours: float = 0, **overrides: Any) -> str:
     params = {**_BATCH_DEFAULTS, **overrides}
     params["metadata"] = json.dumps(params["metadata"])
+    params["age_seconds"] = age_hours * 3600
     row = conn.execute(
         f"""
         INSERT INTO {BATCH_TABLE} (
@@ -121,7 +125,8 @@ def _insert_batch(conn: psycopg.Connection[Any], **overrides: Any) -> str:
             gen_random_uuid(), %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
             %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
             %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
-            %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, now()
+            %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s,
+            now() - make_interval(secs => %(age_seconds)s)
         ) RETURNING id
         """,
         params,
@@ -130,34 +135,38 @@ def _insert_batch(conn: psycopg.Connection[Any], **overrides: Any) -> str:
     return str(row[0])
 
 
-def _set_status(conn: psycopg.Connection[Any], batch_id: str, state: str) -> None:
+def _set_status(
+    conn: psycopg.Connection[Any], batch_id: str, state: str, *, table: str = STATUS_TABLE, age_hours: float = 0
+) -> None:
     conn.execute(
-        f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, created_at) "
-        "VALUES (%s, %s, 0, now(), now())",
-        (batch_id, state),
+        f"INSERT INTO {table} (batch_id, job_state, attempt, exec_time, created_at) "
+        "VALUES (%s, %s, 0, now(), now() - make_interval(secs => %s))",
+        (batch_id, state, age_hours * 3600),
     )
 
 
-def _insert_lease(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str, live: bool) -> None:
+def _insert_lease(
+    conn: psycopg.Connection[Any], *, team_id: int, schema_id: str, live: bool, table: str = LEASE_TABLE
+) -> None:
     interval = "'5 minutes'" if live else "'-5 minutes'"
     conn.execute(
-        f"INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at) "
+        f"INSERT INTO {table} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at) "
         f"VALUES (%s, %s, %s, now() + interval {interval}, now(), now())",
         (team_id, schema_id, str(uuid4())),
     )
 
 
-def _lease_count(conn: psycopg.Connection[Any], schema_id: str) -> int:
-    row = conn.execute(f"SELECT COUNT(*) FROM {LEASE_TABLE} WHERE schema_id = %s", (schema_id,)).fetchone()
+def _lease_count(conn: psycopg.Connection[Any], schema_id: str, *, table: str = LEASE_TABLE) -> int:
+    row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE schema_id = %s", (schema_id,)).fetchone()
     assert row is not None
     return int(row[0])
 
 
-def _failed_status_counts_by_run(conn: psycopg.Connection[Any]) -> dict[str, int]:
+def _failed_status_counts_by_run(conn: psycopg.Connection[Any], *, table: str = STATUS_TABLE) -> dict[str, int]:
     rows = conn.execute(
         f"""
         SELECT b.run_uuid, COUNT(*)
-        FROM {STATUS_TABLE} s JOIN {BATCH_TABLE} b ON b.id = s.batch_id
+        FROM {table} s JOIN {BATCH_TABLE} b ON b.id = s.batch_id
         WHERE s.job_state = 'failed'
         GROUP BY b.run_uuid
         """
@@ -172,6 +181,7 @@ def _seed_active_run(
     schema: ExternalDataSchema,
     job: ExternalDataJob,
     run_uuid: str,
+    age_hours: float = 0,
 ) -> dict[str, str]:
     """One succeeded batch and two pending ones (unclaimed + executing), like a mid-load run."""
     common = {
@@ -181,11 +191,12 @@ def _seed_active_run(
         "job_id": str(job.id),
         "run_uuid": run_uuid,
         "metadata": {"workflow_run_id": job.workflow_run_id},
+        "age_hours": age_hours,
     }
     succeeded = _insert_batch(conn, **common, batch_index=0)
-    _set_status(conn, succeeded, "succeeded")
+    _set_status(conn, succeeded, "succeeded", age_hours=age_hours)
     executing = _insert_batch(conn, **common, batch_index=1)
-    _set_status(conn, executing, "executing")
+    _set_status(conn, executing, "executing", age_hours=age_hours)
     unclaimed = _insert_batch(conn, **common, batch_index=2)
     return {"succeeded": succeeded, "executing": executing, "unclaimed": unclaimed}
 
@@ -282,6 +293,59 @@ class TestFailRun:
         job.refresh_from_db()
         assert job.status == ExternalDataJob.Status.FAILED
 
+    def test_cancel_workflow_connects_with_overrides_and_cancels(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()))
+        handle = MagicMock(cancel=AsyncMock())
+        client = MagicMock(**{"get_workflow_handle.return_value": handle})
+        connect_mock = AsyncMock(return_value=client)
+
+        with patch("posthog.temporal.common.client.connect", connect_mock):
+            out = _call(
+                "fail-run",
+                "--team-id",
+                str(team.pk),
+                "--schema-id",
+                str(schema.id),
+                "--cancel-workflow",
+                "--temporal-host",
+                "temporal-fe.internal",
+                "--live-run",
+                "--yes",
+            )
+
+        assert connect_mock.call_args.args[0] == "temporal-fe.internal"
+        client.get_workflow_handle.assert_called_once_with(job.workflow_id)
+        handle.cancel.assert_awaited_once()
+        assert f"cancellation requested for {job.workflow_id}" in out
+
+    def test_only_stuck_fails_only_inactive_runs_and_allows_unscoped_use(self, team, queue_conn, fake_redis):
+        # a wedged run: last queue activity 8h ago (past the 6h default grace)
+        _, stale_schema, stale_job = _create_pipeline(team)
+        stale_run = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=stale_schema, job=stale_job, run_uuid=stale_run, age_hours=8)
+        # a healthy run: activity just now
+        _, fresh_schema, fresh_job = _create_pipeline(team)
+        fresh_run = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=fresh_schema, job=fresh_job, run_uuid=fresh_run)
+        # job-only targets (nothing in the queue): one old, one just started
+        _, _, stale_orphan_job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=stale_orphan_job.id).update(created_at=timezone.now() - timedelta(hours=8))
+        _, _, fresh_orphan_job = _create_pipeline(team)
+
+        out = _call("fail-run", "--only-stuck", "--live-run", "--yes")
+
+        assert _failed_status_counts_by_run(queue_conn) == {stale_run: 2}
+        for job, expected in [
+            (stale_job, ExternalDataJob.Status.FAILED),
+            (stale_orphan_job, ExternalDataJob.Status.FAILED),
+            (fresh_job, ExternalDataJob.Status.RUNNING),
+            (fresh_orphan_job, ExternalDataJob.Status.RUNNING),
+        ]:
+            job.refresh_from_db()
+            assert job.status == expected
+        assert "skipped 2 run(s)" in out
+
 
 class TestTargetingValidation:
     @pytest.mark.parametrize(
@@ -341,3 +405,164 @@ class TestStatus:
         assert run_uuid in out
         assert str(schema.id) in out
         assert "unclaimed: 1" in out
+
+
+class TestCheckMismatches:
+    @pytest.mark.parametrize(
+        "status",
+        [ExternalDataJob.Status.FAILED, ExternalDataJob.Status.COMPLETED],
+        ids=["failed_job", "completed_job"],
+    )
+    def test_terminal_job_with_pending_batches_is_class_a(self, status, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        run_uuid = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid, age_hours=1)
+        ExternalDataJob.objects.filter(id=job.id).update(status=status)
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "A: terminal job, non-terminal batches   1 run(s), 2 batch(es)" in out
+        assert f"{status}: 1 runs / 2 batches" in out
+        assert run_uuid in out
+
+    def test_running_job_with_nothing_pending_is_class_b(self, team, queue_conn, fake_redis):
+        _, _, job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=1))
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "B: Running job, nothing pending         1 job(s)" in out
+        assert str(job.id) in out
+
+    def test_batches_referencing_a_missing_job_are_class_c(self, team, queue_conn, fake_redis):
+        _, schema, _ = _create_pipeline(team)
+        run_uuid, ghost_job_id = str(uuid4()), str(uuid4())
+        _insert_batch(
+            queue_conn,
+            team_id=team.pk,
+            schema_id=str(schema.id),
+            source_id=str(schema.source_id),
+            job_id=ghost_job_id,
+            run_uuid=run_uuid,
+            batch_index=0,
+            age_hours=1,
+        )
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "C: batches referencing a missing job    1 run(s), 1 batch(es)" in out
+        assert "reported only" in out
+
+    def test_healthy_run_reports_no_mismatches(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()), age_hours=1)
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "No mismatches in scope." in out
+
+    def test_mismatch_within_grace_is_skipped_not_reported(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        run_uuid = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)  # activity just now
+        ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.FAILED)
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "A: terminal job, non-terminal batches   0 run(s), 0 batch(es)" in out
+        assert "skipped (within grace): 1" in out
+        assert "No mismatches in scope." in out
+
+    def test_dry_run_mutates_nothing(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()), age_hours=1)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.COMPLETED)
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "Would repair 1 mismatch(es)" in out
+        assert "Dry run" in out
+        assert _failed_status_counts_by_run(queue_conn) == {}
+        assert _lease_count(queue_conn, str(schema.id)) == 1
+
+    def test_live_run_terminalizes_class_a_batches_and_leaves_the_job_alone(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        run_uuid = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid, age_hours=1)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.COMPLETED)
+
+        out = _call("check-mismatches", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        assert _failed_status_counts_by_run(queue_conn) == {run_uuid: 2}
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.COMPLETED  # already terminal - not overwritten
+        assert "already terminal" in out
+        assert _lease_count(queue_conn, str(schema.id)) == 0
+
+    def test_live_run_fails_the_job_for_class_b(self, team, queue_conn, fake_redis):
+        _, _, job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=1))
+
+        _call("check-mismatches", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+
+    def test_class_b_that_races_back_to_healthy_is_not_failed(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=1))
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+
+        # Simulate a consumer enqueuing batches between detection and repair: insert a
+        # pending batch for this job right after the class B target is collected, so the
+        # repair-time re-check sees live work and leaves the job alone.
+        real_collect = Command._collect_fail_targets
+
+        def collect_then_enqueue(self, conn, scope, *, queue):
+            targets = real_collect(self, conn, scope, queue=queue)
+            _insert_batch(
+                queue_conn,
+                team_id=team.pk,
+                schema_id=str(schema.id),
+                source_id=str(schema.source_id),
+                job_id=str(job.id),
+                run_uuid=str(uuid4()),
+                batch_index=0,
+            )
+            return targets
+
+        with patch.object(Command, "_collect_fail_targets", collect_then_enqueue):
+            out = _call("check-mismatches", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING  # not failed - raced back to healthy
+        assert "no longer a class B mismatch" in out
+        assert _lease_count(queue_conn, str(schema.id)) == 1  # lease preserved for live work
+
+    def test_max_runs_cap_aborts(self, team, queue_conn, fake_redis):
+        for _ in range(2):
+            _, schema, job = _create_pipeline(team)
+            _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()), age_hours=1)
+            ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.FAILED)
+
+        with pytest.raises(CommandError, match="--max-runs"):
+            _call("check-mismatches", "--team-id", str(team.pk), "--max-runs", "1", "--live-run", "--yes")
+
+        assert _failed_status_counts_by_run(queue_conn) == {}
+
+    def test_source_type_scoping_only_reports_matching_runs(self, team, team_2, queue_conn, fake_redis):
+        _, stripe_schema, stripe_job = _create_pipeline(team, source_type="Stripe")
+        _, pg_schema, pg_job = _create_pipeline(team_2, source_type="Postgres")
+        stripe_run, pg_run = str(uuid4()), str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=stripe_schema, job=stripe_job, run_uuid=stripe_run, age_hours=1)
+        _seed_active_run(queue_conn, team=team_2, schema=pg_schema, job=pg_job, run_uuid=pg_run, age_hours=1)
+        ExternalDataJob.objects.filter(id__in=[stripe_job.id, pg_job.id]).update(
+            status=ExternalDataJob.Status.FAILED,
+        )
+
+        out = _call("check-mismatches", "--source-type", "stripe")
+
+        assert stripe_run in out
+        assert pg_run not in out

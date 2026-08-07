@@ -9,9 +9,11 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.ai.slack_app import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppModelOverrideInput,
     block_posthog_code_task_if_no_personal_github_activity,
     cascade_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
+    classify_slack_app_model_override_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
@@ -29,6 +31,10 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
+
+# Temporal patch IDs — arbitrary strings recorded in workflow history.
+_PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
+_PATCH_ID_MODEL_CLASSIFIER = "slack-app-model-classifier-v1"
 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")
@@ -126,7 +132,20 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # forward. The webhook handler punted on this so its 3-second ack
             # budget stays unencumbered; here we run it under Temporal's retry
             # policy. Drop on chitchat or any failure (default-deny).
-            if inputs.untagged_followup:
+            # File-only replies skip the classifier: there is no text to
+            # classify, and default-deny would silently drop the attachment.
+            # Replies with text still face it even when files are attached, so
+            # chitchat with a screenshot doesn't wake the agent.
+            # workflow.patched() returns False for executions started before
+            # this deploy so replay still schedules the classifier for
+            # file-only replies. Delete the gate once history retention
+            # exceeds our longest possible run.
+            event_files = event.get("files")
+            event_has_files = isinstance(event_files, list) and len(event_files) > 0
+            file_only_followup = event_has_files and not (event.get("text") or "").strip()
+            if inputs.untagged_followup and not (
+                file_only_followup and workflow.patched(_PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS)
+            ):
                 should_forward = await _execute_posthog_code_activity(
                     classify_untagged_followup_activity,
                     inputs,
@@ -196,11 +215,10 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if cascade.mode == "auto":
                 repository = cascade.repository
             elif cascade.mode == "no_repo":
-                # Cascade only emits `no_repo` when neither the team nor the
-                # mentioning user has any GitHub install. Classify first so
-                # non-coding asks ("how do I configure retention?") still
-                # answer with no repo; coding asks surface the connect-personal-
-                # GitHub prompt instead of silently no-op'ing.
+                # Cascade emits `no_repo` whenever the mentioning user resolves no
+                # repos. Classify first so non-coding asks ("how do I configure
+                # retention?") still answer with no repo; coding asks surface the
+                # connect-personal-GitHub prompt instead of silently no-op'ing.
                 repository = None
                 needs_repo = await _execute_posthog_code_activity(
                     classify_posthog_code_task_needs_repo_activity,
@@ -218,9 +236,11 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     if blocked:
                         return
             elif cascade.mode == "needs_user_github":
-                # Team has GitHub, but the mentioning user hasn't connected their
-                # personal install. Fire the gate so they get the Connect button
-                # instead of a silently no-repo task.
+                # Replay-only: the cascade no longer emits this mode, because gating on a
+                # missing personal install before classifying the ask walled analytics
+                # questions behind the Connect button. Kept so executions that recorded it
+                # before the change still replay against the same command sequence; drop it
+                # once the workflow history retention window has elapsed.
                 await _execute_posthog_code_activity(
                     block_posthog_code_task_if_no_personal_github_activity,
                     inputs,
@@ -289,6 +309,22 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         return
                 elif await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
                     return
+            # Read a per-task model choice ("use fable for this one") out of the
+            # mention. Runs here, past every gate that can still abandon the
+            # mention, so the reply announcing the model only ever describes a task
+            # that gets created. The feature flag is checked inside the activity —
+            # branching the workflow on a flag would be non-deterministic on replay.
+            model_override = None
+            if workflow.patched(_PATCH_ID_MODEL_CLASSIFIER):
+                model_override = await _execute_posthog_code_activity(
+                    classify_slack_app_model_override_activity,
+                    SlackAppModelOverrideInput(
+                        integration_id=inputs.integration_id,
+                        slack_team_id=inputs.slack_team_id,
+                        event_text=event.get("text", ""),
+                    ),
+                )
+
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,
@@ -301,6 +337,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 repository,
                 repo_research_task_id,
                 repo_research_run_id,
+                model_override,
             )
         except Exception as exc:
             workflow.logger.exception(

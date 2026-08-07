@@ -2,11 +2,14 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 
 from posthog.temporal.weekly_digest.activities import (
+    _query_team_usage_trends,
+    _usage_trend_metric,
     count_organizations,
     count_teams,
     generate_dashboard_lookup,
@@ -20,6 +23,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_product_suggestion_lookup,
     generate_recording_lookup,
     generate_survey_lookup,
+    generate_usage_trends_lookup,
     generate_user_notification_lookup,
     send_weekly_digest_batch,
 )
@@ -29,6 +33,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
     SendWeeklyDigestBatchInput,
+    UsageTrends,
 )
 
 
@@ -888,3 +893,92 @@ async def test_send_weekly_digest_batch_with_product_suggestion(mock_redis, comm
     suggestion = team_report["new_product_suggestion"]
     assert suggestion["product_path"] == "Error tracking"
     assert suggestion["reason_text"] == "This product is recommended for you by our team."
+
+
+@pytest.mark.parametrize(
+    "current,previous,expected_direction,expected_change_pct,expected_has_baseline",
+    [
+        (150, 100, "up", 50, True),
+        (50, 100, "down", 50, True),
+        (100, 100, "flat", 0, True),
+        # No previous-week baseline: growth from 0 must not be reported as "no change"
+        (10_000, 0, "flat", 0, False),
+        (0, 0, "flat", 0, False),
+    ],
+)
+def test_usage_trend_metric(current, previous, expected_direction, expected_change_pct, expected_has_baseline):
+    metric = _usage_trend_metric("Events", current, previous)
+
+    assert metric.current == current
+    assert metric.previous == previous
+    assert metric.direction == expected_direction
+    assert metric.change_pct == expected_change_pct
+    assert metric.has_baseline is expected_has_baseline
+
+
+@pytest.mark.django_db
+def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
+    # Guards the previously-unvalidated usage query: window boundaries, distinct-person
+    # "active users" (matching DAU/WAU), and that filterTestAccounts drops test traffic.
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    period_start = period_end - timedelta(days=7)  # current window [period_start, period_end)
+
+    p1, p2 = str(uuid4()), str(uuid4())
+    # Current window: 3 events across 2 distinct persons.
+    _create_event(team=team, event="$pageview", distinct_id="a", person_id=p1, timestamp="2024-01-03T00:00:00Z")
+    _create_event(team=team, event="$pageview", distinct_id="a", person_id=p1, timestamp="2024-01-04T00:00:00Z")
+    _create_event(team=team, event="$pageview", distinct_id="b", person_id=p2, timestamp="2024-01-05T00:00:00Z")
+    # Previous window: 1 event, 1 person.
+    _create_event(team=team, event="$pageview", distinct_id="a", person_id=p1, timestamp="2023-12-31T00:00:00Z")
+    # Exactly at period_end is excluded (window is half-open: timestamp < cur_end).
+    _create_event(team=team, event="$pageview", distinct_id="b", person_id=p2, timestamp="2024-01-08T00:00:00Z")
+
+    # test_account_filters are phrased to KEEP real accounts, so "is_not localhost" drops the test event below.
+    team.test_account_filters = [{"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"}]
+    team.save()
+    # Test-account traffic in the current window must not inflate the numbers.
+    _create_event(
+        team=team,
+        event="$pageview",
+        distinct_id="t",
+        person_id=str(uuid4()),
+        timestamp="2024-01-06T00:00:00Z",
+        properties={"$host": "localhost"},
+    )
+    flush_persons_and_events()
+
+    result = _query_team_usage_trends(team.id, period_start, period_end)
+
+    assert result is not None
+    events, users = result.metrics
+    assert (events.label, events.current, events.previous) == ("Events", 3, 1)
+    assert (users.label, users.current, users.previous) == ("Active users", 2, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "side_effects,should_raise",
+    [
+        # Systemic failure (broken query / offline outage): every team errors -> fail the run loudly.
+        ([Exception("boom"), Exception("boom")], True),
+        # Isolated failure: one team errors, another succeeds -> tolerate and keep going.
+        ([Exception("boom"), UsageTrends(metrics=[])], False),
+    ],
+)
+async def test_generate_usage_trends_lookup_raises_only_when_every_team_fails(
+    side_effects, should_raise, mock_redis, common_input, digest
+):
+    input_data = GenerateDigestDataBatchInput(batch=(0, 2), digest=digest, common=common_input)
+    team_1, team_2 = MagicMock(), MagicMock()
+    team_1.id, team_2.id = 1, 2
+    mock_team_queryset = MockAsyncQuerySet([team_1, team_2])
+
+    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
+        with patch("posthog.temporal.weekly_digest.activities.database_sync_to_async") as mock_sync:
+            mock_sync.return_value = AsyncMock(side_effect=side_effects)
+            with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
+                if should_raise:
+                    with pytest.raises(RuntimeError):
+                        await generate_usage_trends_lookup(input_data)
+                else:
+                    await generate_usage_trends_lookup(input_data)

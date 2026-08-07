@@ -1,0 +1,751 @@
+import { initKeaTests } from '~/test/init'
+
+import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
+
+import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
+import {
+    cloudProgress,
+    isSessionFresh,
+    localProgress,
+    pendingInputFromSession,
+    progressFromFinishedLocalRun,
+} from './installationProgress'
+import { resetWizardSyncTelemetryForTests, runLocalSessionBookkeeping } from './installationProgressLogic'
+import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import { POSTHOG_INTEGRATION_WORKFLOW_ID, SELF_DRIVING_WORKFLOW_ID } from './workflows'
+
+// Matches the fixtures' timestamps so sessions read as fresh where intended.
+const NOW = new Date('2026-01-01T00:00:30Z').getTime()
+import { TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
+
+function taskState(overrides: Partial<TaskRunStreamState> = {}): TaskRunStreamState {
+    return {
+        status: 'in_progress',
+        stage: null,
+        output: null,
+        branch: null,
+        error_message: null,
+        updated_at: '2026-01-01T00:00:00Z',
+        completed_at: null,
+        ...overrides,
+    }
+}
+
+function step(overrides: Partial<TaskRunProgressStep> = {}): TaskRunProgressStep {
+    return {
+        step: 'clone',
+        status: 'in_progress',
+        label: 'Cloning repository',
+        group: 'setup',
+        detail: null,
+        ...overrides,
+    }
+}
+
+function session(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessionDTOApi {
+    return {
+        session_id: 's',
+        team_id: 1,
+        workflow_id: 'posthog-integration',
+        skill_id: '',
+        started_at: '2026-01-01T00:00:00Z',
+        run_phase: 'running',
+        tasks: [],
+        event_plan: null,
+        error: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        is_stale: false,
+        ...overrides,
+    } as unknown as WizardSessionDTOApi
+}
+
+describe('installationProgressLogic merge', () => {
+    describe('cloudProgress', () => {
+        it.each([
+            ['no state + idle connection → idle', null, 'idle', 'idle'],
+            ['no state + connecting → connecting', null, 'connecting', 'connecting'],
+            ['no state + open connection → idle', null, 'open', 'idle'],
+            // Queued means nothing has started yet — presenting it as "running" told users the
+            // wizard was working when no worker had picked the run up.
+            ['queued → connecting', 'queued', 'open', 'connecting'],
+            ['in_progress → running', 'in_progress', 'open', 'running'],
+            ['completed → completed', 'completed', 'open', 'completed'],
+            ['failed → error', 'failed', 'open', 'error'],
+            ['cancelled → error', 'cancelled', 'open', 'error'],
+        ])('phase: %s', (_name, status, conn, expected) => {
+            const state = status === null ? null : taskState({ status })
+            expect(cloudProgress(state, [], conn, null).phase).toBe(expected)
+        })
+
+        it.each([
+            // A deliberate cancel (button or PR close) must not read as a broken installation.
+            ['cancelled', 'Run cancelled'],
+            ['failed', 'Installation failed'],
+        ])('titles a terminal %s run as %s', (status, expectedTitle) => {
+            const result = cloudProgress(taskState({ status, error_message: 'Stopped by user' }), [], 'open', null)
+            expect(result.error?.title).toBe(expectedTitle)
+            expect(result.error?.detail).toBe('Stopped by user')
+        })
+
+        it('surfaces a stalled queued run as an error instead of an eternal spinner', () => {
+            const result = cloudProgress(taskState({ status: 'queued' }), [], 'open', null, true)
+            expect(result.phase).toBe('error')
+            expect(result.error?.title).toBe("Setup hasn't started")
+        })
+
+        it('ignores the stall flag once the run has left the queue', () => {
+            expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null, true).phase).toBe('running')
+        })
+
+        it('surfaces a run that never delivered any state as an error, not an eternal idle spinner', () => {
+            // `idle` renders a spinner with no recovery controls, so a stream that stayed silent has
+            // to resolve to the error phase (which carries the retry CTAs and the dismiss control).
+            const result = cloudProgress(null, [], 'open', null, true)
+            expect(result.phase).toBe('error')
+            expect(result.error?.title).toBe('Setup lost contact')
+            expect(result.isCurrent).toBe(true)
+        })
+
+        it.each([
+            ['pending', 'pending'],
+            ['in_progress', 'in_progress'],
+            ['completed', 'completed'],
+            ['failed', 'failed'],
+            ['canceled', 'failed'],
+            ['something-else', 'pending'],
+        ])('maps backend step status %s → %s', (raw, expected) => {
+            const result = cloudProgress(taskState(), [step({ status: raw })], 'open', null)
+            expect(result.steps.find((s) => s.id === 'setup:clone')?.status).toBe(expected)
+        })
+
+        it('maps a step to id/label/detail', () => {
+            const result = cloudProgress(
+                taskState(),
+                [step({ group: 'setup', step: 'clone', label: 'Cloning', detail: 'shallow' })],
+                'open',
+                null
+            )
+            expect(result.steps.find((s) => s.id === 'setup:clone')).toEqual({
+                id: 'setup:clone',
+                label: 'Cloning',
+                status: 'in_progress',
+                detail: 'shallow',
+            })
+        })
+
+        it('replaces the wizard stage with the session tasks once they exist', () => {
+            const result = cloudProgress(
+                taskState(),
+                [
+                    step({ step: 'clone', status: 'completed', label: 'Cloned repository' }),
+                    step({ step: 'wizard', status: 'in_progress', label: 'Running setup wizard' }),
+                    step({ step: 'pr', status: 'pending', label: 'Opening pull request', group: 'deliver' }),
+                ],
+                'open',
+                session({
+                    tasks: [
+                        { id: 'a', title: 'Detect framework', status: 'completed' },
+                        { id: 'b', title: 'Install SDK', status: 'in_progress' },
+                    ],
+                }),
+                false,
+                NOW
+            )
+            expect(result.steps.map((s) => [s.label, s.status, s.source ?? null])).toEqual([
+                ['Setting up sandbox', 'pending', null],
+                ['Cloned repository', 'completed', null],
+                ['Detect framework', 'completed', 'wizard'],
+                ['Install SDK', 'in_progress', 'wizard'],
+                ['Opening pull request', 'pending', null],
+            ])
+        })
+
+        it('slots session tasks into the skeleton wizard slot before any stage is announced', () => {
+            const result = cloudProgress(
+                taskState(),
+                [],
+                'open',
+                session({ tasks: [{ id: 'a', title: 'Detect framework', status: 'in_progress' }] }),
+                false,
+                NOW
+            )
+            expect(result.steps.map((s) => [s.label, s.status, s.source ?? null])).toEqual([
+                ['Setting up sandbox', 'pending', null],
+                ['Cloning repository', 'pending', null],
+                ['Detect framework', 'in_progress', 'wizard'],
+                ['Opening a pull request', 'pending', null],
+            ])
+        })
+
+        it('keeps the announced wizard stage when there is no session', () => {
+            const result = cloudProgress(
+                taskState(),
+                [step({ step: 'wizard', status: 'in_progress', detail: 'own detail' })],
+                'open',
+                null
+            )
+            expect(result.steps.find((s) => s.id === 'setup:wizard')?.detail).toBe('own detail')
+        })
+
+        it('clamps lingering in-progress wizard tasks once the run completes', () => {
+            const result = cloudProgress(
+                taskState({ status: 'completed' }),
+                [step({ step: 'wizard', status: 'completed' })],
+                'open',
+                session({ tasks: [{ id: 'a', title: 'Install SDK', status: 'in_progress' }] }),
+                false,
+                NOW
+            )
+            expect(result.steps.find((s) => s.source === 'wizard')).toMatchObject({
+                label: 'Install SDK',
+                status: 'completed',
+            })
+            expect(result.steps.find((s) => s.id === 'setup:wizard')).toBeUndefined()
+        })
+
+        it('uses the task run error message on failure', () => {
+            expect(
+                cloudProgress(taskState({ status: 'failed', error_message: 'boom' }), [], 'open', null).error
+            ).toEqual({
+                title: 'Installation failed',
+                detail: 'boom',
+            })
+        })
+
+        it('falls back to the wizard session error message', () => {
+            expect(
+                cloudProgress(
+                    taskState({ status: 'failed', error_message: null }),
+                    [],
+                    'open',
+                    session({ error: { message: 'wizard boom' } }),
+                    false,
+                    NOW
+                ).error
+            ).toEqual({ title: 'Installation failed', detail: 'wizard boom' })
+        })
+
+        it('error detail is null when neither source has a message', () => {
+            expect(cloudProgress(taskState({ status: 'failed', error_message: null }), [], 'open', null).error).toEqual(
+                {
+                    title: 'Installation failed',
+                    detail: null,
+                }
+            )
+        })
+
+        it('has no error outside an error phase', () => {
+            expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null).error).toBeNull()
+        })
+
+        it.each([
+            [
+                'output with pr_url',
+                taskState({ status: 'completed', output: { pr_url: 'https://x/pull/1' } }),
+                'https://x/pull/1',
+            ],
+            ['output without pr_url', taskState({ status: 'completed', output: {} }), null],
+            ['null output', taskState({ status: 'completed', output: null }), null],
+            ['no task state', null, null],
+        ])('prUrl: %s', (_name, state, expected) => {
+            expect(cloudProgress(state, [], 'open', null).prUrl).toBe(expected)
+        })
+
+        it('isCurrent is false only when idle', () => {
+            expect(cloudProgress(null, [], 'idle', null).isCurrent).toBe(false)
+            expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null).isCurrent).toBe(true)
+            expect(cloudProgress(taskState({ status: 'completed' }), [], 'open', null).isCurrent).toBe(true)
+        })
+    })
+
+    describe('localProgress', () => {
+        it.each([
+            ['no session + connecting → connecting', null, 'connecting', 'connecting'],
+            ['no session + open → idle', null, 'open', 'idle'],
+            ['no session + idle → idle', null, 'idle', 'idle'],
+            ['completed → completed', { run_phase: 'completed' }, 'open', 'completed'],
+            ['error → error', { run_phase: 'error' }, 'open', 'error'],
+            ['running + open → running', { run_phase: 'running' }, 'open', 'running'],
+            ['running + connecting conn → connecting', { run_phase: 'running' }, 'connecting', 'connecting'],
+            ['running + error conn → connecting', { run_phase: 'running' }, 'error', 'connecting'],
+            // A CLI that dies without pushing a terminal phase: without this the step spins forever,
+            // and InstallationProgressContent only offers a way out on a terminal phase.
+            ['running + server-flagged stale → error', { run_phase: 'running', is_stale: true }, 'open', 'error'],
+        ])('phase: %s', (_name, sessionOverrides, conn, expected) => {
+            const s = sessionOverrides === null ? null : session(sessionOverrides as Partial<WizardSessionDTOApi>)
+            expect(localProgress(s, conn, true).phase).toBe(expected)
+        })
+
+        it('maps session tasks to steps', () => {
+            const result = localProgress(
+                session({
+                    run_phase: 'running',
+                    tasks: [
+                        { id: 'a', title: 'Detect framework', status: 'completed' },
+                        { id: 'b', title: 'Install SDK', status: 'in_progress' },
+                    ],
+                }),
+                'open',
+                true
+            )
+            expect(result.steps).toEqual([
+                { id: 'a', label: 'Detect framework', status: 'completed', detail: null },
+                { id: 'b', label: 'Install SDK', status: 'in_progress', detail: null },
+            ])
+        })
+
+        it('explains the dead end when a run goes stale without a terminal phase', () => {
+            expect(localProgress(session({ run_phase: 'running', is_stale: true }), 'open', true).error).toEqual({
+                title: 'Setup lost contact',
+                detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            })
+        })
+
+        it('surfaces the wizard error on the error phase', () => {
+            expect(
+                localProgress(session({ run_phase: 'error', error: { message: 'wizard boom' } }), 'open', true).error
+            ).toEqual({
+                title: 'Wizard hit an error',
+                detail: 'wizard boom',
+            })
+        })
+
+        it('error detail is null when the session has no error message', () => {
+            expect(localProgress(session({ run_phase: 'error', error: null }), 'open', true).error).toEqual({
+                title: 'Wizard hit an error',
+                detail: null,
+            })
+        })
+
+        it('has no error outside the error phase', () => {
+            expect(localProgress(session({ run_phase: 'running' }), 'open', true).error).toBeNull()
+        })
+
+        it('never has a pr url', () => {
+            expect(localProgress(session({ run_phase: 'completed' }), 'open', true).prUrl).toBeNull()
+        })
+
+        it('carries the handoff doc so the report button and dialog can render it', () => {
+            expect(localProgress(session({ handoff_text: '# report' }), 'open', true).handoffText).toBe('# report')
+            expect(localProgress(session(), 'open', true).handoffText).toBeNull()
+        })
+
+        it('isCurrent mirrors the sticky freshness flag, never a bare session', () => {
+            // A stale terminal row replayed by the SSE on connect must not read as a run in flight —
+            // that is what used to hijack the install step before the freshness guard.
+            expect(localProgress(null, 'open', true).isCurrent).toBe(false)
+            expect(localProgress(session({ run_phase: 'running' }), 'open', false).isCurrent).toBe(false)
+            expect(localProgress(session({ run_phase: 'running' }), 'open', true).isCurrent).toBe(true)
+        })
+
+        it('a dismissed session is not current even while fresh', () => {
+            // Dismissal must release the install-step takeover immediately — the sticky freshness
+            // flag alone would keep the completed panel pinned until the next remount.
+            expect(localProgress(session({ run_phase: 'completed' }), 'open', true, true).isCurrent).toBe(false)
+        })
+
+        it('names the initiator, preferring first name and falling back to email', () => {
+            // The card reads "On <name>'s machine"; a blank first_name must fall back to email so it
+            // never renders "On 's machine".
+            expect(
+                localProgress(session({ created_by: { id: 1, first_name: 'Edwin', email: 'e@ph.com' } }), 'open', true)
+                    .startedBy
+            ).toEqual({ name: 'Edwin', email: 'e@ph.com' })
+            expect(
+                localProgress(session({ created_by: { id: 1, first_name: '', email: 'e@ph.com' } }), 'open', true)
+                    .startedBy
+            ).toEqual({ name: 'e@ph.com', email: 'e@ph.com' })
+            expect(localProgress(session(), 'open', true).startedBy).toBeNull()
+        })
+    })
+
+    describe('pendingInput', () => {
+        const pending = {
+            id: 'ask-1',
+            asked_at: '2026-01-01T00:00:10Z',
+            question_count: 1,
+            sensitive: false,
+            prompts: ['Which region is your project in?'],
+        }
+
+        it('surfaces an open wizard_ask on a live session', () => {
+            const result = localProgress(session({ run_phase: 'running', pending_input: pending }), 'open', true)
+            expect(result.pendingInput).toEqual({
+                id: 'ask-1',
+                askedAt: '2026-01-01T00:00:10Z',
+                questionCount: 1,
+                sensitive: false,
+                prompts: ['Which region is your project in?'],
+            })
+        })
+
+        it.each([
+            // A dead wizard never sends the clearing push — staleness is the only way out.
+            ['stale session', session({ run_phase: 'running', pending_input: pending, is_stale: true })],
+            ['terminal session', session({ run_phase: 'completed', pending_input: pending })],
+            ['no pending_input on the row', session({ run_phase: 'running', pending_input: null })],
+        ])('gated off for a %s', (_name, s) => {
+            expect(pendingInputFromSession(s)).toBeNull()
+        })
+
+        it('withholds prompts on sensitive asks even if the row carries them', () => {
+            const result = pendingInputFromSession(
+                session({ run_phase: 'running', pending_input: { ...pending, sensitive: true } })
+            )
+            expect(result?.sensitive).toBe(true)
+            expect(result?.prompts).toEqual([])
+        })
+
+        it('the next push without the field reads as dismissed', () => {
+            const withQuestion = localProgress(session({ run_phase: 'running', pending_input: pending }), 'open', true)
+            const cleared = localProgress(session({ run_phase: 'running', pending_input: null }), 'open', true)
+            expect(withQuestion.pendingInput).not.toBeNull()
+            expect(cleared.pendingInput).toBeNull()
+        })
+    })
+
+    describe('progressFromFinishedLocalRun', () => {
+        const handle = (overrides: Partial<FinishedLocalRunHandle> = {}): FinishedLocalRunHandle => ({
+            sessionId: 's',
+            projectId: 1,
+            startedAt: '2026-01-01T00:00:00Z',
+            finishedAt: '2026-01-01T00:05:00Z',
+            runPhase: 'completed',
+            tasks: [
+                { id: 'a', title: 'Detect framework', status: 'completed' },
+                { id: 'b', title: 'Install SDK', status: 'canceled' },
+            ],
+            error: null,
+            ...overrides,
+        })
+
+        it('renders the snapshot like the live path rendered the same terminal session', () => {
+            // The FAB switches from the live stream to this snapshot when the stream gates itself
+            // off — a mapping drift would make the card visibly rewrite itself at that moment.
+            expect(progressFromFinishedLocalRun(handle())).toEqual({
+                phase: 'completed',
+                steps: [
+                    { id: 'a', label: 'Detect framework', status: 'completed', detail: null },
+                    { id: 'b', label: 'Install SDK', status: 'failed', detail: null },
+                ],
+                error: null,
+                prUrl: null,
+                prMerged: false,
+                isCurrent: true,
+                pendingInput: null,
+                startedBy: null,
+                handoffText: null,
+            })
+        })
+
+        it('carries the snapshotted initiator so the finished-run handoff can still name them', () => {
+            // The handle outlives the session stream; without this the card would drop the
+            // attribution the moment it switched from the live stream to the snapshot.
+            const result = progressFromFinishedLocalRun(
+                handle({ startedBy: { name: 'Edwin', email: 'edwin@posthog.com' } })
+            )
+            expect(result.startedBy).toEqual({ name: 'Edwin', email: 'edwin@posthog.com' })
+        })
+
+        it('surfaces the persisted error on failed runs', () => {
+            const result = progressFromFinishedLocalRun(handle({ runPhase: 'error', error: { message: 'boom' } }))
+            expect(result.phase).toBe('error')
+            expect(result.error).toEqual({ title: 'Wizard hit an error', detail: 'boom' })
+        })
+    })
+
+    describe('isSessionFresh', () => {
+        const NOW = new Date('2026-01-01T00:00:00Z').getTime()
+        it.each([
+            ['updated just now', '2026-01-01T00:00:00Z', true],
+            ['updated 9 minutes ago', '2025-12-31T23:51:00Z', true],
+            ['updated 11 minutes ago', '2025-12-31T23:49:00Z', false],
+            ['unparseable timestamp', 'not-a-date', false],
+        ])('%s → %s', (_name, updatedAt, expected) => {
+            expect(isSessionFresh(session({ updated_at: updatedAt }), NOW)).toBe(expected)
+        })
+    })
+
+    describe('cloudProgress agent-gap bridging', () => {
+        const NOW_MS = new Date('2026-01-01T00:00:30Z').getTime()
+        it('flips the pending PR slot to in-progress and hides the agent plumbing row', () => {
+            // The quiet window between agent start and the PR opening must not read as stalled,
+            // and 'Started agent' is internal plumbing the user shouldn't see at all.
+            const result = cloudProgress(
+                taskState(),
+                [
+                    step({ step: 'sandbox', status: 'completed', label: 'Set up sandbox' }),
+                    step({ step: 'clone', status: 'completed', label: 'Cloned repository' }),
+                    step({ step: 'wizard', status: 'completed', label: 'Ran setup wizard' }),
+                    step({ step: 'agent', status: 'completed', label: 'Started agent' }),
+                ],
+                'open',
+                null
+            )
+            expect(result.steps.map((s) => [s.label, s.status])).toEqual([
+                ['Set up sandbox', 'completed'],
+                ['Cloned repository', 'completed'],
+                ['Ran setup wizard', 'completed'],
+                ['Opening a pull request', 'in_progress'],
+            ])
+        })
+
+        it.each([
+            ['a step is still in flight', [step({ step: 'wizard', status: 'in_progress' })], null],
+            [
+                'a deliver-stage step already exists',
+                [
+                    step({ step: 'agent', status: 'completed' }),
+                    step({ step: 'pr', status: 'completed', group: 'deliver', detail: 'https://x/pull/1' }),
+                ],
+                null,
+            ],
+            ['the run has completed', [step({ step: 'agent', status: 'completed' })], 'completed'],
+        ])('does not synthesize when %s', (_name, progressSteps, status) => {
+            const result = cloudProgress(
+                taskState(status ? { status } : {}),
+                progressSteps as TaskRunProgressStep[],
+                'open',
+                null,
+                false,
+                NOW_MS
+            )
+            expect(result.steps.find((s) => s.id.endsWith(':pr'))?.status ?? 'pending').not.toBe('in_progress')
+        })
+    })
+
+    describe('cloudProgress handoff doc run-window gate', () => {
+        const NOW_MS = new Date('2026-01-01T06:00:00Z').getTime()
+        // The wizard stage published its doc at ~00:00 and the pipeline completed hours later, so
+        // the session is far past the recency gate by the time the completed surfaces render.
+        const staleWithDoc = session({
+            started_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:05:00Z',
+            run_phase: 'completed',
+            handoff_text: '# report',
+        })
+        const completedRun = taskState({ status: 'completed' })
+
+        it("keeps the doc from this run's session long after it went stale", () => {
+            // Regression: gating the doc on isSessionFresh meant cloud users could never see it —
+            // the button checks phase === completed, which flips hours after the wizard stage.
+            const result = cloudProgress(completedRun, [], 'open', staleWithDoc, false, NOW_MS, '2025-12-31T23:55:00Z')
+            expect(result.handoffText).toBe('# report')
+        })
+
+        it("rejects a session that predates the run (a previous run's doc)", () => {
+            const result = cloudProgress(completedRun, [], 'open', staleWithDoc, false, NOW_MS, '2026-01-01T01:00:00Z')
+            expect(result.handoffText).toBeNull()
+        })
+
+        it('falls back to the recency gate when no run window is known', () => {
+            expect(cloudProgress(completedRun, [], 'open', staleWithDoc, false, NOW_MS).handoffText).toBeNull()
+            const freshWithDoc = session({
+                updated_at: '2026-01-01T05:59:00Z',
+                run_phase: 'completed',
+                handoff_text: '# report',
+            })
+            expect(cloudProgress(completedRun, [], 'open', freshWithDoc, false, NOW_MS).handoffText).toBe('# report')
+        })
+    })
+
+    describe('cloudProgress session freshness gate', () => {
+        const NOW_MS = new Date('2026-01-01T00:00:30Z').getTime()
+        it('ignores a stale session for both the timeline and the error fallback', () => {
+            // A stale terminal row replayed on connect must not leak a previous run's tasks or error
+            // text into a fresh cloud run.
+            const stale = session({
+                updated_at: '2025-12-01T00:00:00Z',
+                tasks: [{ id: 'a', title: 'Old task', status: 'completed' }],
+                error: { message: 'old boom' },
+            })
+            const running = cloudProgress(taskState(), [], 'open', stale, false, NOW_MS)
+            expect(running.steps.filter((s) => s.source === 'wizard')).toEqual([])
+            const failed = cloudProgress(
+                taskState({ status: 'failed', error_message: null }),
+                [],
+                'open',
+                stale,
+                false,
+                NOW_MS
+            )
+            expect(failed.error?.detail).toBeNull()
+        })
+
+        it('replaces the skeleton wizard slot with wizard tasks', () => {
+            const result = cloudProgress(
+                taskState(),
+                [
+                    step({ step: 'clone', status: 'completed', label: 'Cloned repository' }),
+                    step({ step: 'pr', status: 'pending', label: 'Opening pull request', group: 'deliver' }),
+                ],
+                'open',
+                session({ tasks: [{ id: 'a', title: 'Install SDK', status: 'in_progress' }] }),
+                false,
+                NOW_MS
+            )
+            expect(result.steps.map((s) => s.label)).toEqual([
+                'Setting up sandbox',
+                'Cloned repository',
+                'Install SDK',
+                'Opening pull request',
+            ])
+        })
+    })
+
+    describe('runLocalSessionBookkeeping', () => {
+        const spyActions = (): {
+            markSessionCurrent: jest.Mock
+            recordFinishedLocalRun: jest.Mock
+            supersedeFinishedLocalRun: jest.Mock
+            handoffDocReceived: jest.Mock
+            reportWizardSyncSessionDetected: jest.Mock
+            reportWizardSyncSessionFinished: jest.Mock
+        } => ({
+            markSessionCurrent: jest.fn(),
+            recordFinishedLocalRun: jest.fn(),
+            supersedeFinishedLocalRun: jest.fn(),
+            handoffDocReceived: jest.fn(),
+            reportWizardSyncSessionDetected: jest.fn(),
+            reportWizardSyncSessionFinished: jest.fn(),
+        })
+        const fresh = (overrides: Partial<WizardSessionDTOApi> = {}): WizardSessionDTOApi =>
+            session({ updated_at: new Date(Date.now() - 1000).toISOString(), ...overrides })
+
+        beforeEach(() => resetWizardSyncTelemetryForTests())
+
+        it('marks the session current and reports detected once per session across redeliveries', () => {
+            const actions = spyActions()
+            const s = fresh({ session_id: 'dup' })
+            runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            runLocalSessionBookkeeping(s, s, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            expect(actions.markSessionCurrent).toHaveBeenCalledTimes(2)
+            expect(actions.reportWizardSyncSessionDetected).toHaveBeenCalledTimes(1)
+        })
+
+        it('ignores a stale session entirely for freshness and reach telemetry', () => {
+            const actions = spyActions()
+            runLocalSessionBookkeeping(
+                session({ updated_at: '2020-01-01T00:00:00Z' }),
+                null,
+                POSTHOG_INTEGRATION_WORKFLOW_ID,
+                actions
+            )
+            expect(actions.markSessionCurrent).not.toHaveBeenCalled()
+            expect(actions.reportWizardSyncSessionDetected).not.toHaveBeenCalled()
+        })
+
+        it('reports finished only on an observed transition into a terminal phase, once', () => {
+            const actions = spyActions()
+            const running = fresh({ session_id: 'fin', run_phase: 'running' })
+            const done = fresh({ session_id: 'fin', run_phase: 'completed' })
+            runLocalSessionBookkeeping(done, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions) // replayed terminal state: no transition
+            expect(actions.reportWizardSyncSessionFinished).not.toHaveBeenCalled()
+            runLocalSessionBookkeeping(done, running, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            runLocalSessionBookkeeping(done, running, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            expect(actions.reportWizardSyncSessionFinished).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            // Recording must fire on every fresh terminal delivery (a replayed terminal state after
+            // a remount is exactly when the FAB needs its snapshot back), never on stale ones —
+            // otherwise a finished run's handoff vanishes with the stream, or a stale row from a
+            // previous run resurrects a surface the user never watched.
+            ['fresh completed session', { run_phase: 'completed' }, true, true],
+            ['fresh errored session', { run_phase: 'error' }, true, true],
+            ['fresh running session', { run_phase: 'running' }, true, false],
+            ['stale completed session', { run_phase: 'completed', updated_at: '2020-01-01T00:00:00Z' }, false, false],
+        ])('records the finished-run handle for a %s: %s', (_name, overrides, isFresh, expectRecorded) => {
+            const actions = spyActions()
+            const s = isFresh
+                ? fresh(overrides as Partial<WizardSessionDTOApi>)
+                : session(overrides as Partial<WizardSessionDTOApi>)
+            runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            expect(actions.recordFinishedLocalRun).toHaveBeenCalledTimes(expectRecorded ? 1 : 0)
+        })
+
+        it('supersedes the previous finished run when a fresh run goes live', () => {
+            // Starting over must replace the old handoff with the live run — otherwise dismissing
+            // requires clearing two surfaces, or the old completed card reappears mid-new-run.
+            const actions = spyActions()
+            runLocalSessionBookkeeping(
+                fresh({ session_id: 'new-run', run_phase: 'running' }),
+                null,
+                POSTHOG_INTEGRATION_WORKFLOW_ID,
+                actions
+            )
+            expect(actions.supersedeFinishedLocalRun).toHaveBeenCalledWith('new-run')
+            expect(actions.recordFinishedLocalRun).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            // The doc must ride the same freshness gate as everything else (a stale row's doc
+            // re-announced on every app load would fight the once-only auto-open downstream), and
+            // it must wait for the completed push: the reopen buttons only exist on completed runs,
+            // so announcing an errored (or still-running) run's doc would burn the one auto-open on
+            // a dialog the user can never get back to.
+            ['fresh completed session with a doc', fresh({ run_phase: 'completed', handoff_text: '# report' }), 1],
+            ['fresh completed session without a doc', fresh({ run_phase: 'completed' }), 0],
+            ['fresh running session with a doc', fresh({ handoff_text: '# report' }), 0],
+            ['fresh errored session with a doc', fresh({ run_phase: 'error', handoff_text: '# report' }), 0],
+            [
+                'stale completed session with a doc',
+                session({ run_phase: 'completed', handoff_text: '# report', updated_at: '2020-01-01T00:00:00Z' }),
+                0,
+            ],
+        ])('announces the handoff doc only for a %s', (_name, s, expectedCalls) => {
+            const actions = spyActions()
+            runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            expect(actions.handoffDocReceived).toHaveBeenCalledTimes(expectedCalls)
+            if (expectedCalls > 0) {
+                expect(actions.handoffDocReceived).toHaveBeenCalledWith({
+                    key: s.session_id,
+                    text: '# report',
+                    startedByEmail: null,
+                })
+            }
+        })
+
+        it('tolerates a malformed session with null tasks', () => {
+            const actions = spyActions()
+            const s = fresh({ session_id: 'null-tasks', tasks: null as unknown as WizardSessionDTOApi['tasks'] })
+            expect(() => runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)).not.toThrow()
+            expect(actions.reportWizardSyncSessionDetected).toHaveBeenCalledWith(
+                expect.objectContaining({ taskCount: 0 })
+            )
+        })
+
+        it('stamps telemetry with the workflow being tracked', () => {
+            const actions = spyActions()
+            runLocalSessionBookkeeping(fresh({ session_id: 'sd-run' }), null, SELF_DRIVING_WORKFLOW_ID, actions)
+            expect(actions.reportWizardSyncSessionDetected).toHaveBeenCalledWith(
+                expect.objectContaining({ workflowId: SELF_DRIVING_WORKFLOW_ID })
+            )
+        })
+
+        // The FAB streams whatever the detector says is live, so the detector has to carry WHICH
+        // program that is. Recording only "something is running" made the FAB open the SDK-install
+        // stream for a self-driving run and render nothing.
+        it('tells the app-wide session detector which workflow went live', () => {
+            // `started_at` too must be recent: the detector's eligibility check caps a session's
+            // lifetime at an hour, and the shared fixture's is fixed in the past.
+            const live = (sessionId: string): WizardSessionDTOApi =>
+                fresh({ session_id: sessionId, started_at: new Date(Date.now() - 1000).toISOString() })
+
+            initKeaTests()
+            const detector = wizardActiveSessionDetectorLogic()
+            detector.mount()
+            try {
+                runLocalSessionBookkeeping(live('sd'), null, SELF_DRIVING_WORKFLOW_ID, spyActions())
+                expect(detector.values.activeWorkflowId).toBe(SELF_DRIVING_WORKFLOW_ID)
+                expect(detector.values.hasActiveSession).toBe(true)
+
+                runLocalSessionBookkeeping(live('pi'), null, POSTHOG_INTEGRATION_WORKFLOW_ID, spyActions())
+                expect(detector.values.activeWorkflowId).toBe(POSTHOG_INTEGRATION_WORKFLOW_ID)
+            } finally {
+                detector.unmount()
+            }
+        })
+    })
+})

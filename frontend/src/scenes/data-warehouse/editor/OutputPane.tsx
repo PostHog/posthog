@@ -24,6 +24,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTab
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -37,15 +38,14 @@ import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -55,7 +55,13 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
-import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    type AccessControlFilterWarning,
+    type DataTableNode,
+    type DataWarehouseSyncWarning,
+    type HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -572,10 +578,11 @@ function OutputActions({
 interface OutputPaneProps {
     tabId: string
     showToolbar?: boolean
+    biMode?: boolean
     onShareTab?: () => void
 }
 
-export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
+export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
@@ -594,7 +601,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
-    const splitView = activeTab === OutputTab.Both
+    const splitView = !biMode && activeTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
         () => ({
             containerRef: splitPaneRef,
@@ -800,7 +807,23 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
     }
 
-    const outputContent = splitView ? (
+    const outputContent = biMode ? (
+        <div className="relative flex flex-1 min-h-0 bg-dark">
+            {showToolbar ? (
+                <LemonButton
+                    className="absolute right-2 top-2 z-10"
+                    disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                    type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
+                    icon={<IconGear />}
+                    size="small"
+                    onClick={toggleVisualizationSettingsPanel}
+                    tooltip="Visualization settings"
+                    data-attr="sql-editor-visualization-settings-button"
+                />
+            ) : null}
+            <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
+        </div>
+    ) : splitView ? (
         <div className="flex flex-1 min-h-0 bg-dark">
             <div
                 ref={splitPaneRef}
@@ -934,7 +957,7 @@ function InternalDataTableVisualization(
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <LineGraph
+            <SqlChart
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
@@ -952,7 +975,6 @@ function InternalDataTableVisualization(
         component = (
             <PieChart
                 className="p-2"
-                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
                 xData={_xData}
                 yData={_yData}
                 chartSettings={chartSettings}
@@ -986,29 +1008,57 @@ function InternalDataTableVisualization(
     )
 }
 
-const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
+// The shared `warnings` field is a tagged union; render one banner per warning kind present.
+const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
     if (!warnings || warnings.length === 0) {
         return null
     }
+    const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
+    const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
     return (
-        <LemonBanner type="warning" className="m-2 flex-shrink-0" data-attr="sql-editor-output-pane-sync-warnings">
-            Some warehouse sources used by this query are out of date — results may not reflect current data:
-            <ul className="list-disc pl-5">
-                {warnings.map((warning, index) => (
-                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                        {trimRedundantTail(warning.message)}
-                        {warning.source_id && (
-                            <>
-                                {' '}
-                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
-                                    Manage source
-                                </Link>
-                            </>
-                        )}
-                    </li>
-                ))}
-            </ul>
-        </LemonBanner>
+        <>
+            {syncWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-sync-warnings"
+                >
+                    Some warehouse sources used by this query are out of date — results may not reflect current data:
+                    <ul className="list-disc pl-5">
+                        {syncWarnings.map((warning, index) => (
+                            <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
+                                {trimRedundantTail(warning.message)}
+                                {warning.source_id && (
+                                    <>
+                                        {' '}
+                                        <Link
+                                            to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
+                                            target="_blank"
+                                        >
+                                            Manage source
+                                        </Link>
+                                    </>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
+            {acWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-access-control-warnings"
+                >
+                    {/* The backend emits at most one access control warning; its message is the full sentence. */}
+                    {acWarnings.map((warning, index) => (
+                        <div key={index} className="font-semibold">
+                            {warning.message}
+                        </div>
+                    ))}
+                </LemonBanner>
+            )}
+        </>
     )
 }
 
@@ -1141,7 +1191,7 @@ const Content = ({
 
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
-                <SyncWarningsBanner warnings={response?.warnings} />
+                <QueryWarningsBanner warnings={response?.warnings} />
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
@@ -1203,7 +1253,7 @@ const Content = ({
     if (activeTab === OutputTab.Results) {
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
-                <SyncWarningsBanner warnings={response?.warnings} />
+                <QueryWarningsBanner warnings={response?.warnings} />
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (

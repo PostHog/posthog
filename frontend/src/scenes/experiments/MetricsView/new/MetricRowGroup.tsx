@@ -33,6 +33,7 @@ import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/Cha
 import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
 import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
+import { MetricRetryState } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import {
     FIXED_HEIGHT_STYLE,
     getMinHeightStyle,
@@ -60,6 +61,8 @@ import {
     CHART_CELL_VIEW_BOX_HEIGHT,
     EMPTY_STATE_ROW_MIN_HEIGHT,
     GRID_LINES_OPACITY,
+    SIGNIFICANT_CELL_BG_ALPHA,
+    SIGNIFICANT_ROW_BG_ALPHA,
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
 } from './constants'
@@ -78,7 +81,7 @@ interface BreakdownErrorStateProps {
 
 function BreakdownErrorState({ metric, isAlternatingRow, onRemoveBreakdown }: BreakdownErrorStateProps): JSX.Element {
     return (
-        <tr data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+        <tr data-breakdown-row className="hover:bg-bg-hover group">
             <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <div className="p-1">
                     <div className="flex items-center gap-2">
@@ -178,7 +181,7 @@ function CollapsibleBreakdownSection({
     }
 
     return (
-        <tr ref={mainTableRef} data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+        <tr ref={mainTableRef} data-breakdown-row className="hover:bg-bg-hover group">
             <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <LemonCollapse
                     multiple={false}
@@ -313,11 +316,10 @@ function CollapsibleBreakdownSection({
                                                                     <div />
                                                                 </td>
 
-                                                                {/* Empty Details column for alignment */}
+                                                                {/* Empty Details column for alignment (per-row; variant rows render their own) */}
                                                                 <td
-                                                                    className={`w-20 pt-3 align-top relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                                                                    rowSpan={totalRows}
-                                                                    style={totalRowsHeightStyle}
+                                                                    className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                    style={FIXED_HEIGHT_STYLE}
                                                                 />
 
                                                                 <td
@@ -365,6 +367,14 @@ function CollapsibleBreakdownSection({
                                                                     const deltaPositive = isDeltaPositive(variant)
                                                                     const winning = isWinning(variant, metric.goal)
                                                                     const deltaText = formatDeltaPercent(variant)
+                                                                    const rowBackgroundColor = significant
+                                                                        ? winning
+                                                                            ? `${colors.BAR_POSITIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
+                                                                            : `${colors.BAR_NEGATIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
+                                                                        : undefined
+                                                                    const rowBackgroundImage = rowBackgroundColor
+                                                                        ? `linear-gradient(${rowBackgroundColor}, ${rowBackgroundColor})`
+                                                                        : undefined
 
                                                                     return (
                                                                         <tr
@@ -381,14 +391,20 @@ function CollapsibleBreakdownSection({
                                                                         >
                                                                             <td
                                                                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
-                                                                                style={FIXED_HEIGHT_STYLE}
+                                                                                style={{
+                                                                                    ...FIXED_HEIGHT_STYLE,
+                                                                                    backgroundImage: rowBackgroundImage,
+                                                                                }}
                                                                             >
                                                                                 <VariantTag variantKey={variant.key} />
                                                                             </td>
 
                                                                             <td
                                                                                 className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
-                                                                                style={FIXED_HEIGHT_STYLE}
+                                                                                style={{
+                                                                                    ...FIXED_HEIGHT_STYLE,
+                                                                                    backgroundImage: rowBackgroundImage,
+                                                                                }}
                                                                             >
                                                                                 <div className="metric-cell">
                                                                                     <div>
@@ -403,7 +419,10 @@ function CollapsibleBreakdownSection({
 
                                                                             <td
                                                                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
-                                                                                style={FIXED_HEIGHT_STYLE}
+                                                                                style={{
+                                                                                    ...FIXED_HEIGHT_STYLE,
+                                                                                    backgroundImage: rowBackgroundImage,
+                                                                                }}
                                                                             >
                                                                                 <div className="flex items-center gap-1">
                                                                                     <span
@@ -442,8 +461,8 @@ function CollapsibleBreakdownSection({
                                                                                     ...FIXED_HEIGHT_STYLE,
                                                                                     backgroundColor: significant
                                                                                         ? winning
-                                                                                            ? `${colors.BAR_POSITIVE}30`
-                                                                                            : `${colors.BAR_NEGATIVE}30`
+                                                                                            ? `${colors.BAR_POSITIVE}${SIGNIFICANT_CELL_BG_ALPHA}`
+                                                                                            : `${colors.BAR_NEGATIVE}${SIGNIFICANT_CELL_BG_ALPHA}`
                                                                                         : undefined,
                                                                                 }}
                                                                             >
@@ -459,6 +478,15 @@ function CollapsibleBreakdownSection({
                                                                                 </span>
                                                                             </td>
 
+                                                                            {/* Details (empty, for alignment) */}
+                                                                            <td
+                                                                                className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                                style={{
+                                                                                    ...FIXED_HEIGHT_STYLE,
+                                                                                    backgroundImage: rowBackgroundImage,
+                                                                                }}
+                                                                            />
+
                                                                             <ChartCell
                                                                                 variantResult={variant}
                                                                                 metric={metric}
@@ -470,6 +498,9 @@ function CollapsibleBreakdownSection({
                                                                                 gradientSuffix={String(
                                                                                     breakdownResult.breakdown_value
                                                                                 )}
+                                                                                highlightBackgroundColor={
+                                                                                    rowBackgroundColor
+                                                                                }
                                                                             />
                                                                         </tr>
                                                                     )
@@ -502,7 +533,9 @@ interface MetricRowGroupProps {
     isSecondary: boolean
     isLastMetric: boolean
     isAlternatingRow: boolean
+    dragHandle?: JSX.Element | null
     onDuplicateMetric?: () => void
+    onDuplicateAsSingleUseMetric?: () => void
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
@@ -523,7 +556,9 @@ export function MetricRowGroup({
     isSecondary,
     isLastMetric,
     isAlternatingRow,
+    dragHandle,
     onDuplicateMetric,
+    onDuplicateAsSingleUseMetric,
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
@@ -596,13 +631,8 @@ export function MetricRowGroup({
         useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isRecalculating, isMetricRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const { isRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
-
-    /**
-     * Dim the stale value in place while a non-cold recalc refreshes this metric; block clicks on it.
-     */
-    const recalculatingClassName = isMetricRecalculating(metric.uuid) ? 'opacity-40 pointer-events-none' : ''
 
     /**
      * On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
@@ -732,10 +762,26 @@ export function MetricRowGroup({
     if (!result && !error && (isLoading || exposuresLoading)) {
         const skeletonVariantKeys = variants.length > 0 ? variants.map((variant) => variant.key) : ['control']
         const bg = isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+        // Between failed attempts the chart column (and only it) explains the wait; every other cell keeps
+        // its skeleton. One cell spans the variant rows, so subsequent rows omit theirs.
+        const metricRetry = metric.uuid ? metricRetries[metric.uuid] : undefined
+        const retryChartCell = metricRetry ? (
+            <td
+                className={clsx(
+                    'p-0 align-middle text-center relative overflow-hidden',
+                    !isLastMetric && 'border-b',
+                    bg
+                )}
+                rowSpan={skeletonVariantKeys.length}
+                style={getScaledHeightStyle(skeletonVariantKeys.length)}
+            >
+                <MetricRetryState retry={metricRetry} />
+            </td>
+        ) : undefined
 
         return (
             <>
-                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={FIXED_HEIGHT_STYLE}>
+                <tr className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
                     {/* Metric column: real header spanning every variant row, stays interactive while loading */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
@@ -745,12 +791,14 @@ export function MetricRowGroup({
                         style={getScaledHeightStyle(skeletonVariantKeys.length)}
                     >
                         <MetricHeader
+                            dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
                             metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
@@ -759,6 +807,7 @@ export function MetricRowGroup({
                     <SkeletonResultCells
                         variantKey={skeletonVariantKeys[0]}
                         className={clsx(bg, skeletonVariantKeys.length === 1 && 'border-b')}
+                        chartCell={retryChartCell}
                         detailsCell={
                             <td
                                 className={clsx(
@@ -781,14 +830,11 @@ export function MetricRowGroup({
                 </tr>
 
                 {skeletonVariantKeys.slice(1).map((variantKey, index) => (
-                    <tr
-                        key={variantKey}
-                        className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
-                        style={FIXED_HEIGHT_STYLE}
-                    >
+                    <tr key={variantKey} className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
                         <SkeletonResultCells
                             variantKey={variantKey}
                             className={clsx(bg, index === skeletonVariantKeys.length - 2 && 'border-b')}
+                            chartCell={metricRetry ? null : undefined}
                         />
                     </tr>
                 ))}
@@ -802,10 +848,7 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr
-                    className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
-                    style={noResultStateStyle}
-                >
+                <tr className="hover:bg-bg-hover group" style={noResultStateStyle}>
                     {/* Metric column - always visible */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
@@ -814,12 +857,14 @@ export function MetricRowGroup({
                         style={noResultStateStyle}
                     >
                         <MetricHeader
+                            dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
                             metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
@@ -911,10 +956,7 @@ export function MetricRowGroup({
                 )}
 
             {/* Baseline row */}
-            <tr
-                className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
-                style={FIXED_HEIGHT_STYLE}
-            >
+            <tr className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
                 {/* Metric column - with rowspan */}
                 <td
                     className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
@@ -922,12 +964,14 @@ export function MetricRowGroup({
                     style={totalRowsHeightStyle}
                 >
                     <MetricHeader
+                        dragHandle={dragHandle}
                         displayOrder={displayOrder}
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />
@@ -976,13 +1020,12 @@ export function MetricRowGroup({
                     <div />
                 </td>
 
-                {/* Details column - with rowspan */}
+                {/* Details column (per-row cells so significant-row tints align pixel-perfectly; variant rows render their own) */}
                 <td
                     className={`w-20 pt-3 align-top relative overflow-hidden ${
-                        !isLastMetric ? 'border-b' : ''
-                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    rowSpan={variantResults.length + 1}
-                    style={totalRowsHeightStyle}
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    style={FIXED_HEIGHT_STYLE}
                 >
                     {showDetailsModal && (
                         <>
@@ -1040,11 +1083,19 @@ export function MetricRowGroup({
                 const deltaPositive = isDeltaPositive(variant)
                 const winning = isWinning(variant, metric.goal)
                 const deltaText = formatDeltaPercent(variant)
+                const rowBackgroundColor = significant
+                    ? winning
+                        ? `${colors.BAR_POSITIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
+                        : `${colors.BAR_NEGATIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
+                    : undefined
+                const rowBackgroundImage = rowBackgroundColor
+                    ? `linear-gradient(${rowBackgroundColor}, ${rowBackgroundColor})`
+                    : undefined
 
                 return (
                     <tr
                         key={`${metric.uuid}-${variant.key}`}
-                        className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
+                        className="hover:bg-bg-hover group"
                         style={FIXED_HEIGHT_STYLE}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                         onMouseLeave={handleTooltipMouseLeave}
@@ -1055,7 +1106,7 @@ export function MetricRowGroup({
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
-                            style={FIXED_HEIGHT_STYLE}
+                            style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <VariantTag variantKey={variant.key} />
                         </td>
@@ -1065,7 +1116,7 @@ export function MetricRowGroup({
                             className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
-                            style={FIXED_HEIGHT_STYLE}
+                            style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <div className="metric-cell">
                                 <div>{formatMetricValue(variant, metric)}</div>
@@ -1078,7 +1129,7 @@ export function MetricRowGroup({
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
-                            style={FIXED_HEIGHT_STYLE}
+                            style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
                             <div className="flex items-center gap-1">
                                 <span
@@ -1107,8 +1158,8 @@ export function MetricRowGroup({
                                 ...FIXED_HEIGHT_STYLE,
                                 backgroundColor: significant
                                     ? winning
-                                        ? `${colors.BAR_POSITIVE}30`
-                                        : `${colors.BAR_NEGATIVE}30`
+                                        ? `${colors.BAR_POSITIVE}${SIGNIFICANT_CELL_BG_ALPHA}`
+                                        : `${colors.BAR_NEGATIVE}${SIGNIFICANT_CELL_BG_ALPHA}`
                                     : undefined,
                             }}
                         >
@@ -1121,6 +1172,14 @@ export function MetricRowGroup({
                             </span>
                         </td>
 
+                        {/* Details (button lives in the baseline row's cell) */}
+                        <td
+                            className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                                isLastRow ? 'border-b' : ''
+                            }`}
+                            style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
+                        />
+
                         {/* Chart */}
                         <ChartCell
                             variantResult={variant}
@@ -1131,6 +1190,7 @@ export function MetricRowGroup({
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
                             onTimeseriesClick={() => handleTimeseriesClick(variant)}
+                            highlightBackgroundColor={rowBackgroundColor}
                         />
                     </tr>
                 )

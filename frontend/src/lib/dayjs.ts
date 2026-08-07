@@ -1,5 +1,11 @@
 // oxlint-disable-next-line no-restricted-imports
-import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
+import dayjs, {
+    Dayjs as DayjsOriginal,
+    isDayjs,
+    type ManipulateType as DayjsManipulateType,
+    type QUnitType as DayjsQUnitType,
+} from 'dayjs'
+import advancedFormat from 'dayjs/plugin/advancedFormat'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
 import duration from 'dayjs/plugin/duration'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
@@ -12,6 +18,7 @@ import updateLocale from 'dayjs/plugin/updateLocale'
 import utc from 'dayjs/plugin/utc'
 import weekOfYear from 'dayjs/plugin/weekOfYear'
 
+dayjs.extend(advancedFormat)
 // necessary for parsing custom date formats like 'YYYYMMDD_HHmmss'
 dayjs.extend(customParseFormat)
 // necessary for any localized date formatting to work
@@ -25,6 +32,19 @@ dayjs.extend(duration)
 dayjs.extend(quarterOfYear)
 dayjs.extend(weekOfYear)
 dayjs.extend(updateLocale)
+
+// The base add/subtract accept ManipulateType (has week, no quarter) and the quarterOfYear plugin
+// adds a QUnitType overload (has quarter, no week). Neither alone accepts a union spanning both
+// (e.g. IntervalType), so merge one overload that takes both. Casting to a single side instead
+// would be unsound: `x as QUnitType` lies when x is 'week'. The aliased Dayjs* imports are
+// required: this file's own ManipulateType/QUnitType (declared below) shadow dayjs's inside the
+// augmentation and are file-private there, which fails declaration emit with TS4075.
+declare module 'dayjs' {
+    interface Dayjs {
+        add(value: number, unit?: DayjsManipulateType | DayjsQUnitType): DayjsOriginal
+        subtract(value: number, unit?: DayjsManipulateType | DayjsQUnitType): DayjsOriginal
+    }
+}
 
 const now = (): Dayjs => dayjs()
 

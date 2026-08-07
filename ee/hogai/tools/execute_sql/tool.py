@@ -47,10 +47,10 @@ class ExecuteSQLToolArgs(BaseModel):
     filters: HogQLFilters | None = Field(
         default=None,
         description=(
-            "Optional filters applied through `{filters}` placeholders in the query. "
-            "Use this when editing a SQL editor query that already uses `{filters}` and the user asks to change "
+            "Optional filters applied through `{filters}` or column-bound `{filters(...)}` placeholders in the query. "
+            "Use this when editing a SQL editor query that already uses such a placeholder and the user asks to change "
             "dateRange, property filters, or test-account filtering. Set this to an empty object to clear existing "
-            "SQL editor filters while preserving the `{filters}` placeholder."
+            "SQL editor filters while preserving the placeholder."
         ),
     )
     viz_title: str = Field(
@@ -163,7 +163,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
         tool_payload: str | dict[str, object]
-        if filters is not None:
+        if display or chart_settings:
+            # Full node so the SQL editor can adopt the visualization settings, not just the SQL
+            tool_payload = artifact_query.model_dump(mode="json", exclude_none=True)
+        elif filters is not None:
             tool_payload = source_query.model_dump(mode="json", exclude_none=True)
         else:
             tool_payload = artifact_query.source.query

@@ -1,5 +1,6 @@
 import { IconClock } from '@posthog/icons'
 
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
@@ -7,6 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
 import { isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
@@ -25,9 +27,7 @@ export function StepLegend({ step, stepIndex, showTime }: StepLegendProps): JSX.
 
     const isUnorderedFunnel =
         !!metric && isExperimentFunnelMetric(metric) && metric.funnel_order_type === StepOrderValue.UNORDERED
-    const stepLabel = isUnorderedFunnel
-        ? `Completed ${stepIndex + 1} ${stepIndex === 0 ? 'step' : 'steps'}`
-        : step.custom_name || step.name
+    const unorderedStepLabel = `Completed ${stepIndex + 1} ${stepIndex === 0 ? 'step' : 'steps'}`
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -56,7 +56,11 @@ export function StepLegend({ step, stepIndex, showTime }: StepLegendProps): JSX.
     return (
         <div className="StepLegend">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
-                <span title={stepLabel}>{stepLabel}</span>
+                {isUnorderedFunnel ? (
+                    <span title={unorderedStepLabel}>{unorderedStepLabel}</span>
+                ) : (
+                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
+                )}
             </LemonRow>
             <LemonRow icon={<IconTrendingFlat />} status="success" style={{ color: 'unset' }}>
                 <Tooltip

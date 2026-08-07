@@ -7,6 +7,7 @@ from uuid import UUID, uuid4, uuid5
 
 import structlog
 from posthoganalytics import Posthog
+from posthoganalytics.ai.utils import _capture_ai_event
 
 from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
@@ -14,10 +15,12 @@ from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
+    get_effort,
     get_posthog_flags,
     get_posthog_properties,
     get_product,
     get_time_to_first_token,
+    get_traceparent_trace_id,
 )
 
 logger = structlog.get_logger(__name__)
@@ -63,24 +66,30 @@ _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
 
 
 def _is_product_billable(product: str) -> bool:
-    """Look up the product's billable flag in the central registry. False for
-    unknown products so we never accidentally bill calls we can't attribute.
+    """A product is billable if it bills into a credit bucket in the central
+    registry. False for unknown products so we never accidentally bill calls we
+    can't attribute.
     """
     config = get_product_config(product)
-    return bool(config and config.billable)
+    return config is not None and config.credit_bucket is not None
 
 
 def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
     """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
 
-    `ai_product` and `$ai_billable` are derived from the product config / route and must NOT be
-    overridable by callers — a typo would silently mis-bill or misattribute the generation, so we
-    re-assert them on top of whatever the headers set. `team_id`, in contrast, is a deliberate caller
-    override (a shared-key caller such as signals sets it to the customer team); we only fall back to
-    the authenticated key owner's team when no override was supplied.
+    `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
+    `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
+    here and drop `$ai_effort` when the gateway found none. `team_id`, in contrast, is a
+    deliberate caller override (e.g. a shared-key caller attributing to a customer team); we only
+    fall back to the key owner's team when no override was supplied.
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)
+    effort = get_effort()
+    if effort is not None:
+        properties["$ai_effort"] = effort
+    else:
+        properties.pop("$ai_effort", None)
     if team_id is not None:
         properties.setdefault("team_id", team_id)
     # A header-supplied team_id arrives as a string ("42"); store it as an int so the captured
@@ -154,10 +163,12 @@ class PostHogCallback(InstrumentedCallback):
         region_url: str = "https://us.posthog.com",
         secondary_api_key: str | None = None,
         secondary_host: str | None = None,
+        ai_lane_capture: bool = True,
     ):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        self._ai_lane_capture = ai_lane_capture
         # Customer-origin region URL stamped on every captured event via the
         # `instance` group. The PHAI usage report filters on $group_<N> where
         # N is the destination project's `instance` group_type_index, so the
@@ -180,9 +191,10 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        # metadata.user_id carries Claude Code's session blob — constant for a
+        # whole task, so hashing it (_normalize_trace_id) collapses every turn
+        # into one trace. A per-turn traceparent therefore takes precedence.
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -304,9 +316,7 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -412,9 +422,12 @@ class PostHogCallback(InstrumentedCallback):
             host=host,
             sync_mode=True,
             enable_local_evaluation=False,
+            # Multimodal capture implies the AI lane, so one setting governs both.
+            _use_ai_lane=self._ai_lane_capture,
+            _enable_multimodal_capture=self._ai_lane_capture,
         )
         try:
-            client.capture(**capture_kwargs)
+            _capture_ai_event(client, **capture_kwargs)
         except Exception as e:
             client.capture_exception(e, **capture_kwargs)
             logger.exception("posthog_capture_failed", host=host, error=str(e))

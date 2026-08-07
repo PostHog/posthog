@@ -1,6 +1,7 @@
 from typing import Union
 
 from posthog.schema import (
+    AccountCustomPropertyFilter,
     ActionsNode,
     CohortPropertyFilter,
     DataWarehouseNode,
@@ -29,7 +30,10 @@ from posthog.schema import (
     LifecycleQuery,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     PathsQuery,
+    PathsV2ActorsQuery,
+    PathsV2Query,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     RecordingPropertyFilter,
@@ -51,10 +55,17 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 type FilterType = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 """Legacy insight filters."""
 
-type InsightQueryNode = Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+type InsightQueryNode = Union[
+    TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, PathsV2Query, StickinessQuery, LifecycleQuery
+]
 
 type InsightActorsQueryNode = Union[
-    InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, ExperimentActorsQuery
+    InsightActorsQuery,
+    FunnelsActorsQuery,
+    FunnelCorrelationActorsQuery,
+    StickinessActorsQuery,
+    ExperimentActorsQuery,
+    PathsV2ActorsQuery,
 ]
 
 type AnyPropertyFilter = Union[
@@ -64,6 +75,7 @@ type AnyPropertyFilter = Union[
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     RevenueAnalyticsPropertyFilter,
+    AccountCustomPropertyFilter,
     SessionPropertyFilter,
     LogEntryPropertyFilter,
     CohortPropertyFilter,
@@ -77,6 +89,7 @@ type AnyPropertyFilter = Union[
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     SpanPropertyFilter,
     WorkflowVariablePropertyFilter,
 ]

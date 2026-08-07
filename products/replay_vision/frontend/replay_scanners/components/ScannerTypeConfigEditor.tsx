@@ -18,10 +18,12 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } from '../types'
 
-const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
+export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
     { value: 'medium', label: 'Medium (1 paragraph)' },
     { value: 'long', label: 'Long (3-5 paragraphs)' },
@@ -66,9 +68,23 @@ function ScannerPromptField({
         callback: onDraftedPrompt,
     })
 
+    useAttachedContext(
+        scanner
+            ? [
+                  { type: 'replay_vision_scanner', key: scannerId, label: scannerTypeLabel(scanner?.scanner_type) },
+                  {
+                      type: 'replay_vision_scanner_prompt',
+                      value: JSON.stringify(scanner?.scanner_config?.prompt || ''),
+                      label: 'Current prompt',
+                  },
+              ]
+            : null,
+        { active: !!scanner }
+    )
+
     return (
         <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-sm font-medium">{label}</label>
                 {openMax && (
                     <LemonButton
@@ -164,7 +180,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
             <LemonField
                 name="scanner_config.tags"
                 label={
-                    <span className="flex w-full items-center justify-between gap-2">
+                    <span className="flex w-full flex-wrap items-center justify-between gap-2">
                         Tag vocabulary
                         <LemonButton
                             size="xsmall"
@@ -213,7 +229,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                     placeholder="e.g. This is a B2B analytics tool. Users usually come to build a dashboard — call out where they get stuck in that flow."
                 />
                 <LemonField name="scanner_config.length" label="Summary length">
-                    <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
+                    <LemonSegmentedButton className="max-w-full overflow-x-auto" options={SUMMARIZER_LENGTH_OPTIONS} />
                 </LemonField>
             </div>
         )

@@ -16,6 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
+    ingestion_warnings::replay::attribution_from_event,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -42,7 +43,7 @@ impl RecordingPayload {
 /// handle_recording_payload processes recording (session replay) payloads
 /// This is optimized to avoid the double serialization that would occur
 /// if we went through RawRequest -> Vec<RawEvent> -> process
-#[instrument(skip_all, fields(batch_size, params_lib_version, params_compression))]
+#[instrument(skip_all, fields(batch_size, params_compression))]
 pub async fn handle_recording_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -74,13 +75,11 @@ pub async fn handle_recording_payload(
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, "extracted metadata");
 
     // Extract payload bytes and metadata using shared helper
-    let (data, compression, lib_version) =
-        extract_payload_bytes(query_params, headers, method, body)?;
+    let (data, compression) = extract_payload_bytes(query_params, headers, method, body)?;
 
     Span::current().record("compression", format!("{compression}"));
-    Span::current().record("lib_version", &lib_version);
 
-    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "extracted payload");
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, "extracted payload");
 
     // Decompress the payload
     let payload = decompress_payload(
@@ -90,7 +89,7 @@ pub async fn handle_recording_payload(
         path.as_str(),
     )?;
 
-    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "decompressed payload");
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, "decompressed payload");
 
     // Deserialize to RecordingPayload (handles both single event and array)
     let recording_payload: RecordingPayload = serde_json::from_str(&payload)?;
@@ -115,10 +114,9 @@ pub async fn handle_recording_payload(
     counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
-    let sent_at = query_params.sent_at();
+    let sent_at = events[0].sent_at().or_else(|| query_params.sent_at());
 
     let context = ProcessingContext {
-        lib_version,
         sent_at,
         token,
         now,
@@ -129,6 +127,8 @@ pub async fn handle_recording_payload(
         historical_migration: false, // recordings don't support historical migration
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
+        capture_mode: state.capture_mode,
+        sdk_attribution: attribution_from_event(&events[0], metadata.user_agent),
     };
 
     // Apply all billing limit quotas and drop partial or whole

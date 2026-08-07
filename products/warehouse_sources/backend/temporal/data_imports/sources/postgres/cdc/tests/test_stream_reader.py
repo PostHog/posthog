@@ -3,6 +3,7 @@ from unittest import mock
 from unittest.mock import patch
 
 import psycopg
+import psycopg.errors
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
     _SLOT_READ_MAX_ATTEMPTS,
@@ -235,6 +236,85 @@ class TestPgCDCStreamReaderReadChangesSlotInUse:
         sleep.assert_not_called()
 
 
+class TestPgCDCStreamReaderReadChangesConnectionDropped:
+    def _reader_reading(self, params, iter_side_effect):
+        reader = PgCDCStreamReader(params)
+        fake_cursor = mock.MagicMock()
+        fake_cursor.__iter__.side_effect = iter_side_effect
+        reader._conn = mock.MagicMock()
+        reader._conn.cursor.return_value.__enter__.return_value = fake_cursor
+        reader._decoder = mock.MagicMock()
+        reader._decoder.decode_message.return_value = []
+        return reader, fake_cursor
+
+    def test_read_changes_reconnects_after_mid_peek_drop_before_first_row(self, params):
+        # A transient drop on the peek fetch before any row is yielded reconnects and re-peeks
+        # instead of failing the whole extraction — the peek is non-consuming, so re-reading is safe.
+        rows = [("0/1", 1, b"a"), ("0/2", 1, b"b")]
+        reader, fake_cursor = self._reader_reading(
+            params,
+            [
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"),
+                iter(rows),
+            ],
+        )
+        new_conn = mock.MagicMock()
+        new_conn.cursor.return_value.__enter__.return_value = fake_cursor
+        reconnect = mock.MagicMock(return_value=new_conn)
+        with (
+            patch.object(reader, "_open_streaming_connection", reconnect),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+            ),
+        ):
+            list(reader.read_changes(upto_nchanges=10))
+
+        reconnect.assert_called_once()
+        assert reader._conn is new_conn
+        assert reader.last_rows_consumed == len(rows)
+
+    def test_read_changes_does_not_retry_drop_after_row_yielded(self, params):
+        # Once a row has been yielded the caller has buffered events, so a re-peek would duplicate
+        # them — the drop must surface and let Temporal replay the whole run from the last confirmed
+        # LSN rather than silently reconnecting mid-stream.
+        def rows_then_drop():
+            yield ("0/1", 1, b"a")
+            raise psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+
+        reader, _ = self._reader_reading(params, [rows_then_drop()])
+        reconnect = mock.MagicMock()
+        with (
+            patch.object(reader, "_open_streaming_connection", reconnect),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+            ),
+        ):
+            with pytest.raises(psycopg.OperationalError):
+                list(reader.read_changes(upto_nchanges=10))
+
+        reconnect.assert_not_called()
+
+    def test_read_changes_does_not_retry_non_dropped_operational_error(self, params):
+        # A non-drop OperationalError (not a recognized transient connection loss) is re-raised
+        # immediately, never reconnected, so a real error isn't masked as a transient blip.
+        reader, fake_cursor = self._reader_reading(
+            params,
+            psycopg.OperationalError("some unexpected operational failure"),
+        )
+        reconnect = mock.MagicMock()
+        with (
+            patch.object(reader, "_open_streaming_connection", reconnect),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+            ),
+        ):
+            with pytest.raises(psycopg.OperationalError):
+                list(reader.read_changes(upto_nchanges=10))
+
+        assert fake_cursor.__iter__.call_count == 1
+        reconnect.assert_not_called()
+
+
 class TestPgCDCStreamReaderConfirmPosition:
     def test_confirm_position_retries_transient_dropped_connection(self, params):
         good_conn = mock.MagicMock()
@@ -336,4 +416,46 @@ class TestPgCDCStreamReaderConfirmPosition:
 
         assert cur.execute.call_count == 3
         conn.commit.assert_not_called()
+        conn.close.assert_called_once()
+
+    def test_confirm_position_tolerates_slot_already_ahead(self, params):
+        # A retried / overlapping run advanced the slot further, so Postgres refuses the backward
+        # advance. The WAL is already released past this LSN, so it must be a no-op, not a failure.
+        conn = mock.MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            psycopg.errors.ObjectNotInPrerequisiteState(
+                "cannot advance replication slot to B4/C7327D08, minimum is B4/CB22FB98"
+            )
+        )
+        connect = mock.MagicMock(return_value=conn)
+
+        reader = PgCDCStreamReader(params)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            reader.confirm_position("B4/C7327D08")
+
+        conn.commit.assert_not_called()
+        conn.close.assert_called_once()
+
+    def test_confirm_position_reraises_other_prerequisite_errors(self, params):
+        # Slot invalidation is also ObjectNotInPrerequisiteState but must keep propagating so the
+        # slot gets recreated — only the "already ahead" case is swallowed.
+        conn = mock.MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            psycopg.errors.ObjectNotInPrerequisiteState(
+                "cannot advance replication slot that has not previously reserved WAL"
+            )
+        )
+        connect = mock.MagicMock(return_value=conn)
+
+        reader = PgCDCStreamReader(params)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+                reader.confirm_position("B4/C7327D08")
+
         conn.close.assert_called_once()

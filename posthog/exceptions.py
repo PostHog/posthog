@@ -60,6 +60,15 @@ class Conflict(APIException):
     default_code = "conflict"
 
 
+class DatabaseSchemaUnavailable(APIException):
+    # The schema request backs the SQL editor's table list, so a bare 500 leaves the sidebar looking
+    # like an empty project. A stable code lets the client tell "we couldn't read your schema" apart
+    # from any other server error.
+    status_code = 503
+    default_detail = "Couldn't load your project's schema. Try again, and if it keeps happening contact support."
+    default_code = "database_schema_unavailable"
+
+
 class ClickHouseAtCapacity(APIException):
     status_code = 503
     default_detail = (
@@ -82,8 +91,18 @@ class ClickHouseQueryTimeOut(APIException):
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
-    status_code = 504
-    default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
+    # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
+    # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
+    # failure is never mistaken for a timeout on either the client or in status-based alerting.
+    status_code = 513
+    # Stable machine-readable code so the frontend can recognise out-of-memory failures without
+    # matching on the (translatable, changeable) detail copy. Keep in sync with the frontend
+    # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
+    default_code = "clickhouse_memory_limit_exceeded"
+    default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
+    # True only when ClickHouse hit this query's own memory ceiling, meaning a retry will fail
+    # the same way. Server-wide and per-user limits are transient cluster pressure.
+    is_per_query_limit = False
 
 
 class ExceptionContext(TypedDict):

@@ -170,13 +170,6 @@ class DashboardTile(models.Model):
 
         super().save(*args, **kwargs)
 
-    @property
-    def caching_state(self):
-        # uses .all and not .first so that prefetching can be used
-        for state in self.caching_states.all():
-            return state
-        return None
-
     def clean(self):
         super().clean()
 

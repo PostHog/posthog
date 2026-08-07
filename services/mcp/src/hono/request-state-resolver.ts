@@ -1,5 +1,7 @@
+import type { GroupType } from '@/api/client'
+import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isLocalApi } from '@/lib/constants'
+import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -8,13 +10,14 @@ import {
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
-import { SQL_SCHEMA_DISCOVERY_FEATURE_FLAG } from '@/tools/posthogAiTools/readDataWarehouseSchema'
-import { RENDER_UI_FEATURE_FLAG } from '@/tools/render-ui'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
-import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
+import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
+import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -37,46 +40,70 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    /**
+     * Whether the caller's team may reach third-party MCP tools through `exec`.
+     * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
+     * so they roll out together. Also forced off in read-only mode: a connected
+     * server's tools can mutate and PostHog can't prove otherwise, so the catalog's
+     * read-only filter has no equivalent to apply to them.
+     *
+     * Deliberately not folded into `allTools`: `instructions.ts` looks every entry up in
+     * the static tool-definition registry (which throws on an unknown name) and renders
+     * the full roster into the instructions payload.
+     */
+    gatewayToolsEnabled: boolean
     distinctId: string
     renderUiEnabled: boolean
+    // Active project/user environment prompt and group types. Rendered into the
+    // `instructions` payload, and (for clients that don't surface instructions to
+    // the model like Codex, or ignore it like Claude web/desktop) the exec command
+    // reference. Resolved once here so every render path reads the same source.
+    metadata: string | undefined
+    groupTypes: GroupType[] | undefined
 }
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: {
-    mode: McpMode | undefined
-    clientProfile: MCPClientProfile
-    // The raw `mcp-render-ui` flag value — NOT the UI-host-gated `renderUiEnabled`
-    // on ResolvedState; the UI-host check is applied here, on the flag.
-    renderUiFlagEnabled: boolean
-}): {
+export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
     mode: McpMode
     useSingleExec: boolean
 } {
-    const { mode, clientProfile, renderUiFlagEnabled } = args
-    const useSingleExec =
-        mode === 'cli' ||
-        (mode !== 'tools' &&
-            (clientProfile.isCliModeEnabled() ||
-                clientProfile.isPostHogCodeConsumer() ||
-                clientProfile.isVibeCodingClient() ||
-                // Claude web/desktop render MCP Apps UI; put them in single-exec so
-                // `render-ui` is available — but only when the feature flag is on.
-                (renderUiFlagEnabled && clientProfile.isClaudeUiHost())))
-    return { mode: mode ?? (useSingleExec ? 'cli' : 'tools'), useSingleExec }
+    const { mode, clientProfile } = args
+    // CLI (single-exec) is the default; only allow-listed clients (Cursor,
+    // ChatGPT) keep the full per-tool roster, and an explicit ?mode= /
+    // x-posthog-mcp-mode header always wins over auto-detection.
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    return { mode: resolved, useSingleExec: resolved === 'cli' }
+}
+
+export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
+    return clientProfile.isPostHogCodeConsumer() && taskId ? [] : [...TASKS_CONTEXT_TOOL_NAMES]
+}
+
+/**
+ * Which navigation switch tools to hide given the context the client explicitly
+ * pinned via request params.
+ *
+ * Pinning fixes the *default* active context — it must not disable navigation.
+ * Only an explicitly pinned organization is a hard lock: the client asked to
+ * operate inside one org, so `switch-organization` is dropped while project
+ * switching stays available. A pinned *project* excludes nothing, because the
+ * documented cross-org flow depends on it: from an active project an agent
+ * resolves an org via `organizations-get`, calls `switch-organization`, then
+ * `switch-project` to reach a project in another organization (see the
+ * `switch-project` tool description). Excluding the switch tools on a project
+ * pin — which nearly every connection sends — made that flow impossible.
+ *
+ * Note this only affects keys that can act across orgs. A project-scoped key
+ * (`scoped_teams`) never sees `switch-organization` regardless, because
+ * `getToolsForFeatures` independently strips every `organization:*` tool the
+ * backend would 403 for such a token.
+ */
+export function switchToolsToExclude(pinned: { organizationId?: string | undefined }): string[] {
+    return pinned.organizationId ? ['switch-organization'] : []
 }
 
 // ─── Resolver ───
-
-const SESSION_CONTEXT_KEYS = [
-    'mcpClientName',
-    'mcpClientVersion',
-    'mcpProtocolVersion',
-    'mcpConsumer',
-    'mcpVendorClient',
-] as const
-type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]
-type SessionContextCache = Pick<State, SessionContextKey>
 
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
@@ -92,12 +119,12 @@ export class RequestStateResolver {
     async resolve(props: RequestProperties): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
-        const sessionContext = await this.resolveSessionContext(reqCtx, requestContext)
-        const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
-
-        const context = await reqCtx.getContext()
 
         const { features, tools, organizationId, projectId, readOnly } = props
+        const contextPromise = reqCtx.getContext()
+        const pinnedSessionContextPromise = projectId
+            ? this.resolveSessionContext(requestContext, projectId)
+            : undefined
 
         await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
@@ -106,19 +133,21 @@ export class RequestStateResolver {
 
         let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
         if (!cachedProjectId) {
-            await context.stateManager.setDefaultOrganizationAndProject()
+            const contextForDefault = await contextPromise
+            await contextForDefault.stateManager.setDefaultOrganizationAndProject()
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags()
-        // `mcp-render-ui` isn't a catalog tool flag, but it rides the same batched
-        // evaluation and lives in the same map so the instructions layer can gate
-        // the rendering prompt section on it (like `mcp-feedback-tool`).
-        // `mcp-sql-schema-discovery` now gates the read-data-warehouse-schema tool, so
-        // it already arrives via `getRequiredFeatureFlags()`; keep it listed (and dedupe)
-        // since the instructions layer also reads it for SQL discovery steering — neither
-        // concern should depend on the other's wiring.
-        const allFlagKeys = [...new Set([...toolFlagKeys, RENDER_UI_FEATURE_FLAG, SQL_SCHEMA_DISCOVERY_FEATURE_FLAG])]
+        const [context, sessionContext] = await Promise.all([
+            contextPromise,
+            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext, cachedProjectId),
+        ])
+        const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+
+        // Neither of these gates a catalog tool, so the tool-definition scan can't discover
+        // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
+        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_GATEWAY_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -138,7 +167,6 @@ export class RequestStateResolver {
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
-        const renderUiFlagEnabled = mergedFlags[RENDER_UI_FEATURE_FLAG] === true
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
 
@@ -152,17 +180,13 @@ export class RequestStateResolver {
         })
 
         // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
-        // mount its iframe. The flag is necessary but not sufficient: Claude Code and other
-        // single-exec CLI clients pool the same flag value, so the tool's advertisement and
-        // execution must also require the UI-host check — otherwise rolling the flag out to
-        // everyone leaks `render-ui` into Claude Code. `resolveMode` applies the same gate
-        // independently for its single-exec decision, so it receives the raw flag value.
-        const renderUiEnabled = renderUiFlagEnabled && clientProfile.isClaudeUiHost()
+        // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
+        // tool's advertisement and execution stay gated on the UI-host check.
+        const renderUiEnabled = clientProfile.isClaudeUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
             clientProfile,
-            renderUiFlagEnabled,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
@@ -171,13 +195,13 @@ export class RequestStateResolver {
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+        const availableFeatures = await context.stateManager.getAvailableFeatures()
+        const isCloud = isCloudApi()
 
-        const excludeTools: string[] = []
-        if (projectId) {
-            excludeTools.push('switch-organization', 'switch-project')
-        } else if (organizationId) {
-            excludeTools.push('switch-organization')
-        }
+        const excludeTools = [
+            ...switchToolsToExclude({ organizationId }),
+            ...tasksContextToolsToExclude(clientProfile, props.taskId),
+        ]
 
         const filterOptions = {
             features,
@@ -187,11 +211,26 @@ export class RequestStateResolver {
             featureFlags: toolFeatureFlags,
             scopedTeams: apiKeyScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
+            availableFeatures,
+            isCloud,
         }
-        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
+        // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
+        // is_staff gate on top of the catalog's plain scope filter.
+        const allTools = await filterStaffOnlyTools(
+            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+            _apiKey ?? { scopes: [] },
+            () => context.stateManager.getUser()
+        )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+
+        const [groupTypes, metadata] = await Promise.all([
+            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
+                ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
+                : undefined,
+            context.stateManager.getEnvironmentPrompt(),
+        ])
 
         return {
             reqCtx,
@@ -204,38 +243,22 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
+            gatewayToolsEnabled: useSingleExec && !readOnly && mergedFlags[MCP_GATEWAY_FLAG] === true,
             distinctId,
             renderUiEnabled,
+            metadata,
+            groupTypes,
         }
     }
 
     private async resolveSessionContext(
-        reqCtx: RequestContext,
-        requestContext: MCPRequestContext
+        requestContext: MCPRequestContext,
+        projectId: string | undefined
     ): Promise<MCPSessionContext | null> {
         if (!requestContext.mcpSessionId) {
             return null
         }
-
-        const cachedEntries = await Promise.all(
-            SESSION_CONTEXT_KEYS.map(async (key) => [key, await reqCtx.sessionCache.get(key)] as const)
-        )
-        const cachedContext = Object.fromEntries(cachedEntries) as Partial<SessionContextCache>
-
-        const cacheUpdates: Partial<SessionContextCache> = {}
-        for (const key of SESSION_CONTEXT_KEYS) {
-            if (!cachedContext[key] && requestContext[key]) {
-                cacheUpdates[key] = requestContext[key]
-            }
-        }
-
-        if (Object.keys(cacheUpdates).length > 0) {
-            await reqCtx.sessionCache.setMany(cacheUpdates)
-        }
-
-        return Object.fromEntries(
-            SESSION_CONTEXT_KEYS.map((key) => [key, cachedContext[key] || requestContext[key] || undefined])
-        ) as MCPSessionContext
+        return new McpSessionRedisStore(this.redis, requestContext.mcpSessionId).resolve(requestContext, projectId)
     }
 
     private async resolveAllFlags(
@@ -247,9 +270,8 @@ export class RequestStateResolver {
             return {}
         }
         // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate (e.g. the agent-platform product DB) exist.
-        // The flags only hide those surfaces on prod until GA, so enable them all
-        // locally — the analytics flag-eval client is disabled in dev anyway.
+        // surfaces these flags gate exist. The flags only hide those surfaces on
+        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
         if (isLocalApi()) {
             return Object.fromEntries(flagKeys.map((key) => [key, true]))
         }

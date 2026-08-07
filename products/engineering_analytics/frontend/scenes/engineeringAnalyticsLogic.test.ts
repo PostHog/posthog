@@ -5,6 +5,7 @@ import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -147,6 +148,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         pending: 0,
         failingWorkflows: [],
         pushes: 0,
+        pushHistory: [],
         rerunCycles: 0,
         estimatedCostUsd: null,
         billableMinutes: null,
@@ -166,8 +168,10 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         created_at: '2026-05-01T00:00:00Z',
         merged_at: null,
         open_to_merge_seconds: null,
+        ready_to_merge_seconds: null,
         labels: [],
         pushes: 0,
+        push_history: [],
         rerun_cycles: 0,
         estimated_cost_usd: null,
         ...overrides,
@@ -196,12 +200,16 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         buckets: [{ bucket_start: '2026-05-30T00:00:00Z', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
+        successful_run_count: 90,
+        conclusive_run_count: 94,
         success_rate: 0.95,
         p50_seconds: 120,
         p95_seconds: 600,
         last_failure_at: '2026-05-30T00:00:00Z',
         latest_run_failed: false,
         latest_run_conclusion: 'success',
+        latest_run_id: 123456,
+        latest_run_attempt: 1,
     },
 ]
 function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealthRow {
@@ -223,8 +231,8 @@ function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealt
 }
 
 const SOURCES: GitHubSourceApi[] = [
-    { id: 'src-older', repo: 'posthog/posthog', prefix: 'older' },
-    { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website' },
+    { id: 'src-older', repo: 'posthog/posthog', prefix: 'older', synced: true },
+    { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website', synced: true },
 ]
 
 describe('engineeringAnalyticsLogic', () => {
@@ -250,6 +258,7 @@ describe('engineeringAnalyticsLogic', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
+        resumeKeaLoadersErrors()
     })
 
     it.each([
@@ -427,10 +436,33 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
 
         expect(logic.values.hasMultipleSources).toBe(true)
+        // The option value encodes (source, repo) so a multi-repo source's repos stay distinct.
         expect(logic.values.sourceOptions).toEqual([
-            { value: 'src-older', label: 'posthog/posthog' },
-            { value: 'src-newer', label: 'posthog/posthog.com' },
+            { value: 'src-older::posthog/posthog', label: 'posthog/posthog' },
+            { value: 'src-newer::posthog/posthog.com', label: 'posthog/posthog.com' },
         ])
+    })
+
+    it('lists one option per configured repo of a multi-repo source and scopes to the picked repo', async () => {
+        // One source syncing two repos → two distinct picker entries; picking one scopes source_id + repo.
+        mockSources.mockResolvedValue([
+            { id: 'src-multi', repo: 'posthog/posthog', prefix: 'multi', synced: true },
+            { id: 'src-multi', repo: 'posthog/posthog.com', prefix: 'multi', synced: true },
+        ])
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess', 'loadCardsSuccess'])
+
+        expect(logic.values.hasMultipleSources).toBe(true)
+        expect(logic.values.sourceOptions).toEqual([
+            { value: 'src-multi::posthog/posthog', label: 'posthog/posthog' },
+            { value: 'src-multi::posthog/posthog.com', label: 'posthog/posthog.com' },
+        ])
+
+        logic.actions.setScope('src-multi', 'posthog/posthog.com')
+        await expectLogic(logic).toDispatchActions(['setScope', 'loadCardsSuccess'])
+        expect(logic.values.selectedScope).toBe('src-multi::posthog/posthog.com')
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-multi', repo: 'posthog/posthog.com' })
     })
 
     it('hides the picker when the team has a single source', async () => {
@@ -450,8 +482,8 @@ describe('engineeringAnalyticsLogic', () => {
             'loadPullRequestsSuccess',
             'loadWorkflowHealthSuccess',
         ])
-        // No source picked → omit source_id so the backend resolves its default.
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined })
+        // No source picked → omit source_id/repo so the backend resolves its default.
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: undefined })
 
         logic.actions.setSourceId('src-newer')
         await expectLogic(logic).toDispatchActions([
@@ -463,9 +495,13 @@ describe('engineeringAnalyticsLogic', () => {
         ])
 
         expect(logic.values.sourceId).toBe('src-newer')
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
-        expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', source_id: 'src-newer' })
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer', repo: undefined })
+        expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer', repo: undefined })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', {
+            date_from: '-7d',
+            source_id: 'src-newer',
+            repo: undefined,
+        })
     })
 
     it.each([
@@ -515,13 +551,14 @@ describe('engineeringAnalyticsLogic', () => {
     it.each([
         ['workflows', () => urls.engineeringAnalyticsWorkflows()],
         ['test health', () => urls.engineeringAnalyticsTestHealth()],
-    ])('the %s route applies ?source like the other tabs', async (_label, url) => {
+    ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
 
-        router.actions.push(url(), { source: 'src-newer' })
-        await expectLogic(logic).toDispatchActions(['setSourceId'])
+        router.actions.push(url(), { source: 'src-newer', repo: 'posthog/posthog.com' })
+        await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
+        expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
@@ -670,6 +707,7 @@ describe('engineeringAnalyticsLogic', () => {
             duration_seconds: 300,
             run_attempt: 1,
             pr_number: 10,
+            commit_pr_number: null,
             ...overrides,
         })
         const groups = groupRunsByCommit([
@@ -683,6 +721,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(
             new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
         )
@@ -696,6 +735,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
         // could miss the connect prompt.
         mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
@@ -708,6 +748,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -719,6 +760,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -829,6 +871,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
+        silenceKeaLoadersErrors() // the loader failure is the scenario under test
         mockQuarantine.mockRejectedValue(
             new Error('Connect a GitHub data warehouse source to use engineering analytics.')
         )
@@ -865,6 +908,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'extend',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: 'https://github.com/PostHog/posthog/issues/7',
@@ -884,7 +928,8 @@ describe('engineeringAnalyticsLogic', () => {
 
         logic.actions.openQuarantineModal({
             action: 'quarantine',
-            selector: 'a/b.py::T::t',
+            selector: 'frontend/src/a.test.ts::renders',
+            runner: 'jest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -893,7 +938,8 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.submitQuarantine({
             input: {
                 action: 'quarantine',
-                selector: 'a/b.py::T::t',
+                selector: 'frontend/src/a.test.ts::renders',
+                runner: 'jest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',
@@ -907,13 +953,37 @@ describe('engineeringAnalyticsLogic', () => {
         // The viewed repo is threaded into the write so the PR targets it.
         expect(mockQuarantineRequest).toHaveBeenCalledWith(
             '1',
-            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog' })
+            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog', runner: 'jest' })
         )
         expect(logic.values.quarantineModal).toBeNull()
         expect(logic.values.quarantineSubmitLoading).toBe(false)
     })
 
+    it('omits the runner when removing a forward-compatible quarantine entry', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        logic.actions.submitQuarantine({
+            input: {
+                action: 'remove',
+                selector: 'future/runner/test',
+                reason: '',
+                owner: '',
+                issue: '',
+                expires: null,
+                mode: 'run',
+            },
+        })
+        await expectLogic(logic).toDispatchActions(['submitQuarantineSuccess'])
+
+        expect(mockQuarantineRequest).toHaveBeenCalledWith(
+            '1',
+            expect.not.objectContaining({ runner: expect.anything() })
+        )
+    })
+
     it('a failed submit keeps the modal open so the user can retry', async () => {
+        silenceKeaLoadersErrors() // the submit failure is the scenario under test
         mockQuarantineRequest.mockRejectedValue({ detail: "The App isn't installed on PostHog." })
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -921,6 +991,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'quarantine',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -930,6 +1001,7 @@ describe('engineeringAnalyticsLogic', () => {
             input: {
                 action: 'quarantine',
                 selector: 'a/b.py::T::t',
+                runner: 'pytest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',

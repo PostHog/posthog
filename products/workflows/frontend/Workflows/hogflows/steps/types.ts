@@ -19,6 +19,20 @@ const ActionFiltersSchema = z.object({
     actions: z.array(z.any()).optional(),
 })
 
+const DURATION_STRING = z.string().superRefine((v, ctx) => {
+    if (!/\d/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
+        return
+    }
+    if (!/^\d+[dhm]$/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a whole number followed by d, h, or m' })
+        return
+    }
+    if (parseInt(v, 10) < 1) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be at least 1' })
+    }
+})
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -67,6 +81,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'choice',
         'json',
         'integration',
+        'integration_multi',
         'integration_field',
         'email',
         'native_email',
@@ -75,6 +90,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'posthog_business_hours',
         'non_failure_status_codes',
         'customer_analytics_account_properties',
+        'customer_analytics_account_relationships',
     ]),
     key: z.string(),
     label: z.string(),
@@ -144,7 +160,12 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('batch'),
         filters: z.object({
+            // 'accounts' fans out one run per customer analytics account instead of per person
+            audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
+            tag_names: z.array(z.string()).optional(),
+            assigned_to_user_ids: z.array(z.number()).optional(),
+            all_roles_unassigned: z.boolean().optional(),
         }),
     }),
     z.object({
@@ -200,7 +221,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('delay'),
         config: z.object({
-            delay_duration: z.string().min(2),
+            delay_duration: DURATION_STRING,
         }),
     }),
     z.object({
@@ -219,7 +240,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     })
                 )
                 .optional(),
-            max_wait_duration: z.string(),
+            max_wait_duration: DURATION_STRING,
         }),
     }),
 
@@ -264,6 +285,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            // When false, no open pixel is injected, links are not rewritten, and the send uses the
+            // untracked SES configuration set. Absent/true means tracked. Keep in sync with
+            // nodejs/src/cdp/schema/hogflow.ts.
+            tracking_enabled: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -280,6 +305,17 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             inputs: z.record(z.string(), CyclotronInputSchema),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_push'),
+        config: z.object({
+            message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-native-push'),
+            inputs: z.record(z.string(), CyclotronInputSchema),
+        }),
+    }),
 
     // Exit
     z.object({
@@ -293,18 +329,22 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
 
 export const isOptOutEligibleAction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
-    return ['function_email', 'function_sms'].includes(action.type)
+): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' | 'function_push' }> => {
+    return ['function_email', 'function_sms', 'function_push'].includes(action.type)
 }
 
 export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
     return ['function_email'].includes(action.type)
 }
 
+export const isPushAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_push' }> => {
+    return ['function_push'].includes(action.type)
+}
+
 export const isFunctionAction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_email' }> => {
-    return ['function', 'function_sms', 'function_email'].includes(action.type)
+): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_email' | 'function_push' }> => {
+    return ['function', 'function_sms', 'function_email', 'function_push'].includes(action.type)
 }
 
 export const isTriggerFunction = (

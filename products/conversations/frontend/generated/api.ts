@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
@@ -28,12 +29,16 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    PatchedTicketNoteUpdateRequestApi,
+    PatchedTicketViewApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
+    ZendeskImportJobApi,
+    ZendeskImportStartApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -317,23 +322,6 @@ export const conversationsTicketsList = async (
     })
 }
 
-export const getConversationsTicketsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/`
-}
-
-export const conversationsTicketsCreate = async (
-    projectId: string,
-    ticketApi?: NonReadonly<TicketApi>,
-    options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketApi),
-    })
-}
-
 export const getConversationsTicketsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/conversations/tickets/${id}/`
 }
@@ -406,6 +394,27 @@ export const conversationsTicketsDestroy = async (
     })
 }
 
+export const getConversationsTicketsAiFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/ai_feedback/`
+}
+
+/**
+ * Record reviewer feedback on an AI reply, captured to the internal analytics project.
+ */
+export const conversationsTicketsAiFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    aiFeedbackRequestApi: AiFeedbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsTicketsAiFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aiFeedbackRequestApi),
+    })
+}
+
 export const getConversationsTicketsMessagesListUrl = (
     projectId: string,
     id: string,
@@ -441,6 +450,53 @@ export const conversationsTicketsMessagesList = async (
     })
 }
 
+export const getConversationsTicketsNotesPartialUpdateUrl = (projectId: string, id: string, messageId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/notes/${messageId}/`
+}
+
+/**
+ * Update a private note on a ticket.
+ *
+ * Only the note's author can edit it. Customer-facing replies cannot be
+ * edited (outbound delivery only runs on create).
+ */
+export const conversationsTicketsNotesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    messageId: string,
+    patchedTicketNoteUpdateRequestApi?: PatchedTicketNoteUpdateRequestApi,
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(getConversationsTicketsNotesPartialUpdateUrl(projectId, id, messageId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketNoteUpdateRequestApi),
+    })
+}
+
+export const getConversationsTicketsNotesDestroyUrl = (projectId: string, id: string, messageId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/notes/${messageId}/`
+}
+
+/**
+ * Soft-delete a private note on a ticket.
+ *
+ * Only the note's author can delete it. Customer-facing replies cannot be
+ * deleted via this endpoint.
+ */
+export const conversationsTicketsNotesDestroy = async (
+    projectId: string,
+    id: string,
+    messageId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsTicketsNotesDestroyUrl(projectId, id, messageId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getConversationsTicketsReplyCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/conversations/tickets/${id}/reply/`
 }
@@ -451,6 +507,10 @@ export const getConversationsTicketsReplyCreateUrl = (projectId: string, id: str
  * With is_private=false, the reply is delivered to the customer via the
  * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
  * the message is stored as an internal note only visible to team members.
+ *
+ * Retrying an identical message from the same author within a short window returns the
+ * original message with a 200 rather than posting it twice, and a 409 while a concurrent
+ * request is still creating it.
  */
 export const conversationsTicketsReplyCreate = async (
     projectId: string,
@@ -474,7 +534,10 @@ export const getConversationsTicketsBulkUpdateStatusCreateUrl = (projectId: stri
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs
- * are silently ignored.  Tickets already in the requested status are skipped.
+ * are silently ignored. Tickets the caller lacks editor-level access to (denied
+ * or view-only via object-level access control) are silently skipped too, the
+ * same way single-ticket updates enforce object-level access via get_object().
+ * Tickets already in the requested status are skipped.
  */
 export const conversationsTicketsBulkUpdateStatusCreate = async (
     projectId: string,
@@ -552,8 +615,11 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
 /**
  * Get total unread ticket count for the team.
  *
- * Returns the sum of unread_team_count for all non-resolved tickets.
- * Cached in Redis for 30 seconds, invalidated on changes.
+ * Returns the sum of unread_team_count for all non-resolved tickets visible to the
+ * caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
+ * callers without object-level ticket restrictions, since it holds one unscoped total
+ * per team - serving it to a restricted member would leak counts for tickets they can't
+ * see.
  */
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,
@@ -624,6 +690,24 @@ export const conversationsViewsRetrieve = async (
     })
 }
 
+export const getConversationsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/views/${shortId}/`
+}
+
+export const conversationsViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedTicketViewApi?: NonReadonly<PatchedTicketViewApi>,
+    options?: RequestInit
+): Promise<TicketViewApi> => {
+    return apiMutator<TicketViewApi>(getConversationsViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketViewApi),
+    })
+}
+
 export const getConversationsViewsDestroyUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/conversations/views/${shortId}/`
 }
@@ -636,5 +720,36 @@ export const conversationsViewsDestroy = async (
     return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsZendeskImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/zendesk_imports/`
+}
+
+export const conversationsZendeskImportsCreate = async (
+    projectId: string,
+    zendeskImportStartApi: ZendeskImportStartApi,
+    options?: RequestInit
+): Promise<ZendeskImportJobApi> => {
+    return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(zendeskImportStartApi),
+    })
+}
+
+export const getConversationsZendeskImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/zendesk_imports/status/`
+}
+
+export const conversationsZendeskImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ZendeskImportJobApi> => {
+    return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
