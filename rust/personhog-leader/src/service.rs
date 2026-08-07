@@ -8,7 +8,7 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogL
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
     GetPersonRequest, GetPersonResponse, LifecycleOpType, Person, ReleaseFenceRequest,
-    ReleaseFenceResponse, ReleaseOutcome, UpdatePersonPropertiesRequest,
+    ReleaseFenceResponse, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
     UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
@@ -781,6 +781,80 @@ fn parse_json_object_field(bytes: &[u8], field: &str) -> Result<serde_json::Valu
     Ok(value)
 }
 
+/// A sealed source snapshot after admission: identity-checked against the
+/// fold's target, JSON-parsed, and sanitized.
+#[derive(Debug)]
+struct SealedSnapshot {
+    ordinal: i32,
+    properties: serde_json::Value,
+    version: i64,
+    created_at: i64,
+    last_seen_at: Option<i64>,
+}
+
+/// Admit the fold request's sealed snapshots: validate, parse, and
+/// sanitize each, returning them in ordinal order plus what sanitization
+/// rewrote. Every refusal is a deterministic `InvalidArgument`: each
+/// snapshot must be a plausible living source of the target — same team,
+/// a different person, not a death document — and ordinals must be
+/// unique, or precedence would be ambiguous. A mismatch can only be a
+/// saga bug, and folding it silently would launder it into the target.
+// See `partition_from_metadata` for why `result_large_err` is allowed.
+#[allow(clippy::result_large_err)]
+fn parse_sealed_snapshots(
+    sealed_snapshots: &[SealedSourceSnapshot],
+    team_id: i64,
+    person_id: i64,
+) -> Result<(Vec<SealedSnapshot>, SanitizeStats), Status> {
+    let mut stats = SanitizeStats::default();
+    let mut seen_ordinals = std::collections::HashSet::with_capacity(sealed_snapshots.len());
+    let mut snapshots: Vec<SealedSnapshot> = Vec::with_capacity(sealed_snapshots.len());
+    for snapshot in sealed_snapshots {
+        let Some(person) = &snapshot.person else {
+            return Err(Status::invalid_argument(
+                "sealed snapshot is missing its person",
+            ));
+        };
+        if person.team_id != team_id {
+            return Err(Status::invalid_argument(
+                "sealed snapshot belongs to a different team than the target",
+            ));
+        }
+        if person.id == person_id {
+            return Err(Status::invalid_argument(
+                "sealed snapshot is the merge target itself",
+            ));
+        }
+        if person.is_deleted {
+            return Err(Status::invalid_argument(
+                "sealed snapshot is a death document; only living sealed state folds",
+            ));
+        }
+        if !seen_ordinals.insert(snapshot.ordinal) {
+            return Err(Status::invalid_argument(
+                "sealed snapshots carry a duplicate ordinal; precedence would be ambiguous",
+            ));
+        }
+        let mut properties =
+            parse_json_object_field(&person.properties, "sealed snapshot properties")?;
+        let snapshot_stats = sanitize_for_jsonb(&mut properties);
+        stats.nul_strings += snapshot_stats.nul_strings;
+        stats.clamped_numbers += snapshot_stats.clamped_numbers;
+        snapshots.push(SealedSnapshot {
+            ordinal: snapshot.ordinal,
+            properties,
+            version: person.version,
+            created_at: person.created_at,
+            last_seen_at: person.last_seen_at,
+        });
+    }
+    // Precedence comes from the recorded pair order, not from the
+    // request: a re-drive that lists sources differently must fold the
+    // same document.
+    snapshots.sort_by_key(|snapshot| snapshot.ordinal);
+    Ok((snapshots, stats))
+}
+
 /// Extract the routing partition from the `x-partition` request-metadata
 /// header. The router stamps this on every leader call after hashing
 /// `(team_id, person_id)`; its absence means a misrouted or malformed
@@ -1202,60 +1276,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         let mut event_set_once = parse_json_object_field(&req.event_set_once, "event_set_once")?;
         track(sanitize_for_jsonb(&mut event_set));
         track(sanitize_for_jsonb(&mut event_set_once));
-        struct SealedSnapshot {
-            ordinal: i32,
-            properties: serde_json::Value,
-            version: i64,
-            created_at: i64,
-            last_seen_at: Option<i64>,
-        }
-        let mut seen_ordinals =
-            std::collections::HashSet::with_capacity(req.sealed_snapshots.len());
-        let mut snapshots: Vec<SealedSnapshot> = Vec::with_capacity(req.sealed_snapshots.len());
-        for snapshot in &req.sealed_snapshots {
-            let Some(person) = &snapshot.person else {
-                return Err(Status::invalid_argument(
-                    "sealed snapshot is missing its person",
-                ));
-            };
-            // A snapshot for the wrong person, or a death document, can
-            // only be a saga bug — folding it silently would launder it
-            // into the target.
-            if person.team_id != req.team_id {
-                return Err(Status::invalid_argument(
-                    "sealed snapshot belongs to a different team than the target",
-                ));
-            }
-            if person.id == req.person_id {
-                return Err(Status::invalid_argument(
-                    "sealed snapshot is the merge target itself",
-                ));
-            }
-            if person.is_deleted {
-                return Err(Status::invalid_argument(
-                    "sealed snapshot is a death document; only living sealed state folds",
-                ));
-            }
-            if !seen_ordinals.insert(snapshot.ordinal) {
-                return Err(Status::invalid_argument(
-                    "sealed snapshots carry a duplicate ordinal; precedence would be ambiguous",
-                ));
-            }
-            let mut properties =
-                parse_json_object_field(&person.properties, "sealed snapshot properties")?;
-            track(sanitize_for_jsonb(&mut properties));
-            snapshots.push(SealedSnapshot {
-                ordinal: snapshot.ordinal,
-                properties,
-                version: person.version,
-                created_at: person.created_at,
-                last_seen_at: person.last_seen_at,
-            });
-        }
-        // Precedence comes from the recorded pair order, not from the
-        // request: a re-drive that lists sources differently must fold
-        // the same document.
-        snapshots.sort_by_key(|snapshot| snapshot.ordinal);
+        let (snapshots, snapshot_stats) =
+            parse_sealed_snapshots(&req.sealed_snapshots, req.team_id, req.person_id)?;
+        track(snapshot_stats);
 
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
@@ -1873,6 +1896,118 @@ mod tests {
 
     fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
         PersonCacheKey { team_id, person_id }
+    }
+
+    fn wire_snapshot(person: Person, ordinal: i32) -> SealedSourceSnapshot {
+        SealedSourceSnapshot {
+            person: Some(person),
+            ordinal,
+        }
+    }
+
+    fn source_person(id: i64, properties: &serde_json::Value) -> Person {
+        Person {
+            id,
+            team_id: 7,
+            properties: serde_json::to_vec(properties).unwrap(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn sealed_snapshot_admission_rejects_implausible_sources() {
+        let valid = serde_json::json!({});
+        let cases: Vec<(&str, Vec<SealedSourceSnapshot>)> = vec![
+            (
+                "missing person",
+                vec![SealedSourceSnapshot {
+                    person: None,
+                    ordinal: 0,
+                }],
+            ),
+            (
+                "wrong team",
+                vec![wire_snapshot(
+                    Person {
+                        team_id: 8,
+                        ..source_person(2, &valid)
+                    },
+                    0,
+                )],
+            ),
+            (
+                "snapshot is the target",
+                vec![wire_snapshot(source_person(1, &valid), 0)],
+            ),
+            (
+                "death document",
+                vec![wire_snapshot(
+                    Person {
+                        is_deleted: true,
+                        ..source_person(2, &valid)
+                    },
+                    0,
+                )],
+            ),
+            (
+                "duplicate ordinal",
+                vec![
+                    wire_snapshot(source_person(2, &valid), 0),
+                    wire_snapshot(source_person(3, &valid), 0),
+                ],
+            ),
+            (
+                "non-object properties",
+                vec![wire_snapshot(
+                    Person {
+                        properties: b"[1]".to_vec(),
+                        ..source_person(2, &valid)
+                    },
+                    0,
+                )],
+            ),
+        ];
+        for (label, sealed) in cases {
+            let status = parse_sealed_snapshots(&sealed, 7, 1).expect_err(label);
+            assert_eq!(status.code(), Code::InvalidArgument, "{label}");
+        }
+    }
+
+    #[test]
+    fn sealed_snapshot_admission_sorts_by_ordinal_and_counts_sanitization() {
+        let nul_dirty = serde_json::json!({"a": "x\u{0000}y"});
+        let float_dirty = serde_json::json!({"b": 1e308});
+        let (snapshots, stats) = parse_sealed_snapshots(
+            &[
+                wire_snapshot(
+                    Person {
+                        version: 9,
+                        ..source_person(2, &nul_dirty)
+                    },
+                    1,
+                ),
+                wire_snapshot(
+                    Person {
+                        version: 4,
+                        ..source_person(3, &float_dirty)
+                    },
+                    0,
+                ),
+            ],
+            7,
+            1,
+        )
+        .expect("plausible snapshots admit");
+        assert_eq!(
+            snapshots
+                .iter()
+                .map(|snapshot| snapshot.version)
+                .collect::<Vec<_>>(),
+            vec![4, 9],
+            "returned in ordinal order, not request order"
+        );
+        assert_eq!(stats.nul_strings, 1);
+        assert_eq!(stats.clamped_numbers, 1);
     }
 
     /// A service with no PG pool and a producer that never connects —
