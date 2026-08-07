@@ -621,9 +621,11 @@ export interface integrationsLogicMeta {
         slackIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | undefined
         githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         githubAvailableInstallations: (
-            githubAvailableInstallationsResponse: any
+            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
         ) => GitHubAvailableInstallationApi[] | null
-        githubPersonalConnected: (githubAvailableInstallationsResponse: any) => boolean | null
+        githubPersonalConnected: (
+            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+        ) => boolean | null
         getIntegrationsByKind: (
             integrations: IntegrationType[] | null
         ) => (

@@ -489,11 +489,11 @@ def link_existing_team_github_integration(
         if source_team_id_int not in accessible_team_ids:
             raise ValidationError("Source team not found in your organization")
 
-        qs = defer_repository_cache_fields(Integration.objects.filter(team_id=source_team_id_int, kind="github"))
+        qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
         if installation_id_param:
             qs = qs.for_github_installation_id(str(installation_id_param))
 
-        source = qs.order_by("id").first()
+        source = defer_repository_cache_fields(qs).order_by("id").first()
         if source is None:
             raise ValidationError("Source team does not have a GitHub integration")
     elif installation_id_param:
@@ -504,9 +504,8 @@ def link_existing_team_github_integration(
                     team__organization_id=organization.id,
                     team_id__in=accessible_team_ids,
                     kind="github",
-                )
+                ).for_github_installation_id(installation_id_str)
             )
-            .for_github_installation_id(installation_id_str)
             .order_by("id")
             .first()
         )
