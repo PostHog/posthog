@@ -231,48 +231,8 @@ export function PlanUsageContent({
             )}
             {!usageLoading && (
               <Flex direction="column" gap="3">
-                <Text className="font-medium text-sm">What's included</Text>
                 {components ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <UsageComponent
-                      label="Tokens"
-                      value={
-                        components.tokenUsd == null
-                          ? null
-                          : formatUsdAmount(components.tokenUsd)
-                      }
-                    />
-                    <UsageComponent
-                      label="Cloud compute"
-                      value={
-                        components.computeUsd == null
-                          ? null
-                          : formatUsdAmount(components.computeUsd)
-                      }
-                    />
-                    <UsageComponent
-                      label="CPU usage"
-                      value={
-                        components.cpuCoreSeconds == null
-                          ? null
-                          : formatUsageQuantity(
-                              components.cpuCoreSeconds,
-                              "core-seconds",
-                            )
-                      }
-                    />
-                    <UsageComponent
-                      label="Memory usage"
-                      value={
-                        components.memoryGibSeconds == null
-                          ? null
-                          : formatUsageQuantity(
-                              components.memoryGibSeconds,
-                              "GiB-seconds",
-                            )
-                      }
-                    />
-                  </div>
+                  <UsageMix components={components} />
                 ) : (
                   <Flex
                     p="4"
@@ -298,22 +258,101 @@ export function PlanUsageContent({
   );
 }
 
-function UsageComponent({
-  label,
-  value,
+function UsageMix({
+  components,
 }: {
-  label: string;
-  value: string | null;
+  components: NonNullable<ReturnType<typeof desktopUsageComponents>>;
 }) {
+  const tokenUsd = components.tokenUsd;
+  const computeUsd = components.computeUsd;
+  const hasCreditMix = tokenUsd != null && computeUsd != null;
+  const totalUsd = hasCreditMix ? tokenUsd + computeUsd : 0;
+  const tokenPercent = totalUsd > 0 ? ((tokenUsd ?? 0) / totalUsd) * 100 : 0;
+  const roundedTokenPercent = Math.round(tokenPercent);
+  const computeDetails = [
+    components.cpuCoreSeconds == null
+      ? "CPU unavailable"
+      : formatUsageQuantity(components.cpuCoreSeconds, "core-seconds"),
+    components.memoryGibSeconds == null
+      ? "Memory unavailable"
+      : formatUsageQuantity(components.memoryGibSeconds, "GiB-seconds"),
+  ].join(" · ");
+
   return (
     <Flex
       direction="column"
-      gap="1"
+      gap="3"
       p="4"
-      className="rounded-(--radius-3) border border-(--gray-5)"
+      className="rounded-(--radius-3) bg-(--gray-a2)"
     >
-      <Text className="text-(--gray-9) text-sm">{label}</Text>
-      <Text className="font-medium text-base">{value ?? "Unavailable"}</Text>
+      <Flex align="center" justify="between">
+        <Text className="font-medium text-sm">Usage mix</Text>
+        <Text className="text-(--gray-11) text-xs">
+          Token vs. compute spend
+        </Text>
+      </Flex>
+      {hasCreditMix ? (
+        <>
+          <div
+            role="img"
+            aria-label={`${roundedTokenPercent}% tokens and ${totalUsd > 0 ? 100 - roundedTokenPercent : 0}% cloud compute`}
+            className="flex h-3 w-full overflow-hidden rounded-full bg-(--gray-a4)"
+          >
+            {totalUsd > 0 && (
+              <>
+                <div
+                  className="bg-(--purple-9)"
+                  style={{ width: `${tokenPercent}%` }}
+                />
+                <div className="flex-1 bg-(--blue-9)" />
+              </>
+            )}
+          </div>
+          <Flex align="center" gap="5" wrap="wrap">
+            <MixLegend
+              color="bg-(--purple-9)"
+              label="Tokens"
+              percent={roundedTokenPercent}
+              value={formatUsdAmount(tokenUsd)}
+            />
+            <MixLegend
+              color="bg-(--blue-9)"
+              label="Cloud compute"
+              percent={totalUsd > 0 ? 100 - roundedTokenPercent : 0}
+              value={formatUsdAmount(computeUsd)}
+            />
+          </Flex>
+        </>
+      ) : (
+        <Text className="text-(--gray-11) text-sm">
+          Token and compute proportions are awaiting data.
+        </Text>
+      )}
+      <Text className="text-(--gray-9) text-xs">
+        Compute resources: {computeDetails}
+      </Text>
+    </Flex>
+  );
+}
+
+function MixLegend({
+  color,
+  label,
+  percent,
+  value,
+}: {
+  color: string;
+  label: string;
+  percent: number;
+  value: string;
+}) {
+  return (
+    <Flex align="center" gap="2">
+      <span className={`size-2 rounded-full ${color}`} />
+      <Text className="text-sm">
+        <strong>{percent}%</strong> {label}
+        <span className="text-(--gray-9)"> · {value}</span>
+      </Text>
     </Flex>
   );
 }
