@@ -143,10 +143,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type AccountProperties = {
+      /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+      email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -163,7 +167,7 @@ export namespace Schemas {
       usage_dashboard_link?: string | null;
       /** @nullable */
       metabase_link?: string | null;
-    } | null;
+    } | null | null;
 
     /**
      * * `daily` - daily
@@ -196,7 +200,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: AccountProperties;
@@ -656,6 +660,8 @@ export namespace Schemas {
       inlineCohortCalculation?: InlineCohortCalculation | null;
       materializationMode?: MaterializationMode | null;
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
+      /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+      mergeFederatedAggregateJoins?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -4743,6 +4749,7 @@ export namespace Schemas {
       /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
       connectionId?: string | null;
       explain?: boolean | null;
+      /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       kind?: 'HogQLQuery';
       /** Modifiers used when performing the query */
@@ -5767,6 +5774,7 @@ export namespace Schemas {
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
+      GoogleCalendar: 'google-calendar',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
@@ -13267,16 +13275,43 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * Read shape for list/retrieve/create-response. `cimd_url` is nullable here for
+     * tokens issued before URL binding; the write serializers below require a value.
+     */
     export interface CIMDVerificationToken {
       readonly id: string;
-      /** @maxLength 40 */
-      label: string;
+      /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+      readonly label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+         * @maxLength 2048
+         * @nullable
+         */
+      readonly cimd_url: string | null;
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
       readonly last_used_at: string | null;
+    }
+
+    /**
+     * Write shape for `create`. `cimd_url` is required and non-null: only tokens
+     * issued before URL binding existed are nullable, not new ones.
+     */
+    export interface CIMDVerificationTokenCreate {
+      /**
+         * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+         * @maxLength 40
+         */
+      label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.
+         * @maxLength 2048
+         */
+      cimd_url: string;
     }
 
     /**
@@ -13287,8 +13322,14 @@ export namespace Schemas {
      */
     export interface CIMDVerificationTokenWithValue {
       readonly id: string;
-      /** @maxLength 40 */
-      label: string;
+      /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+      readonly label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+         * @maxLength 2048
+         * @nullable
+         */
+      readonly cimd_url: string | null;
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_by: UserBasic;
@@ -13432,6 +13473,52 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    /**
+     * Sync state of one connected calendar (read-only).
+     */
+    export interface CalendarSyncStatus {
+      /** Id of the google-calendar integration. */
+      readonly integration_id: number;
+      /**
+         * When the last sync run completed; null before the first sync.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /** Whether a sync run is currently in flight. */
+      readonly is_syncing: boolean;
+    }
+
+    /**
+     * Request body of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTrigger {
+      /** Id of the google-calendar integration to sync. */
+      integration_id: number;
+    }
+
+    /**
+     * * `started` - started
+     * * `already_running` - already_running
+     */
+    export type CalendarSyncTriggerResponseStatusEnum = typeof CalendarSyncTriggerResponseStatusEnum[keyof typeof CalendarSyncTriggerResponseStatusEnum];
+
+
+    export const CalendarSyncTriggerResponseStatusEnum = {
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Response of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTriggerResponse {
+      /** 'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).
+       *
+       * * `started` - started
+       * * `already_running` - already_running */
+      status: CalendarSyncTriggerResponseStatusEnum;
     }
 
     /**
@@ -15544,6 +15631,8 @@ export namespace Schemas {
     export interface CommentSlackThreadRef {
       /** Slack channel ID this discussion is mirrored to. */
       channel_id: string;
+      /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+      channel_name: string;
       /** Deep link that opens the mirrored Slack thread. */
       url: string;
     }
@@ -15584,6 +15673,13 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    export interface CommentError {
+      /** Human-readable explanation of what went wrong. */
+      detail: string;
+      /** Stable machine-readable identifier for the failure. */
+      error_type?: string;
+    }
+
     export interface CommentSlackThread {
       readonly id: string;
       /** Resource type of the mirrored discussion (e.g. Insight). */
@@ -15599,6 +15695,8 @@ export namespace Schemas {
       readonly integration: number;
       /** Slack channel the mirrored thread lives in. */
       readonly slack_channel_id: string;
+      /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+      readonly slack_channel_name: string;
       /** Slack thread timestamp anchoring the mirrored thread. */
       readonly slack_thread_ts: string;
       /**
@@ -18042,6 +18140,38 @@ export namespace Schemas {
       overall_status: string;
       /** Short human-readable summary of detected issues */
       issues_summary: string[];
+    }
+
+    export interface DataWarehouseExpression {
+      readonly id: string;
+      /**
+         * Whether this expression has been soft-deleted.
+         * @nullable
+         */
+      deleted?: boolean | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Name of the table the expression field is added to, for example events.
+         * @maxLength 400
+         */
+      table_name: string;
+      /**
+         * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+         * @maxLength 400
+         * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+         */
+      field_name: string;
+      /**
+         * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+         * @maxLength 10000
+         */
+      expression: string;
+      /**
+         * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+         * @nullable
+         */
+      connection_id?: string | null;
     }
 
     export interface DataWarehouseModelPath {
@@ -29124,6 +29254,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentApiExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentApiExposureConfig | null;
       exposure_config?: ExperimentApiExposureConfig | null;
       filterTestAccounts?: boolean | null;
       /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
@@ -29440,6 +29572,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
@@ -34829,6 +34963,14 @@ export namespace Schemas {
       period?: Period;
     }
 
+    export interface GenerateLinkRequest {
+      /**
+         * Recipient to generate the link for. Defaults to the requesting user's own email address.
+         * @maxLength 512
+         */
+      recipient?: string;
+    }
+
     export interface SuggestedRule {
       /** re2 pattern matching the dynamic path segment. */
       regex: string;
@@ -38977,7 +39119,7 @@ export namespace Schemas {
       connectionId?: string | null;
       /** Enable more verbose output, usually run from the /debug page */
       debug?: boolean | null;
-      /** Extra filters applied to query via {filters} */
+      /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
@@ -39550,6 +39692,18 @@ export namespace Schemas {
       readonly code_name: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     export interface InsightViewedRequest {
@@ -39663,6 +39817,7 @@ export namespace Schemas {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -39712,6 +39867,7 @@ export namespace Schemas {
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
+      GoogleCalendar: 'google-calendar',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -39761,6 +39917,7 @@ export namespace Schemas {
        * * `gitlab` - Gitlab
        * * `google-ads` - Google Ads
        * * `google-analytics` - Google Analytics
+       * * `google-calendar` - Google Calendar
        * * `google-cloud-service-account` - Google Cloud Service Account
        * * `google-cloud-storage` - Google Cloud Storage
        * * `google-pubsub` - Google Pubsub
@@ -43814,6 +43971,48 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    /**
+     * One attendee of a synced calendar meeting (read-only).
+     */
+    export interface MeetingParticipant {
+      /** Email address of the attendee. */
+      readonly email: string;
+      /** Display name from the calendar event; may be empty. */
+      readonly display_name: string;
+      /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
+      readonly response_status: string;
+      /** Whether this attendee organized the meeting. */
+      readonly is_organizer: boolean;
+      /**
+         * UUID of the PostHog person resolved for this attendee, if any.
+         * @nullable
+         */
+      readonly person_id: string | null;
+    }
+
+    /**
+     * A calendar meeting synced from a connected employee calendar (read-only).
+     */
+    export interface Meeting {
+      /** UUID of the meeting. */
+      readonly id: string;
+      /** Meeting title; may be empty. */
+      readonly title: string;
+      /** When the meeting starts. */
+      readonly start_time: string;
+      /**
+         * When the meeting ends.
+         * @nullable
+         */
+      readonly end_time: string | null;
+      /** Email address of the meeting organizer; may be empty. */
+      readonly organizer_email: string;
+      /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
+      readonly status: string;
+      /** Attendees of the meeting. */
+      readonly participants: readonly MeetingParticipant[];
+    }
+
     export interface MemberAccessUpdate {
       /** Gateway server to toggle for the member. */
       gateway_server_id: string;
@@ -43895,12 +44094,13 @@ export namespace Schemas {
     }
 
     export interface MessagePreferences {
+      /** Server-assigned UUID for this recipient's preference record. */
       readonly id: string;
       /** The recipient identifier (e.g. email address). */
       identifier: string;
       /** When the preference was last updated. */
       updated_at: string;
-      /** Map of category ID to preference status. */
+      /** Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message. */
       preferences: unknown;
     }
 
@@ -46191,6 +46391,15 @@ export namespace Schemas {
       results: DataModelingJob[];
     }
 
+    export interface PaginatedDataWarehouseExpressionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataWarehouseExpression[];
+    }
+
     export interface PaginatedDataWarehouseModelPathList {
       count: number;
       /** @nullable */
@@ -46943,6 +47152,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MaxCoreMemory[];
+    }
+
+    export interface PaginatedMeetingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Meeting[];
     }
 
     export interface PaginatedMessageCategoryList {
@@ -50017,7 +50235,7 @@ export namespace Schemas {
       uploaded_at: string;
       /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
       dismissed_at?: string;
-      /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+      /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
       url?: string;
     }
 
@@ -51702,10 +51920,14 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type PatchedAccountProperties = {
+      /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+      email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -51722,7 +51944,7 @@ export namespace Schemas {
       usage_dashboard_link?: string | null;
       /** @nullable */
       metabase_link?: string | null;
-    } | null;
+    } | null | null;
 
     /**
      * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
@@ -51741,7 +51963,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -52086,6 +52308,19 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever
+     * performs a null -> value transition: `validate` rejects any instance whose `cimd_url`
+     * is already set, so an existing binding can never be re-pointed through this endpoint.
+     */
+    export interface PatchedCIMDVerificationTokenUpdate {
+      /**
+         * HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.
+         * @maxLength 2048
+         */
+      cimd_url?: string;
     }
 
     /**
@@ -52622,6 +52857,38 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at?: string | null;
       readonly created_by?: UserBasic;
+    }
+
+    export interface PatchedDataWarehouseExpression {
+      readonly id?: string;
+      /**
+         * Whether this expression has been soft-deleted.
+         * @nullable
+         */
+      deleted?: boolean | null;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /**
+         * Name of the table the expression field is added to, for example events.
+         * @maxLength 400
+         */
+      table_name?: string;
+      /**
+         * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+         * @maxLength 400
+         * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+         */
+      field_name?: string;
+      /**
+         * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+         * @maxLength 10000
+         */
+      expression?: string;
+      /**
+         * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+         * @nullable
+         */
+      connection_id?: string | null;
     }
 
     export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
@@ -54773,6 +55040,18 @@ export namespace Schemas {
       readonly code_name?: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     /**
@@ -59843,6 +60122,11 @@ export namespace Schemas {
     export const PostgresDestinationRequestTypeEnum = {
       Postgres: 'Postgres',
     } as const;
+
+    export interface PreferencesLink {
+      /** Token-gated URL where the recipient can manage their preferences. */
+      preferences_url: string;
+    }
 
     export interface PreviewInviteRequest {
       /**
@@ -64983,6 +65267,16 @@ export namespace Schemas {
       run_id?: string | null;
     }
 
+    export interface RemoveOptOutRequest {
+      /**
+         * The recipient identifier to opt back in (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
+      category_key?: string;
+    }
+
     export interface ReorderTilesRequest {
       /**
          * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -67035,7 +67329,7 @@ export namespace Schemas {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
       /**
-         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
          * @maxLength 255
          */
       channel_id: string;
@@ -67405,10 +67699,10 @@ export namespace Schemas {
        * * `negative` - negative */
       sentiment: SentimentEnum;
       /**
-         * Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.
+         * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
          * @maxLength 4000
          */
-      note: string;
+      note?: string;
     }
 
     export interface SignalReportFeedbackResponse {
@@ -67536,7 +67830,7 @@ export namespace Schemas {
        * * `paused_by_system` - Paused by system
        * * `paused_by_user` - Paused by user */
       readonly status: ScoutConfigStatusEnum;
-      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (its output received no human engagement), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
        *
        * * `no_output` - No output
        * * `ignored` - Ignored
@@ -67580,7 +67874,7 @@ export namespace Schemas {
       /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
       readonly consecutive_failure_count: number;
       /**
-         * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone acts on the scout's reports; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
+         * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
          * @nullable
          */
       readonly status_changed_at: string | null;
@@ -76299,6 +76593,12 @@ export namespace Schemas {
          */
       repository?: string | null;
       /**
+         * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+         * @maxItems 3
+         * @items.maxLength 255
+         */
+      repositories?: string[];
+      /**
          * Primary key of the team's GitHub integration to clone with when a repository is selected.
          * @nullable
          */
@@ -76388,6 +76688,11 @@ export namespace Schemas {
     export interface WebAnalyticsUserPreferences {
       /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
       achievements_opt_out: boolean;
+    }
+
+    export interface WebhookUrl {
+      /** URL to register in Customer.io so it posts subscription changes to PostHog. */
+      url: string;
     }
 
     export interface WeeklyDigestResponse {
@@ -79124,6 +79429,21 @@ export namespace Schemas {
     include_history?: boolean;
     };
 
+    export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string;
+    };
+
     export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
@@ -79310,6 +79630,7 @@ export namespace Schemas {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -79403,6 +79724,7 @@ export namespace Schemas {
       Team: 'Team',
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseExpression: 'DataWarehouseExpression',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
@@ -79482,6 +79804,7 @@ export namespace Schemas {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -79563,6 +79886,7 @@ export namespace Schemas {
       Team: 'Team',
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseExpression: 'DataWarehouseExpression',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
@@ -84121,6 +84445,7 @@ export namespace Schemas {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -84181,6 +84506,7 @@ export namespace Schemas {
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
+      GoogleCalendar: 'google-calendar',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -87963,6 +88289,21 @@ export namespace Schemas {
      * Only return statistics for this data warehouse table.
      */
     table_id?: string;
+    };
+
+    export type WarehouseExpressionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type WarehouseModelPathsListParams = {

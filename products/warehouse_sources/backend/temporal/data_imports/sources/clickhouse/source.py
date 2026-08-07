@@ -97,7 +97,7 @@ ClickHouseErrors: dict[str, str] = {
     "nodename nor servname provided": "Could not resolve the ClickHouse host",
     "name or service not known": "Could not resolve the ClickHouse host",
     "connection refused": "Could not connect to ClickHouse on the given host/port",
-    "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
+    "connection timed out": "Connection to ClickHouse timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     # Must stay above the generic "ssl" entry, which would otherwise match first and send the
     # user to the wrong toggle. Verification runs against the configured ClickHouse host even
     # over an SSH tunnel (server_hostname), so a mismatch is real: the certificate doesn't

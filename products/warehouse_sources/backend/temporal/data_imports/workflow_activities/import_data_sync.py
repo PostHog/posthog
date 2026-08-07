@@ -8,6 +8,7 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from jsonpath_ng.exceptions import JSONPathError
 from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
@@ -400,6 +401,16 @@ async def _handle_import_error(
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # The shared REST engine compiles data_selector/cursor_path/next_url_path/resolve-param fields
+    # as JSONPath at sync time (jsonpath_utils.compile_path), not at manifest-validation time. A
+    # malformed path is a fixed string, so parsing it fails identically on every retry regardless
+    # of source — classify it here by type (message text varies across jsonpath_ng's several parse-
+    # and lex-error shapes, so it can't be matched via get_non_retryable_errors).
+    if isinstance(error, JSONPathError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
