@@ -1,3 +1,15 @@
+"""Region routing for ``app_home_opened``.
+
+The ``zz_`` prefix keeps this file last in the package, and it has to stay: importing
+``backend.api`` pulls in ``posthog.temporal``, whose import runs ``configure_logger`` and
+installs Temporal's logger factory process-wide. Structlog binds loggers on first use, so
+every module that logs after that point is stuck with the swapped factory and its
+``caplog`` assertions go quiet — silently, since assertions that a log is *absent* still
+pass. Sorting last means the log-asserting suites (``test_get_slack_email_for_user``,
+``test_guess_repository``) have run before the swap. Same reasoning as
+``test_zz_resolve_slack_user_with_link_no_access.py``.
+"""
+
 from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, TestCase
