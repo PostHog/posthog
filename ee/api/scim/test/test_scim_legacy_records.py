@@ -169,6 +169,39 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
         self.legacy_record.refresh_from_db()
         assert self.legacy_record.username == "renamed.okta"
 
+    def test_claiming_a_second_unclaimed_record_does_not_surface_the_constraint(self):
+        # Two domains of one config can each hold an unclaimed record for the same user. Claiming
+        # one takes (user, config), so the next write's attempt on the other hits the unique
+        # constraint — concurrently on a rolling deploy, or in sequence as here. It has to converge
+        # on the winner rather than surfacing an IntegrityError as a 500 to the IdP.
+        second_domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="partner.example.com",
+            verified_at="2024-01-01T00:00:00Z",
+            identity_provider_config=self.config,
+        )
+        sibling = self._provision_keyed_on_domain(self.provisioned, "already.partner.username", second_domain)
+        SCIMProvisionedUser.objects.filter(pk=self.legacy_record.pk).update(identity_provider_config=self.config)
+
+        for username in ("first.write", "second.write"):
+            response = self.client.patch(
+                f"{self.scim_url}/Users/{self.provisioned.id}",
+                data={
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "userName", "value": username}],
+                },
+                content_type="application/scim+json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self.legacy_record.refresh_from_db()
+        sibling.refresh_from_db()
+        assert self.legacy_record.username == "second.write"
+        assert sibling.identity_provider_config_id is None
+        assert (
+            SCIMProvisionedUser.objects.filter(user=self.provisioned, identity_provider_config=self.config).count() == 1
+        )
+
     def test_write_does_not_collide_with_a_record_the_backfill_skipped(self):
         # One user provisioned through two domains of one config keeps a second record on its domain
         # key. Claiming that one for the config would trip the (user, config) unique constraint.

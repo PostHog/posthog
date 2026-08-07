@@ -1,12 +1,16 @@
 from typing import TYPE_CHECKING, Any
 
-from django.db import models
+from django.db import IntegrityError, models, transaction
+
+import structlog
 
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.identity_provider_config import IdentityProviderConfig
     from posthog.models.user import User
+
+logger = structlog.get_logger(__name__)
 
 
 class SCIMProvisionedUserManager(models.Manager["SCIMProvisionedUser"]):
@@ -20,7 +24,7 @@ class SCIMProvisionedUserManager(models.Manager["SCIMProvisionedUser"]):
         )
 
     def record_for(self, *, user: "User", config: "IdentityProviderConfig") -> "SCIMProvisionedUser | None":
-        records = self.for_config(config).filter(user=user)
+        records = self.for_config(config).filter(user=user).order_by("id")
         return records.filter(identity_provider_config=config).first() or records.first()
 
     def upsert(
@@ -31,15 +35,35 @@ class SCIMProvisionedUserManager(models.Manager["SCIMProvisionedUser"]):
         rather than joined by a second one, so a user provisioned just before the config move isn't
         provisioned again after it.
         """
-        record = self.record_for(user=user, config=config)
-        if record is None:
-            return self.create(user=user, identity_provider_config=config, **defaults)
-
-        for field, value in defaults.items():
-            setattr(record, field, value)
-        record.identity_provider_config = config
-        record.save(update_fields=[*defaults, "identity_provider_config", "updated_at"])
+        self._claim_record_keyed_on_a_domain(user=user, config=config)
+        # `update_or_create` locks the row it finds and retries its own read if a concurrent insert
+        # beats it, so the create side of this needs no handling here.
+        record, _ = self.update_or_create(user=user, identity_provider_config=config, defaults=defaults)
         return record
+
+    def _claim_record_keyed_on_a_domain(self, *, user: "User", config: "IdentityProviderConfig") -> None:
+        unclaimed = (
+            self.for_config(config).filter(user=user, identity_provider_config__isnull=True).order_by("id").first()
+        )
+        if unclaimed is None:
+            return
+
+        try:
+            # The `isnull` filter makes a claim of the same record by a concurrent request a no-op
+            # instead of an overwrite, and the savepoint keeps a lost race from poisoning the
+            # transaction the caller is midway through.
+            with transaction.atomic():
+                self.filter(pk=unclaimed.pk, identity_provider_config__isnull=True).update(
+                    identity_provider_config=config
+                )
+        except IntegrityError:
+            # Someone else already holds (user, config) — their own record, or another domain-keyed
+            # one they claimed first. Theirs wins, and `update_or_create` below finds it.
+            logger.warning(
+                "scim_provisioned_user_claim_lost",
+                scim_provisioned_user_id=str(unclaimed.pk),
+                identity_provider_config_id=str(config.pk),
+            )
 
 
 class SCIMProvisionedUser(UUIDModel, UpdatedMetaFields):
