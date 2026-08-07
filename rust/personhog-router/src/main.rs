@@ -429,9 +429,22 @@ fn install_metrics_recorder() -> PrometheusHandle {
     // Sub-second buckets at the bottom because the source is
     // millisecond-precise; the top still reaches far past the
     // handoff deadline so a stall is never collapsed into +Inf.
+    // Dense through the seconds range: healthy phases finish in
+    // hundreds of milliseconds to a few seconds, and during deploy
+    // churn the interesting question is where in 1–10s a phase landed —
+    // the old 2s → 5s gap rendered any tail there as an interpolated
+    // "4.7s" regardless of the real value. The top still reaches far
+    // past the handoff deadline so a stall is never collapsed into
+    // +Inf.
     const HANDOFF_PHASE_BUCKETS: &[f64] = &[
-        50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
-        600000.0,
+        50.0, 250.0, 500.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0, 7500.0, 10000.0, 15000.0,
+        30000.0, 60000.0, 120000.0, 300000.0, 600000.0,
+    ];
+    // Stash waits span "drained at activation" (hundreds of ms) to
+    // "parked across chained handoffs" (seconds); the ceiling is
+    // max_stash_wait, so resolution past ~30s buys nothing.
+    const STASH_WAIT_BUCKETS: &[f64] = &[
+        100.0, 250.0, 500.0, 1000.0, 2000.0, 3000.0, 5000.0, 7500.0, 10000.0, 15000.0, 30000.0,
     ];
     PrometheusBuilder::new()
         .add_global_label("service", "personhog-router")
@@ -450,6 +463,16 @@ fn install_metrics_recorder() -> PrometheusHandle {
         .set_buckets_for_metric(
             Matcher::Full("personhog_coordination_handoff_phase_duration_ms".into()),
             HANDOFF_PHASE_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_stash_wait_duration_ms".into()),
+            STASH_WAIT_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_stash_drain_duration_ms".into()),
+            STASH_WAIT_BUCKETS,
         )
         .unwrap()
         // Per-request forwarding spans live in single-digit milliseconds;
