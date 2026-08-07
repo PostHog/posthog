@@ -276,9 +276,9 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                         limit: 500,
                     })
                     return response.results.reduce<Record<string, number>>((counts, hogFunction) => {
-                        const alertIdProperty = hogFunction.filters?.properties?.find(
-                            (property) => property.key === 'alert_id'
-                        )
+                        const alertIdProperty = Array.isArray(hogFunction.filters?.properties)
+                            ? hogFunction.filters.properties.find((property) => property.key === 'alert_id')
+                            : undefined
                         const alertId = alertIdProperty?.value
                         if (typeof alertId === 'string' && alertIds.has(alertId)) {
                             counts[alertId] = (counts[alertId] ?? 0) + 1

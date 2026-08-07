@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+from posthog.schema import PropertyGroupFilterValue
+
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
@@ -181,10 +183,21 @@ def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
 
 
 def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
-    """Build global property filters that apply to all events."""
-    if not filters.get("properties"):
+    """Build global property filters that apply to all events.
+
+    Properties are stored either as a flat list of filters (ANDed together — the legacy shape every
+    existing destination uses) or as a single property group `{"type": "AND"|"OR", "values": [...]}`,
+    which lets a destination combine conditions with OR. A group is folded into a single And/Or
+    expression by `property_to_expr`; a flat list keeps the historical per-filter AND behavior.
+    """
+    properties = filters.get("properties")
+    if not properties:
         return []
-    return [property_to_expr(prop, team) for prop in filters["properties"]]
+    if isinstance(properties, dict):
+        if not properties.get("values"):
+            return []
+        return [property_to_expr(PropertyGroupFilterValue(**properties), team)]
+    return [property_to_expr(prop, team) for prop in properties]
 
 
 def _build_event_filter_expr(filter: dict) -> ast.Expr:

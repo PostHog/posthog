@@ -628,6 +628,47 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["AND", "OR"]},
+                    "values": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                },
+                "required": ["type", "values"],
+            },
+        ]
+    }
+)
+class HogFunctionGlobalPropertiesField(serializers.Field):
+    """Global property filters applied to every event before it reaches the function.
+
+    Accepts either a flat list of filter objects (combined with AND — the shape every existing
+    destination uses) or a single property group ``{"type": "AND"|"OR", "values": [...]}`` so a
+    destination can combine conditions with OR. The compiler folds a group into the matching
+    And/Or expression; a flat list keeps the historical per-filter AND behavior.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, list):
+            if not all(isinstance(item, dict) for item in data):
+                raise ValidationError("Each property filter must be an object")
+            return data
+        if isinstance(data, dict):
+            if data.get("type") not in ("AND", "OR"):
+                raise ValidationError('Property group "type" must be "AND" or "OR"')
+            if not isinstance(data.get("values", []), list):
+                raise ValidationError('Property group "values" must be a list')
+            return data
+        raise ValidationError("properties must be a list of filters or a property group")
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
         choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
@@ -635,7 +676,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
     data_warehouse = serializers.ListField(child=serializers.DictField(), required=False)
-    properties = serializers.ListField(child=serializers.DictField(), required=False)
+    properties = HogFunctionGlobalPropertiesField(required=False)
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)

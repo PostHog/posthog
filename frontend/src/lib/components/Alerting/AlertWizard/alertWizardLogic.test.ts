@@ -47,8 +47,9 @@ describe('applyKindFilter', () => {
             ],
         }
         const result = applyKindFilter(withProps, ['sdk_outdated'])
-        expect(result?.properties).toHaveLength(1)
-        expect(result?.properties?.[0].key).toBe('kind')
+        const props = Array.isArray(result?.properties) ? result.properties : []
+        expect(props).toHaveLength(1)
+        expect(props[0].key).toBe('kind')
     })
 
     it('leaves events untouched', () => {

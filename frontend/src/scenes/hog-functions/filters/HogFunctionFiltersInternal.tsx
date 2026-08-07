@@ -147,7 +147,7 @@ const setSimpleFilterValue = (
     }
     // Preserve properties bound by Logs alerting (alert_id) — the trigger event id changes between
     // firing/resolved/auto-disabled/errored, but the binding to the parent alert must survive.
-    if (contextId === 'logs-alerting' && previous?.properties && previous.properties.length > 0) {
+    if (contextId === 'logs-alerting' && Array.isArray(previous?.properties) && previous.properties.length > 0) {
         next.properties = previous.properties
     }
     return next
@@ -193,7 +193,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                         {taxonomicGroupTypes.length > 0 ? (
                             <PropertyFilters
                                 key={contextId}
-                                propertyFilters={value?.properties ?? []}
+                                propertyFilters={Array.isArray(value?.properties) ? value.properties : []}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
@@ -214,7 +214,9 @@ export function HogFunctionFiltersInternal(): JSX.Element {
 }
 
 function LogsAlertBindingHint({ filters }: { filters: CyclotronJobFiltersType | undefined }): JSX.Element | null {
-    const alertIdProp = filters?.properties?.find((p) => 'key' in p && p.key === 'alert_id')
+    const alertIdProp = Array.isArray(filters?.properties)
+        ? filters.properties.find((p) => 'key' in p && p.key === 'alert_id')
+        : undefined
     const rawValue = alertIdProp && 'value' in alertIdProp ? alertIdProp.value : undefined
     const alertId =
         typeof rawValue === 'string'

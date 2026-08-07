@@ -7188,12 +7188,19 @@ export type CyclotronJobFilterPropertyFilter =
     | HogQLPropertyFilter
     | FlagPropertyFilter
 
+// Global property filters combined with a logical operator, so conditions can be combined with OR.
+// The legacy flat-list shape (`CyclotronJobFilterPropertyFilter[]`) is always treated as AND.
+export interface CyclotronJobFilterPropertyGroup {
+    type: FilterLogicalOperator
+    values: CyclotronJobFilterPropertyFilter[]
+}
+
 export interface CyclotronJobFiltersType {
     source?: 'events' | 'person-updates' | 'data-warehouse-table'
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
-    properties?: CyclotronJobFilterPropertyFilter[]
+    properties?: CyclotronJobFilterPropertyFilter[] | CyclotronJobFilterPropertyGroup
     filter_test_accounts?: boolean
     bytecode?: any[]
     bytecode_error?: string

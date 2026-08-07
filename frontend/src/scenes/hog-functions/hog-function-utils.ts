@@ -1,6 +1,43 @@
-import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTypeType } from '~/types'
+import {
+    CyclotronJobFilterPropertyFilter,
+    CyclotronJobFilterPropertyGroup,
+    CyclotronJobInputSchemaType,
+    CyclotronJobInputType,
+    FilterLogicalOperator,
+    HogFunctionTypeType,
+} from '~/types'
 
 export type HogFunctionDeliveryType = 'batch' | 'realtime'
+
+export interface NormalizedHogFunctionProperties {
+    type: FilterLogicalOperator
+    values: CyclotronJobFilterPropertyFilter[]
+}
+
+/**
+ * Global property filters are stored either as a flat list (combined with AND — the shape every
+ * existing destination uses) or as a single group `{ type, values }` so conditions can be combined
+ * with OR. Normalize both shapes to a group for rendering.
+ */
+export function normalizeHogFunctionProperties(
+    properties: CyclotronJobFilterPropertyFilter[] | CyclotronJobFilterPropertyGroup | null | undefined
+): NormalizedHogFunctionProperties {
+    if (properties && !Array.isArray(properties)) {
+        return { type: properties.type, values: properties.values ?? [] }
+    }
+    return { type: FilterLogicalOperator.And, values: properties ?? [] }
+}
+
+/**
+ * Serialize a normalized group back to storage: a flat list for AND (so existing destinations keep
+ * their shape and don't churn), a group object for OR.
+ */
+export function serializeHogFunctionProperties(
+    type: FilterLogicalOperator,
+    values: CyclotronJobFilterPropertyFilter[]
+): CyclotronJobFilterPropertyFilter[] | CyclotronJobFilterPropertyGroup {
+    return type === FilterLogicalOperator.Or ? { type, values } : values
+}
 
 // Batch exports vs realtime destinations share `type: 'destination'`; the only signal is the id prefix.
 export function getHogFunctionDeliveryType(item: { id: string }): HogFunctionDeliveryType {
