@@ -4,7 +4,7 @@ import type { Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
-  type JsonAgentSessionEvent,
+  type AgentSessionEvent,
   RpcClient,
   type RpcClientOptions,
   type RpcEventListener,
@@ -23,7 +23,7 @@ import type {
   RpcExtensionUIResponse,
 } from "./types";
 
-export type PiRpcEvent = JsonAgentSessionEvent | PiExtensionEvent;
+export type PiRpcEvent = AgentSessionEvent | PiExtensionEvent;
 
 type PiRpcEventListener = (event: PiRpcEvent) => void;
 

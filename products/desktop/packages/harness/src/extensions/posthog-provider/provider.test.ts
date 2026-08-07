@@ -103,24 +103,16 @@ describe("buildPosthogProvider", () => {
     await config.oauth?.login(callbacks);
     expect(loginSpy).toHaveBeenCalledWith(callbacks, "eu");
 
-    const refreshSignal = new AbortController().signal;
-    await config.oauth?.refreshToken(
-      {
-        access: "old",
-        refresh: "old-r",
-        expires: 0,
-      },
-      refreshSignal,
-    );
-    expect(refreshSpy).toHaveBeenCalledWith(
-      "eu",
-      {
-        access: "old",
-        refresh: "old-r",
-        expires: 0,
-      },
-      refreshSignal,
-    );
+    await config.oauth?.refreshToken({
+      access: "old",
+      refresh: "old-r",
+      expires: 0,
+    });
+    expect(refreshSpy).toHaveBeenCalledWith("eu", {
+      access: "old",
+      refresh: "old-r",
+      expires: 0,
+    });
 
     loginSpy.mockRestore();
     refreshSpy.mockRestore();

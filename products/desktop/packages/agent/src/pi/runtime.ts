@@ -1,5 +1,5 @@
 import type {
-  JsonAgentSessionEvent,
+  AgentSessionEvent,
   RpcCommand,
   RpcResponse,
 } from "@earendil-works/pi-coding-agent";
@@ -18,7 +18,7 @@ export class PiRuntime {
 
   private readonly translator: PiConversationTranslator;
   private readonly runtimeListeners = new Set<
-    (event: JsonAgentSessionEvent) => void
+    (event: AgentSessionEvent) => void
   >();
   private readonly conversationListeners = new Set<
     (event: AgentConversationEvent) => void
@@ -43,7 +43,7 @@ export class PiRuntime {
     return getPiRpcClientProcess(this.client);
   }
 
-  onRuntimeEvent(listener: (event: JsonAgentSessionEvent) => void): () => void {
+  onRuntimeEvent(listener: (event: AgentSessionEvent) => void): () => void {
     this.runtimeListeners.add(listener);
     return () => this.runtimeListeners.delete(listener);
   }
@@ -122,7 +122,7 @@ export class PiRuntime {
     }
   }
 
-  private handleEvent(event: JsonAgentSessionEvent | PiExtensionEvent): void {
+  private handleEvent(event: AgentSessionEvent | PiExtensionEvent): void {
     if (
       event.type === "extension_ui_request" ||
       event.type === "extension_error"

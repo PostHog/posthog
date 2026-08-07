@@ -63,7 +63,6 @@ export function createPosthogMcpPolicyExtension(
         return {
           block: true,
           reason: `The ${policy.serverName} tool ${policy.toolName} is disabled in PostHog MCP settings.`,
-          terminate: true,
         };
       }
 
@@ -71,7 +70,6 @@ export function createPosthogMcpPolicyExtension(
         return {
           block: true,
           reason: `The ${policy.serverName} tool ${policy.toolName} requires approval in PostHog MCP settings.`,
-          terminate: true,
         };
       }
 
@@ -87,7 +85,6 @@ export function createPosthogMcpPolicyExtension(
         return {
           block: true,
           reason: `Permission rejected for ${policy.serverName}.${policy.toolName}.`,
-          terminate: true,
         };
       }
 
