@@ -1197,13 +1197,23 @@ impl PersonHogLeader for PersonHogLeaderService {
         let mut event_set_once = parse_json_object_field(&req.event_set_once, "event_set_once")?;
         sanitize_for_jsonb(&mut event_set);
         sanitize_for_jsonb(&mut event_set_once);
-        let mut snapshots: Vec<(serde_json::Value, i64, i64)> =
-            Vec::with_capacity(req.sealed_snapshots.len());
+        struct SealedSnapshot {
+            properties: serde_json::Value,
+            version: i64,
+            created_at: i64,
+            last_seen_at: Option<i64>,
+        }
+        let mut snapshots: Vec<SealedSnapshot> = Vec::with_capacity(req.sealed_snapshots.len());
         for snapshot in &req.sealed_snapshots {
             let mut properties =
                 parse_json_object_field(&snapshot.properties, "sealed snapshot properties")?;
             sanitize_for_jsonb(&mut properties);
-            snapshots.push((properties, snapshot.version, snapshot.created_at));
+            snapshots.push(SealedSnapshot {
+                properties,
+                version: snapshot.version,
+                created_at: snapshot.created_at,
+                last_seen_at: snapshot.last_seen_at,
+            });
         }
 
         let cache_key = PersonCacheKey {
@@ -1295,8 +1305,8 @@ impl PersonHogLeader for PersonHogLeaderService {
         let folded_map = folded
             .as_object_mut()
             .expect("folded clones the normalized target");
-        for (snapshot_properties, _, _) in &snapshots {
-            if let Some(map) = snapshot_properties.as_object() {
+        for snapshot in &snapshots {
+            if let Some(map) = snapshot.properties.as_object() {
                 for (key, value) in map {
                     if !folded_map.contains_key(key) {
                         folded_map.insert(key.clone(), value.clone());
@@ -1418,14 +1428,21 @@ impl PersonHogLeader for PersonHogLeaderService {
         // Scalars: created_at is the min over the target and every
         // snapshot (ignoring non-positive values a malformed snapshot
         // could carry); is_identified is unconditionally true — a merge
-        // is an identify.
+        // is an identify; last_seen_at max-merges like the update path —
+        // the merged person was last seen whenever any constituent was
+        // (snapshot values were already hour-floored when stored).
         let created_at = snapshots
             .iter()
-            .map(|(_, _, snapshot_created_at)| *snapshot_created_at)
+            .map(|snapshot| snapshot.created_at)
             .filter(|ts| *ts > 0)
             .chain(std::iter::once(person.created_at))
             .min()
             .unwrap_or(person.created_at);
+        let last_seen_at = snapshots
+            .iter()
+            .filter_map(|snapshot| snapshot.last_seen_at)
+            .chain(person.last_seen_at)
+            .max();
 
         // The version is a max-merge over the target's floor and every
         // sealed version, plus one: it stays above every source's death
@@ -1437,7 +1454,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .floor_for(partition, &cache_key, person.version);
         let max_sealed = snapshots
             .iter()
-            .map(|(_, snapshot_version, _)| *snapshot_version)
+            .map(|snapshot| snapshot.version)
             .max()
             .unwrap_or(0);
         let version = base_version.max(max_sealed).checked_add(1).ok_or_else(|| {
@@ -1454,6 +1471,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             version,
             is_identified: true,
             is_deleted: false,
+            last_seen_at,
             approx_bytes,
         };
 

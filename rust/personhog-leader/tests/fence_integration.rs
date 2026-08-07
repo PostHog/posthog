@@ -1264,6 +1264,7 @@ async fn a_fold_applies_precedence_and_scalars_and_lands_in_the_changelog() {
             created_at: 1_700_000_000,
             version: 3,
             is_identified: false,
+            last_seen_at: Some(1_700_000_000_000),
             ..test_cached_person()
         },
         &op,
@@ -1279,12 +1280,16 @@ async fn a_fold_applies_precedence_and_scalars_and_lands_in_the_changelog() {
                 &op,
                 vec![
                     // The first snapshot beats the second; both lose to the
-                    // target; sealed versions and created_at feed the fold.
-                    snapshot(
-                        serde_json::json!({"b": "s1", "c": "s1", "d": "s1"}),
-                        7,
-                        1_600_000_000,
-                    ),
+                    // target; sealed versions, created_at, and last_seen_at
+                    // feed the fold.
+                    Person {
+                        last_seen_at: Some(1_750_000_000_000),
+                        ..snapshot(
+                            serde_json::json!({"b": "s1", "c": "s1", "d": "s1"}),
+                            7,
+                            1_600_000_000,
+                        )
+                    },
                     snapshot(serde_json::json!({"c": "s2", "e": "s2"}), 5, 1_650_000_000),
                 ],
                 serde_json::json!({"a": "event"}),
@@ -1314,6 +1319,11 @@ async fn a_fold_applies_precedence_and_scalars_and_lands_in_the_changelog() {
         "min over target and snapshots"
     );
     assert!(folded.is_identified, "a merge is an identify");
+    assert_eq!(
+        folded.last_seen_at,
+        Some(1_750_000_000_000),
+        "max over target and snapshots"
+    );
     assert_eq!(folded.version, 8, "max(target 3, sealed 7) + 1");
 
     // The response is the changelog record, not just a view of the cache.
