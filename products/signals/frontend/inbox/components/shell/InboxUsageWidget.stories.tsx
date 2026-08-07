@@ -16,6 +16,8 @@ interface InboxState {
     freePrs: number
     usedPrs: number
     limitPrs: number | null
+    // A user-set USD spend cap (custom_limits_usd). Takes precedence over usage_limit.
+    customLimitUsd?: number
 }
 
 function inboxProduct({ subscribed, freePrs, usedPrs, limitPrs }: InboxState): BillingProductV2Type {
@@ -42,7 +44,11 @@ function inboxProduct({ subscribed, freePrs, usedPrs, limitPrs }: InboxState): B
 }
 
 function billingFor(state: InboxState): BillingType {
-    return { ...billingJson, products: [inboxProduct(state)], custom_limits_usd: {} }
+    return {
+        ...billingJson,
+        products: [inboxProduct(state)],
+        custom_limits_usd: state.customLimitUsd != null ? { inbox: state.customLimitUsd } : {},
+    }
 }
 
 function StateMocks({ state }: { state: InboxState }): JSX.Element {
@@ -90,4 +96,12 @@ export const ApproachingLimit: Story = {
 
 export const AtLimit: Story = {
     render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 50, limitPrs: 50 }} />,
+}
+
+// Usage overshoots a custom spend cap: PR generation ran past the cap before enforcement caught up.
+// The spend figure clamps to the cap ($20) — it never shows more than the billing page bills.
+export const UsageOverCustomLimit: Story = {
+    render: () => (
+        <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 30, limitPrs: null, customLimitUsd: 20 }} />
+    ),
 }

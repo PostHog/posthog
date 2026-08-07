@@ -85,6 +85,55 @@ describe('inboxUsageLogic', () => {
         expect(logic.values.usedPrs).toBe(expectedPrs)
     })
 
+    // spentUsd must never exceed the spend cap the billing page bills. Usage can overshoot the
+    // cap (generation is enforced separately and lags), so an unclamped figure renders more than
+    // the customer is charged — the escalated "$345 against a $150 cap" confusion.
+    it.each([
+        // [case, used PRs (via credits), custom limit USD, expected spentUsd]
+        // 3 free PRs, $15/PR: 26 used → 23 billable → $345 uncapped, clamped to the $150 cap.
+        ['clamps spend to the custom limit when usage overshoots', 26, 150, 150],
+        ['shows the real spend when usage is under the limit', 8, 150, 75],
+        ['is uncapped when no custom limit is set', 26, null, 345],
+    ])('%s', async (_case, usedPrs, customLimitUsd, expectedSpentUsd) => {
+        const credits = usedPrs * CREDITS_PER_PR
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        custom_limits_usd: customLimitUsd == null ? {} : { inbox: customLimitUsd },
+                        products: [
+                            {
+                                type: 'inbox',
+                                display_divisor: CREDITS_PER_PR,
+                                current_usage: credits,
+                                free_allocation: 3 * CREDITS_PER_PR,
+                                unit_amount_usd: '0.01', // 0.01 × 1500 credits = $15 per PR
+                            },
+                        ],
+                    },
+                ],
+                '/api/projects/:team_id/signals/reports/refund-summary/': () => [
+                    200,
+                    {
+                        credited_refund_count: 0,
+                        quota_limited: false,
+                        period_billable_credits: credits,
+                        credited_credits: 0,
+                    },
+                ],
+            },
+        })
+        featureFlagLogic.mount()
+        setRefundsFlag()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.usedPrs).toBe(usedPrs)
+        expect(logic.values.spentUsd).toBe(expectedSpentUsd)
+    })
+
     // The refunds flag is keyed on the organization group, so on a fresh pageload it resolves
     // only after mount (once posthog-js registers the group and re-fetches flags). A mount-time
     // load alone would skip the summary forever, pinning the widget to billing's lagging

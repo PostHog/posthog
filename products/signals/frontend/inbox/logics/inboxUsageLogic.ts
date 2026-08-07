@@ -197,7 +197,12 @@ export interface inboxUsageLogicMeta {
         status: (usedPrs: number, limitPrs: number | null) => InboxUsageStatus
         quotaLimited: (refundSummary: SignalReportRefundSummaryResponseApi | null) => boolean
         usedPrsDisplay: (usedPrs: number, limitPrs: number | null) => number
-        spentUsd: (usedPrs: number, freePrs: number, pricePerPrUsd: number | null) => number | null
+        spentUsd: (
+            usedPrs: number,
+            freePrs: number,
+            pricePerPrUsd: number | null,
+            customLimitUsd: number | null
+        ) => number | null
         percentage: (usedPrs: number, limitPrs: number | null, freePrs: number) => number
         resetDate: (billing: BillingType | null) => Dayjs | null
         estimatedBudgetUsd: (
@@ -459,10 +464,22 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         ],
         // USD spent so far this period: PRs beyond the free allowance, at the per-PR price.
         // Null when we can't price a PR (so the widget hides the figure rather than show "$0").
+        // Clamped to the spend cap so it never exceeds what the billing page bills — usage can
+        // overshoot the cap (generation is enforced separately and lags), but the money never does.
         spentUsd: [
-            (s) => [s.usedPrs, s.freePrs, s.pricePerPrUsd],
-            (usedPrs: number, freePrs: number, pricePerPrUsd: number | null): number | null =>
-                pricePerPrUsd == null ? null : Math.max(0, usedPrs - freePrs) * pricePerPrUsd,
+            (s) => [s.usedPrs, s.freePrs, s.pricePerPrUsd, s.customLimitUsd],
+            (
+                usedPrs: number,
+                freePrs: number,
+                pricePerPrUsd: number | null,
+                customLimitUsd: number | null
+            ): number | null => {
+                if (pricePerPrUsd == null) {
+                    return null
+                }
+                const spent = Math.max(0, usedPrs - freePrs) * pricePerPrUsd
+                return customLimitUsd != null ? Math.min(spent, customLimitUsd) : spent
+            },
         ],
         // Bar fill as a % of the denominator (the limit, or the free allowance when uncapped).
         percentage: [
