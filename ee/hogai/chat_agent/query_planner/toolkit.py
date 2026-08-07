@@ -13,8 +13,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
+from posthog.hogql.errors import BaseHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -50,6 +52,11 @@ from ee.hogai.utils.helpers import sanitize_event_description
 from ee.hogai.utils.prompt import format_prompt_string
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
+
+
+class TaxonomyQueryExecutionError(Exception):
+    """A taxonomy query failed to execute against ClickHouse/HogQL for a reason the model can recover from
+    (e.g. an action's HogQL filter contains an aggregate that ClickHouse rejects in a WHERE clause)."""
 
 
 class final_answer(BaseModel):
@@ -279,10 +286,19 @@ class TaxonomyAgentToolkit:
             team_id=self._team.pk,
             org_id=self._team.organization_id,
         ):
-            response = runner.run(
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
-            )
+            try:
+                response = runner.run(
+                    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                    analytics_props={"source": EventSource.POSTHOG_AI},
+                )
+            except (ExposedCHQueryError, BaseHogQLError) as err:
+                # An action's filters can carry a HogQL expression that ClickHouse can't evaluate in a
+                # WHERE clause (e.g. an aggregate like countDistinct). Hand this back as a recoverable
+                # message so the model can move on instead of the exception killing the whole turn.
+                raise TaxonomyQueryExecutionError(
+                    f"Couldn't read properties for the {verbose_name}: its filters contain an expression "
+                    f"that can't be evaluated here ({err}). Try a different event or action."
+                )
         return response, verbose_name
 
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
@@ -296,6 +312,8 @@ class TaxonomyAgentToolkit:
             if not project_actions:
                 return "No actions exist in the project."
             return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
+        except TaxonomyQueryExecutionError as err:
+            return str(err)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return "Properties have not been found."
@@ -385,7 +403,10 @@ class TaxonomyAgentToolkit:
                 return f"The property {property_name} does not exist in the taxonomy."
             property_definition = virtual_definition
 
-        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+        try:
+            response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+        except TaxonomyQueryExecutionError as err:
+            return str(err)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The {verbose_name} does not exist in the taxonomy."
 

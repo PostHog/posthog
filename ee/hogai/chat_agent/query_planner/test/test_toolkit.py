@@ -5,8 +5,11 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
+from posthog.errors import CHQueryErrorIllegalAggregation
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -391,6 +394,31 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert toolkit.retrieve_event_or_action_property_values("event1", "$virt_is_bot") == "true, false"
+
+    @parameterized.expand(
+        [
+            ("properties", lambda toolkit, item: toolkit.retrieve_event_or_action_properties(item)),
+            ("property_values", lambda toolkit, item: toolkit.retrieve_event_or_action_property_values(item, "id")),
+        ]
+    )
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.EventTaxonomyQueryRunner")
+    def test_taxonomy_query_error_returns_recoverable_message(self, _name, call, mock_runner_class):
+        # An action whose HogQL filter carries an aggregate makes ClickHouse reject the taxonomy query with
+        # ILLEGAL_AGGREGATION. That error must come back as a tool-result string, not escape and kill the turn.
+        # The property must exist so property-value lookups reach the taxonomy runner rather than
+        # bailing out early on an unknown property.
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="id", property_type=PropertyType.Numeric
+        )
+        mock_runner_class.return_value.run.side_effect = CHQueryErrorIllegalAggregation(
+            "countDistinct(events.$session_id) is found in WHERE"
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = call(toolkit, self.action.id)
+
+        self.assertIn("Couldn't read properties for the action with ID", result)
+        self.assertIn("Try a different event or action.", result)
 
     def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
         toolkit = DummyToolkit(self.team, self.user)
