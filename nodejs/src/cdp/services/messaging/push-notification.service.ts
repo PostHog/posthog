@@ -163,7 +163,7 @@ export class PushNotificationService {
         private integrationManager: IntegrationManagerService,
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
-        private redis: RedisV2 | null,
+        private redis: RedisV2,
         private redisMirror: RedisV2,
         private messageAssetsService?: MessageAssetsService
     ) {}
@@ -565,13 +565,11 @@ export class PushNotificationService {
 
         const read = (pool: RedisV2) =>
             pool.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) => client.get(cacheKey))
-        const cached = this.redis
-            ? await dualRead(
-                  'push-notification.apns-jwt-read',
-                  () => read(this.redis!),
-                  () => read(this.redisMirror)
-              )
-            : null
+        const cached = await dualRead(
+            'push-notification.apns-jwt-read',
+            () => read(this.redis),
+            () => read(this.redisMirror)
+        )
         if (cached) {
             return cached
         }
@@ -591,7 +589,7 @@ export class PushNotificationService {
             )
         await dualWrite(
             'push-notification.apns-jwt-write',
-            () => (this.redis ? write(this.redis) : Promise.resolve(null)),
+            () => write(this.redis),
             () => write(this.redisMirror)
         )
         return jwt
