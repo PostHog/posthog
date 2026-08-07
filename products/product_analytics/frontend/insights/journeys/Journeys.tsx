@@ -8,7 +8,7 @@ import { journeysDataLogic } from './journeysDataLogic'
 
 export function Journeys({ showPersonsModal = true }: { showPersonsModal?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { gridModel, isAnchored, theme, activeChainHighlight } = useValues(journeysDataLogic(insightProps))
+    const { gridModel, isAnchored, anchor, theme, activeChainHighlight } = useValues(journeysDataLogic(insightProps))
     const { cardClicked, cardHovered, ribbonClicked, ribbonHovered, gridLeft } = useActions(
         journeysDataLogic(insightProps)
     )
@@ -21,6 +21,7 @@ export function Journeys({ showPersonsModal = true }: { showPersonsModal?: boole
         <JourneyGrid
             model={gridModel}
             isAnchored={isAnchored}
+            anchorType={anchor?.type ?? null}
             nodeColor={theme?.['preset-1'] ?? '#000000'}
             chainHighlight={activeChainHighlight}
             // Shared and embedded views cannot open a persons modal, so the elements must not look

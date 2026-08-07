@@ -7,6 +7,8 @@ import { percentage } from 'lib/utils/numbers'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { midEllipsis, pluralize } from 'lib/utils/strings'
 
+import { PathsV2AnchorType } from '~/queries/schema/schema-general'
+
 import {
     JourneyChainHighlight,
     JourneyGridModel,
@@ -50,9 +52,19 @@ function cardKey(stepIndex: number, rowKey: string): string {
     return `${stepIndex}:${rowKey}`
 }
 
+/** End-anchored grids read backward in time from the anchor column, so "Step n" would label the
+ * columns in the wrong direction. */
+function columnHeading(stepIndex: number, anchorType?: PathsV2AnchorType | null): string {
+    if (anchorType === PathsV2AnchorType.End) {
+        return stepIndex === 0 ? 'Last step' : `${pluralize(stepIndex, 'step')} earlier`
+    }
+    return `Step ${stepIndex + 1}`
+}
+
 export function JourneyGrid({
     model,
     isAnchored,
+    anchorType,
     nodeColor,
     chainHighlight,
     onCardClick,
@@ -63,6 +75,7 @@ export function JourneyGrid({
 }: {
     model: JourneyGridModel
     isAnchored: boolean
+    anchorType?: PathsV2AnchorType | null
     nodeColor: string
     chainHighlight?: JourneyChainHighlight | null
     onCardClick?: (stepIndex: number, row: JourneyGridRow) => void
@@ -200,7 +213,7 @@ export function JourneyGrid({
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ left: columnIndex * (CARD_WIDTH + COLUMN_GAP), top: 0, width: CARD_WIDTH }}
                     >
-                        Step {column.stepIndex + 1}
+                        {columnHeading(column.stepIndex, anchorType)}
                     </div>
                 ))}
 
@@ -242,8 +255,9 @@ function dropOffTooltip(isAnchored: boolean): string {
     }
     return (
         'People whose journey ends at this step. ' +
-        'Every number counts unique people, and one person can appear in several rows of a column, ' +
-        'so the percentages in a column can add up to more than 100%.'
+        'A pause longer than the inactivity gap starts a new journey, so one person can have several journeys. ' +
+        'The same person can appear in several rows and end journeys in more than one column, ' +
+        'so percentages can add up to more than 100%.'
     )
 }
 
