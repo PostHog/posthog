@@ -70,20 +70,23 @@ describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
   it.each([
     ["legacy storage", LEGACY_LINK],
     ["stable download", STABLE_LINK],
-  ])("opens a %s link in a tab instead of leaving the app", async (_kind, link) => {
-    renderMessage(`Here it is: [report.md](${link})`);
+  ])(
+    "opens a %s link in a tab instead of leaving the app",
+    async (_kind, link) => {
+      renderMessage(`Here it is: [report.md](${link})`);
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Open report.md" }),
-    );
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Open report.md" }),
+      );
 
-    expect(openArtifactTab).toHaveBeenCalledWith(TASK_ID, {
-      runId: RUN_ID,
-      artifactId: ARTIFACT_ID,
-      name: "report.md",
-    });
-    expect(screen.queryByRole("link")).toBeNull();
-  });
+      expect(openArtifactTab).toHaveBeenCalledWith(TASK_ID, {
+        runId: RUN_ID,
+        artifactId: ARTIFACT_ID,
+        name: "report.md",
+      });
+      expect(screen.queryByRole("link")).toBeNull();
+    },
+  );
 
   it("downloads from the divided half without opening a tab", async () => {
     renderMessage(`Here it is: [report.md](${LEGACY_LINK})`);
