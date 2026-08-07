@@ -72,6 +72,11 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
             "items": {"type": "string"},
             "description": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
         },
+        "known_emails": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Individual email addresses pinned to this account, matched before the domain fallback.",
+        },
         "stripe_customer_id": {"type": "string", "nullable": True},
         "hubspot_deal_id": {"type": "string", "nullable": True},
         "billing_id": {"type": "string", "nullable": True},
@@ -166,9 +171,10 @@ class AccountSerializer(DataclassSerializer):
         help_text=(
             "Typed account properties: external system identifiers (stripe_customer_id, "
             "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
-            "usage_dashboard_link, metabase_link) and email_domains (the company's email "
-            "domains, used to match inbound touchpoints). Defaults to an empty object. Unknown "
-            "keys are rejected. User assignments live on account relationships, not here."
+            "usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains "
+            "(the company's email domains) and known_emails (individual addresses pinned to the "
+            "account). Defaults to an empty object. Unknown keys are rejected. User assignments "
+            "live on account relationships, not here."
         ),
     )
     tags = serializers.ListField(

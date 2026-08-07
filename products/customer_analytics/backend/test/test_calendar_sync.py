@@ -134,6 +134,20 @@ class TestCalendarSync(BaseTest):
         self.integration.refresh_from_db()
         assert self.integration.config["calendar_sync_token"] == "fresh"
 
+    def test_known_email_matches_account_on_personal_domain(self):
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Kwak Bros", external_id="kwak")
+        account.properties = {"known_emails": ["hector032716@gmail.com"]}
+        account.save()
+
+        event = _event(
+            attendees=[
+                {"email": "csm@posthog.com", "responseStatus": "accepted"},
+                {"email": "hector032716@gmail.com", "responseStatus": "accepted"},
+            ]
+        )
+        self._sync([_pages_response([event])])
+        assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
+
     def test_ambiguous_email_domain_matches_nothing(self):
         for name in ("Acme US", "Acme EU"):
             account = Account.objects.for_team(self.team.id).create(
