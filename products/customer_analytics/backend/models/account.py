@@ -24,6 +24,9 @@ class AccountProperties(BaseModel):
     # touchpoints (calendar attendees, email senders) that don't resolve to a
     # known person. Personal/free domains don't belong here.
     email_domains: list[str] = []
+    # Individual addresses pinned to this account, checked before the domain
+    # fallback. For contacts on personal/free domains a domain rule can't cover.
+    known_emails: list[str] = []
 
     # External connections
     stripe_customer_id: str | None = None
