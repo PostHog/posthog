@@ -196,6 +196,8 @@ class TestExternalSurveys(APIBaseTest):
                     "thankYouMessageHeader": "Gracias",
                     "thankYouMessageDescription": "Agradecemos tus comentarios",
                     "thankYouMessageCloseButtonText": "Cerrar",
+                    "submitButtonText": "Enviar",
+                    "backButtonText": "Atrás",
                 },
                 "fr": {
                     "description": "SENSITIVE: Description interne uniquement",
@@ -234,6 +236,8 @@ class TestExternalSurveys(APIBaseTest):
                 "thankYouMessageHeader": "Gracias",
                 "thankYouMessageDescription": "Agradecemos tus comentarios",
                 "thankYouMessageCloseButtonText": "Cerrar",
+                "submitButtonText": "Enviar",
+                "backButtonText": "Atrás",
             }
         }
         assert survey_data["questions"][0]["translations"]["es"] == {

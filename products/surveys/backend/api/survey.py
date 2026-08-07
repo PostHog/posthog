@@ -125,16 +125,19 @@ def _normalize_language_code(raw: str) -> str:
     return raw.strip().lower().replace("_", "-")
 
 
+SURVEY_TRANSLATION_ROOT_FIELDS = (
+    "name",
+    "description",
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+    "submitButtonText",
+    "backButtonText",
+)
+
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
 # Root survey description is intentionally excluded because customers have used it for internal notes.
-SURVEY_API_TRANSLATION_FIELDS = frozenset(
-    [
-        "name",
-        "thankYouMessageHeader",
-        "thankYouMessageDescription",
-        "thankYouMessageCloseButtonText",
-    ]
-)
+SURVEY_API_TRANSLATION_FIELDS = frozenset(SURVEY_TRANSLATION_ROOT_FIELDS) - {"description"}
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
@@ -144,6 +147,8 @@ SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
+    "submitButtonText",
+    "backButtonText",
 )
 SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
     "id",
@@ -209,6 +214,10 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     thankYouMessageCloseButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated thank-you close button text."
     )
+    submitButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated submit button label."
+    )
+    backButtonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated back button label.")
 
 
 class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):
@@ -1108,13 +1117,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Translation for '{raw_lang_code}' must be an object")
 
             cleaned_translation: dict[str, str] = {}
-            for field in [
-                "name",
-                "description",
-                "thankYouMessageHeader",
-                "thankYouMessageDescription",
-                "thankYouMessageCloseButtonText",
-            ]:
+            for field in SURVEY_TRANSLATION_ROOT_FIELDS:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(

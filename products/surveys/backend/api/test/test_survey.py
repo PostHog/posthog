@@ -122,6 +122,8 @@ class TestSurvey(APIBaseTest):
                     "es": {
                         "name": "Encuesta de comentarios",
                         "description": "Ayúdanos a mejorar",
+                        "submitButtonText": "Enviar",
+                        "backButtonText": "Atrás",
                     },
                     "fr": {
                         "name": "Enquête de satisfaction",
@@ -138,6 +140,8 @@ class TestSurvey(APIBaseTest):
         assert survey.translations is not None
         assert survey.translations["es"]["name"] == "Encuesta de comentarios"
         assert survey.translations["fr"]["name"] == "Enquête de satisfaction"
+        assert survey.translations["es"]["submitButtonText"] == "Enviar"
+        assert survey.translations["es"]["backButtonText"] == "Atrás"
 
         # Verify inline question translations
         questions = cast(list[dict[str, Any]], survey.questions)

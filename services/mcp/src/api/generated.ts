@@ -34841,6 +34841,10 @@ export namespace Schemas {
       thankYouMessageDescription?: string;
       /** Translated thank-you close button text. */
       thankYouMessageCloseButtonText?: string;
+      /** Translated submit button label. */
+      submitButtonText?: string;
+      /** Translated back button label. */
+      backButtonText?: string;
     }
 
     /**
