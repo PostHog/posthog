@@ -3361,7 +3361,29 @@ async def test_worker_shutdown_on_first_incremental_sync_keeps_pre_shutdown_rows
     )
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM postgres_shutdown_first_sync ORDER BY id ASC", team)
-    assert [row[0] for row in res.results] == [1, 2, 3]
+    rows = [row[0] for row in res.results]
+    # On mismatch, dump the delta log so a CI-only failure shows which write path each run took
+    # (merge vs overwrite vs a corrupted-log purge) instead of just the missing rows.
+    assert rows == [1, 2, 3], _dump_delta_log_for_debug(team.pk, "shutdown_first_sync", rows)
+
+
+def _dump_delta_log_for_debug(team_pk: int, resource_name: str, rows: list) -> str:
+    s3 = create_test_client()
+    lines = [f"table rows: {rows}"]
+    paginator = s3.get_paginator("list_objects_v2")
+    keys: list[str] = []
+    for page in paginator.paginate(Bucket=BUCKET_NAME):
+        for obj in page.get("Contents", []):
+            if f"team_{team_pk}_" in obj["Key"] and resource_name in obj["Key"]:
+                keys.append(obj["Key"])
+    log_keys = sorted(k for k in keys if "_delta_log" in k)
+    lines.append(f"data files: {sorted(k for k in keys if '_delta_log' not in k)}")
+    lines.append(f"delta log files: {log_keys}")
+    for key in log_keys[:10]:
+        body = s3.get_object(Bucket=BUCKET_NAME, Key=key)["Body"].read().decode(errors="replace")
+        ops = [line[:300] for line in body.splitlines() if "commitInfo" in line]
+        lines.append(f"--- {key}: {ops}")
+    return "\n".join(lines)
 
 
 @pytest.mark.django_db(transaction=True)
