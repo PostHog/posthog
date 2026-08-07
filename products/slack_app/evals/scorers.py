@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
+
+import httpx
+
 from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
@@ -223,3 +227,94 @@ class NoUnaskedOverride(Scorer):
             score=0.0 if invented else 1.0,
             metadata={"actual_model": got_model, "actual_effort": got_effort},
         )
+
+
+# ---------------------------------------------------------------------------
+# Untagged follow-up routing
+# ---------------------------------------------------------------------------
+
+FOLLOWUP_KEY = "followup_routing"
+
+
+class FollowupRoutingMatch(Scorer):
+    """Did the classifier route the reply the way a person in the thread would?
+
+    Opting in is by *presence* of the field, not truthiness — the chatter cases expect
+    ``False``, and a truthiness check would skip every one of them.
+    """
+
+    def _name(self) -> str:
+        return FOLLOWUP_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(FOLLOWUP_KEY) or {}
+        if "agent_directed" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("agent_directed")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["agent_directed"] else 0.0,
+            metadata={"expected": want["agent_directed"], "actual": got},
+        )
+
+
+class NoUnaskedWake(Scorer):
+    """The expensive direction: waking the agent on a message nobody addressed to it.
+
+    The two errors cost differently, and the classifier is deliberately biased to say no
+    because of it. A missed instruction costs the author one ``@PostHog`` — the same thing
+    they would have typed anyway. A wrong wake-up puts the agent into a conversation it was
+    not part of, in public, where everyone in the thread sees it interject.
+
+    Skips on cases that really are instructions, so the score reads as a rate over the
+    replies the agent should have stayed out of.
+    """
+
+    def _name(self) -> str:
+        return "no_unasked_wake"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(FOLLOWUP_KEY) or {}
+        if want.get("agent_directed", True):
+            return Score(name=self._name(), score=None, metadata={"reason": "Case is a real instruction"})
+        if output and output.get("error"):
+            # A failed call returns False, which is this scorer's passing answer — scoring
+            # it would let a wholly broken classifier post a perfect rate.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        return Score(
+            name=self._name(),
+            score=0.0 if (output or {}).get("agent_directed") else 1.0,
+            metadata={"actual": (output or {}).get("agent_directed")},
+        )
+
+
+def require_llm_gateway() -> None:
+    """Fail a classifier suite up front when the gateway it grades through is unreachable.
+
+    Every classifier in these suites catches its own exceptions and returns the safe
+    default — False, or no override. That is right in production, where a transient
+    gateway blip must not wake the agent or hijack someone's model. In an eval it is
+    silent poison: a refused connection still produces a full scorecard, and the cases
+    expecting the safe answer all pass, so the run reports a plausible number for a
+    classifier that was never asked anything.
+
+    The harness does not cover this. It boots its own gateway on a private port and points
+    only the *sandbox* at it (`SANDBOX_LLM_GATEWAY_URL`); in-process calls go to
+    `settings.LLM_GATEWAY_URL`, which is a developer-run gateway. So the check belongs to
+    the suites that depend on it.
+    """
+    url = getattr(settings, "LLM_GATEWAY_URL", None)
+    if not url:
+        raise RuntimeError("LLM_GATEWAY_URL is not configured — these suites grade LLM classifiers.")
+    try:
+        httpx.get(f"{url.rstrip('/')}/health", timeout=5.0)
+    except httpx.RequestError as error:
+        raise RuntimeError(
+            f"No LLM gateway reachable at {url} ({error}). Start one with `bin/start-llm-gateway`.\n"
+            "Without it every classifier call fails into its safe default and the suite scores "
+            "that silently, which reads as a real result."
+        ) from error
