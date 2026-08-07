@@ -144,14 +144,11 @@ export interface expressionModalLogicMeta {
             selectedTableName: string | null,
             activeConnectionId: string | null
         ) => HogQLQuery | undefined
+        isPostHogTable: (selectedTableName: string | null, allTablesMap: Record<string, DatabaseSchemaTable>) => boolean
         expressionsByFieldName: (
             expressions: DataWarehouseExpressionApi[],
             activeConnectionId: string | null
         ) => Record<string, DataWarehouseExpressionApi>
-        isPostHogTable: (
-            selectedTableName: string | null,
-            posthogTablesMap: Record<string, DatabaseSchemaTable>
-        ) => boolean
     }
 }
 
