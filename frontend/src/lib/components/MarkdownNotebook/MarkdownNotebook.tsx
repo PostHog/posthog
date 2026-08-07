@@ -2733,7 +2733,10 @@ function MarkdownNotebookEditor({
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
             const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
-            if (nodeIndex === -1) {
+            // The title row stays out of sections: an opening marker before it would leave the
+            // document starting on a component node, and `ensureEditableNotebookDocument` would
+            // then push a fresh empty title on top and swallow the real one into the section.
+            if (nodeIndex <= 0) {
                 return
             }
 
