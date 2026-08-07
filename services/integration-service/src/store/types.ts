@@ -16,13 +16,13 @@ export interface SecretStore {
 }
 
 /**
- * Reserved field naming the credentials that are in recovery, comma-separated.
+ * Reserved key naming the credentials that are in recovery, comma-separated.
  *
  * Uppercase and flat because PostHog/secrets only manages `[A-Z0-9_]+` keys with plain
  * string values. Never a credential itself: the provider manifest defines those, and this
  * name is not in it.
  */
-export const RECOVERY_FIELD = 'INTEGRATION_RECOVERY_FIELDS'
+export const RECOVERY_KEYS = 'INTEGRATION_RECOVERY_KEYS'
 
 /**
  * Suffix marking the outgoing value during a rotation: `STRIPE_APP_SECRET_KEY` alongside

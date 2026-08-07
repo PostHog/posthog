@@ -127,7 +127,7 @@ values, and a nested object would be invisible to the very tooling meant to oper
 integration-service-secrets
   STRIPE_APP_SECRET_KEY                 = "<credential>"
   STRIPE_APP_SECRET_KEY_FALLBACKS       = "<outgoing value, only while rotating>"
-  INTEGRATION_RECOVERY_FIELDS           = "<comma-separated field names>"
+  INTEGRATION_RECOVERY_KEYS             = "<comma-separated key names>"
   CALLER_KEY_POSTHOG_DJANGO             = "<new>,<old>"
 ```
 
@@ -148,7 +148,7 @@ throughout, so two rotations can be in flight at once without interfering.
 | ---------- | ------------------------------------------------ | ------------------------------------- |
 | `steady`   | no `_FALLBACKS` sibling, or it repeats the value | `value` only                          |
 | `rotating` | the sibling holds a different value              | `value` + `previous`                  |
-| `recovery` | field named in `INTEGRATION_RECOVERY_FIELDS`     | no value; caller raises a typed error |
+| `recovery` | field named in `INTEGRATION_RECOVERY_KEYS`       | no value; caller raises a typed error |
 
 `recovery` covers a credential that is known-burned with no valid replacement yet. These are the
 client ids and secrets that authenticate _PostHog_ to the third party, so there is no per-user
@@ -156,8 +156,8 @@ client ids and secrets that authenticate _PostHog_ to the third party, so there 
 What the state buys is that callers fail immediately with a distinct error, so the outage is
 attributable to a known cause instead of looking like a third-party problem.
 
-`INTEGRATION_RECOVERY_FIELDS` is a comma-separated list of field names inside the provider's own
-secret, which keeps the whole layout flat.
+`INTEGRATION_RECOVERY_KEYS` is a comma-separated list of key names in the same secret, which keeps
+the whole layout flat.
 
 Only fields named in `src/providers.ts` are ever served. A field present in the secret but absent
 from that manifest is ignored, so adding a credential is a reviewed code change and never just a

@@ -95,7 +95,7 @@ describe('secrets manager store', () => {
     it('serves no value at all for a field named in the recovery list', async () => {
         const snapshot = await store({
             HUBSPOT_APP_CLIENT_SECRET: 'burned',
-            INTEGRATION_RECOVERY_FIELDS: 'HUBSPOT_APP_CLIENT_SECRET',
+            INTEGRATION_RECOVERY_KEYS: 'HUBSPOT_APP_CLIENT_SECRET',
         }).load()
 
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('recovery')
@@ -107,7 +107,7 @@ describe('secrets manager store', () => {
             STRIPE_APP_CLIENT_ID: 'id',
             STRIPE_APP_SECRET_KEY: 'burned',
             STRIPE_SIGNING_SECRET: 'also-burned',
-            INTEGRATION_RECOVERY_FIELDS: 'STRIPE_APP_SECRET_KEY, STRIPE_SIGNING_SECRET',
+            INTEGRATION_RECOVERY_KEYS: 'STRIPE_APP_SECRET_KEY, STRIPE_SIGNING_SECRET',
         }).load()
 
         expect(snapshot?.secrets['STRIPE_APP_SECRET_KEY']?.state).toBe('recovery')
@@ -120,7 +120,7 @@ describe('secrets manager store', () => {
     // keeps the signing keys sharing this secret from ever being served as credentials.
     it.each([
         ['an undeclared field', 'SOMETHING_UNDECLARED'],
-        ['the recovery marker', 'INTEGRATION_RECOVERY_FIELDS'],
+        ['the recovery marker', 'INTEGRATION_RECOVERY_KEYS'],
         ['a caller signing key', 'CALLER_KEY_POSTHOG_DJANGO'],
         ['a fallback sibling', 'HUBSPOT_APP_CLIENT_SECRET_FALLBACKS'],
     ])('never exposes %s as a credential', async (_label, field) => {

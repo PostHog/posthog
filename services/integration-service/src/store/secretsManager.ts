@@ -13,7 +13,7 @@ import { GetSecretValueCommand, ResourceNotFoundException, SecretsManagerClient 
 import { logger } from '../lib/logging.js'
 import { PROVIDERS } from '../providers.js'
 import type { ResolvedSecret, SecretsSnapshot } from '../types.js'
-import { FALLBACK_SUFFIX, RECOVERY_FIELD, type SecretStore } from './types.js'
+import { FALLBACK_SUFFIX, RECOVERY_KEYS, type SecretStore } from './types.js'
 
 function commaList(value: string | undefined): string[] {
     if (!value) {
@@ -62,7 +62,7 @@ export function createSecretsManagerStore(opts: SecretsManagerStoreOptions): Sec
                 }
             }
 
-            const inRecovery = new Set(commaList(fields[RECOVERY_FIELD]))
+            const inRecovery = new Set(commaList(fields[RECOVERY_KEYS]))
             const fetchedAt = new Date().toISOString()
             const versionId = response.VersionId ?? ''
             const secrets: Record<string, ResolvedSecret> = {}
