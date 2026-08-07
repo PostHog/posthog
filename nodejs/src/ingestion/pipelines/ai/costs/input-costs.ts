@@ -48,6 +48,15 @@ const hasNumericProperty = (event: PluginEvent, key: string): boolean => {
     )
 }
 
+/**
+ * How far the cache pool has to exceed the reported input total before an undeclared
+ * event is treated as exclusive-reporting. This sits in the empty band between the two
+ * populations that break the inclusive invariant: reporting slop on inclusive providers
+ * clusters a few percent over the input, while genuine exclusive reporting runs orders
+ * of magnitude over it.
+ */
+const EXCLUSIVE_DETECTION_RATIO = 1.5
+
 export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
     if (!event.properties) {
         return false
@@ -66,7 +75,21 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
     const inputTokens = numericProperty(event, '$ai_input_tokens')
     const cacheReadTokens = numericProperty(event, '$ai_cache_read_input_tokens')
     const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
-    const provablyExclusive = inputTokens < cacheReadTokens + cacheWriteTokens
+
+    // An inclusive provider can still report a cache pool slightly above its input
+    // total, because the two counts do not have to come from the same measurement.
+    // Gemini explicit context caching is the clearest case: `cached_content_token_count`
+    // is a property of the cache object and is counted when the cache is created, while
+    // `prompt_token_count` is counted per request. They describe the same tokens but
+    // land a few percent apart, so a bare `input < cache` break is not by itself proof
+    // of exclusive accounting.
+    //
+    // Only treat the break as proof when the cache pool exceeds the input by more than
+    // EXCLUSIVE_DETECTION_RATIO, because genuine exclusive reporting sends only the
+    // incremental turn as input and so overshoots by orders of magnitude rather than by
+    // a few percent. Inclusive events that trip the smaller break are handled by
+    // clamping the residual text pool to zero instead, in `clampTextTokens`.
+    const provablyExclusive = cacheReadTokens + cacheWriteTokens > inputTokens * EXCLUSIVE_DETECTION_RATIO
 
     if (provablyExclusive) {
         aiCacheExclusiveFallbackCounter.labels({ prior: anthropicStyle ? 'anthropic_inclusive' : 'inclusive' }).inc()
@@ -76,16 +99,13 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
 }
 
 /**
- * Clamp the residual text-token pool to zero when modality tokens are present
- * and the subtraction would push it negative. This guards against modality
- * counts that overlap with cache tokens or exceed the reported input total —
- * either case would otherwise produce a negative text contribution that
- * silently offsets the modality bill.
+ * Clamp the residual text-token pool to zero whenever the subtraction would push it
+ * negative. A negative residual is never meaningful: it only ever means we
+ * over-subtracted, either because modality counts overlap the cache pool or because an
+ * inclusive provider reported a cache pool slightly above its input total. Billing it
+ * would silently credit back part of the cache and modality cost.
  */
-const clampTextTokens = (value: string | number, hasModalityTokens: boolean): string | number => {
-    if (!hasModalityTokens) {
-        return value
-    }
+const clampTextTokens = (value: string | number): string | number => {
     const num = Number(value)
     return Number.isFinite(num) && num < 0 ? '0' : value
 }
@@ -182,7 +202,6 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     const cachedAudioInputCost = computeCachedAudioInputCost(event, cost, cachedAudioInputTokens)
     const imageInputCost = computeImageInputCost(event, cost, imageInputTokens)
     const modalityInputCost = bigDecimal.add(bigDecimal.add(audioInputCost, cachedAudioInputCost), imageInputCost)
-    const hasModalityTokens = audioInputTokens > 0 || imageInputTokens > 0
 
     // Text-only portion of the cache pool. Subtracting cached_audio gives us
     // the cached-text count, which we bill at the standard cache_read rate.
@@ -222,8 +241,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             ? inputTokens
             : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), cacheWriteTokens)
         const uncachedTextTokens = clampTextTokens(
-            bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageInputTokens),
-            hasModalityTokens
+            bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageInputTokens)
         )
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTextTokens)
 
@@ -232,8 +250,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     const baseRegularTokens = exclusive ? inputTokens : bigDecimal.subtract(inputTokens, cachedTextTokens)
     const regularTextTokens = clampTextTokens(
-        bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens),
-        hasModalityTokens
+        bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens)
     )
 
     let cacheReadCost: string

@@ -171,6 +171,19 @@ describe('resolveCacheReportingExclusive()', () => {
             expected: true,
         },
         {
+            // Gemini explicit context caching counts `cached_content_token_count` when
+            // the cache is created and `prompt_token_count` per request, so an inclusive
+            // event can report a cache pool a few percent over its input total.
+            name: 'stays inclusive when cache reads exceed input tokens only slightly',
+            properties: {
+                $ai_provider: 'gemini',
+                $ai_model: 'models/gemini-3-flash-preview',
+                $ai_input_tokens: 23000,
+                $ai_cache_read_input_tokens: 25000,
+            },
+            expected: false,
+        },
+        {
             name: 'stays inclusive for a non-Anthropic provider when cache reads fit within input tokens',
             properties: {
                 $ai_provider: 'openai',
@@ -628,6 +641,18 @@ describe('calculateInputCost()', () => {
             // Regular: 10000 * 0.00000125 = 0.0125
             expectCostToBeCloseTo(result, 0.0125)
         })
+
+        it('clamps the residual to zero when cache reads slightly exceed input tokens', () => {
+            const event = createGeminiTestEvent(23000, 25000)
+            const result = calculateInputCost(event, GEMINI_MODEL)
+
+            // Stays inclusive, so the whole prompt is cached and the residual text pool
+            // clamps to zero instead of going negative.
+            // Regular: max(23000 - 25000, 0) = 0
+            // Read: 25000 * 3.1e-7 = 0.00775
+            expectCostToBeCloseTo(result, 0.00775)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(false)
+        })
     })
 
     describe('default provider - cache handling', () => {
@@ -710,12 +735,11 @@ describe('calculateInputCost()', () => {
             expect(parseFloat(result)).toBeGreaterThan(0)
         })
 
-        it('handles negative token counts gracefully', () => {
+        it('clamps negative token counts to zero rather than billing a negative cost', () => {
             const event = createOpenAITestEvent(-1000, undefined, { $ai_model: 'gpt-4' })
             const result = calculateInputCost(event, testModel)
 
-            // Should calculate even with negative (though invalid in practice)
-            expect(parseFloat(result)).toBeLessThan(0)
+            expect(parseFloat(result)).toBe(0)
         })
 
         it('handles null cache token values', () => {
