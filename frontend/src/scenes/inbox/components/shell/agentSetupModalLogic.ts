@@ -50,7 +50,14 @@ export const agentSetupModalLogic = kea<agentSetupModalLogicType>([
 
     listeners(({ actions }) => ({
         openSetupModal: ({ key }) => {
-            if (key !== 'github' || router.values.searchParams.setup === 'github') {
+            if (key !== 'github') {
+                return
+            }
+            // Revalidate whenever the GitHub modal opens, including the URL-driven reopen after the
+            // install redirect. The shared list is loaded once on app mount and never refreshed, so a
+            // connection made in another tab or during the redirect would otherwise read as missing.
+            actions.loadIntegrations()
+            if (router.values.searchParams.setup === 'github') {
                 return
             }
             router.actions.replace(

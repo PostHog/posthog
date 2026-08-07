@@ -41,6 +41,17 @@ describe('agentSetupModalLogic', () => {
         expect(router.values.searchParams).toEqual({ source: 'saved-filter' })
     })
 
+    it('revalidates the shared integrations cache when the GitHub modal opens', async () => {
+        logic = agentSetupModalLogic()
+        logic.mount()
+
+        // Opening the modal (manually or via the post-redirect URL reopen) must reload the shared
+        // list so a connection made outside this tab's lifetime isn't shown as missing.
+        await expectLogic(logic, () => {
+            logic.actions.openSetupModal('github')
+        }).toDispatchActions([integrationsLogic.actionTypes.loadIntegrations])
+    })
+
     it('revalidates the shared integrations cache when the GitHub modal closes', async () => {
         router.actions.push('/inbox/config', { setup: 'github' })
         logic = agentSetupModalLogic()
