@@ -4,11 +4,41 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel
 from rest_framework import serializers, status
+from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import PydanticModelMixin, validated_request
+
+
+class _SampleModel(BaseModel):
+    value: int
+
+
+class TestPydanticModelMixinGetModel(SimpleTestCase):
+    def setUp(self) -> None:
+        patcher = patch("posthog.api.mixins.capture_exception")
+        self.addCleanup(patcher.stop)
+        patcher.start()
+
+    def test_valid_data_returns_model(self) -> None:
+        result = PydanticModelMixin().get_model({"value": 5}, _SampleModel)
+        assert result.value == 5
+
+    def test_invalid_data_raises_concise_error_without_pydantic_trace(self) -> None:
+        # The reported symptom: a null cohort value 400s and the raw pydantic trace (with its
+        # docs URL) lands on the page. The message must name the field but not dump the trace.
+        with pytest.raises(ParseError) as exc_info:
+            PydanticModelMixin().get_model({"value": None}, _SampleModel)
+
+        message = str(exc_info.value)
+        assert "value" in message
+        assert "https://errors.pydantic.dev" not in message
+        assert "JSON parse error" not in message
 
 
 class EventCaptureRequestSerializer(serializers.Serializer):

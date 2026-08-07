@@ -23,6 +23,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -2521,7 +2522,10 @@ export const surveyLogic = kea<surveyLogicType>([
             [] as AnyPropertyFilter[],
             { persist: true },
             {
-                setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+                // Drop incomplete filters (e.g. a cohort filter with a null value) before they
+                // reach persisted state or the URL, so a poisoned filter can't 400 the results
+                // query on every reload.
+                setPropertyFilters: (_, { propertyFilters }) => propertyFilters.filter(isValidPropertyFilter),
             },
         ],
         survey: [
@@ -3144,7 +3148,9 @@ export const surveyLogic = kea<surveyLogicType>([
                                 operator: PropertyOperator.Exact,
                                 value: survey.id,
                             },
-                            ...propertyFilters,
+                            // Guard against already-persisted invalid filters: persisted state is
+                            // restored verbatim, bypassing the setPropertyFilters reducer.
+                            ...propertyFilters.filter(isValidPropertyFilter),
                         ],
                     },
                     defaultColumns,
@@ -4129,6 +4135,13 @@ export const surveyLogic = kea<surveyLogicType>([
         // navigating between the guided wizard and the full editor). No URL flag —
         // surveyChanged is in-memory only, so a fresh session can never trigger this.
         const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === props.id
+
+        // Recover users stuck on a poisoned link or persisted state: an invalid filter (e.g. a
+        // cohort filter with a null value) 400s every results query on each reload. Strip them
+        // once on mount so the reducer, URL, and every results query start clean.
+        if (values.propertyFilters.some((filter) => !isValidPropertyFilter(filter))) {
+            actions.setPropertyFilters(values.propertyFilters, false)
+        }
 
         if (props.id !== 'new' && !shouldPreserveLocalChanges) {
             actions.loadSurvey()

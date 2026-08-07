@@ -56,7 +56,15 @@ class PydanticModelMixin:
             return model.model_validate(data)
         except ValidationError as exc:
             capture_exception(exc)
-            raise ParseError("JSON parse error - {}".format(str(exc)))
+            # The raw pydantic message dumps the full validation trace (and a docs URL) onto the
+            # page. Log it for triage and return a concise, human-readable message instead.
+            logger.warning("pydantic_model_validation_failed", model=model.__name__, errors=exc.errors())
+            errors = exc.errors()
+            summary = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc']) or 'body'}: {error['msg']}" for error in errors[:3]
+            )
+            more = f" (and {len(errors) - 3} more)" if len(errors) > 3 else ""
+            raise ParseError(f"Invalid request: {summary}{more}" if summary else "Invalid request")
 
 
 def validated_request(

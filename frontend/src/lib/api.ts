@@ -372,7 +372,12 @@ export async function getJSONOrNull(response: Response): Promise<any> {
 }
 
 function apiErrorFallback(response: Response, method: string, url: string): string {
-    const pathname = new URL(url, location.origin).pathname
+    // Normalize the environment/project/organization id out of the path so a transient
+    // backend blip groups into one error tracking issue instead of one per tenant.
+    const pathname = new URL(url, location.origin).pathname.replace(
+        /\/(environments|projects|organizations)\/[^/]+/g,
+        '/$1/:id'
+    )
     return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 

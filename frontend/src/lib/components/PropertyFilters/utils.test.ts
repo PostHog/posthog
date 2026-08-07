@@ -64,6 +64,13 @@ describe('isValidPropertyFilter()', () => {
         expect(isValidPropertyFilter({ key: undefined } as any)).toEqual(false)
         expect(isValidPropertyFilter({ key: 'cohort', value: 123 } as any)).toEqual(true)
     })
+
+    it('rejects a cohort filter without a valid numeric value', () => {
+        // These 400 the query API (value serializes to null/NaN); they must never be sent.
+        expect(isValidPropertyFilter({ key: 'id', type: PropertyFilterType.Cohort, value: null } as any)).toEqual(false)
+        expect(isValidPropertyFilter({ key: 'id', type: PropertyFilterType.Cohort, value: NaN } as any)).toEqual(false)
+        expect(isValidPropertyFilter({ key: 'id', type: PropertyFilterType.Cohort, value: 42 } as any)).toEqual(true)
+    })
 })
 
 describe('propertyFilterTypeToTaxonomicFilterType()', () => {
@@ -344,6 +351,24 @@ describe('createDefaultPropertyFilter()', () => {
         expect(result).toEqual({
             key: 'id',
             value: 42,
+            type: PropertyFilterType.Cohort,
+            operator: PropertyOperator.In,
+        })
+    })
+
+    it('keeps a non-numeric cohort key as a null value instead of NaN', () => {
+        // 'id' can't be parsed to a cohort id; parseInt would yield NaN → null on serialization,
+        // which 400s the query. The null value here is rejected by isValidPropertyFilter downstream.
+        const result = createDefaultPropertyFilter(
+            null,
+            'id',
+            PropertyFilterType.Cohort,
+            makeGroup(TaxonomicFilterGroupType.Cohorts),
+            noopDescribeProperty
+        )
+        expect(result).toEqual({
+            key: 'id',
+            value: null,
             type: PropertyFilterType.Cohort,
             operator: PropertyOperator.In,
         })

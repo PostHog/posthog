@@ -224,11 +224,17 @@ export function parseProperties(
 export function isValidPropertyFilter(
     filter: AnyPropertyFilter | AnyFilterLike | Record<string, any>
 ): filter is AnyPropertyFilter {
-    return (
-        !!filter && // is not falsy
-        'key' in filter && // has a "key" property
-        ((filter.type === 'hogql' && !!filter.key) || Object.values(filter).some((v) => !!v)) // contains some properties with values
-    )
+    if (!filter || !('key' in filter)) {
+        return false
+    }
+    // A cohort filter is only meaningful with a real numeric cohort id. A non-numeric
+    // selection parses to NaN, which JSON.stringify serializes to null, and the query API
+    // rejects `{"type":"cohort","value":null}` with a 400 — treat it as invalid so it's
+    // never sent.
+    if (filter.type === PropertyFilterType.Cohort) {
+        return typeof filter.value === 'number' && Number.isFinite(filter.value)
+    }
+    return (filter.type === 'hogql' && !!filter.key) || Object.values(filter).some((v) => !!v)
 }
 
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
@@ -650,9 +656,13 @@ export function createDefaultPropertyFilter(
         const operator =
             (isPropertyFilterWithOperator(filter) && isOperatorCohort(filter?.operator) && filter?.operator) ||
             PropertyOperator.In
+        // A cohort is selected by its numeric id. A non-numeric taxonomic key parses to NaN,
+        // which JSON.stringify serializes to null and 400s the query — keep the value null so
+        // isValidPropertyFilter drops the incomplete filter instead of sending it.
+        const cohortId = parseInt(String(propertyKey))
         const cohortProperty: CohortPropertyFilter = {
             key: 'id',
-            value: parseInt(String(propertyKey)),
+            value: Number.isNaN(cohortId) ? (null as unknown as number) : cohortId,
             type: propertyType,
             operator: operator,
         }

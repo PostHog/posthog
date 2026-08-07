@@ -181,6 +181,39 @@ describe('editor sync', () => {
     })
 })
 
+describe('property filters', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.clearAllMocks()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('drops invalid filters (e.g. a null-value cohort) before they reach state', async () => {
+        const validCohort: AnyPropertyFilter = {
+            type: PropertyFilterType.Cohort,
+            key: 'id',
+            value: 42,
+            operator: PropertyOperator.In,
+        }
+        // A non-numeric cohort selection produces this; it 400s the results query if sent.
+        const invalidCohort = {
+            type: PropertyFilterType.Cohort,
+            key: 'id',
+            value: null,
+            operator: PropertyOperator.In,
+        } as unknown as AnyPropertyFilter
+
+        await expectLogic(logic, () => {
+            logic.actions.setPropertyFilters([validCohort, invalidCohort], false)
+        }).toMatchValues({
+            propertyFilters: [validCohort],
+        })
+    })
+})
+
 describe('translation validation', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
