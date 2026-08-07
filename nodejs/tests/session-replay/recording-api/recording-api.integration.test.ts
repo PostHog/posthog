@@ -892,6 +892,19 @@ describe('Recording API encryption integration', () => {
             expect(res.status).toBe(401)
         })
 
+        // The shared-secret middleware exempts the whole '/api/projects/' prefix, so recording-api's
+        // own auth has to cover that prefix entirely. A path this router does not handle must still
+        // be rejected with a 401 rather than falling through to an unauthenticated 404, otherwise a
+        // route added under the prefix later would ship with no auth at all.
+        it.each([
+            ['GET', `/api/projects/${TEAM}/not-a-real-route`],
+            ['POST', `/api/projects/${TEAM}/recordings/not-a-real-route`],
+        ])('requires auth for an unhandled %s path under the exempt prefix', async (method, path) => {
+            const app = await makeApp()
+            const res = await (method === 'GET' ? supertest(app).get(path) : supertest(app).post(path).send({}))
+            expect(res.status).toBe(401)
+        })
+
         it('accepts the legacy secret while allowLegacySecret is true', async () => {
             const app = await makeApp()
             const block = await setupBlock()

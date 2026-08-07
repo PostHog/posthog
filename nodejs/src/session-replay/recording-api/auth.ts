@@ -38,15 +38,15 @@ function getBearerToken(req: Request): string | undefined {
     return header && /^Bearer /i.test(header) ? header.slice('Bearer '.length) : undefined
 }
 
-// The team_id from the request URL. Prefer req.params (populated when attached per-route), but fall
-// back to parsing the URL so this middleware also works when mounted on a path prefix — where
-// ultimate-express does not surface req.params. originalUrl preserves the full path across the mount.
+// The team_id from the request URL. This middleware is mounted on a path prefix, where
+// ultimate-express does not surface req.params, so the segment is read from the URL directly;
+// originalUrl preserves the full path across the mount. Only canonical digits are accepted, so a
+// segment like '0123', '1e3' or '0x10' yields NaN and fails the team check instead of depending on
+// the route handler coercing it to the same number this does. Leading zeros are rejected too, so
+// there is exactly one URL spelling of any given team.
 function pathTeamId(req: Request): number {
-    if (req.params?.team_id !== undefined) {
-        return Number(req.params.team_id)
-    }
     const match = /\/api\/projects\/([^/?]+)/.exec(req.originalUrl ?? req.path ?? '')
-    return match ? Number(match[1]) : NaN
+    return match && /^(0|[1-9]\d*)$/.test(match[1]) ? parseInt(match[1], 10) : NaN
 }
 
 function timingSafeEqual(a: string, b: string): boolean {

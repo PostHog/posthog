@@ -197,13 +197,12 @@ export class RecordingApi {
         const readAuth = auth('read')
         const deleteAuth = auth('delete')
 
-        // Authorize the whole recording-api namespace rather than each route individually, so a route
-        // added later under this prefix can't ship unauthenticated (the prefix is exempt from the
-        // shared-secret middleware). op is derived from the method: GET reads, anything mutating gets
-        // the stricter delete scope. Registered before the routes so it runs first.
-        router.use('/api/projects/:team_id/recordings', (req, res, next) =>
-            (req.method === 'GET' ? readAuth : deleteAuth)(req, res, next)
-        )
+        // Mounted on the whole '/api/projects' prefix, matching what the shared-secret middleware
+        // exempts, rather than on the recording routes alone. Anything under the prefix that this
+        // router does not handle then still needs a valid token and gets a 401, so a route added
+        // later cannot ship unauthenticated. op comes from the method: GET reads, anything mutating
+        // gets the stricter delete scope. Registered before the routes so it runs first.
+        router.use('/api/projects', (req, res, next) => (req.method === 'GET' ? readAuth : deleteAuth)(req, res, next))
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))

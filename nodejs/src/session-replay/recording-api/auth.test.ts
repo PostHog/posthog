@@ -21,11 +21,14 @@ describe('createRecordingApiAuthMiddleware', () => {
         return res
     }
 
-    const mockRequest = (teamIdParam: string, headers: Record<string, string> = {}) =>
+    // Mirrors what the middleware actually receives: it is mounted on the '/api/projects' prefix, so
+    // ultimate-express strips the mount from req.path and exposes no req.params, leaving originalUrl
+    // as the only source of team_id.
+    const mockRequest = (teamIdSegment: string, headers: Record<string, string> = {}) =>
         ({
             headers,
-            params: { team_id: teamIdParam },
-            path: `/api/projects/${teamIdParam}/recordings/abc/block`,
+            originalUrl: `/api/projects/${teamIdSegment}/recordings/abc/block`,
+            path: `/${teamIdSegment}/recordings/abc/block`,
             method: 'GET',
         }) as unknown as Request
 
@@ -68,6 +71,24 @@ describe('createRecordingApiAuthMiddleware', () => {
 
     it('rejects a token scoped to a different team (IDOR guard)', () => {
         const { res, next } = run({ op: 'read' }, mockRequest('123', bearer(mintToken({ team_id: 456, op: 'read' }))))
+        expect(next).not.toHaveBeenCalled()
+        expect(res.status).toHaveBeenCalledWith(403)
+    })
+
+    // A non-canonical segment must never authorize, because the route handler is free to parse it
+    // differently than this middleware does. Each case is paired with the team_id it would coerce to,
+    // so a lenient Number() parse here would wrongly match the token and let the request through.
+    it.each([
+        ['0123', 123],
+        ['1e3', 1000],
+        ['0x10', 16],
+        ['+123', 123],
+        ['123.0', 123],
+    ])('rejects non-canonical team segment %p even though it coerces to %p', (segment, coercedTeamId) => {
+        const { res, next } = run(
+            { op: 'read' },
+            mockRequest(segment, bearer(mintToken({ team_id: coercedTeamId as number, op: 'read' })))
+        )
         expect(next).not.toHaveBeenCalled()
         expect(res.status).toHaveBeenCalledWith(403)
     })
