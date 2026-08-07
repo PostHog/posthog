@@ -425,6 +425,16 @@ class TestPostgresTable(BaseTest):
         )
 
 
+class TestNotNullPushdownColumn(BaseTest):
+    def test_account_junction_reads_filter_null_fk_in_federated_read(self):
+        sql = prepare_and_print_ast(
+            parse_select("SELECT tags.names, notebooks.count FROM system.accounts LIMIT 10"),
+            HogQLContext(team=self.team, user=self.user, enable_select_queries=True),
+            dialect="clickhouse",
+        )[0]
+        assert sql.count("WHERE account_id IS NOT NULL)") == 2
+
+
 class TestPostgresTablePrimaryKey(BaseTest):
     """Validate primary_key auto-detection and access_scope constraints."""
 

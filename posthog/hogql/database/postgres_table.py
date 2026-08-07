@@ -98,6 +98,11 @@ class PostgresTable(FunctionCallTable):
     # so denying the parent also hides its child rows.
     access_control_id_field: Optional[str] = None
     predicates: list[Expr] = []
+    # Filtered IS NOT NULL adjacent to the postgresql() call, where ClickHouse pushes it into
+    # the federated read, pruning multi-FK junction tables to the rows where this FK is set.
+    # Only safe when NULL rows can never reach a result. Don't combine with plain-column
+    # predicates: the wrap would block their own pushdown into the federated read.
+    not_null_pushdown_column: Optional[str] = None
 
     def get_predicates(self) -> list[Expr]:
         return self.predicates

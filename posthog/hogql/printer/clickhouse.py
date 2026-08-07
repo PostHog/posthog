@@ -1028,6 +1028,9 @@ class ClickHousePrinter(BasePrinter):
             if team_id_column:
                 sql = f"(SELECT * FROM {sql} WHERE {team_id_column} = {int(self.context.team_id)})"
 
+        if isinstance(table, PostgresTable) and table.not_null_pushdown_column:
+            sql = f"(SELECT * FROM {sql} WHERE {table.not_null_pushdown_column} IS NOT NULL)"
+
         return sql
 
     def _print_select_columns(self, columns):

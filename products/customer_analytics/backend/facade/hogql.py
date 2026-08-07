@@ -59,6 +59,10 @@ class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
     """
 
     predicates: list[Expr] = [parse_expr("account_id IN (SELECT id FROM system.accounts)")]
+    # The IN-subquery predicate can't be pushed into the federated read, so without this the
+    # whole junction table (links for dashboards, insights, ...) gets COPY'd out of Postgres.
+    # NULL account_id rows can never satisfy the predicate or an account join.
+    not_null_pushdown_column: str | None = "account_id"
 
 
 account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
