@@ -50,9 +50,8 @@ function detectFamily(model: GatewayModel): ModelFamily {
 
 /**
  * The gateway URL a model of the given pi `api` should be routed through for
- * a given region. `openai-responses` models are served off the gateway's
- * `/v1` surface; every other API this provider uses is served off the
- * product root.
+ * a given region. OpenAI-compatible models are served off the gateway's `/v1`
+ * surface; Anthropic Messages is served off the product root.
  */
 export function gatewayBaseUrlForApi(
   api: string,
@@ -60,7 +59,7 @@ export function gatewayBaseUrlForApi(
   baseUrl = getLlmGatewayUrl(region),
 ): string {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
-  if (api !== "openai-responses" || normalizedBaseUrl.endsWith("/v1")) {
+  if (!api.startsWith("openai-") || normalizedBaseUrl.endsWith("/v1")) {
     return normalizedBaseUrl;
   }
 
@@ -102,7 +101,8 @@ function toModelConfig(
     return {
       id: model.id,
       name,
-      api: "anthropic-messages",
+      api: "openai-completions",
+      baseUrl: gatewayBaseUrlForApi("openai-completions", region),
       reasoning: false,
       input,
       cost: ZERO_COST,

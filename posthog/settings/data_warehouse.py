@@ -15,7 +15,21 @@ DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
 BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
 BUCKET_PATH = os.getenv("BUCKET_PATH", "data-warehouse")
 
-USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0)
+# The computed "am I a local dev setup?" signal. General dev-mode checks (is_dev_mode() and
+# friends: DuckLake shadow execution, MCP localhost scopes, dev middleware) must read THIS,
+# not the env-overridable value below — the override is meant to redirect warehouse storage
+# only, not to flip every dev-mode behavior in a production-mode deployment.
+USE_LOCAL_SETUP_DEFAULT = TEST or (
+    DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0
+)
+
+# Every warehouse STORAGE path branches on this: delta write creds, HogQL S3 read creds,
+# saved-query url_pattern. Self-hosted-style stacks that run DEBUG=0 against an in-stack
+# S3-compatible store (MinIO in the compose stacks) can set USE_LOCAL_SETUP=1 to force the
+# local path, otherwise they reach for real AWS creds. Boolean via str_to_bool ("1"/"true"),
+# and it must be set on every Django process (web and workers) so the write and read sides
+# agree on where the data lives.
+USE_LOCAL_SETUP = get_from_env("USE_LOCAL_SETUP", USE_LOCAL_SETUP_DEFAULT, type_cast=str_to_bool)
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
@@ -41,6 +55,20 @@ DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
 # override below rather than by trying to model per-column expansion here.
 DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
+)
+
+# How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
+# Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
+# entirely (the fleet kill switch — hooks become no-ops and no thread starts).
+DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS", 30.0, type_cast=float
+)
+
+# A run whose peak self-reported buffer crosses this emits one `dwh_workload_high_watermark` event on
+# completion. Deaths are enriched separately; this captures the tail of *surviving* runs, which is
+# what calibrates OOM-classification thresholds. Zero disables the event.
+DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES", 500_000_000, type_cast=int
 )
 
 # A schema that records at least this many sync OOMs within the lookback window is force-repartitioned

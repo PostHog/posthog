@@ -81,6 +81,7 @@ export interface Task {
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
+  repositories?: string[];
   github_integration?: number | null;
   github_user_integration?: string | null;
   json_schema?: Record<string, unknown> | null;
@@ -171,6 +172,8 @@ export type TaskActivityKind =
   | "completed"
   | "message"
   | "mention"
+  | "thread_reply"
+  | "owned_item_comment"
   | "created";
 
 /**
@@ -189,6 +192,9 @@ export interface TaskActivity {
   snippet: string;
   latest_author?: UserBasic | null;
   latest_message_id?: string | null;
+  latest_comment_id?: string | null;
+  latest_comment_scope?: string | null;
+  latest_comment_item_id?: string | null;
   is_unread: boolean;
 }
 
@@ -203,6 +209,7 @@ export interface TaskActivityPage {
 export interface TaskActivityReadMarker {
   task_id: string;
   seen_before: string;
+  activity_id?: string;
 }
 
 export interface TaskActivityMarkReadResult {
@@ -252,6 +259,7 @@ export interface TaskRunArtifact {
   metadata?: TaskRunArtifactMetadata;
   storage_path?: string;
   uploaded_at?: string;
+  dismissed_at?: string | null;
 }
 
 export const TERMINAL_STATUSES = ["completed", "failed", "cancelled"] as const;

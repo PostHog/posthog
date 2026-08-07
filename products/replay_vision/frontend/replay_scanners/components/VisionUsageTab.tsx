@@ -227,10 +227,10 @@ export function VisionUsageTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="bg-bg-light rounded p-4 flex flex-col InsightCard h-80">
-                <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="bg-bg-light rounded p-4 flex flex-col InsightCard min-h-80 lg:h-80">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                         {quota && (
                             <Tooltip title={spendTooltip}>
                                 <span className="text-xs text-muted tabular-nums">

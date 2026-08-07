@@ -109,7 +109,9 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..')
 // lane that runs Python, `javascript` every lane that runs TypeScript or
 // JavaScript, `rust` every crate. A domain never names less than the file can
 // break; it only stops asserting a radius the file does not have, which is what
-// keeps a frontend lint rule from serializing against Rust.
+// keeps a frontend lint rule from serializing against Rust. `product-surface`
+// is the one domain named for its readers rather than for a language, because
+// the files it covers have a small enumerable set of them.
 //
 // Entries are matched in order and the first match wins, so a narrower entry
 // has to precede the tree it sits in. A `null` domain is an explicit
@@ -118,6 +120,12 @@ const UNIVERSAL = 'universal'
 const PYTHON = 'python'
 const JAVASCRIPT = 'javascript'
 const RUST = 'rust'
+
+// The product manifests and the artifacts generated from them. Not a toolchain
+// domain: it names the two lane families that read that data rather than a
+// language, and it exists because `universal` was claiming lanes no reader of
+// those files can reach.
+const PRODUCT_SURFACE = 'product-surface'
 
 // Resolved per file from the rule's own `languages:` declaration rather than
 // from its path, so it cannot be expressed as a static domain here.
@@ -209,10 +217,21 @@ const TRIPWIRE_RULES = [
     // schema.json generates posthog/schema.py, and both sides are committed.
     ['frontend/src/queries/schema.json', UNIVERSAL],
     ['posthog/schema.py', UNIVERSAL],
-    // products.json is loaded at runtime by posthog/products.py and generated
-    // from every product's manifest.
-    ['frontend/src/products.json', UNIVERSAL],
-    ['products/*/manifest.tsx', UNIVERSAL],
+    // A manifest publishes its product's urls, routes, and tree items into
+    // globals any other product's frontend can reference, and build-products.mjs
+    // compiles every manifest into products.json, which posthog/products.py
+    // loads at runtime and user_product_list.py keys off the `path` values of.
+    // So both sides of the fe/py split can hold a reference to what one manifest
+    // renames, and both claim their full lane family here.
+    //
+    // Outside those two the only reader is services/mcp, which the lane function
+    // names. Nothing under rust/ or nodejs/ reads products.json or globs the
+    // manifests, so `universal` was asserting a radius these files do not have.
+    // The generated products.tsx and productScenes.tsx are deliberately absent:
+    // they have no Python reader, and the frontend rule below already gives them
+    // the frontend lanes.
+    ['frontend/src/products.json', PRODUCT_SURFACE],
+    ['products/*/manifest.tsx', PRODUCT_SURFACE],
     // Generates the frontend API types from the backend serializers, so a
     // change lands on both sides of the fe/py split at once.
     ['tools/openapi-codegen/**', UNIVERSAL],
@@ -1073,6 +1092,32 @@ function addJavaScriptLanes(targets, context) {
     return true
 }
 
+// Both lane families in full, plus the MCP pair. The frontend half cannot be
+// narrowed to the product that owns the manifest: every manifest's urls and
+// tree items are merged into one global object, so any product's frontend can
+// reference what another's manifest declares.
+//
+// services/mcp/scripts reads the manifests directly — lint-tool-names.ts walks
+// products/*/manifest.tsx for the routes the generated app-url manifest cannot
+// carry — so svc:mcp is a reader like any other, and ci-cli.yml builds the CLI
+// from those same sources.
+//
+// The Python half is spelled out rather than delegated to addPythonLanes, which
+// also claims the independent tools/ lanes. Those exist because the Python
+// toolchain spans tools/, and no tool in that list loads products.json or globs
+// the manifests.
+function addProductSurfaceLanes(targets, context) {
+    targets.add('py:core')
+    targets.add('fe:core')
+    for (const product of context.products) {
+        targets.add(pyProduct(product))
+        targets.add(feProduct(product))
+    }
+    targets.add('svc:mcp')
+    targets.add('cli')
+    return true
+}
+
 function addRustLanes(targets, context) {
     if (!context.rustGraph) {
         return false
@@ -1087,6 +1132,7 @@ const TRIPWIRE_DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
     [RUST, addRustLanes],
+    [PRODUCT_SURFACE, addProductSurfaceLanes],
 ])
 
 // Returns false when the file's domain is universal, which is the caller's cue

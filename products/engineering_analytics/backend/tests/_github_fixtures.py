@@ -120,8 +120,10 @@ def _user(login: str) -> str:
     return f'{{"login": "{login}", "avatar_url": "https://avatars/{login}"}}'
 
 
-def _base(full_name: str, ref: str = "") -> str:
-    return f'{{"ref": "{ref}", "repo": {{"full_name": "{full_name}"}}}}'
+def _base(full_name: str, ref: str = "", default_branch: str = "") -> str:
+    # Mirrors the real payload: base.repo is a full repository object, so it carries default_branch.
+    repo = f'{{"full_name": "{full_name}", "default_branch": "{default_branch}"}}'
+    return f'{{"ref": "{ref}", "repo": {repo}}}'
 
 
 def _labels(*names: str) -> str:
@@ -141,6 +143,7 @@ def _pr_row(
     head_ref: str = "",
     base_ref: str = "",
     full_name: str = "PostHog/posthog",
+    default_branch: str = "",
     labels: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     return {
@@ -156,7 +159,7 @@ def _pr_row(
         "merge_commit_sha": merge_commit_sha,
         "user": _user(login),
         "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
-        "base": _base(full_name, base_ref),
+        "base": _base(full_name, base_ref, default_branch),
         "labels": _labels(*labels),
     }
 
@@ -192,6 +195,7 @@ def _run_row(
     pr_number: int | None = None,
     head_branch: str = "main",
     commit_message: str | None = None,
+    actor: str = "alice",
 ) -> dict[str, Any]:
     return {
         "id": run_id,
@@ -209,6 +213,7 @@ def _run_row(
         "pull_requests": pr_association(pr_number, base_repo=full_name) if pr_number is not None else None,
         "repository": json.dumps({"full_name": full_name, "id": repo_id(full_name)}),
         "head_commit": json.dumps({"message": commit_message}) if commit_message is not None else None,
+        "actor": json.dumps({"login": actor}),
     }
 
 

@@ -1,4 +1,6 @@
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
+import type { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import type { DataWarehouseViewLink } from '~/types'
 
 import type {
     AccountRelationshipDefinitionApi,
@@ -110,6 +112,67 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
 
     it('omits the relationships group when the team has no definitions', () => {
         expect(buildAccountColumnGroups({}, [], [], []).map((group) => group.key)).not.toContain('relationships')
+    })
+
+    it('limits the picker to Postgres-backed groups when HogQL cleanup is enabled', () => {
+        const table = (name: string, fields: Record<string, Record<string, unknown>>): DatabaseSchemaTable =>
+            ({ name, fields }) as unknown as DatabaseSchemaTable
+        const allTablesMap = {
+            'system.accounts': table('accounts', {
+                name: { name: 'name', type: 'string', hogql_value: 'name' },
+                tags: { name: 'tags', type: 'lazy_table', table: 'account_tags', fields: ['names'] },
+                notebooks: {
+                    name: 'notebooks',
+                    type: 'lazy_table',
+                    table: 'account_notebooks',
+                    fields: ['count'],
+                },
+                enrichment: {
+                    name: 'enrichment',
+                    type: 'virtual_table',
+                    table: 'account_enrichment',
+                    fields: ['score'],
+                },
+            }),
+            account_tags: table('account_tags', { names: { name: 'names', type: 'array' } }),
+            account_notebooks: table('account_notebooks', { count: { name: 'count', type: 'integer' } }),
+            account_enrichment: table('account_enrichment', { score: { name: 'score', type: 'float' } }),
+            'warehouse.accounts': table('warehouse.accounts', { tier: { name: 'tier', type: 'string' } }),
+        }
+        const warehouseJoins = [
+            {
+                source_table_name: 'system.accounts',
+                field_name: 'warehouse_account',
+                joining_table_name: 'warehouse.accounts',
+            } as DataWarehouseViewLink,
+        ]
+        const customDefinition = definition('11111111-2222-3333-4444-555555555555', 'Plan')
+        const relationship = relationshipDefinition('66666666-7777-8888-9999-000000000000', 'CSM')
+
+        const unrestrictedKeys = buildAccountColumnGroups(
+            allTablesMap,
+            warehouseJoins,
+            [customDefinition],
+            [relationship]
+        ).map((group) => group.key)
+        const restrictedKeys = buildAccountColumnGroups(
+            allTablesMap,
+            warehouseJoins,
+            [customDefinition],
+            [relationship],
+            true
+        ).map((group) => group.key)
+
+        expect(unrestrictedKeys).toEqual(
+            expect.arrayContaining(['accounts.enrichment', 'accounts.warehouse_account', 'sql_expression'])
+        )
+        expect(restrictedKeys).toEqual([
+            'account_properties',
+            'relationships',
+            'custom_properties',
+            'accounts.tags',
+            'accounts.notebooks',
+        ])
     })
 
     it('translateSelectColumns resolves legacy roles through the lazy join and drops unmatched ones', () => {

@@ -8,6 +8,13 @@ import { z } from "zod/v4";
 
 export type { RpcCommand, RpcResponse } from "@earendil-works/pi-coding-agent";
 
+export interface PiMcpPermissionResponseCommand {
+  id: string;
+  type: "mcp_permission_response";
+  requestId: string;
+  decision: "allow" | "allow_always" | "reject";
+}
+
 export const piRpcCommandSchema = z
   .object({
     id: z.string().optional(),

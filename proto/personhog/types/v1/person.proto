@@ -11,10 +11,12 @@ message Person {
   bytes properties = 4;
   bytes properties_last_updated_at = 5;
   bytes properties_last_operation = 6;
+  // Epoch milliseconds, as are all timestamps in this message.
   int64 created_at = 7;
   int64 version = 8;
   bool is_identified = 9;
   optional bool is_user_id = 10;
+  // Epoch milliseconds (matching created_at); the writer decodes it as such.
   optional int64 last_seen_at = 11;
 }
 
@@ -133,15 +135,36 @@ message GetDistinctIdsForPersonsResponse {
 message UpdatePersonPropertiesRequest {
   int64 team_id = 1;
   int64 person_id = 2;
-  // The event name that triggered this update (e.g. "$set", "$identify", "$pageview").
-  // Used to determine filtering behavior (person events bypass property filtering).
+  // The event name that triggered this update (e.g. "$set", "$identify",
+  // "$pageview"). The leader checks it against a small denylist of events
+  // that must never write person properties and otherwise ignores it.
+  // Callers folding many events into one request filter denylisted
+  // events' ops at fold time and send a representative name.
   string event_name = 3;
   // JSON-encoded map of properties to set (overwrites existing values).
   bytes set_properties = 4;
   // JSON-encoded map of properties to set only if not already present.
+  // Resolved by the leader against authoritative state under the
+  // per-person lock — callers must not pre-resolve set_once against a
+  // fetched snapshot, or a concurrent writer's earlier value gets
+  // clobbered. When the same key appears here and in set_properties,
+  // set wins.
   bytes set_once_properties = 5;
   // Property keys to remove from the person.
   repeated string unset_properties = 6;
+  // OR-merged: true marks the person identified; false and absent are
+  // no-ops (identification never reverts through this RPC). The
+  // false→true transition counts as a change and produces a changelog
+  // record on its own.
+  optional bool is_identified = 7;
+  // Epoch milliseconds (matching Person.last_seen_at). The leader floors
+  // the value to the hour (ingestion's own granularity) and max-merges,
+  // so the stored value only ever advances. An advance is a change that
+  // produces a changelog record on its own — matching ingestion's direct
+  // write path, which persists a last-seen-only advance — and the
+  // flooring bounds record volume at one per person-hour regardless of
+  // the caller's precision.
+  optional int64 last_seen_at = 8;
 }
 
 message UpdatePersonPropertiesResponse {

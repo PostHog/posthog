@@ -332,8 +332,18 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
     def _schema(self, name: str) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name)
 
-    def _oom(self, schema: ExternalDataSchema, *, age_days: float = 0) -> ExternalDataSchemaOOMEvent:
-        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(team_id=self.team.pk, schema=schema)
+    def _oom(
+        self,
+        schema: ExternalDataSchema,
+        *,
+        age_days: float = 0,
+        run_id: str | None = None,
+    ) -> ExternalDataSchemaOOMEvent:
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            schema=schema,
+            run_id=run_id,
+        )
         if age_days:
             # created_at is auto_now_add, so backdate via an update to place the row outside the window.
             ExternalDataSchemaOOMEvent.objects.unscoped().filter(pk=event.pk).update(
@@ -375,6 +385,16 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
         # real escalation the controller should act on.
         self._oom(schema)
         assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
+
+    def test_recent_count_counts_every_retry_attempt(self) -> None:
+        # Retries of one job are separate attempts at the same merge, each rescheduled onto whichever
+        # worker picks it up. A job that OOMs attempt after attempt is a table failing deterministically,
+        # so collapsing those into one occurrence would discard the clearest evidence this log carries.
+        schema = self._schema("orders")
+        for _ in range(5):
+            self._oom(schema, run_id="run-1")
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 5
 
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):

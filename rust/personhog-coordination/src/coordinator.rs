@@ -234,6 +234,9 @@ impl Coordinator {
                     lease_ttl,
                     granted_at,
                     "coordinator",
+                    // The coordinator serves no partition data; there is
+                    // no request path to gate on its lease.
+                    None,
                     token.clone(),
                 ));
                 let failure = match inner.await {
@@ -670,7 +673,12 @@ impl Coordinator {
                         Some(_) => HandoffPhase::Draining,
                     };
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Freezing, target)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Freezing,
+                            target,
+                        )
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, target);
@@ -710,7 +718,12 @@ impl Coordinator {
                 let drained_acks = store.list_drained_acks(partition).await?;
                 if drain_satisfied(&pods, &drained_acks, &handoff) {
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Draining,
+                            HandoffPhase::Warming,
+                        )
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, HandoffPhase::Warming);
@@ -736,7 +749,10 @@ impl Coordinator {
                         new_owner = %handoff.new_owner,
                         "new owner warmed, completing handoff"
                     );
-                    match store.complete_handoff(partition).await {
+                    match store
+                        .complete_handoff(partition, &handoff.handoff_id, HandoffPhase::Warming)
+                        .await
+                    {
                         Ok(true) => {
                             record_phase_advance(&handoff, HandoffPhase::Complete);
                             if trigger == AdvanceTrigger::Ack {
@@ -1155,7 +1171,7 @@ impl Coordinator {
         handoff: &HandoffState,
     ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
-            // Same guarded-delete discipline as `cleanup_stale_handoffs`:
+            // Same guarded-delete discipline as the dead-new-owner cancellation:
             // the Complete observation may be stale by the time we act on
             // it, and the record at this key may already be a successor
             // handoff.
