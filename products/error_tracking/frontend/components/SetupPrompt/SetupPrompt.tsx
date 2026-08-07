@@ -65,7 +65,8 @@ export const ErrorTrackingSetupPrompt = ({
         <div className="flex justify-center">
             <Spinner />
         </div>
-    ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
+    ) : hasSentExceptionEvent === false && !exceptionAutocaptureEnabled ? (
+        // Only prompt when we know no events have arrived — not when the check failed (null).
         <ErrorTrackingIngestionPrompt className={className} />
     ) : (
         <>{children}</>

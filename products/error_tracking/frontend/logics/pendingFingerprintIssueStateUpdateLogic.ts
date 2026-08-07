@@ -77,6 +77,10 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
     reducers({
         pendingUpdates: [
             {} as Record<string, StoredPendingUpdate>,
+            // Persist so a status change made on the issue detail view survives the navigation
+            // back to the list, where it's overlaid onto the (slower) ClickHouse read. The
+            // per-row `expiresAt` TTL still gates what actually applies.
+            { persist: true },
             {
                 addPendingUpdates: (state, { rows }) => {
                     if (!rows || rows.length === 0) {

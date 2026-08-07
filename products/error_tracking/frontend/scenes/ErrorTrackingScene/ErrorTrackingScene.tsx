@@ -49,7 +49,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
+    const { hasSentExceptionEvent } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
@@ -82,7 +82,7 @@ export function ErrorTrackingScene(): JSX.Element {
             content: (
                 <ErrorTrackingSetupPrompt>
                     <ErrorTrackingIssueFilteringTool />
-                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    {hasSentExceptionEvent === false ? <IngestionStatusCheck /> : null}
                     <SourceMapsBanner />
                     <IssuesList />
                 </ErrorTrackingSetupPrompt>

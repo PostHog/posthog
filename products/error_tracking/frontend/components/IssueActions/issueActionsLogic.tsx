@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -121,6 +121,11 @@ export type issueActionsLogicType = MakeLogicType<issueActionsLogicValues, issue
 
 export const issueActionsLogic = kea<issueActionsLogicType>([
     path(['products', 'error_tracking', 'components', 'IssueActions', 'issueActionsLogic']),
+
+    // Mount the pending-update store wherever issues can be mutated — including the detail view,
+    // which never connected it before, so a resolve there recorded nothing and the list still
+    // showed the issue as active on return. The store persists, so it survives the navigation.
+    connect(() => ({ logic: [pendingFingerprintIssueStateUpdateLogic] })),
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
