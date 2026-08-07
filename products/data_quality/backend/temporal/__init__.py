@@ -13,13 +13,11 @@ from .activities.finalize_check_suite import (
 )
 from .activities.prepare_check_suite import prepare_check_suite_activity
 from .activities.run_check_batch import run_check_batch_activity
-from .activities.schedule_due_checks import retrieve_due_checks_activity
+from .workflows.cleanup import CleanupCheckRunsWorkflow
 from .workflows.run_check_suite import RunCheckSuiteWorkflow
-from .workflows.schedule_due_checks import CleanupCheckRunsWorkflow, ScheduleDueChecksWorkflow
 
 WORKFLOWS: list[type[PostHogWorkflow]] = [
     RunCheckSuiteWorkflow,
-    ScheduleDueChecksWorkflow,
     CleanupCheckRunsWorkflow,
 ]
 
@@ -29,7 +27,6 @@ ACTIVITIES: list[Callable[..., Any]] = [
     finalize_check_suite_activity,
     mark_check_suite_empty_activity,
     mark_check_suite_failed_activity,
-    retrieve_due_checks_activity,
     cleanup_check_runs_activity,
 ]
 

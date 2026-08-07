@@ -68,6 +68,11 @@ def run_check(check: DataQualityCheck, suite_run: DataQualitySuiteRun, team: Tea
 
 
 def _execute(check: DataQualityCheck, team: Team) -> CheckOutcome:
+    # A hard-deleted subject nulls the FK; there is no id left to resolve.
+    if check.subject_uuid is None:
+        check.subject_status = SubjectStatus.ORPHANED
+        return CheckOutcome(status=CheckRunStatus.SKIPPED, error="The subject was deleted.")
+
     subject = resolve_subject(team.id, check.subject_type, check.subject_uuid)
     if not subject.exists:
         check.subject_status = SubjectStatus.ORPHANED
@@ -143,6 +148,10 @@ def _record_run(
     started_at: datetime,
     duration_ms: int,
 ) -> None:
+    # Run rows denormalize the subject id (NOT NULL); a hard-deleted subject has none, and a
+    # skipped-because-gone check needs no history row -- the orphaned status on the check tells the story.
+    if check.subject_uuid is None:
+        return
     DataQualityCheckRun.objects.for_team(check.team_id).create(
         team_id=check.team_id,
         quality_check=check,

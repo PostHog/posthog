@@ -38,7 +38,7 @@ class TestCheckRunner(BaseTest):
         defaults = {
             "team": self.team,
             "subject_type": SubjectType.VIEW,
-            "subject_uuid": self.view.id,
+            "saved_query_id": self.view.id,
             "subject_name": "orders",
             "check_type": CheckType.NOT_NULL,
             "column_name": "customer_id",
@@ -99,6 +99,17 @@ class TestCheckRunner(BaseTest):
         check.refresh_from_db()
         assert outcome.status == CheckRunStatus.SKIPPED
         assert check.subject_status == SubjectStatus.ORPHANED
+
+    def test_a_hard_deleted_subject_is_skipped_without_a_history_row(self) -> None:
+        # SET_NULL leaves no subject id to denormalize onto a run row, so none is written.
+        check = self._check(saved_query_id=None)
+
+        outcome = run_check(check, self.suite_run, self.team)
+
+        check.refresh_from_db()
+        assert outcome.status == CheckRunStatus.SKIPPED
+        assert check.subject_status == SubjectStatus.ORPHANED
+        assert not DataQualityCheckRun.objects.for_team(self.team.id).filter(quality_check=check).exists()
 
     def test_a_renamed_subject_heals_the_denormalized_name(self) -> None:
         check = self._check()

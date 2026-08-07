@@ -52,6 +52,7 @@ def _finalize(inputs: FinalizeCheckSuiteInputs) -> CheckSuiteResult:
         checks_failed=suite_run.checks_failed,
         checks_errored=suite_run.checks_errored,
         checks_skipped=suite_run.checks_skipped,
+        checks_failed_blocking=sum(outcome.failed_blocking for outcome in inputs.outcomes),
     )
 
 

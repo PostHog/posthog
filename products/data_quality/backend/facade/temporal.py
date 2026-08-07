@@ -11,6 +11,5 @@ from ..temporal import (
 from ..temporal.contracts import RunCheckSuiteInputs as RunCheckSuiteInputs
 from ..temporal.schedule import (
     create_cleanup_data_quality_check_runs_schedule as create_cleanup_data_quality_check_runs_schedule,
-    create_schedule_due_data_quality_checks_schedule as create_schedule_due_data_quality_checks_schedule,
 )
 from .contracts import CHECK_SUITE_WORKFLOW_NAME as CHECK_SUITE_WORKFLOW_NAME

@@ -13,12 +13,13 @@ class RunCheckSuiteInputs:
 
     ``node_ids`` is the materialization path: the DAG workflow knows nodes, not saved queries, and
     the mapping is resolved inside the prepare activity so the workflow stays deterministic.
+    ``table_ids`` is the source-sync path, keyed on the table so it works with or without a DAG.
     """
 
     team_id: int
     trigger: str
-    subject_type: str = ""
-    subject_uuids: list[str] = dataclasses.field(default_factory=list)
+    saved_query_ids: list[str] = dataclasses.field(default_factory=list)
+    table_ids: list[str] = dataclasses.field(default_factory=list)
     check_ids: list[str] = dataclasses.field(default_factory=list)
     node_ids: list[str] = dataclasses.field(default_factory=list)
     # Set when the caller already created the row so it could hand back a pollable handle.
@@ -46,6 +47,8 @@ class BatchOutcome:
     failed: int = 0
     errored: int = 0
     skipped: int = 0
+    # Failures that may block a gated materialization: status=failed on an error-severity check.
+    failed_blocking: int = 0
     newly_failing_check_ids: list[str] = dataclasses.field(default_factory=list)
 
 
@@ -64,16 +67,6 @@ class MarkSuiteFailedInputs:
 
 
 @dataclasses.dataclass
-class DueCheckGroup:
-    """Checks on one subject that came due together, so they share a single suite run."""
-
-    team_id: int
-    subject_type: str
-    subject_uuid: str
-    check_ids: list[str]
-
-
-@dataclasses.dataclass
 class CleanupOutcome:
     compiled_queries_cleared: int = 0
     check_runs_deleted: int = 0
@@ -88,3 +81,4 @@ class CheckSuiteResult:
     checks_failed: int = 0
     checks_errored: int = 0
     checks_skipped: int = 0
+    checks_failed_blocking: int = 0

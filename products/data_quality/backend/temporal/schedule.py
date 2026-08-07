@@ -15,30 +15,7 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-DUE_CHECKS_SCHEDULE_ID = "schedule-due-data-quality-checks-schedule"
 CLEANUP_SCHEDULE_ID = "cleanup-data-quality-check-runs-schedule"
-
-
-async def create_schedule_due_data_quality_checks_schedule(client: Client) -> None:
-    """Scan for due checks every 5 minutes.
-
-    SKIP overlap: the scan advances ``next_run_at`` as it claims checks, so a missed tick just
-    means the next one picks the same work up -- running two scans at once buys nothing.
-    """
-    await _upsert(
-        client,
-        DUE_CHECKS_SCHEDULE_ID,
-        Schedule(
-            action=ScheduleActionStartWorkflow(
-                "schedule-due-data-quality-checks",
-                id=DUE_CHECKS_SCHEDULE_ID,
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
-                execution_timeout=dt.timedelta(minutes=10),
-            ),
-            spec=ScheduleSpec(cron_expressions=["*/5 * * * *"]),
-            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-        ),
-    )
 
 
 async def create_cleanup_data_quality_check_runs_schedule(client: Client) -> None:

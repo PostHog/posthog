@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from django.db import models
+
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
@@ -7,7 +9,8 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
 
-from ...facade.enums import SubjectType, SuiteRunTrigger
+from ...facade.enums import SubjectType
+from ...logic.flags import is_data_quality_checks_enabled_for_team_id
 from ...models import DataQualityCheck, DataQualitySuiteRun
 from ..contracts import PreparedSuite, RunCheckSuiteInputs
 
@@ -24,7 +27,9 @@ async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedS
 
 
 def _prepare(inputs: RunCheckSuiteInputs) -> PreparedSuite:
-    checks = _select_checks(inputs)
+    # Defense in depth: every trigger path is already flag-gated, but any future entry point that
+    # forgets the gate must degrade to an empty suite, not run checks for an unflagged org.
+    checks = _select_checks(inputs) if is_data_quality_checks_enabled_for_team_id(inputs.team_id) else []
     suite_run = _suite_run(inputs)
 
     check_ids = [str(check_id) for check_id in checks]
@@ -53,17 +58,26 @@ def _suite_run(inputs: RunCheckSuiteInputs) -> DataQualitySuiteRun:
         if existing is not None:
             return existing
 
+    subject_type, subject_uuid = _single_subject(inputs)
     return runs.create(
         team_id=inputs.team_id,
         trigger=inputs.trigger,
         created_by_id=inputs.created_by_id,
-        subject_type=inputs.subject_type if len(inputs.subject_uuids) == 1 else "",
-        subject_uuid=inputs.subject_uuids[0] if len(inputs.subject_uuids) == 1 else None,
+        subject_type=subject_type,
+        subject_uuid=subject_uuid,
         data_modeling_job_id=inputs.data_modeling_job_id,
         workflow_id=info.workflow_id or "",
         workflow_run_id=info.workflow_run_id or "",
         started_at=datetime.now(UTC),
     )
+
+
+def _single_subject(inputs: RunCheckSuiteInputs) -> tuple[str, str | None]:
+    if len(inputs.saved_query_ids) == 1 and not inputs.table_ids:
+        return SubjectType.VIEW, inputs.saved_query_ids[0]
+    if len(inputs.table_ids) == 1 and not inputs.saved_query_ids:
+        return SubjectType.TABLE, inputs.table_ids[0]
+    return "", None
 
 
 def _select_checks(inputs: RunCheckSuiteInputs) -> list[str]:
@@ -72,18 +86,14 @@ def _select_checks(inputs: RunCheckSuiteInputs) -> list[str]:
     if inputs.check_ids:
         runnable = runnable.filter(id__in=inputs.check_ids)
     else:
-        subject_type, subject_uuids = _resolve_selector(inputs)
-        if not subject_uuids:
+        saved_query_ids = list(inputs.saved_query_ids)
+        if inputs.node_ids:
+            saved_query_ids += data_modeling_facade.get_saved_query_ids_for_nodes(inputs.team_id, inputs.node_ids)
+        if not saved_query_ids and not inputs.table_ids:
             return []
-        runnable = runnable.filter(subject_type=subject_type, subject_uuid__in=subject_uuids)
-
-    if inputs.trigger == SuiteRunTrigger.MATERIALIZATION:
-        runnable = runnable.filter(run_on_materialization=True)
+        subject_filter = models.Q(saved_query_id__in=saved_query_ids)
+        if inputs.table_ids:
+            subject_filter |= models.Q(table_id__in=inputs.table_ids)
+        runnable = runnable.filter(subject_filter)
 
     return [str(check_id) for check_id in runnable.values_list("id", flat=True)]
-
-
-def _resolve_selector(inputs: RunCheckSuiteInputs) -> tuple[str, list[str]]:
-    if inputs.node_ids:
-        return SubjectType.VIEW, data_modeling_facade.get_saved_query_ids_for_nodes(inputs.team_id, inputs.node_ids)
-    return inputs.subject_type, inputs.subject_uuids

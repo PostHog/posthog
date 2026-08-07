@@ -7,7 +7,7 @@ from posthog.models.team import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
-from ...facade.enums import CheckRunStatus
+from ...facade.enums import CheckRunStatus, CheckSeverity
 from ...logic.runner import run_check
 from ...models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import BatchOutcome, RunCheckBatchInputs
@@ -39,12 +39,15 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     ).delete()
 
     counts: Counter[str] = Counter()
+    failed_blocking = 0
     newly_failing: list[str] = []
     for check in checks:
         # run_check records a compile or query failure as an errored run rather than raising: one
         # broken check must not fail the activity and take its whole batch down with it.
         result = run_check(check, suite_run, team)
         counts[result.status] += 1
+        if result.status is CheckRunStatus.FAILED and check.severity == CheckSeverity.ERROR:
+            failed_blocking += 1
         if result.became_failing:
             newly_failing.append(str(check.id))
 
@@ -54,5 +57,6 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
         failed=counts[CheckRunStatus.FAILED],
         errored=counts[CheckRunStatus.ERRORED],
         skipped=counts[CheckRunStatus.SKIPPED],
+        failed_blocking=failed_blocking,
         newly_failing_check_ids=newly_failing,
     )

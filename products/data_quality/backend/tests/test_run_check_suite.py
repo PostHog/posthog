@@ -1,12 +1,11 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio import workflow as temporal_workflow
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
@@ -23,17 +22,18 @@ from products.data_quality.backend.temporal.activities.run_check_batch import _r
 from products.data_quality.backend.temporal.contracts import (
     BatchOutcome,
     CheckSuiteResult,
-    DueCheckGroup,
     FinalizeCheckSuiteInputs,
     PreparedSuite,
     RunCheckBatchInputs,
     RunCheckSuiteInputs,
 )
 from products.data_quality.backend.temporal.workflows.run_check_suite import RunCheckSuiteWorkflow
-from products.data_quality.backend.temporal.workflows.schedule_due_checks import ScheduleDueChecksWorkflow
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 ACTIVITY_INFO = "products.data_quality.backend.temporal.activities.prepare_check_suite.activity.info"
+PREPARE_FLAG = (
+    "products.data_quality.backend.temporal.activities.prepare_check_suite.is_data_quality_checks_enabled_for_team_id"
+)
 
 
 class _Response:
@@ -51,12 +51,15 @@ class TestCheckSuiteActivities(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.view = DataWarehouseSavedQuery.objects.create(team=self.team, name="orders", query={"kind": "HogQLQuery"})
+        flag = patch(PREPARE_FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
 
     def _check(self, **kwargs) -> DataQualityCheck:
         defaults = {
             "team": self.team,
             "subject_type": SubjectType.VIEW,
-            "subject_uuid": self.view.id,
+            "saved_query_id": self.view.id,
             "subject_name": "orders",
             "check_type": CheckType.NOT_NULL,
             "column_name": "customer_id",
@@ -68,8 +71,7 @@ class TestCheckSuiteActivities(BaseTest):
         inputs = RunCheckSuiteInputs(
             team_id=self.team.id,
             trigger=kwargs.pop("trigger", SuiteRunTrigger.MANUAL),
-            subject_type=SubjectType.VIEW,
-            subject_uuids=[str(self.view.id)],
+            saved_query_ids=kwargs.pop("saved_query_ids", [str(self.view.id)]),
             **kwargs,
         )
         with patch(ACTIVITY_INFO, return_value=_ActivityInfo()):
@@ -91,13 +93,25 @@ class TestCheckSuiteActivities(BaseTest):
 
         assert prepared.batches == [[str(runnable.id)]]
 
-    def test_materialization_only_runs_checks_that_opted_in(self) -> None:
-        opted_in = self._check()
-        self._check(run_on_materialization=False)
+    def test_table_checks_are_selected_by_table_ids(self) -> None:
+        table_id = uuid4()
+        on_table = self._check(saved_query_id=None, table_id=table_id, subject_type=SubjectType.TABLE)
+        self._check()
 
-        prepared = self._prepare(trigger=SuiteRunTrigger.MATERIALIZATION)
+        prepared = self._prepare(saved_query_ids=[], table_ids=[str(table_id)], trigger=SuiteRunTrigger.SOURCE_SYNC)
 
-        assert prepared.batches == [[str(opted_in.id)]]
+        assert prepared.batches == [[str(on_table.id)]]
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        assert suite_run.subject_type == SubjectType.TABLE
+        assert suite_run.subject_uuid == table_id
+
+    def test_an_unflagged_org_prepares_an_empty_suite(self) -> None:
+        self._check()
+
+        with patch(PREPARE_FLAG, return_value=False):
+            prepared = self._prepare()
+
+        assert prepared.batches == []
 
     def test_a_batch_counts_each_outcome_and_records_a_run_per_check(self) -> None:
         passing = self._check()
@@ -119,6 +133,8 @@ class TestCheckSuiteActivities(BaseTest):
             )
 
         assert (outcome.passed, outcome.failed, outcome.errored) == (1, 1, 1)
+        # The failing check has default error severity, so it counts toward the materialization gate.
+        assert outcome.failed_blocking == 1
         assert outcome.newly_failing_check_ids == [str(failing.id)]
         runs = DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run_id=prepared.suite_run_id)
         assert runs.count() == 3
@@ -153,11 +169,12 @@ class TestCheckSuiteActivities(BaseTest):
             FinalizeCheckSuiteInputs(
                 team_id=self.team.id,
                 suite_run_id=prepared.suite_run_id,
-                outcomes=[BatchOutcome(passed=2, failed=1), BatchOutcome(passed=3, errored=1)],
+                outcomes=[BatchOutcome(passed=2, failed=1, failed_blocking=1), BatchOutcome(passed=3, errored=1)],
             )
         )
 
         assert (result.checks_passed, result.checks_failed, result.checks_errored) == (5, 1, 1)
+        assert result.checks_failed_blocking == 1
         assert result.status == SuiteRunStatus.COMPLETED
 
 
@@ -238,46 +255,3 @@ class TestRunCheckSuiteWorkflow(BaseTest):
         assert started == expected_activities
         if suite_run_id is not None:
             assert execute_activity.await_args_list[-1].args[1].suite_run_id == suite_run_id
-
-
-class TestScheduleDueChecksWorkflow(BaseTest):
-    def _groups(self, count: int) -> list[DueCheckGroup]:
-        return [
-            DueCheckGroup(
-                team_id=self.team.id,
-                subject_type=SubjectType.VIEW,
-                subject_uuid=str(uuid4()),
-                check_ids=["c"],
-            )
-            for _ in range(count)
-        ]
-
-    def _run(self, groups: list[DueCheckGroup], start_child: AsyncMock) -> int:
-        retrieve = AsyncMock(return_value=groups)
-        # workflow.logger reaches into the workflow runtime, which is absent when the coroutine is
-        # driven directly by async_to_sync rather than a Worker, so stub it at that boundary.
-        with (
-            patch.object(temporal_workflow, "execute_activity", new=retrieve),
-            patch.object(temporal_workflow, "start_child_workflow", new=start_child),
-            patch.object(temporal_workflow, "logger", new=MagicMock()),
-        ):
-            return async_to_sync(ScheduleDueChecksWorkflow().run)()
-
-    def test_a_child_start_failure_is_surfaced_not_swallowed(self) -> None:
-        # return_exceptions=True used to fold a failed start into a count and let the scan succeed,
-        # silently losing that group for a cadence. The scan must fail loudly instead, and it must
-        # still attempt every group rather than stopping at the first failure.
-        groups = self._groups(3)
-        start_child = AsyncMock(side_effect=[None, RuntimeError("could not start"), None])
-
-        with self.assertRaises(ApplicationError):
-            self._run(groups, start_child)
-
-        assert start_child.await_count == 3
-
-    def test_an_already_running_subject_is_skipped_without_failing_the_scan(self) -> None:
-        # An overlapping scan hitting a subject whose suite is still open is expected, not an error.
-        groups = self._groups(2)
-        start_child = AsyncMock(side_effect=[WorkflowAlreadyStartedError("id", "data-quality-run-suite"), None])
-
-        assert self._run(groups, start_child) == 2
