@@ -207,7 +207,7 @@ class TestActivityLogPaginationGuards(APIBaseTest):
     `get_activity_page`. These guard both against the 500s a page-walking client used to hit."""
 
     def _insight_activity(self, query: str = "") -> Any:
-        return self.client.get(f"/api/projects/{self.team.id}/insights/activity{query}")
+        return self.client.get(f"/api/projects/{self.team.id}/insights/activity/{query}")
 
     def test_page_past_the_end_returns_empty_page_not_500(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="Insight", activity="updated", item_id="1")
