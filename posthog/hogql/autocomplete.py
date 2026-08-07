@@ -49,6 +49,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.taxonomy.taxonomy import QUERY_DEPRECATED_EVENT_PROPERTIES
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -531,18 +532,27 @@ def get_hogql_autocomplete(
             if isinstance(query.globals, dict):
                 if isinstance(node, ast.Field):
                     loop_globals: dict | None = query.globals
+                    entered_key: str | None = None
                     for index, key in enumerate(node.chain):
                         if MATCH_ANY_CHARACTER in str(key):
                             break
                         if loop_globals is not None and str(key) in loop_globals:
                             loop_globals = loop_globals[str(key)]
+                            entered_key = str(key)
                         elif index == len(node.chain) - 1:
                             break
                         else:
                             loop_globals = None
                             break
                     if loop_globals is not None:
-                        add_globals_to_suggestions(loop_globals, response)
+                        # The sample event backing these globals is a real captured event, so its
+                        # property bag can still carry properties we no longer offer for querying.
+                        excluded_keys = (
+                            QUERY_DEPRECATED_EVENT_PROPERTIES
+                            if entered_key is not None and entered_key.endswith("properties")
+                            else None
+                        )
+                        add_globals_to_suggestions(loop_globals, response, excluded_keys=excluded_keys)
                         # looking at a nested global object, no need for other suggestions
                         if loop_globals != query.globals:
                             break
@@ -690,6 +700,10 @@ def get_hogql_autocomplete(
                                             name__contains=match_term,
                                             type=property_type,
                                         )
+                                        if property_type == PropertyDefinition.Type.EVENT:
+                                            property_query = property_query.exclude(
+                                                name__in=QUERY_DEPRECATED_EVENT_PROPERTIES
+                                            )
 
                                     with timings.measure("property_count"):
                                         total_property_count = property_query.count()
@@ -835,8 +849,12 @@ def extract_json_row(query_to_try, query_start, query_end):
     return query_to_try, query_start, query_end
 
 
-def add_globals_to_suggestions(globalVars: dict, response: HogQLAutocompleteResponse):
+def add_globals_to_suggestions(
+    globalVars: dict, response: HogQLAutocompleteResponse, excluded_keys: set[str] | None = None
+):
     if isinstance(globalVars, dict):
+        if excluded_keys:
+            globalVars = {key: value for key, value in globalVars.items() if key not in excluded_keys}
         existing_values = {item.label for item in response.suggestions}
         values: list[str | None] = []
         for key, value in globalVars.items():

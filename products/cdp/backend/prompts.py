@@ -1097,16 +1097,6 @@ Here is the taxonomy for event properties:
             "description": "The content that was selected when the user copied or cut.",
             "ignored_in_assistant": True,
         },
-        "$set": {
-            "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`.",
-            "ignored_in_assistant": True,
-        },
-        "$set_once": {
-            "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
-            "ignored_in_assistant": True,
-        },
         "$pageview_id": {
             "label": "Pageview ID",
             "description": "PostHog's internal ID for matching events to a pageview.",
