@@ -7536,11 +7536,15 @@ export class SessionService {
       while (nextIndex < targets.length) {
         const index = nextIndex++;
         const target = targets[index];
-        pages[index] = await client.getResourceComments(
-          target.scope,
-          target.itemId,
-          taskId,
-        );
+        try {
+          pages[index] = await client.getResourceComments(
+            target.scope,
+            target.itemId,
+            taskId,
+          );
+        } catch {
+          pages[index] = [];
+        }
       }
     };
     await Promise.all(
