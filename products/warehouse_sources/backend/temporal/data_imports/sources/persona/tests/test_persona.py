@@ -333,6 +333,32 @@ class TestVerificationsFanout:
             "https://api.withpersona.com/api/v1/inquiries/inq_ok?include=verifications",
         ]
 
+    def test_hydrate_non_404_error_still_aborts_the_sync(self, monkeypatch: Any) -> None:
+        # Only a 404 (gone parent) is safe to swallow. A 500 or any other failure must still surface,
+        # not get silently treated the same as a deleted inquiry.
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            if "/inquiries/inq_1" in url:
+                response = requests.Response()
+                response.status_code = 500
+                raise requests.HTTPError(response=response)
+            return {
+                "data": [{"type": "inquiry", "id": "inq_1", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}],
+                "links": {"next": None},
+            }
+
+        monkeypatch.setattr(persona, "_fetch_page", fake_fetch)
+        manager = _FakeResumableManager()
+
+        with pytest.raises(requests.HTTPError):
+            list(
+                get_rows(
+                    api_key="persona_test",
+                    endpoint="verifications",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
 
 class TestPersonaSourceResponse:
     @parameterized.expand(
