@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import {
     dashboardNudgeScopeKey,
     dashboardSubscribeNudgeStoreLogic,
@@ -14,9 +13,11 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature } from '~/types'
 
-import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
-import { isFreeTierCreateAtLimit } from 'products/subscriptions/frontend/components/Subscriptions/utils'
-import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
+import {
+    fetchHasSubscriptionForDashboard,
+    fetchTeamSubscriptionCount,
+} from 'products/subscriptions/frontend/components/Subscriptions/subscriptionQueries'
+import { canNudgeToSubscribe } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 
@@ -84,12 +85,8 @@ export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
         freeTierSubscriptionCount: [
             null as number | null,
             {
-                loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) => {
-                    // limit=1 keeps the payload tiny; `count` reflects the team's full total.
-                    const response = await subscriptionsList(String(getCurrentTeamId()), { limit: 1 })
-                    breakpoint?.()
-                    return response.count ?? 0
-                },
+                loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) =>
+                    await fetchTeamSubscriptionCount(breakpoint),
             },
         ],
     })),
@@ -133,16 +130,12 @@ export async function resolveExportNudgeEligibility(dashboardId: number): Promis
         return null
     }
 
-    // Free-tier orgs must have room under the cap. Unlike EditSubscription, where the user asked
-    // and the backend is the hard gate, an unknown count fails closed here: don't advertise an
-    // action we can't confirm they can complete.
-    if (!values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
-        if (values.freeTierSubscriptionCount === null) {
-            await asyncActions.loadFreeTierSubscriptionCount()
-        }
-        if (values.freeTierSubscriptionCount === null || isFreeTierCreateAtLimit(values.freeTierSubscriptionCount)) {
-            return null
-        }
+    const hasSubscriptionsFeature = values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)
+    if (!hasSubscriptionsFeature && values.freeTierSubscriptionCount === null) {
+        await asyncActions.loadFreeTierSubscriptionCount()
+    }
+    if (!canNudgeToSubscribe(hasSubscriptionsFeature, values.freeTierSubscriptionCount)) {
+        return null
     }
 
     const hasExistingSubscription = await fetchHasExistingSubscription(dashboardId)
@@ -178,15 +171,8 @@ export function claimExportNudge(dashboardId: number): boolean {
 
 /** Whether this dashboard already has a subscription. null means the check itself failed. */
 async function fetchHasExistingSubscription(dashboardId: number): Promise<boolean | null> {
-    // If a subscriptionsLogic for this dashboard is already mounted (e.g. the subscriptions modal
-    // was opened), reuse its data instead of refetching.
-    const mounted = subscriptionsLogic.findMounted({ dashboardId })
-    if (mounted && !mounted.values.subscriptionsLoading) {
-        return mounted.values.subscriptions.length > 0
-    }
     try {
-        const response = await subscriptionsList(String(getCurrentTeamId()), { dashboard: dashboardId, limit: 1 })
-        return (response.count ?? 0) > 0
+        return await fetchHasSubscriptionForDashboard(dashboardId)
     } catch (error: any) {
         posthog.capture('dashboard export nudge check failed', {
             dashboard_id: dashboardId,

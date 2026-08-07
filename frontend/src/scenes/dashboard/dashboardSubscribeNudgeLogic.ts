@@ -31,9 +31,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, DashboardPlacement } from '~/types'
 
-import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
-import { isFreeTierCreateAtLimit } from 'products/subscriptions/frontend/components/Subscriptions/utils'
-import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
+import {
+    fetchHasSubscriptionForDashboard,
+    fetchTeamSubscriptionCount,
+} from 'products/subscriptions/frontend/components/Subscriptions/subscriptionQueries'
+import { canNudgeToSubscribe } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DashboardType, QueryBasedInsightModel } from '../../types'
@@ -211,32 +213,16 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         hasExistingSubscription: [
             null as boolean | null,
             {
-                loadExistingSubscription: async (_?: unknown, breakpoint?: BreakPointFunction) => {
-                    // If a subscriptionsLogic for this dashboard is already mounted (e.g. the
-                    // subscriptions modal was opened), reuse its data instead of refetching.
-                    const mounted = subscriptionsLogic.findMounted({ dashboardId: props.dashboardId })
-                    if (mounted && !mounted.values.subscriptionsLoading) {
-                        return mounted.values.subscriptions.length > 0
-                    }
-                    // limit=1 keeps the payload tiny; `count` reflects the dashboard's full total.
-                    const response = await subscriptionsList(String(getCurrentTeamId()), {
-                        dashboard: props.dashboardId,
-                        limit: 1,
-                    })
-                    breakpoint?.()
-                    return (response.count ?? 0) > 0
-                },
+                loadExistingSubscription: async (_?: unknown, breakpoint?: BreakPointFunction) =>
+                    await fetchHasSubscriptionForDashboard(props.dashboardId, breakpoint),
             },
         ],
         // This team-wide count is separate from the dashboard-specific subscription check above.
         freeTierSubscriptionCount: [
             null as number | null,
             {
-                loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) => {
-                    const response = await subscriptionsList(String(getCurrentTeamId()), { limit: 1 })
-                    breakpoint?.()
-                    return response.count ?? 0
-                },
+                loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) =>
+                    await fetchTeamSubscriptionCount(breakpoint),
             },
         ],
         nudgeNotification: [
@@ -298,15 +284,10 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 isDashboardEligible: boolean
             ): boolean => isPastViewThreshold && !isSuppressed && !isNotified && isDashboardEligible,
         ],
-        // Paid orgs are never limited. Free-tier orgs must have room under the free-tier cap —
-        // and unlike EditSubscription (where a null count fails open because the user explicitly
-        // asked and the backend is the hard gate), a proactive nudge fails closed on an unknown
-        // count: don't advertise an action we can't confirm they can complete.
         isWithinSubscriptionLimit: [
             (s) => [s.hasSubscriptionsFeature, s.freeTierSubscriptionCount],
             (hasSubscriptionsFeature: boolean, freeTierSubscriptionCount: number | null): boolean =>
-                hasSubscriptionsFeature ||
-                (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount)),
+                canNudgeToSubscribe(hasSubscriptionsFeature, freeTierSubscriptionCount),
         ],
         isEligible: [
             (s) => [s.isCandidate, s.hasExistingSubscription, s.isWithinSubscriptionLimit],

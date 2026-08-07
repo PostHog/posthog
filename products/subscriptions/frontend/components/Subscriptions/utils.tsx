@@ -19,6 +19,20 @@ export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boole
     return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
 }
 
+// Whether a nudge may offer to set up a subscription. Paid orgs are never limited. Free-tier orgs
+// must have room under the cap, and unlike EditSubscription, where the user asked and the backend
+// is the hard gate, an unknown count fails closed here: don't advertise an action we can't confirm
+// they can complete.
+export function canNudgeToSubscribe(
+    hasSubscriptionsFeature: boolean,
+    freeTierSubscriptionCount: number | null
+): boolean {
+    return (
+        hasSubscriptionsFeature ||
+        (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount))
+    )
+}
+
 export interface SubscriptionBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
