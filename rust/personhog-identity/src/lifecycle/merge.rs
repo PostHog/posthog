@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::join_all;
+use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
@@ -158,6 +158,10 @@ const STATUS_SKIPPED_CONFLICT: &str = "skipped_conflict";
 const ROLE_TARGET: &str = "target";
 const ROLE_SOURCE: &str = "source";
 
+/// Cap on concurrent leader RPCs per fan-out (fence, release): a bulk
+/// merge must not burst the router with one in-flight call per source.
+const LEADER_CALL_CONCURRENCY: usize = 8;
+
 const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_merge_outcomes_total";
 
@@ -278,6 +282,47 @@ struct Resolution {
     person_id: i64,
     person_uuid: Uuid,
     is_identified: bool,
+}
+
+/// Post-insert reconciliation of the pending set against the fresh
+/// resolve. A pending did that no longer resolves to its claimed person
+/// was remapped by a concurrent identify — the flip will not repoint it,
+/// so reporting it merged would be a lie; it settles as a retryable
+/// conflict even when a sibling did keeps the person claimed. Returns the
+/// claimed persons no pending did still reaches (to be dropped).
+fn reconcile_pending_claims(
+    dispositions: &mut [Disposition],
+    claim_persons: &[(i64, Uuid, i32)],
+    marked: &[i64],
+    fresh: &HashMap<String, Resolution>,
+) -> Vec<i64> {
+    for d in dispositions.iter_mut() {
+        if d.decision != DECISION_PENDING_MERGE {
+            continue;
+        }
+        let Some(person_id) = d.person_id else {
+            continue;
+        };
+        if !marked.contains(&person_id) {
+            continue;
+        }
+        if fresh
+            .get(&d.distinct_id)
+            .is_none_or(|r| r.person_id != person_id)
+        {
+            d.decision = OUTCOME_SKIPPED_CONFLICT.to_string();
+        }
+    }
+    claim_persons
+        .iter()
+        .filter(|(person_id, _, _)| {
+            marked.contains(person_id)
+                && !dispositions.iter().any(|d| {
+                    d.decision == DECISION_PENDING_MERGE && d.person_id == Some(*person_id)
+                })
+        })
+        .map(|(person_id, _, _)| *person_id)
+        .collect()
 }
 
 async fn resolve_dids(
@@ -553,22 +598,7 @@ impl MergeDriver {
             }
             return abort_in_claim_tx(tx, op, dispositions).await;
         }
-        let mut dropped: Vec<i64> = Vec::new();
-        for (person_id, _, _) in &claim_persons {
-            if !marked.contains(person_id) {
-                continue;
-            }
-            let still_reachable = dispositions.iter().any(|d| {
-                d.decision == DECISION_PENDING_MERGE
-                    && d.person_id == Some(*person_id)
-                    && fresh
-                        .get(&d.distinct_id)
-                        .is_some_and(|r| r.person_id == *person_id)
-            });
-            if !still_reachable {
-                dropped.push(*person_id);
-            }
-        }
+        let dropped = reconcile_pending_claims(&mut dispositions, &claim_persons, &marked, &fresh);
         if !dropped.is_empty() {
             sqlx::query!(
                 r#"
@@ -582,13 +612,6 @@ impl MergeDriver {
             )
             .execute(&mut *tx)
             .await?;
-            for d in dispositions.iter_mut() {
-                if d.decision == DECISION_PENDING_MERGE
-                    && d.person_id.is_some_and(|id| dropped.contains(&id))
-                {
-                    d.decision = OUTCOME_SKIPPED_CONFLICT.to_string();
-                }
-            }
         }
 
         if !dispositions
@@ -684,7 +707,11 @@ impl MergeDriver {
                 async move { (person_id, leader.fence_person(request).await) }
             })
             .collect();
-        for (person_id, result) in join_all(fence_calls).await {
+        let fence_results: Vec<_> = stream::iter(fence_calls)
+            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .collect()
+            .await;
+        for (person_id, result) in fence_results {
             match result {
                 Ok(response) => {
                     let person = response.sealed.ok_or_else(|| {
@@ -988,7 +1015,11 @@ impl MergeDriver {
                 }
             })
             .collect();
-        for (_, result) in join_all(release_calls).await {
+        let release_results: Vec<_> = stream::iter(release_calls)
+            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .collect()
+            .await;
+        for (_, result) in release_results {
             result?;
         }
 
@@ -1045,7 +1076,11 @@ impl MergeDriver {
                 async move { leader.release_fence(request).await }
             })
             .collect();
-        for result in join_all(calls).await {
+        let results: Vec<_> = stream::iter(calls)
+            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .collect()
+            .await;
+        for result in results {
             result.map_err(|status| SagaError::Leader(Box::new(status)))?;
         }
         Ok(())
@@ -1085,12 +1120,17 @@ async fn flip(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
     .await?;
     sources.sort_unstable();
 
+    // RETURNING sees the post-update row, so the pre-update owner has to
+    // come from a self-join snapshot — without it every returned
+    // person_id would be the target.
     let repointed = sqlx::query!(
         r#"
-        UPDATE posthog_persondistinctid
-        SET person_id = $3, version = COALESCE(version, 0) + 1
-        WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
-        RETURNING person_id as "old_person_id!", distinct_id, version as "version!"
+        UPDATE posthog_persondistinctid pdi
+        SET person_id = $3, version = COALESCE(pdi.version, 0) + 1
+        FROM posthog_persondistinctid old
+        WHERE old.id = pdi.id
+          AND pdi.team_id = $1 AND pdi.person_id = ANY($2) AND pdi.is_deleted = false
+        RETURNING old.person_id as "old_person_id!", pdi.distinct_id, pdi.version as "version!"
         "#,
         team_id,
         &sources,
@@ -1426,4 +1466,62 @@ fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
     }
     serde_json::to_vec(value)
         .map_err(|e| SagaError::CorruptState(format!("failed to serialize event payload: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending(distinct_id: &str, person_id: i64) -> Disposition {
+        Disposition {
+            distinct_id: distinct_id.to_string(),
+            person_id: Some(person_id),
+            decision: DECISION_PENDING_MERGE.to_string(),
+        }
+    }
+
+    fn resolution(person_id: i64) -> Resolution {
+        Resolution {
+            person_id,
+            person_uuid: Uuid::new_v4(),
+            is_identified: false,
+        }
+    }
+
+    #[test]
+    fn a_remapped_did_settles_as_conflict_while_a_sibling_keeps_the_person() {
+        let mut dispositions = vec![pending("d1", 7), pending("d2", 7)];
+        let claim_persons = vec![(7, Uuid::new_v4(), 0)];
+        // d2 was remapped to person 9 between the resolve and the recheck.
+        let fresh = HashMap::from([
+            ("d1".to_string(), resolution(7)),
+            ("d2".to_string(), resolution(9)),
+        ]);
+
+        let dropped = reconcile_pending_claims(&mut dispositions, &claim_persons, &[7], &fresh);
+
+        assert!(dropped.is_empty(), "person 7 is still reachable via d1");
+        assert_eq!(dispositions[0].decision, DECISION_PENDING_MERGE);
+        assert_eq!(
+            dispositions[1].decision, OUTCOME_SKIPPED_CONFLICT,
+            "the remapped did must not later be reported as merged"
+        );
+    }
+
+    #[test]
+    fn a_person_with_no_reachable_did_left_is_dropped() {
+        let mut dispositions = vec![pending("d1", 7), pending("d2", 7)];
+        let claim_persons = vec![(7, Uuid::new_v4(), 0)];
+        let fresh = HashMap::from([
+            ("d1".to_string(), resolution(9)),
+            ("d2".to_string(), resolution(9)),
+        ]);
+
+        let dropped = reconcile_pending_claims(&mut dispositions, &claim_persons, &[7], &fresh);
+
+        assert_eq!(dropped, vec![7]);
+        for d in &dispositions {
+            assert_eq!(d.decision, OUTCOME_SKIPPED_CONFLICT);
+        }
+    }
 }

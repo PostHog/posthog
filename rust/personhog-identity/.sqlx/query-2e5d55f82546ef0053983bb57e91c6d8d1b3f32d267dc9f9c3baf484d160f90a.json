@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE posthog_persondistinctid\n        SET person_id = $3, version = COALESCE(version, 0) + 1\n        WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false\n        RETURNING person_id as \"old_person_id!\", distinct_id, version as \"version!\"\n        ",
+  "query": "\n        UPDATE posthog_persondistinctid pdi\n        SET person_id = $3, version = COALESCE(pdi.version, 0) + 1\n        FROM posthog_persondistinctid old\n        WHERE old.id = pdi.id\n          AND pdi.team_id = $1 AND pdi.person_id = ANY($2) AND pdi.is_deleted = false\n        RETURNING old.person_id as \"old_person_id!\", pdi.distinct_id, pdi.version as \"version!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -32,5 +32,5 @@
       true
     ]
   },
-  "hash": "c7fcf20b0b381d6ec6d220d68bbbc3324803db9fc3cad88e8b3da3ed84a9a46e"
+  "hash": "2e5d55f82546ef0053983bb57e91c6d8d1b3f32d267dc9f9c3baf484d160f90a"
 }
