@@ -1,4 +1,11 @@
-import { exhaustionForecast, hasBillableSpend, projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
+import {
+    daysUntilCapReached,
+    exhaustionForecast,
+    hasBillableSpend,
+    projectQuota,
+    quotaUx,
+    splitProjectedPct,
+} from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
 
 describe('hasBillableSpend', () => {
@@ -107,6 +114,20 @@ describe('projectQuota', () => {
         const proj = projectQuota(makeQuota({ credits_used: 8_000, projected_monthly_credits: 30_000 }))
         expect(proj.percentLabel).toBe(280)
         expect(proj.projectedPct).toBeCloseTo(200, 0)
+    })
+})
+
+describe('daysUntilCapReached', () => {
+    it.each([
+        // 1,000 left of the 10,000 cap, burned at monthly/30 per day.
+        ['inside the window', { credits_used: 9_000, projected_monthly_credits: 15_000 }, 2],
+        ['further out than the window', { credits_used: 9_000, projected_monthly_credits: 3_000 }, null],
+        ['already exhausted', { credits_used: 9_000, projected_monthly_credits: 15_000, exhausted: true }, null],
+        ['no fleet spend, so the cap is never reached', { credits_used: 9_000 }, null],
+    ])('%s', (_name, overrides, expected) => {
+        const days = daysUntilCapReached(projectQuota(makeQuota(overrides)))
+        // Rounded: the two `dayjs()` calls behind the diff are milliseconds apart.
+        expect(days === null ? null : Math.round(days * 100) / 100).toBe(expected)
     })
 })
 
