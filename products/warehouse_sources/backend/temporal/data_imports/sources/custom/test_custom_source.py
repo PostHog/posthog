@@ -3011,7 +3011,9 @@ class TestCustomSourceHttpNonRetryableClassification(SimpleTestCase):
     def test_404_is_non_retryable_with_a_url_free_message(self):
         # A 404 on a manifest-configured URL is deterministic, so it must be classified
         # non-retryable to stop the loop, and its message must not echo the customer's hostname.
-        error = requests.HTTPError("404 Client Error: Not Found for url: https://host.example.com/export")
+        # Classification is a substring match on str(error), so the exception type doesn't matter;
+        # a plain Exception carries the realistic message without requests' typed constructor.
+        error = Exception("404 Client Error: Not Found for url: https://host.example.com/export")
         non_retryable = CustomSource().get_non_retryable_errors()
         assert _classify_non_retryable(error)
         matched = [message for key, message in non_retryable.items() if key in str(error)]
