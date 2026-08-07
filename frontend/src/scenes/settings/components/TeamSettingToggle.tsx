@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { teamLogic } from 'scenes/teamLogic'
-
 import { TeamType } from '~/types'
+
+import { teamSettingToggleLogic } from './teamSettingToggleLogic'
 
 export function TeamSettingToggle({
     field,
@@ -21,21 +21,21 @@ export function TeamSettingToggle({
     onChange?: (checked: boolean) => void
     disabledReason?: string | null
 }): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const logic = teamSettingToggleLogic({ field, label })
+    const { setValue } = useActions(logic)
+    const { checked: rawChecked, isSaving } = useValues(logic)
 
-    const rawValue = !!currentTeam?.[field]
-    const displayChecked = invert ? !rawValue : rawValue
+    const displayChecked = invert ? !rawChecked : rawChecked
 
     return (
         <LemonSwitch
             onChange={(checked) => {
                 const newValue = invert ? !checked : checked
-                updateCurrentTeam({ [field]: newValue })
+                setValue(newValue)
                 onChange?.(checked)
             }}
             checked={displayChecked}
-            disabled={currentTeamLoading}
+            loading={isSaving}
             disabledReason={disabledReason}
             label={label}
             bordered

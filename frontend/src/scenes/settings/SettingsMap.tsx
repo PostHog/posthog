@@ -1606,11 +1606,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'datacapture',
                 title: 'IP data capture configuration',
+                // The toggle is labelled "Discard client IP data", so index that phrase too — the
+                // in-page settings search only matches against `searchTerm`, not `keywords`.
+                searchTerm: 'IP data capture configuration Discard client IP data',
                 description:
                     'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded. Note: this does not apply when Cookieless server hash mode is enabled, which strips the IP before transformations run.',
                 docsUrl: 'https://posthog.com/docs/privacy',
                 component: <IPCapture />,
-                keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard'],
+                keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard', 'discard client ip data'],
             },
         ],
     },
