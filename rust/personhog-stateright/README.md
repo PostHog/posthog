@@ -181,6 +181,17 @@ cutover (thaw ordering); multi-partition rebalance gating; concurrent
 handoffs (probed reachable, safety checked throughout); the dual-role
 pod shape (probed unreachable — see Results).
 
+The claim to serve is modeled apart from the lease (`Pod.claims_authority`,
+production's `AuthorityClock`), because in production the two diverge and
+the interesting failures live in the gap: a revoked lease leaves a pod
+claiming what it no longer holds until something tells it. `ClaimDetection`
+selects whether that is immediate — the pod watching its own registration —
+or waits for a keepalive round, and the verdict pins that only the prompt
+form closes the stale-read half. Stability now also requires the assigned
+owner to still claim its partitions, so an owner that refuses its own
+reads while looking alive to the coordinator fails liveness rather than
+passing quietly.
+
 Known remaining abstractions: warming is instant and atomic (production
 streams from Kafka with retries — availability, not safety); stash
 deadlines/bounds are not modeled (availability policies); the

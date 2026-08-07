@@ -105,6 +105,7 @@ import type {
   TaskMention,
   TaskRun,
   TaskRunArtefact,
+  TaskRunArtifact,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
@@ -141,7 +142,9 @@ import type {
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import {
   normalizeTaskResponse,
+  normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
+  type TaskRunArtifactDTO,
 } from "./task-normalization";
 
 export type * from "./mcp-gateway";
@@ -193,10 +196,43 @@ export interface TaskRunSessionLogsResult {
   complete: boolean;
 }
 
+export interface TaskListOptions {
+  repository?: string;
+  createdBy?: number;
+  originProduct?: string;
+  internal?: boolean;
+  channel?: string;
+  /** Caller-side cap for surfaces that only show the newest few. */
+  limit?: number;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
   content_sha256: string | null;
+}
+
+/**
+ * The commentable resources this client knows how to address. `scope` is a
+ * free-form column on the backend `Comment` model, so adding a resource is a
+ * new member here plus a caller — no migration and no endpoint.
+ */
+export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+
+/** Named `Resource*` so it never collides with the DOM's global `Comment`.
+ * Optimistic rows do not have a server version yet, while item_context is a
+ * real JSON value despite the generated serializer's historically narrow type. */
+export type ResourceComment = Omit<Schemas.Comment, "version"> & {
+  version?: number;
+};
+
+export interface CreateResourceCommentRequest {
+  scope: CommentScope;
+  itemId: string;
+  content: string;
+  context: unknown;
+  sourceCommentId?: string;
+  mentions?: number[];
 }
 
 /** Thrown when the backend rejects a cloud run with a 429 usage-limit error. */
@@ -410,26 +446,6 @@ export interface ScoutConfig {
   run_interval_minutes: number;
   last_run_at: string | null;
   created_at: string;
-}
-
-/** A team's enforced scout run caps and current usage, as dispatch applies them. */
-export interface ScoutLimits {
-  max_runs_per_tick: number;
-  /** Null when the daily budget is uncapped. */
-  max_runs_per_day: number | null;
-  runs_today: number;
-  /** Null when the daily budget is uncapped. */
-  runs_remaining_today: number | null;
-}
-
-/**
- * Team-scoped scout metadata from the `signals-scout` flag: enrollment, an optional
- * announcement banner, and the enforced run limits. `banner_message` is null when unset.
- */
-export interface ScoutMetadata {
-  enrolled: boolean;
-  banner_message: string | null;
-  limits: ScoutLimits;
 }
 
 export interface ScoutRun {
@@ -1875,10 +1891,6 @@ export class PostHogAPIClient {
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
-  async getScoutMetadata(projectId: number): Promise<ScoutMetadata> {
-    return this.scoutGet<ScoutMetadata>(projectId, "metadata/current/");
-  }
-
   async updateScoutConfig(
     projectId: number,
     configId: string,
@@ -2162,16 +2174,20 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTasks(options?: {
-    repository?: string;
-    createdBy?: number;
-    originProduct?: string;
-    internal?: boolean;
-    channel?: string;
-  }): Promise<Task[]> {
+  async getTasks(options?: TaskListOptions): Promise<Task[]> {
+    return (await this.getTasksPage(options)).tasks;
+  }
+
+  /**
+   * The same list with the total behind it, for surfaces that ask for a short
+   * page and still have to say how much they are not showing.
+   */
+  async getTasksPage(
+    options?: TaskListOptions,
+  ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
-      limit: 500,
+      limit: options?.limit ?? 500,
     };
 
     if (options?.repository) {
@@ -2199,9 +2215,10 @@ export class PostHogAPIClient {
       query: params,
     });
 
-    return (data.results ?? []).map((task) =>
+    const tasks = (data.results ?? []).map((task) =>
       normalizeTaskResponse(task, { teamId }),
     );
+    return { tasks, count: data.count ?? tasks.length };
   }
 
   async getTaskSummaries(ids: string[]) {
@@ -2717,8 +2734,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskMention[];
   }
 
-  // Tasks the current user is involved in (created, mentioned, or messaged),
-  // one row per task, newest activity first.
+  // Task lifecycle and individual comment activity, newest first.
   async getTaskActivity(options?: {
     before?: string;
     beforeId?: string;
@@ -2741,8 +2757,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskActivityPage;
   }
 
-  // Read state is per task, so callers name the tasks the user has seen rather than
-  // clearing the whole feed.
+  // Task lifecycle activity clears by task timestamp; comment activity clears by row id.
   async markTaskActivityRead(
     activities: TaskActivityReadMarker[],
   ): Promise<TaskActivityMarkReadResult> {
@@ -3007,8 +3022,9 @@ export class PostHogAPIClient {
   }
 
   async warmTask(options: {
-    repository: string;
-    github_integration: number;
+    repository?: string | null;
+    repositories?: string[];
+    github_integration?: number | null;
     branch?: string | null;
     runtime_adapter?: string | null;
     model?: string | null;
@@ -3028,6 +3044,7 @@ export class PostHogAPIClient {
       overrides: {
         body: JSON.stringify({
           repository: options.repository,
+          repositories: options.repositories,
           github_integration: options.github_integration,
           branch: options.branch ?? null,
           runtime_adapter: options.runtime_adapter ?? null,
@@ -3234,6 +3251,82 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as { url: string };
     return data.url;
+  }
+
+  async getResourceComments(
+    scope: CommentScope,
+    itemId: string,
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const MAX_COMMENT_PAGES = 50;
+    const teamId = await this.getTeamId();
+    const comments: ResourceComment[] = [];
+    let cursor: string | undefined;
+    for (let pageIndex = 0; pageIndex < MAX_COMMENT_PAGES; pageIndex++) {
+      const page = await this.api.get("/api/projects/{project_id}/comments/", {
+        path: { project_id: String(teamId) },
+        query: { scope, item_id: itemId, task_id: taskId, cursor },
+      });
+      comments.push(...page.results);
+      cursor = page.next
+        ? (new URL(page.next).searchParams.get("cursor") ?? undefined)
+        : undefined;
+      if (!cursor) return comments;
+    }
+    log.warn(
+      `getResourceComments hit MAX_PAGES (${MAX_COMMENT_PAGES}); returning partial results`,
+      { scope, itemId, returned: comments.length },
+    );
+    return comments;
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const teamId = await this.getTeamId();
+    const payload = {
+      content: request.content,
+      scope: request.scope,
+      item_id: request.itemId,
+      item_context: request.context,
+      source_comment: request.sourceCommentId ?? null,
+      mentions: request.mentions ?? [],
+      // Resolution is represented by a thread-state reply so this stays on the
+      // same PAT-compatible write path as ordinary comments.
+      is_task: false,
+    };
+    return await this.api.post("/api/projects/{project_id}/comments/", {
+      path: { project_id: String(teamId) },
+      body: payload as unknown as Schemas.Comment,
+    });
+  }
+
+  /** Hide or restore every version of a file on the run, returning the updated manifest. */
+  async setTaskRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/dismiss/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify({ artifact_ids: artifactIds, dismissed }),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update artifact: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as {
+      artifacts?: TaskRunArtifactDTO[];
+    };
+    return (data.artifacts ?? []).map(normalizeTaskRunArtifact);
   }
 
   async getTaskSessionStorageAccess(

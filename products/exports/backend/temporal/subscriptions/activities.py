@@ -51,8 +51,12 @@ from ee.tasks.subscriptions.auto_disable import (
     get_subscription_disable_reason,
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.failure_notifications import (
+    create_subscription_delivery_failure_notification,
+    send_subscription_delivery_failure_email,
+)
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
-from ee.tasks.subscriptions.subscription_utils import MAX_DASHBOARD_INSIGHTS
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 LOGGER = get_logger(__name__)
 
@@ -257,7 +261,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         subscription_id=inputs.subscription_id,
     )
 
-    max_asset_count = inputs.max_asset_count if inputs.max_asset_count is not None else MAX_DASHBOARD_INSIGHTS
+    max_asset_count = inputs.max_asset_count if inputs.max_asset_count is not None else MAX_INSIGHTS
     if max_asset_count <= 0:
         raise ApplicationError(
             f"Dashboard insight export limit must be at least 1, received {max_asset_count} for subscription {inputs.subscription_id}",
@@ -313,6 +317,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             team_id=team.id,
             distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
             target_type=subscription.target_type,
+            available_insight_count=resolved_insights.available_insight_count,
+            selected_insight_count=resolved_insights.selected_insight_count,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
             failure_context=failure_context,
         )
@@ -382,6 +388,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
+        available_insight_count=resolved_insights.available_insight_count,
+        selected_insight_count=resolved_insights.selected_insight_count,
     )
 
 
@@ -604,6 +612,35 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         delivery_id=inputs.delivery_id,
         status=inputs.status,
     )
+
+
+@temporalio.activity.defn
+async def notify_subscription_delivery_failure(subscription_id: int, failure_id: str) -> None:
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by").get,
+        thread_sensitive=False,
+    )(pk=subscription_id)
+    errors: list[Exception] = []
+    try:
+        await database_sync_to_async(send_subscription_delivery_failure_email, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception("notify_subscription_delivery_failure.email_failed", subscription_id=subscription_id)
+
+    try:
+        await database_sync_to_async(create_subscription_delivery_failure_notification, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception(
+            "notify_subscription_delivery_failure.in_app_notification_failed", subscription_id=subscription_id
+        )
+
+    if errors:
+        raise errors[0]
 
 
 @temporalio.activity.defn

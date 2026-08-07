@@ -99,6 +99,15 @@ pub struct Pod {
     /// its keepalive notices and the process self-fences (production: the
     /// bounded zombie window; fix 1 bounds it to ~one heartbeat tick).
     pub zombie_writes_left: u8,
+    /// Whether this pod still claims the right to serve (production: the
+    /// `AuthorityClock` the keepalive stamps and the data plane reads).
+    ///
+    /// Deliberately not the same fact as `registered`. A lease can be
+    /// revoked out from under a pod, leaving it claiming a partition it
+    /// no longer holds until something tells it otherwise — which is the
+    /// window the read gate is trying to close, and cannot be expressed
+    /// if the two are one flag.
+    pub claims_authority: bool,
 }
 
 /// One router. A clean router restart is indistinguishable from a
@@ -285,6 +294,20 @@ pub enum Action {
     /// The zombie's keepalive notices the dead lease and the process
     /// exits (production fix 1).
     SelfFence(PodId),
+    /// A pod notices its lease is gone and stops claiming the partitions
+    /// it holds (production: the keepalive's next round, or the
+    /// registration watch firing). Only reachable under delayed
+    /// detection; prompt detection drops the claim with the lease.
+    NoticeLeaseLoss(PodId),
+    /// A pod's published claim ages past the renewal margin while its
+    /// registration still stands (production: the keepalive stops
+    /// confirming, but etcd holds the lease until the full TTL). The pod
+    /// refuses to serve and the coordinator, seeing a live registration,
+    /// reassigns nothing.
+    AuthorityLapse(PodId),
+    /// A renewal lands and the claim comes back, without the session ever
+    /// having ended.
+    AuthorityRenew(PodId),
     /// A previously-dead pod rejoins under its old name: fresh
     /// registration, fresh lease, empty memory (production: normal pod
     /// startup; its partitions come back via Warming handoffs from the

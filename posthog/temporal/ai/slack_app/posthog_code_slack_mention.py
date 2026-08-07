@@ -215,11 +215,10 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if cascade.mode == "auto":
                 repository = cascade.repository
             elif cascade.mode == "no_repo":
-                # Cascade only emits `no_repo` when neither the team nor the
-                # mentioning user has any GitHub install. Classify first so
-                # non-coding asks ("how do I configure retention?") still
-                # answer with no repo; coding asks surface the connect-personal-
-                # GitHub prompt instead of silently no-op'ing.
+                # Cascade emits `no_repo` whenever the mentioning user resolves no
+                # repos. Classify first so non-coding asks ("how do I configure
+                # retention?") still answer with no repo; coding asks surface the
+                # connect-personal-GitHub prompt instead of silently no-op'ing.
                 repository = None
                 needs_repo = await _execute_posthog_code_activity(
                     classify_posthog_code_task_needs_repo_activity,
@@ -237,9 +236,11 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     if blocked:
                         return
             elif cascade.mode == "needs_user_github":
-                # Team has GitHub, but the mentioning user hasn't connected their
-                # personal install. Fire the gate so they get the Connect button
-                # instead of a silently no-repo task.
+                # Replay-only: the cascade no longer emits this mode, because gating on a
+                # missing personal install before classifying the ask walled analytics
+                # questions behind the Connect button. Kept so executions that recorded it
+                # before the change still replay against the same command sequence; drop it
+                # once the workflow history retention window has elapsed.
                 await _execute_posthog_code_activity(
                     block_posthog_code_task_if_no_personal_github_activity,
                     inputs,
