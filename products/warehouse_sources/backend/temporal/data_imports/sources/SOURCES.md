@@ -107,6 +107,7 @@ the row lists both.
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bill_com                         | HTTP                        | requests                                                        | ✅                          |
 | bing_ads                         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| bing_webmaster_tools             | HTTP                        | requests                                                        | ✅                          |
 | bitbucket                        | HTTP                        | requests                                                        | ✅                          |
 | bitrise                          | HTTP                        | requests                                                        | ✅                          |
 | bland_ai                         | HTTP                        | requests                                                        | ✅                          |
@@ -840,7 +841,6 @@ doesn't conflict with concurrent PRs.
 - bigeye
 - billit
 - billomat
-- bing_webmaster_tools
 - bitly
 - bitwarden
 - blackbaud_raisers_edge_nxt
