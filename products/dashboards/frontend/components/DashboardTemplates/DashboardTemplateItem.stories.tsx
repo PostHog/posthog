@@ -1,9 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { action } from 'storybook/actions'
-
-import type { DashboardTemplateItemProps } from './DashboardTemplateItem'
-import { TemplateItem } from './DashboardTemplateItem'
+import type { DashboardTemplateItemProps } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItem'
+import { TemplateItem } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItem'
 
 // A small inline SVG data URI so stories don't depend on external network requests (picsum.photos)
 // which cause flaky timeouts in CI when waiting for image naturalWidth.
@@ -18,7 +16,7 @@ const sampleTemplate: DashboardTemplateItemProps['template'] = {
 }
 
 function DashboardTemplateItemGallery(): JSX.Element {
-    const onClick = action('onClick')
+    const onClick = (): void => undefined
 
     return (
         <div className="flex max-w-3xl flex-col gap-10">
@@ -106,7 +104,7 @@ function DashboardTemplateItemGallery(): JSX.Element {
 }
 
 const meta: Meta<typeof DashboardTemplateItemGallery> = {
-    title: 'Scenes-App/Dashboards/Templates/Dashboard template item',
+    title: 'Products/Dashboards/Templates/Dashboard template item',
     component: DashboardTemplateItemGallery,
     decorators: [
         (Story) => (

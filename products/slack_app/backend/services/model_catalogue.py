@@ -72,6 +72,39 @@ class ModelChoice:
     supported_efforts: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class RuntimeGroup:
+    """The models one runtime drives, under the name that runtime goes by."""
+
+    runtime_adapter: str
+    label: str
+    choices: tuple[ModelChoice, ...]
+
+
+def group_by_runtime(choices: tuple[ModelChoice, ...]) -> tuple[RuntimeGroup, ...]:
+    """The catalogue as a runtime → models tree, in the order the catalogue gave.
+
+    Both consumers present the catalogue this way and neither should decide for itself
+    what a runtime is called: the App Home modal renders the tree as linked dropdowns,
+    and the model-override classifier renders it as the list of ids it may pick from.
+    The classifier needs the grouping to be visible rather than implied — people qualify
+    a model with the runtime it belongs to ("codex sol"), and a flat list gives that word
+    nothing to attach to, most sharply where a runtime name is also part of a model id
+    (`gpt-5.3-codex`). A runtime with no models simply doesn't appear.
+    """
+    by_adapter: dict[str, list[ModelChoice]] = {}
+    for choice in choices:
+        by_adapter.setdefault(choice.runtime_adapter, []).append(choice)
+    return tuple(
+        RuntimeGroup(
+            runtime_adapter=adapter,
+            label=label_for(adapter, RUNTIME_ADAPTER_DISPLAY_NAMES),
+            choices=tuple(grouped),
+        )
+        for adapter, grouped in by_adapter.items()
+    )
+
+
 def available_model_choices() -> tuple[ModelChoice, ...]:
     """Every model a Slack-triggered run may use.
 
@@ -182,10 +215,12 @@ __all__ = [
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "ModelChoice",
+    "RuntimeGroup",
     "available_model_choices",
     "describe_run_model",
     "filter_unsupported_effort",
     "format_model_id",
+    "group_by_runtime",
     "label_for",
     "runtime_adapter_for",
 ]
