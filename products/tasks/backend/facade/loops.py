@@ -41,7 +41,7 @@ from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.tasks.backend import loop_service
+from products.tasks.backend import loop_service, loop_slack_events
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 from products.tasks.backend.logic.services import loop_runs
 from products.tasks.backend.loop_lifecycle import (
@@ -77,7 +77,12 @@ POSTHOG_MCP_SCOPES_CHOICES = ("read_only", "full")
 NOTIFICATION_CHANNELS = ("push", "email", "slack")
 NOTIFICATION_EVENTS = ("run_completed", "run_failed", "pr_created", "needs_attention")
 ALLOWED_GITHUB_TRIGGER_EVENTS = ("issues", "issue_comment", "pull_request", "push")
+ALLOWED_SLACK_POSTER_MODES = loop_slack_events.ALLOWED_POSTER_MODES
 MAX_LOOP_REPOSITORIES = 1
+# A slack trigger listens to whole channels, so every entry widens what can fire the loop.
+MAX_SLACK_TRIGGER_CHANNELS = 20
+MAX_SLACK_TRIGGER_KEYWORDS = 20
+MAX_SLACK_TRIGGER_POSTERS = 50
 
 # Abuse/DoS ceilings. Each schedule trigger mints one Temporal Schedule and each loop can fire
 # LOOP_RATE_CAP_PER_DAY times, so these two caps together bound a team's total schedule count
@@ -628,6 +633,20 @@ def github_integration_ids_for_team(team_id: int, integration_ids: Iterable[int]
             "id", flat=True
         )
     )
+
+
+def slack_integration_ids_for_team(team_id: int, integration_ids: Iterable[int]) -> set[int]:
+    return set(
+        Integration.objects.filter(team_id=team_id, kind="slack", id__in=list(integration_ids)).values_list(
+            "id", flat=True
+        )
+    )
+
+
+def team_slack_integration_ids(team_id: int) -> set[int]:
+    """Every Slack integration id for a team, so trigger validation can tell 'this project
+    has no Slack app connected' apart from 'you passed the wrong id'."""
+    return set(Integration.objects.filter(team_id=team_id, kind="slack").values_list("id", flat=True))
 
 
 def team_github_integration_ids(team_id: int) -> set[int]:

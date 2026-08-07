@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 from django.conf import settings
 from django.db import transaction
@@ -281,7 +281,10 @@ def execute_task_processing_workflow(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional["SlackThreadContext"] = None,
+    # Already-serialized dicts are accepted alongside the dataclass (see
+    # `_normalize_slack_context`): a loop fire carries its thread binding as the same dict it
+    # persists in `pending_dispatch`, so the reconciler can re-dispatch it unchanged.
+    slack_thread_context: Optional[Union["SlackThreadContext", dict[str, Any]]] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,

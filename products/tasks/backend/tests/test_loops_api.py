@@ -1095,6 +1095,98 @@ class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
 
+class LoopSlackTriggerValidationAPITest(LoopsAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.slack_integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T0WORKSPACE", config={}
+        )
+
+    def _slack_trigger(self, config_overrides: dict | None = None) -> dict:
+        config: dict = {
+            "slack_integration_id": self.slack_integration.id,
+            "channel_ids": ["C0123ABCDEF"],
+        }
+        config.update(config_overrides or {})
+        return {"type": "slack", "config": config}
+
+    def test_config_is_normalized_on_save(self):
+        # Slack sends upper-case ids and the matcher lowercases the message it searches, so a
+        # pasted lower-case id or a capitalized keyword would save and then never fire.
+        created = self._create_loop(
+            self.owner_client,
+            triggers=[
+                self._slack_trigger(
+                    {
+                        "channel_ids": ["c0123abcdef"],
+                        "filters": {"keyword": "Incident"},
+                        "allowed_posters": {"mode": "slack_user_ids", "slack_user_ids": ["b0incident"]},
+                    }
+                )
+            ],
+        )
+
+        config = created["triggers"][0]["config"]
+        self.assertEqual(config["channel_ids"], ["C0123ABCDEF"])
+        self.assertEqual(config["filters"], {"keywords": ["incident"]})
+        self.assertEqual(config["allowed_posters"], {"mode": "slack_user_ids", "slack_user_ids": ["B0INCIDENT"]})
+
+    def test_allowed_posters_defaults_to_org_members(self):
+        # The default decides whose message may spend the owner's credentials, so an omitted
+        # value must not read as "anyone".
+        created = self._create_loop(self.owner_client, triggers=[self._slack_trigger()])
+
+        self.assertEqual(created["triggers"][0]["config"]["allowed_posters"], {"mode": "org_members"})
+
+    @parameterized.expand(
+        [
+            ("missing_channels", {"channel_ids": []}),
+            # A channel name saves fine and then never matches: Slack only sends ids on events.
+            ("channel_name_instead_of_id", {"channel_ids": ["#alerts"]}),
+            ("channel_id_of_the_wrong_shape", {"channel_ids": ["U0123ABCDEF"]}),
+            ("too_many_channels", {"channel_ids": [f"C{i:010d}" for i in range(21)]}),
+            # A blank keyword matches no message, so the trigger would sit there doing nothing.
+            ("blank_keyword", {"filters": {"keywords": ["  "]}}),
+            ("blank_keyword_among_values", {"filters": {"keywords": ["incident", ""]}}),
+            ("non_string_keyword", {"filters": {"keywords": [7]}}),
+            ("unknown_filter_key", {"filters": {"mentions": ["@here"]}}),
+            ("unknown_poster_mode", {"allowed_posters": {"mode": "everyone"}}),
+            ("slack_user_ids_mode_without_ids", {"allowed_posters": {"mode": "slack_user_ids"}}),
+            (
+                "slack_user_ids_mode_with_empty_list",
+                {"allowed_posters": {"mode": "slack_user_ids", "slack_user_ids": []}},
+            ),
+            (
+                "poster_id_of_the_wrong_shape",
+                {"allowed_posters": {"mode": "slack_user_ids", "slack_user_ids": ["C0CHANNEL"]}},
+            ),
+        ]
+    )
+    def test_invalid_slack_configs_are_rejected(self, _name, config_overrides):
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(triggers=[self._slack_trigger(config_overrides)]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_another_teams_slack_integration_is_rejected(self):
+        # The integration id is caller-supplied, so without this a member could point a trigger
+        # at another project's Slack workspace and listen to its channels through that install.
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_integration = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T0OTHER", config={}
+        )
+
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(triggers=[self._slack_trigger({"slack_integration_id": other_integration.id})]),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+
 class LoopServiceReadbackAPITest(LoopsAPITestCase):
     def _psak(self, scopes) -> str:
         raw_token = generate_random_token_secret()

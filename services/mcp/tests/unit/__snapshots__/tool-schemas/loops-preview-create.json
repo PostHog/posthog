@@ -9,8 +9,8 @@
         },
         "trigger_type": {
             "default": "schedule",
-            "description": "Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n* `schedule` - schedule\n* `github` - github\n* `api` - api",
-            "enum": ["schedule", "github", "api"],
+            "description": "Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n* `schedule` - schedule\n* `github` - github\n* `slack` - slack\n* `api` - api",
+            "enum": ["schedule", "github", "slack", "api"],
             "type": "string"
         }
     },

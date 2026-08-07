@@ -187,10 +187,12 @@ MAX_PAYLOAD_STRING_LENGTH = 200
 _PAYLOAD_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-def _validate_payload_conditions(raw: Any) -> list[dict[str, Any]]:
-    """`filters.payload`: dot-path conditions on the webhook body, for the fields no named filter
+def _validate_payload_conditions(raw: Any, *, list_hint: str = "") -> list[dict[str, Any]]:
+    """`filters.payload`: dot-path conditions on the event body, for the fields no named filter
     covers (the motivating one being `requested_team.slug` on a review request). Bounded because a
-    stored condition is re-evaluated on every delivery for the repo."""
+    stored condition is re-evaluated on every delivery. Shared by the github and slack triggers,
+    which match identically; `list_hint` names the filter to use instead when a path indexes into
+    a list, since that differs per trigger type."""
     if not isinstance(raw, list):
         raise serializers.ValidationError({"filters": "Filter 'payload' must be a list of {path, equals} objects."})
     if len(raw) > MAX_PAYLOAD_CONDITIONS:
@@ -226,7 +228,7 @@ def _validate_payload_conditions(raw: Any) -> list[dict[str, Any]]:
                 {
                     "filters": (
                         f"Payload condition path '{path}' indexes into a list. Conditions match object "
-                        "keys only, so this would never fire. To match labels, use the `labels` filter."
+                        f"keys only, so this would never fire.{list_hint}"
                     )
                 }
             )
@@ -331,7 +333,9 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
     for raw_key, filter_value in filters_raw.items():
         key = filter_key_aliases.get(raw_key, raw_key)
         if key == "payload":
-            filters[key] = _validate_payload_conditions(filter_value)
+            filters[key] = _validate_payload_conditions(
+                filter_value, list_hint=" To match labels, use the `labels` filter."
+            )
             continue
         if key not in ("actions", "branches", "labels"):
             raise serializers.ValidationError(
@@ -356,6 +360,155 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
     }
 
 
+MAX_SLACK_KEYWORD_LENGTH = 200
+# Slack object ids: channels are C/G/D, users U/W, bots B, apps A. Case-insensitive because
+# people paste them from URLs, and normalized to upper below so matching is exact. The upper
+# bound is not cosmetic: `channel_ids` is promoted into a varchar(32) array column, so an
+# unbounded id would pass validation and then fail the insert with a 500.
+_SLACK_CHANNEL_ID = re.compile(r"^[CGD][A-Z0-9]{2,30}$", re.IGNORECASE)
+_SLACK_ACTOR_ID = re.compile(r"^[UWBA][A-Z0-9]{2,30}$", re.IGNORECASE)
+
+
+def _validate_slack_channel_ids(raw: Any) -> list[str]:
+    channels = [raw] if isinstance(raw, str) else raw
+    if not isinstance(channels, list) or not channels:
+        raise serializers.ValidationError({"channel_ids": "At least one Slack channel is required."})
+    if len(channels) > loops_facade.MAX_SLACK_TRIGGER_CHANNELS:
+        raise serializers.ValidationError(
+            {"channel_ids": f"At most {loops_facade.MAX_SLACK_TRIGGER_CHANNELS} channels per trigger."}
+        )
+
+    normalized: list[str] = []
+    for channel in channels:
+        if not isinstance(channel, str) or not channel.strip():
+            raise serializers.ValidationError({"channel_ids": "Each channel must be a Slack channel ID."})
+        value = channel.strip().upper()
+        # Slack sends only ids on message events, so a channel name would save and never match.
+        if not _SLACK_CHANNEL_ID.match(value):
+            raise serializers.ValidationError(
+                {
+                    "channel_ids": (
+                        f"'{channel}' is not a Slack channel ID. Use the ID (like C0123ABCDEF), not the "
+                        "channel name — you can copy it from the channel's details in Slack."
+                    )
+                }
+            )
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _validate_slack_keywords(raw: Any) -> list[str]:
+    keywords = [raw] if isinstance(raw, str) else raw
+    if not isinstance(keywords, list) or not all(isinstance(item, str) for item in keywords):
+        raise serializers.ValidationError({"filters": "Filter 'keywords' must be a string or a list of strings."})
+    if len(keywords) > loops_facade.MAX_SLACK_TRIGGER_KEYWORDS:
+        raise serializers.ValidationError(
+            {"filters": f"At most {loops_facade.MAX_SLACK_TRIGGER_KEYWORDS} keywords per trigger."}
+        )
+
+    normalized: list[str] = []
+    for keyword in keywords:
+        # Matching lowercases the message, so store lowercased or a capitalized keyword never fires.
+        value = keyword.strip().lower()
+        if not value:
+            raise serializers.ValidationError(
+                {
+                    "filters": "A blank keyword matches nothing. Remove it, or leave `keywords` out to run on every message."
+                }
+            )
+        if len(value) > MAX_SLACK_KEYWORD_LENGTH:
+            raise serializers.ValidationError(
+                {"filters": f"Each keyword must be at most {MAX_SLACK_KEYWORD_LENGTH} characters."}
+            )
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _validate_slack_allowed_posters(raw: Any) -> dict[str, Any]:
+    """Who may fire the loop by posting. Defaults to org members: a matched trigger starts an
+    unattended run holding the loop owner's credentials, so the loosest sensible default is
+    still "somebody who already has access to this project"."""
+    if raw is None:
+        return {"mode": loops_facade.ALLOWED_SLACK_POSTER_MODES[0]}
+    if not isinstance(raw, dict):
+        raise serializers.ValidationError({"allowed_posters": "Must be an object with a `mode`."})
+
+    mode = raw.get("mode", loops_facade.ALLOWED_SLACK_POSTER_MODES[0])
+    if mode not in loops_facade.ALLOWED_SLACK_POSTER_MODES:
+        raise serializers.ValidationError(
+            {"allowed_posters": f"Unsupported mode '{mode}'. Allowed: {list(loops_facade.ALLOWED_SLACK_POSTER_MODES)}."}
+        )
+    if mode != "slack_user_ids":
+        return {"mode": mode}
+
+    raw_ids = raw.get("slack_user_ids")
+    raw_ids = [raw_ids] if isinstance(raw_ids, str) else raw_ids
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise serializers.ValidationError(
+            {"allowed_posters": "Mode 'slack_user_ids' needs at least one Slack user, bot or app ID."}
+        )
+    if len(raw_ids) > loops_facade.MAX_SLACK_TRIGGER_POSTERS:
+        raise serializers.ValidationError(
+            {"allowed_posters": f"At most {loops_facade.MAX_SLACK_TRIGGER_POSTERS} allowed posters."}
+        )
+
+    slack_user_ids: list[str] = []
+    for actor_id in raw_ids:
+        if not isinstance(actor_id, str) or not _SLACK_ACTOR_ID.match(actor_id.strip()):
+            raise serializers.ValidationError(
+                {
+                    "allowed_posters": (
+                        f"'{actor_id}' is not a Slack ID. Use a user ID (U…), bot ID (B…) or app ID (A…) — "
+                        "an alerting app posts under its bot ID, not a user ID."
+                    )
+                }
+            )
+        value = actor_id.strip().upper()
+        if value not in slack_user_ids:
+            slack_user_ids.append(value)
+    return {"mode": mode, "slack_user_ids": slack_user_ids}
+
+
+def _validate_slack_trigger_config(config: dict, team_id: int) -> dict:
+    slack_integration_id = config.get("slack_integration_id")
+    if not isinstance(slack_integration_id, int):
+        raise serializers.ValidationError({"slack_integration_id": "Required integer Slack integration id."})
+    if not loops_facade.slack_integration_ids_for_team(team_id, [slack_integration_id]):
+        if not loops_facade.team_slack_integration_ids(team_id):
+            raise serializers.ValidationError(
+                {"slack_integration_id": "This project has no Slack workspace connected. Connect one first."}
+            )
+        raise serializers.ValidationError({"slack_integration_id": "Slack integration not found for this project."})
+
+    channel_ids = _validate_slack_channel_ids(config.get("channel_ids"))
+
+    filters_raw = config.get("filters") or {}
+    if not isinstance(filters_raw, dict):
+        raise serializers.ValidationError({"filters": "Filters must be an object."})
+    # Singular `keyword` accepted for the same reason `action`/`label` are on github triggers:
+    # it's what an agent (and a person) naturally reaches for.
+    filters: dict[str, Any] = {}
+    for raw_key, filter_value in filters_raw.items():
+        key = "keywords" if raw_key == "keyword" else raw_key
+        if key == "keywords":
+            filters[key] = _validate_slack_keywords(filter_value)
+        elif key == "payload":
+            filters[key] = _validate_payload_conditions(filter_value)
+        else:
+            raise serializers.ValidationError(
+                {"filters": f"Unsupported filter key: '{raw_key}'. Allowed: keywords, payload."}
+            )
+
+    return {
+        "slack_integration_id": slack_integration_id,
+        "channel_ids": channel_ids,
+        "filters": filters,
+        "allowed_posters": _validate_slack_allowed_posters(config.get("allowed_posters")),
+    }
+
+
 def _validate_api_trigger_config(config: dict) -> dict:
     if config:
         raise serializers.ValidationError("API triggers take no config.")
@@ -369,7 +522,10 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
     )
     type = serializers.ChoiceField(
         choices=[t.value for t in loops_facade.LoopTriggerType],
-        help_text="Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).",
+        help_text=(
+            "Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), "
+            "`slack` (messages in a Slack channel), or `api` (POST to `trigger/`)."
+        ),
     )
     enabled = serializers.BooleanField(
         required=False, default=True, help_text="Whether this trigger is active. Disabling pauses only this trigger."
@@ -389,7 +545,16 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
             "`{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is "
             "a string or list of strings, e.g. "
             '`[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that '
-            "team is asked to review. All filters must match. API triggers take no config."
+            "team is asked to review. All filters must match. "
+            "slack takes `{slack_integration_id, channel_ids, filters, allowed_posters}` where "
+            "`channel_ids` are Slack channel IDs (like `C0123ABCDEF`) the bot is a member of, and "
+            "`filters` takes `{keywords, payload}`. `keywords` is a case-insensitive substring match "
+            "against the message text plus its attachments and blocks, any one of which is enough; "
+            "omitting it runs the loop on every message in the channel. `allowed_posters` is "
+            "`{mode, slack_user_ids}` with `mode` one of `org_members` (default), `loop_owner` or "
+            "`slack_user_ids`. Only `slack_user_ids` can fire on an app- or bot-posted message, and "
+            "it matches the message's user, bot or app ID. The run replies in that message's thread. "
+            "API triggers take no config."
         ),
     )
 
@@ -405,6 +570,8 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
             attrs["config"] = _validate_schedule_trigger_config(config, now=django_timezone.now())
         elif trigger_type == loops_facade.LoopTriggerType.GITHUB:
             attrs["config"] = _validate_github_trigger_config(config, team.id)
+        elif trigger_type == loops_facade.LoopTriggerType.SLACK:
+            attrs["config"] = _validate_slack_trigger_config(config, team.id)
         elif trigger_type == loops_facade.LoopTriggerType.API:
             attrs["config"] = _validate_api_trigger_config(config)
         return attrs

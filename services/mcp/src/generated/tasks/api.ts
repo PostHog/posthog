@@ -308,10 +308,10 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Existing trigger id to update in place. Omit to create a new trigger.'),
                     type: zod
-                        .enum(['schedule', 'github', 'api'])
-                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
+                        .enum(['schedule', 'github', 'slack', 'api'])
+                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `slack` - slack\n\* `api` - api')
                         .describe(
-                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
+                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), `slack` (messages in a Slack channel), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `slack` - slack\n\* `api` - api'
                         ),
                     enabled: zod
                         .boolean()
@@ -321,7 +321,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. slack takes `{slack_integration_id, channel_ids, filters, allowed_posters}` where `channel_ids` are Slack channel IDs (like `C0123ABCDEF`) the bot is a member of, and `filters` takes `{keywords, payload}`. `keywords` is a case-insensitive substring match against the message text plus its attachments and blocks, any one of which is enough; omitting it runs the loop on every message in the channel. `allowed_posters` is `{mode, slack_user_ids}` with `mode` one of `org_members` (default), `loop_owner` or `slack_user_ids`. Only `slack_user_ids` can fire on an app- or bot-posted message, and it matches the message\'s user, bot or app ID. The run replies in that message\'s thread. API triggers take no config.'
                         ),
                 })
             )
@@ -623,10 +623,10 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Existing trigger id to update in place. Omit to create a new trigger.'),
                     type: zod
-                        .enum(['schedule', 'github', 'api'])
-                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
+                        .enum(['schedule', 'github', 'slack', 'api'])
+                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `slack` - slack\n\* `api` - api')
                         .describe(
-                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
+                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), `slack` (messages in a Slack channel), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `slack` - slack\n\* `api` - api'
                         ),
                     enabled: zod
                         .boolean()
@@ -636,7 +636,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. slack takes `{slack_integration_id, channel_ids, filters, allowed_posters}` where `channel_ids` are Slack channel IDs (like `C0123ABCDEF`) the bot is a member of, and `filters` takes `{keywords, payload}`. `keywords` is a case-insensitive substring match against the message text plus its attachments and blocks, any one of which is enough; omitting it runs the loop on every message in the channel. `allowed_posters` is `{mode, slack_user_ids}` with `mode` one of `org_members` (default), `loop_owner` or `slack_user_ids`. Only `slack_user_ids` can fire on an app- or bot-posted message, and it matches the message\'s user, bot or app ID. The run replies in that message\'s thread. API triggers take no config.'
                         ),
                 })
             )
@@ -679,11 +679,11 @@ export const loopsPreviewCreateBodyTriggerTypeDefault = `schedule`
 
 export const LoopsPreviewCreateBody = /* @__PURE__ */ zod.object({
     trigger_type: zod
-        .enum(['schedule', 'github', 'api'])
-        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
+        .enum(['schedule', 'github', 'slack', 'api'])
+        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `slack` - slack\n\* `api` - api')
         .default(loopsPreviewCreateBodyTriggerTypeDefault)
         .describe(
-            'Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
+            'Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n\* `schedule` - schedule\n\* `github` - github\n\* `slack` - slack\n\* `api` - api'
         ),
     payload: zod
         .unknown()

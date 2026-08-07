@@ -707,8 +707,8 @@ SPECTACULAR_SETTINGS = {
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
         # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
-        # schedule/github/api choice set — pin them to a single named enum.
-        "LoopTriggerTypeEnum": ["schedule", "github", "api"],
+        # schedule/github/slack/api choice set — pin them to a single named enum.
+        "LoopTriggerTypeEnum": ["schedule", "github", "slack", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",

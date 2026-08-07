@@ -542,7 +542,55 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
             run_id=str(result.task_run_id),
             create_pr=expected_create_pr,
             posthog_mcp_scopes=expected_scopes,
+            slack_thread_context=None,
         )
+
+    def test_fire_with_a_slack_thread_target_binds_the_thread_to_the_run(self):
+        # Without both halves the run reports nowhere: the mapping row is what the end-of-turn
+        # relay resolves to find the thread, and slack_thread_context carries lifecycle updates.
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T0WORKSPACE", config={})
+        loop = self.create_loop()
+        trigger = self.create_trigger(loop)
+        target = {
+            "integration_id": integration.id,
+            "slack_workspace_id": "T0WORKSPACE",
+            "channel": "C0ALERTS01",
+            "thread_ts": "1712345678.000100",
+            "user_message_ts": "1712345678.000100",
+            "mentioning_slack_user_id": "U0TEAMMATE",
+        }
+
+        with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = fire_loop(loop, trigger, "fire-slack", "ctx", slack_thread_target=target)
+
+        self.assertEqual(
+            mock_dispatch.call_args.kwargs["slack_thread_context"],
+            {
+                "integration_id": integration.id,
+                "channel": "C0ALERTS01",
+                "thread_ts": "1712345678.000100",
+                "user_message_ts": "1712345678.000100",
+                "mentioning_slack_user_id": "U0TEAMMATE",
+            },
+        )
+        mapping = SlackThreadTaskMapping.objects.get(channel="C0ALERTS01", thread_ts="1712345678.000100")
+        self.assertEqual(mapping.task_run_id, result.task_run_id)
+
+    def test_fire_with_an_incomplete_slack_thread_target_still_creates_the_run(self):
+        # A run that reports nowhere is a far better outcome than a fire that silently never
+        # happens, so a half-built binding is treated as absent rather than raising.
+        loop = self.create_loop()
+        trigger = self.create_trigger(loop)
+
+        with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = fire_loop(loop, trigger, "fire-partial", "ctx", slack_thread_target={"channel": "C0ALERTS01"})
+
+        self.assertTrue(result.created)
+        self.assertIsNone(mock_dispatch.call_args.kwargs["slack_thread_context"])
 
     @parameterized.expand(
         [

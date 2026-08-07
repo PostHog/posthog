@@ -64,6 +64,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_assistant_flag_enabled,
     is_slack_app_bot_prs_enabled,
+    is_slack_app_loop_triggers_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
@@ -111,6 +112,7 @@ from products.slack_app.backend.services.slack_user_oauth import (
     post_link_invite_message,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl, parse_posthog_resource_link
+from products.tasks.backend.facade import webhooks as tasks_webhooks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -1187,6 +1189,108 @@ def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
     return isinstance(files, list) and len(files) > 0
 
 
+def _loop_trigger_message_ignore_reason(event: dict[str, Any]) -> str | None:
+    """Return a short reason if this ``message`` can't fire a Slack loop trigger, else None.
+
+    Deliberately narrower than ``_thread_message_ignore_reason``: a loop trigger listens to a
+    whole channel, so a top-level post is the normal case rather than noise, and an alerting
+    app's post is a legitimate source (the trigger's ``allowed_posters`` decides whether that
+    particular app may fire it). Only a message with nothing to match on, or one that isn't a
+    fresh post, is dropped here.
+    """
+    if event.get("edited") or event.get("subtype") == "message_changed":
+        return "edit"
+    if event.get("subtype") == "message_deleted":
+        return "deleted"
+    if not (event.get("text") or event.get("attachments") or event.get("blocks")):
+        return "no_content"
+    if not isinstance(event.get("channel"), str):
+        return "no_channel"
+    return None
+
+
+def _is_slack_loop_trigger_candidate(event: dict[str, Any], slack_team_id: str) -> bool:
+    """Whether this message is worth running loop-trigger matching for.
+
+    Guarded by a cached workspace-level lookup, because this is what admits top-level channel
+    posts into a handler that used to drop them before any DB hit. A workspace with no Slack
+    triggers pays one cached read per message and nothing else.
+    """
+    if _loop_trigger_message_ignore_reason(event) is not None:
+        return False
+    try:
+        return tasks_webhooks_facade.slack_workspace_has_loop_triggers(slack_team_id)
+    except Exception:
+        logger.exception("slack_app_loop_trigger_precheck_failed", slack_team_id=slack_team_id)
+        return False
+
+
+def _dispatch_slack_loop_triggers(
+    event: dict[str, Any],
+    slack_team_id: str,
+    event_id: str | None,
+    candidates: list[Integration],
+    *,
+    is_ext_shared_channel: bool,
+) -> None:
+    """Fire any Slack loop trigger this message matches.
+
+    Never raises: this shares a handler with thread-follow-up routing, and a failure here must
+    not cost that. The poster resolver is passed as a callable so the ``users.info`` round trip
+    it needs is only paid once a trigger has actually matched on channel and content.
+    """
+    channel = event.get("channel")
+    if not candidates or not isinstance(channel, str):
+        return
+
+    # An externally-shared channel puts the run's report in front of another company, so it
+    # waits on the same approval every other agent surface does. The mention path reaches that
+    # gate further down the handler; a loop fire returns before it, so it checks here.
+    if is_ext_shared_channel and not _channel_is_approved(slack_team_id, channel):
+        logger.info(
+            "slack_app_loop_trigger_channel_unapproved",
+            slack_team_id=slack_team_id,
+            channel=channel,
+            event_id=event_id,
+        )
+        return
+
+    # The rollout flag is per organization, and a workspace can be connected to several. Gate
+    # each install on its own org rather than letting one org's verdict decide for the rest.
+    enabled = [
+        integration for integration in candidates if is_slack_app_loop_triggers_enabled(integration, slack_team_id)
+    ]
+    if not enabled:
+        return
+
+    def resolve_poster_user_id() -> int | None:
+        slack_user_id = event.get("user")
+        if not isinstance(slack_user_id, str) or not slack_user_id:
+            return None
+        user = resolve_posthog_user_from_event(
+            slack_user_id=slack_user_id,
+            probe_integration=enabled[0],
+            candidate_integrations=enabled,
+        )
+        return user.id if user is not None else None
+
+    try:
+        tasks_webhooks_facade.handle_slack_message_for_loops(
+            event=event,
+            slack_team_id=slack_team_id,
+            event_id=event_id or "",
+            integrations=enabled,
+            resolve_poster_user_id=resolve_poster_user_id,
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_loop_trigger_dispatch_failed",
+            slack_team_id=slack_team_id,
+            channel=channel,
+            event_id=event_id,
+        )
+
+
 def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this ``message`` event shouldn't be considered as an
     untagged thread follow-up, else None.
@@ -1245,6 +1349,11 @@ def _resolve_untagged_followup_mapping(
             channel=channel,
             thread_ts=thread_ts,
         )
+        # A loop's run binds the thread it reports into, but its trigger decides who may
+        # drive it (`allowed_posters`), and this path doesn't know that rule. Forwarding a
+        # reply here would let anyone with project access steer a run whose trigger says
+        # "only the owner" or "only this alerting app". Loop runs are unattended by design.
+        .exclude(task__origin_product=tasks_webhooks_facade.TASK_ORIGIN_PRODUCT_LOOP)
         .select_related("integration", "integration__team")
         .first()
     )
@@ -1892,18 +2001,24 @@ def route_posthog_code_event_to_relevant_region(
                 return ROUTE_HANDLED_LOCALLY
         else:
             ignore_reason = _thread_message_ignore_reason(event)
-            if ignore_reason:
-                logger.info(
-                    "slack_app_thread_message_ignored",
-                    reason=ignore_reason,
-                    slack_team_id=slack_team_id,
-                    channel=event.get("channel"),
-                    message_ts=event.get("ts"),
-                )
-                return ROUTE_HANDLED_LOCALLY
-            # Top-level channel posts dominate the wire volume; drop before any DB hit.
+            # A loop trigger watches a whole channel, so it fires on messages the follow-up
+            # path drops: top-level posts, and posts by an app rather than a person. Both
+            # drops below therefore only apply once we know no trigger could want this
+            # message. The check is cached and returns False for any workspace without a
+            # Slack trigger, so the wire-volume argument for dropping early still holds.
+            loop_trigger_candidate = _is_slack_loop_trigger_candidate(event, slack_team_id)
             top_level_thread_ts = event.get("thread_ts")
-            if not isinstance(top_level_thread_ts, str) or top_level_thread_ts == event.get("ts"):
+            is_thread_reply = isinstance(top_level_thread_ts, str) and top_level_thread_ts != event.get("ts")
+            followup_ignore_reason = ignore_reason or (None if is_thread_reply else "top_level")
+            if followup_ignore_reason and not loop_trigger_candidate:
+                if ignore_reason:
+                    logger.info(
+                        "slack_app_thread_message_ignored",
+                        reason=ignore_reason,
+                        slack_team_id=slack_team_id,
+                        channel=event.get("channel"),
+                        message_ts=event.get("ts"),
+                    )
                 return ROUTE_HANDLED_LOCALLY
 
         slack_user_id_str = str(event.get("user") or "")
@@ -1943,6 +2058,22 @@ def route_posthog_code_event_to_relevant_region(
             if region_route == ROUTE_NO_INTEGRATION and event_type == "app_mention":
                 _report_slack_mention_dropped(event, slack_team_id, reason="no_integration", replied=False)
             return region_route
+
+        if event_type == "message":
+            if loop_trigger_candidate:
+                _dispatch_slack_loop_triggers(
+                    event,
+                    slack_team_id,
+                    event_id,
+                    workspace_result.candidates,
+                    is_ext_shared_channel=is_ext_shared_channel,
+                )
+            # Everything below is the thread-follow-up pipeline, which wants a narrower set of
+            # messages than loop triggers do. Drop here exactly what it used to drop before
+            # reaching this point, so admitting a message for trigger matching above changes
+            # nothing about how it is otherwise handled.
+            if followup_ignore_reason:
+                return ROUTE_HANDLED_LOCALLY
 
         # A reply on a thread that mirrors a PostHog discussion becomes a comment, not agent work.
         if event_type == "message":

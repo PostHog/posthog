@@ -294,15 +294,20 @@ def fire_loop(
     fire_key: str,
     trigger_context: str,
     actor: User | None = None,
+    slack_thread_target: dict[str, Any] | None = None,
 ) -> LoopFireResult:
     """Fire a loop: gate, dedup, rate-cap, apply overlap policy, then spawn a run.
 
-    Every trigger path (schedule workflow, GitHub webhook handler, API endpoint,
-    manual "run now") calls this and only this, so the guardrails apply once,
+    Every trigger path (schedule workflow, GitHub webhook handler, Slack message handler,
+    API endpoint, manual "run now") calls this and only this, so the guardrails apply once,
     in one order, regardless of caller. Dedup, rate-cap and overlap all run inside a
     single team-scoped advisory-locked transaction so concurrent fires are race-free
     and a failed run creation rolls back its dedup record (a retry recreates cleanly
     rather than being silently swallowed).
+
+    ``slack_thread_target`` binds this one fire's run to a Slack thread, so its report is
+    delivered there. It is per-fire, not per-loop: a channel trigger opens a new thread
+    under each message it matches.
     """
     if not loop.enabled or loop.deleted:
         return LoopFireResult(created=False, reason="disabled", task_id=None, task_run_id=None)
@@ -333,7 +338,9 @@ def fire_loop(
         dispatch_loop_event(loop, "needs_attention", {"reason": "gate_blocked"})
         return LoopFireResult(created=False, reason="gate_blocked", task_id=None, task_run_id=None)
 
-    decision = _fire_loop_committed(loop, trigger, fire_key, trigger_context, gate_owner_id=gate_owner_id)
+    decision = _fire_loop_committed(
+        loop, trigger, fire_key, trigger_context, gate_owner_id=gate_owner_id, slack_thread_target=slack_thread_target
+    )
 
     # Side effects run after the transaction commits. A replay (a retry that deduped against an
     # existing fire) skips them: the original fire already emitted them.
@@ -364,7 +371,13 @@ def fire_loop(
 
 
 def _fire_loop_committed(
-    loop: Loop, trigger: LoopTrigger | None, fire_key: str, trigger_context: str, *, gate_owner_id: int | None
+    loop: Loop,
+    trigger: LoopTrigger | None,
+    fire_key: str,
+    trigger_context: str,
+    *,
+    gate_owner_id: int | None,
+    slack_thread_target: dict[str, Any] | None = None,
 ) -> _FireDecision:
     with transaction.atomic():
         # Team-scoped advisory lock: serialize all of a team's fires so dedup detection, both
@@ -470,7 +483,7 @@ def _fire_loop_committed(
                 )
             # ALLOW falls through and creates a new run alongside the active ones.
 
-        task, task_run = _create_loop_task_and_run(loop, trigger, trigger_context)
+        task, task_run = _create_loop_task_and_run(loop, trigger, trigger_context, slack_thread_target)
         fire.outcome_reason = "created"
         fire.outcome_task_id = task.id
         fire.outcome_task_run_id = task_run.id
@@ -539,6 +552,7 @@ def _seed_skill_bundles_and_dispatch(
     run_id: str,
     create_pr: bool,
     posthog_mcp_scopes: PosthogMcpScopes,
+    slack_thread_context: dict[str, Any] | None = None,
 ) -> None:
     """Post-commit tail of a fire: seed the run's snapshotted skill bundles, then
     dispatch the Temporal workflow. Seeding copies S3 objects, and
@@ -570,6 +584,7 @@ def _seed_skill_bundles_and_dispatch(
         run_id=run_id,
         create_pr=create_pr,
         posthog_mcp_scopes=posthog_mcp_scopes,
+        slack_thread_context=slack_thread_context,
     )
 
 
@@ -674,7 +689,59 @@ def _seed_skill_bundle_artifacts(task_run: TaskRun) -> None:
         raise
 
 
-def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_context: str) -> tuple[Task, TaskRun]:
+# The fields SlackThreadContext is built from. `slack_thread_target` carries one extra
+# (`slack_workspace_id`) that only the thread mapping row needs.
+_SLACK_THREAD_CONTEXT_KEYS = ("integration_id", "channel", "thread_ts", "user_message_ts", "mentioning_slack_user_id")
+
+
+def _slack_thread_context_dict(target: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The dispatch-shaped Slack context for a fire, or None when the binding is absent or
+    incomplete. Incomplete is treated as absent rather than raising: a run that reports
+    nowhere is a far better outcome than a fire that never happens."""
+    if not target:
+        return None
+    if not all(target.get(key) for key in ("integration_id", "channel", "thread_ts")):
+        return None
+    return {key: target.get(key) for key in _SLACK_THREAD_CONTEXT_KEYS}
+
+
+def _bind_slack_thread(task: Task, task_run: TaskRun, target: dict[str, Any]) -> None:
+    """Point the Slack thread at this run, so the agent's end-of-turn relay finds it.
+
+    ``get_or_create``, not ``update_or_create``: the mapping is unique per thread, and when
+    two loops match the same message the first binding must stand rather than be silently
+    stolen by the second (whose lifecycle updates still reach the thread through the run's
+    own ``slack_thread_context``)."""
+    from products.slack_app.backend.models import (  # noqa: PLC0415 (product boundary; keeps slack_app off this module's import path)
+        SlackThreadTaskMapping,
+    )
+
+    _, created = SlackThreadTaskMapping.objects.get_or_create(
+        integration_id=target["integration_id"],
+        channel=target["channel"],
+        thread_ts=target["thread_ts"],
+        defaults={
+            "team_id": task.team_id,
+            "slack_workspace_id": target.get("slack_workspace_id") or "",
+            "task": task,
+            "task_run": task_run,
+            "mentioning_slack_user_id": target.get("mentioning_slack_user_id") or "",
+            "last_forwarded_ts": target.get("user_message_ts"),
+        },
+    )
+    if not created:
+        logger.info(
+            "loop_run.slack_thread_already_bound",
+            extra={"task_run_id": str(task_run.id), "channel": target["channel"], "thread_ts": target["thread_ts"]},
+        )
+
+
+def _create_loop_task_and_run(
+    loop: Loop,
+    trigger: LoopTrigger | None,
+    trigger_context: str,
+    slack_thread_target: dict[str, Any] | None = None,
+) -> tuple[Task, TaskRun]:
     repository: str | None = None
     github_integration_id: int | None = None
     if loop.repositories:
@@ -759,11 +826,12 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # orphaned-QUEUED-run reconciler re-dispatches a lost fire with the loop's real
     # configuration instead of its generic defaults (create_pr=True, full MCP scopes),
     # which would silently escalate a report-only, read-only loop.
+    slack_thread_context = _slack_thread_context_dict(slack_thread_target)
     extra_state["pending_dispatch"] = {
         "create_pr": create_pr,
         "posthog_mcp_scopes": posthog_mcp_scopes,
         "user_id": loop.created_by_id,
-        "slack_thread_context": None,
+        "slack_thread_context": slack_thread_context,
         "workflow_id_prefix": None,
     }
     # Freeze the bundle set on the run itself: seeding (post-commit and reconciler
@@ -774,6 +842,11 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         extra_state["skill_bundle_seeds"] = bundle_seeds
 
     task_run = task.create_run(mode="background", extra_state=extra_state)
+
+    # Before dispatch, so the relay can already resolve the thread by the time the agent
+    # produces its first message.
+    if slack_thread_context is not None and slack_thread_target is not None:
+        _bind_slack_thread(task, task_run, slack_thread_target)
 
     team_id = loop.team_id
     user_id = loop.created_by_id
@@ -789,6 +862,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
             run_id=run_id,
             create_pr=create_pr,
             posthog_mcp_scopes=posthog_mcp_scopes,
+            slack_thread_context=slack_thread_context,
         )
     )
 
@@ -810,6 +884,7 @@ def _execute_task_processing_workflow_for_loop(
     run_id: str,
     create_pr: bool,
     posthog_mcp_scopes: PosthogMcpScopes,
+    slack_thread_context: dict[str, Any] | None = None,
 ) -> None:
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 (keep temporalio off importers that only need dedup/rendering)
         execute_task_processing_workflow,
@@ -823,6 +898,7 @@ def _execute_task_processing_workflow_for_loop(
         create_pr=create_pr,
         posthog_mcp_scopes=posthog_mcp_scopes,
         skip_user_check=True,
+        slack_thread_context=slack_thread_context,
     )
 
 

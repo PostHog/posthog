@@ -1626,6 +1626,7 @@ class LoopTrigger(TeamScopedRootMixin):
     class TriggerType(models.TextChoices):
         SCHEDULE = "schedule", "Schedule"
         GITHUB = "github", "GitHub"
+        SLACK = "slack", "Slack"
         API = "api", "API"
 
     class ScheduleSyncStatus(models.TextChoices):
@@ -1646,6 +1647,10 @@ class LoopTrigger(TeamScopedRootMixin):
     github_integration_id = models.BigIntegerField(null=True, blank=True)
     repository = models.CharField(max_length=512, null=True, blank=True)
     event_types = ArrayField(models.CharField(max_length=32), null=True, blank=True)
+    # Same promotion for `type=slack` rows. Slack's message firehose is far chattier than
+    # GitHub's, so every message in an installed channel reaches this lookup.
+    slack_integration_id = models.BigIntegerField(null=True, blank=True)
+    slack_channel_ids = ArrayField(models.CharField(max_length=32), null=True, blank=True)
     schedule_sync_status = models.CharField(max_length=16, choices=ScheduleSyncStatus, null=True, blank=True)
     last_fired_at = models.DateTimeField(null=True, blank=True)
     # Set once a one-time (`run_at`) trigger has fired its single occurrence. Terminal: its spent
@@ -1658,29 +1663,40 @@ class LoopTrigger(TeamScopedRootMixin):
         db_table = "posthog_task_loop_trigger"
         indexes = [
             models.Index(fields=["github_integration_id", "repository"], name="task_loop_trigger_gh_repo_idx"),
+            models.Index(fields=["slack_integration_id"], name="task_loop_trigger_slack_idx"),
         ]
 
     def __str__(self):
         return f"{self.type} trigger on loop {self.loop_id}"
 
+    def _promoted_config_int(self, key: str) -> int | None:
+        config = self.config if isinstance(self.config, dict) else {}
+        value = config.get(key)
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _promoted_config_strings(self, key: str) -> list[str] | None:
+        config = self.config if isinstance(self.config, dict) else {}
+        values = config.get(key)
+        if not isinstance(values, list):
+            return None
+        return [value for value in values if isinstance(value, str)]
+
     def save(self, *args, **kwargs):
-        if self.type == self.TriggerType.GITHUB:
-            config = self.config if isinstance(self.config, dict) else {}
-            github_integration_id = config.get("github_integration_id")
-            try:
-                self.github_integration_id = int(github_integration_id) if github_integration_id is not None else None
-            except (TypeError, ValueError):
-                self.github_integration_id = None
-            repository = config.get("repository")
-            self.repository = repository.strip() if isinstance(repository, str) and repository.strip() else None
-            events = config.get("events")
-            self.event_types = (
-                [event for event in events if isinstance(event, str)] if isinstance(events, list) else None
-            )
-        else:
-            self.github_integration_id = None
-            self.repository = None
-            self.event_types = None
+        config = self.config if isinstance(self.config, dict) else {}
+        is_github = self.type == self.TriggerType.GITHUB
+        is_slack = self.type == self.TriggerType.SLACK
+
+        self.github_integration_id = self._promoted_config_int("github_integration_id") if is_github else None
+        repository = config.get("repository") if is_github else None
+        self.repository = repository.strip() if isinstance(repository, str) and repository.strip() else None
+        self.event_types = self._promoted_config_strings("events") if is_github else None
+
+        self.slack_integration_id = self._promoted_config_int("slack_integration_id") if is_slack else None
+        self.slack_channel_ids = self._promoted_config_strings("channel_ids") if is_slack else None
+
         super().save(*args, **kwargs)
 
     @property
