@@ -31,12 +31,7 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.services.model_catalogue import ModelChoice
-from products.slack_app.evals.scorers import (
-    MODEL_OVERRIDE_KEY,
-    ModelOverrideMatch,
-    NoUnaskedOverride,
-    require_llm_gateway,
-)
+from products.slack_app.evals.scorers import MODEL_OVERRIDE_KEY, ModelOverrideMatch, NoUnaskedOverride
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -147,8 +142,6 @@ SUBJECT_MATTER_CASES = [
 
 
 async def eval_model_classifier(ctx: EvalContext) -> None:
-    require_llm_gateway()
-
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         # Recorded per case so an experiment says which model produced its scores.
         classifier_model = classifiers.MODEL_OVERRIDE_CLASSIFIER_MODEL

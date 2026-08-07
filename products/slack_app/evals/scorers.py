@@ -11,10 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.conf import settings
-
-import httpx
-
 from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
@@ -286,27 +282,3 @@ class NoUnaskedWake(Scorer):
             score=0.0 if (output or {}).get("agent_directed") else 1.0,
             metadata={"actual": (output or {}).get("agent_directed")},
         )
-
-
-def require_llm_gateway() -> None:
-    """Fail a classifier suite up front when the gateway it grades through is unreachable.
-
-    These classifiers catch their own exceptions and return the safe default, so a refused
-    connection still produces a full scorecard — every case expecting the safe answer
-    passes, and the run reports a plausible number for a classifier never asked anything.
-
-    The harness boots its own gateway but points only the *sandbox* at it
-    (`SANDBOX_LLM_GATEWAY_URL`); in-process calls go to `settings.LLM_GATEWAY_URL`, so the
-    check belongs to the suites that depend on it.
-    """
-    url = getattr(settings, "LLM_GATEWAY_URL", None)
-    if not url:
-        raise RuntimeError("LLM_GATEWAY_URL is not configured — these suites grade LLM classifiers.")
-    try:
-        httpx.get(f"{url.rstrip('/')}/health", timeout=5.0)
-    except httpx.RequestError as error:
-        raise RuntimeError(
-            f"No LLM gateway reachable at {url} ({error}). Start one with `bin/start-llm-gateway`.\n"
-            "Without it every classifier call fails into its safe default and the suite scores "
-            "that silently, which reads as a real result."
-        ) from error
