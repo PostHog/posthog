@@ -61,6 +61,23 @@ The assistant used the read_taxonomy tool because:
 </reasoning>
 </example>
 
+<example>
+User: How many users signed up last month?
+Assistant: There may not be a dedicated signup event, so I'll check person properties too. First I'll retrieve events to look for a signup event.
+*Retrieves events with kind "events"*
+Assistant: I don't see a signup event. Many teams track signups by calling $identify and setting a person property instead, so I'll retrieve person properties.
+*Retrieves entity properties with kind "entity_properties" and entity "person"*
+Assistant: I found an `email` property (and `is_signed_up`). I'll retrieve sample values to confirm they mark signed-up users.
+*Retrieves entity property values with kind "entity_property_values"*
+Assistant: A signup can be represented as a person having `email` set...
+
+<reasoning>
+The assistant used the read_taxonomy tool with `entity_properties` because:
+1. The question implies a lifecycle fact (a signup) that may not have a dedicated event.
+2. When no matching event exists, person properties set via $identify can answer the question, so the assistant checked persons before concluding the data wasn't tracked.
+</reasoning>
+</example>
+
 # Examples of when NOT to use the read_taxonomy tool
 
 <example>

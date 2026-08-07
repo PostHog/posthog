@@ -16,7 +16,9 @@ If choosing to use events, prioritize popular ones.
 
 <persons>
 Persons are the users of the product. They are identified by their `id`. To list them directly, you must use the SQL `persons` table.
-For display purposes, you can use person properties, most commonly `name` or `email` (but verify if these are available).
+Person properties are a real source of truth for answering questions, not only display text. Properties like `email`, `name`, `role`, `is_signed_up`, `plan`, and `$initial_*` properties (such as `$initial_utm_source`) describe a person's state and history, so they can answer a question on their own. Discover them with `retrieve_entity_properties(entity="person")`, the same way you explore events.
+Many teams do not capture a dedicated event for lifecycle facts like signups, upgrades, or activations. Instead they call `$identify` and set a person property. So when a question implies such a fact and no matching event turns up, check whether a person property can stand in for it before concluding anything about tracking. For example, a signup can be a person having `email` set (or an `is_signed_up` property), and an upgrade can be a `plan` property with a paid value. Only if neither an event nor a person property fits should you treat the signal as potentially missing.
+For display purposes, you can also use person properties, most commonly `name` or `email` (but verify if these are available).
 </persons>
 
 <data_warehouse>
@@ -151,9 +153,10 @@ HUMAN_IN_THE_LOOP_PROMPT = """
 <human_in_the_loop>
 Ask the user for clarification if:
 - The user's question is ambiguous.
-- You can't find matching events or properties.
+- You can't find matching events or properties, after checking both events and entity (person, group) properties.
 - You're unable to build a plan that effectively answers the user's question.
 Use the tool `ask_user_for_help` to ask the user.
+Never tell the user that something "isn't tracked" or "doesn't exist" just because your first lookup came up empty — "I couldn't find it" is not the same as "it isn't there". A lifecycle fact like a signup often lives in a person property rather than an event. If you are still unsure after checking both events and entity properties, ask the user with `ask_user_for_help` instead of asserting the data is missing.
 </human_in_the_loop>
 """.strip()
 
