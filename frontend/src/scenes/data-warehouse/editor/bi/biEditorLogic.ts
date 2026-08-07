@@ -26,6 +26,7 @@ import {
     createDefaultDateFilter,
     defaultAggregationForField,
     isBIFieldCompatible,
+    normalizeBIConfig,
 } from './biEditorTypes'
 
 export interface BIEditorLogicProps {
@@ -416,7 +417,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 addBlankFieldToShelf: (config, { shelf, fieldId }) =>
                     config.source ? addFieldToConfig(config, blankField(config.source, fieldId), shelf) : config,
                 removeFieldFromShelf: (config, { shelf, index }) => removeFieldFromConfig(config, shelf, index),
-                setChartType: (config, { chartType }) => ({ ...config, chartType }),
+                setChartType: (config, { chartType }) => normalizeBIConfig({ ...config, chartType }),
                 setDataSource: (config, { source }) => setDataSourceInConfig(config, source),
                 setValueAggregation: (config, { index, aggregation }) => ({
                     ...config,
@@ -436,7 +437,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         filterIndex === index ? { ...filter, value } : filter
                     ),
                 }),
-                setLimit: (config, { limit }) => ({ ...config, limit }),
+                setLimit: (config, { limit }) => normalizeBIConfig({ ...config, limit }),
                 setFieldExpression: (config, { shelf, index, expression }) =>
                     setFieldExpressionInConfig(config, shelf, index, expression),
                 setFieldDateBucket: (config, { shelf, index, dateBucket }) =>
@@ -453,9 +454,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         filterIndex === index ? { ...filter, customExpression } : filter
                     ),
                 }),
-                restoreState: (_, { state }) => state.config,
-                persistState: (_, { config }) => config,
-                updateTab: (_, { tab }) => tab.biEditorState?.config ?? freshBIConfig(),
+                restoreState: (_, { state }) => normalizeBIConfig(state.config),
+                persistState: (_, { config }) => normalizeBIConfig(config),
+                updateTab: (_, { tab }) =>
+                    tab.biEditorState ? normalizeBIConfig(tab.biEditorState.config) : freshBIConfig(),
                 resetConfig: freshBIConfig,
             },
         ],

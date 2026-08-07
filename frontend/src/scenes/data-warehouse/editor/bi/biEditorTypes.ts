@@ -17,6 +17,8 @@ export const BI_QUERY_LIMITS = [100, 1000, 10000, 50000] as const
 
 export type BIQueryLimit = (typeof BI_QUERY_LIMITS)[number]
 
+export const PIVOT_TABLE_QUERY_LIMIT: BIQueryLimit = 1000
+
 export type BIFilterOperator =
     | 'equals'
     | 'not_equals'
@@ -93,6 +95,14 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     values: [],
     filters: [],
     limit: 1000,
+}
+
+export function normalizeBIConfig(config: BIConfig): BIConfig {
+    if (config.chartType !== ChartDisplayType.TwoDimensionalHeatmap || config.limit <= PIVOT_TABLE_QUERY_LIMIT) {
+        return config
+    }
+
+    return { ...config, limit: PIVOT_TABLE_QUERY_LIMIT }
 }
 
 const BI_AGGREGATIONS = new Set<BIAggregation>([
@@ -337,7 +347,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         return null
     }
 
-    return { editorView: editorViewValue, config }
+    return { editorView: editorViewValue, config: normalizeBIConfig(config) }
 }
 
 function sanitizeAlias(value: string): string {
@@ -353,6 +363,17 @@ function dimensionAlias(shelf: 'row' | 'column', field: BIField, index: number):
     return `bi_${shelf}_${sanitizeAlias(field.name || field.expression)}${index > 0 ? `_${index + 1}` : ''}`
 }
 
+interface BIDimension {
+    alias: string
+    field: BIField
+}
+
+interface BIPivotAxis {
+    alias: string
+    expression: string
+    label: string
+}
+
 function aggregationAlias(value: BIValue, index: number): string {
     return `${value.aggregation}_${sanitizeAlias(value.field.name)}${index > 0 ? `_${index + 1}` : ''}`
 }
@@ -366,6 +387,21 @@ function fieldExpression(field: BIField): string {
         : expression
 
     return field.dateBucket ? `${DATE_BUCKET_FUNCTIONS[field.dateBucket]}(${escapedExpression})` : escapedExpression
+}
+
+function pivotAxis(shelf: 'row' | 'column', dimensions: BIDimension[]): BIPivotAxis | null {
+    if (dimensions.length === 0) {
+        return null
+    }
+
+    return {
+        alias: dimensions.length === 1 ? dimensions[0].alias : `bi_${shelf}s`,
+        expression:
+            dimensions.length === 1
+                ? fieldExpression(dimensions[0].field)
+                : `toJSONString(tuple(${dimensions.map(({ field }) => fieldExpression(field)).join(', ')}))`,
+        label: dimensions.map(({ field }) => field.name || field.expression).join(' / '),
+    }
 }
 
 function aggregationExpression(value: BIValue): string | null {
@@ -448,11 +484,13 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
     const dimensions = [...rowDimensions, ...columnDimensions]
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
-    const dimensionSelectExpressions = dimensions.map(({ alias, field }) => {
-        const expression = fieldExpression(field)
-
-        return isPivotTable ? `${expression} AS ${alias}` : expression
-    })
+    const pivotRowAxis = isPivotTable ? pivotAxis('row', rowDimensions) : null
+    const pivotColumnAxis = isPivotTable ? pivotAxis('column', columnDimensions) : null
+    const dimensionSelectExpressions = isPivotTable
+        ? [pivotRowAxis, pivotColumnAxis]
+              .filter((axis): axis is BIPivotAxis => axis !== null)
+              .map(({ alias, expression }) => `${expression} AS ${alias}`)
+        : dimensionExpressions
     const configuredValues = config.values
         .map((value) => ({ value, expression: aggregationExpression(value) }))
         .filter(
@@ -487,18 +525,18 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         queryParts.push(`GROUP BY\n    ${dimensionExpressions.join(',\n    ')}`)
     }
 
-    queryParts.push(`LIMIT ${config.limit}`)
+    queryParts.push(`LIMIT ${normalizeBIConfig(config).limit}`)
 
     const query = queryParts.join('\n')
 
     const pivotTableSettings = isPivotTable
         ? {
               heatmap: {
-                  xAxisColumn: columnDimensions[0]?.alias,
-                  yAxisColumn: rowDimensions[0]?.alias,
+                  xAxisColumn: pivotColumnAxis?.alias,
+                  yAxisColumn: pivotRowAxis?.alias,
                   valueColumn: configuredValues[0] ? aggregationAlias(configuredValues[0].value, 0) : 'count',
-                  xAxisLabel: columnDimensions[0]?.field.name || columnDimensions[0]?.field.expression || undefined,
-                  yAxisLabel: rowDimensions[0]?.field.name || rowDimensions[0]?.field.expression || undefined,
+                  xAxisLabel: pivotColumnAxis?.label ?? 'Columns',
+                  yAxisLabel: pivotRowAxis?.label ?? 'Rows',
               },
           }
         : undefined

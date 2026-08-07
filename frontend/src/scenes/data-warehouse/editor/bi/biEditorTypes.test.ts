@@ -36,6 +36,22 @@ const timestampField: BIField = {
     source: { table: 'events' },
 }
 
+const browserField: BIField = {
+    id: 'warehouse:events:properties.$browser',
+    name: 'browser',
+    expression: 'properties.$browser',
+    type: 'string',
+    source: { table: 'events' },
+}
+
+const countryField: BIField = {
+    id: 'warehouse:events:properties.$geoip_country_name',
+    name: 'country',
+    expression: 'properties.$geoip_country_name',
+    type: 'string',
+    source: { table: 'events' },
+}
+
 describe('BI editor query generation', () => {
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
@@ -87,26 +103,29 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain('count(*) AS count')
     })
 
-    it('maps BI rows, columns, and values to pivot table axes and cells', () => {
+    it('maps every BI row and column dimension to pivot table axes', () => {
         const result = buildBIQuery({
             source: { table: 'events' },
             chartType: ChartDisplayType.TwoDimensionalHeatmap,
-            rows: [eventField],
-            columns: [timestampField],
+            rows: [eventField, timestampField],
+            columns: [browserField, countryField],
             values: [{ field: revenueField, aggregation: 'sum' }],
             filters: [],
-            limit: 1000,
+            limit: 50000,
         })
 
-        expect(result?.query).toContain('event AS bi_row_event')
-        expect(result?.query).toContain('timestamp AS bi_column_timestamp')
+        expect(result?.query).toContain('toJSONString(tuple(event, timestamp)) AS bi_rows')
+        expect(result?.query).toContain(
+            'toJSONString(tuple(properties.$browser, properties.$geoip_country_name)) AS bi_columns'
+        )
+        expect(result?.query).toContain('LIMIT 1000')
         expect(result?.node.chartSettings).toEqual({
             heatmap: {
-                xAxisColumn: 'bi_column_timestamp',
-                yAxisColumn: 'bi_row_event',
+                xAxisColumn: 'bi_columns',
+                yAxisColumn: 'bi_rows',
                 valueColumn: 'sum_revenue',
-                xAxisLabel: 'timestamp',
-                yAxisLabel: 'event',
+                xAxisLabel: 'browser / country',
+                yAxisLabel: 'event / timestamp',
             },
         })
     })
