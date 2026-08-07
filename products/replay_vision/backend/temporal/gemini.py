@@ -36,7 +36,10 @@ def describe_gemini_error(error: BaseException) -> str:
     if isinstance(error, APIError):
         status = f" {error.status}" if error.status else ""
         return f"The AI provider returned HTTP {error.code}{status}"
-    return f"PostHog could not reach the AI provider ({type(error).__name__})"
+    # No exception class name here: the transport hierarchy has many (ReadError, RemoteProtocolError, ProxyError,
+    # …) for one condition — an unreachable provider — and interpolating it fingerprinted each as a separate error
+    # tracking issue. Callers log `error_type` as a structured field, so the class survives without fragmenting.
+    return "PostHog could not reach the AI provider"
 
 
 def classify_gemini_error(error: BaseException) -> FailureKind | None:

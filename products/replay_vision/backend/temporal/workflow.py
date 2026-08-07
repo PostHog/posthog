@@ -8,6 +8,7 @@ from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import (
     ActivityError,
+    ChildWorkflowError,
     TimeoutError as TemporalTimeoutError,
 )
 
@@ -155,6 +156,11 @@ _PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
 # surfaces here the render attempts are spent and the emptiness is a property of the recording, not of one attempt.
 _RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
 
+# The render succeeded but the object store returned an unreadable (non-XML) response while storing the video —
+# the AWS SDK surfaces it as a deserialization error. It's an object-store hiccup, not a render defect, so it
+# gets its own kind rather than the rasterizer label. (Node maps it to this code; see the rasterizer's errors.ts.)
+_RASTERIZER_S3_UNDECODABLE_TYPE = "S3_UPLOAD_UNDECODABLE_RESPONSE"
+
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
     """Map an activity start-to-close/heartbeat timeout onto whichever side ran out of time."""
@@ -171,6 +177,18 @@ def _failure_type(e: BaseException) -> str | None:
     """The `type` off an ApplicationError, surviving Temporal's ActivityError / ChildWorkflowError wrapping."""
     cause = unwrap_temporal_cause(e) or e
     return getattr(cause, "type", None)
+
+
+def _rasterize_child_failure_kind(e: BaseException, failure_type: str | None) -> FailureKind:
+    """Classify a rasterize child failure. Only a genuine render fault earns the rasterizer label; a child that
+    ran out of time is capacity, and an unreadable object-store response is storage — neither is a video the user
+    should be told failed to render, and neither should point them at support over a recording that still plays."""
+    if isinstance(e, ChildWorkflowError) and isinstance(e.cause, TemporalTimeoutError):
+        # The child hit its execution timeout (40m). A slow render under load, not a defect — retry helps.
+        return FailureKind.INFRA_TRANSIENT
+    if failure_type == _RASTERIZER_S3_UNDECODABLE_TYPE:
+        return FailureKind.RENDER_UPLOAD_FAILED
+    return FailureKind.RASTERIZATION_FAILED
 
 
 def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
@@ -408,13 +426,17 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 ),
             )
         except Exception as e:
-            if _failure_type(e) == _RASTERIZER_NO_SNAPSHOTS_TYPE:
+            failure_type = _failure_type(e)
+            if failure_type == _RASTERIZER_NO_SNAPSHOTS_TYPE:
                 # Replay metadata exists but the snapshot blocks hold nothing to draw. That is the same class of
                 # "nothing to analyze" as a session with no events, which we already gate as ineligible, so calling
                 # it a failure would point the user at support over a recording that can never produce a video.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
-            # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
-            raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
+            # Re-classify the child's failure so the user sees an accurate label, not a generic "internal error"
+            # and not a blanket "video failed" for a timeout or a storage hiccup that isn't a render fault.
+            raise ScannerFailureError(
+                _root_cause_message(e), kind=_rasterize_child_failure_kind(e, failure_type)
+            ) from e
 
     async def _mark_failed(self, observation_id: UUID, scanner_type: ScannerType, kind: str, message: str) -> None:
         await wf.execute_activity(

@@ -194,6 +194,14 @@ class DirectlyFailingWorkflow:
             raise ApplicationError("Workflow failed!")
 
 
+@workflow.defn
+class NonReportableWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        if inputs.fail:
+            raise _MarkedNonReportableError("expected condition re-raised in the workflow body; no capture")
+
+
 @pytest.mark.parametrize("fail", [True, False])
 @pytest.mark.parametrize("capture_additional_properties", [True, False])
 @pytest.mark.asyncio
@@ -443,3 +451,32 @@ async def test_workflow_only_error_is_captured(temporal_client: Client):
         assert isinstance(workflow_call[0][0], ApplicationError)
         assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
         assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
+
+
+@pytest.mark.asyncio
+async def test_non_reportable_error_raised_in_workflow_is_not_captured(temporal_client: Client):
+    """A NonReportableError raised directly in the workflow body (not via an activity) must be skipped by the
+    workflow interceptor too, the same way the activity interceptor already skips it — otherwise a retryable
+    transient re-raised for the user's error_reason would open a spurious error-tracking issue on every run."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[NonReportableWorkflow],
+            activities=[],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "NonReportableWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()

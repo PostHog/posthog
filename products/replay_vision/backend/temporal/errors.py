@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 
 __all__ = [
@@ -40,10 +42,26 @@ class IneligibleSessionError(_KindedApplicationError):
 
 
 class ScannerFailureError(_KindedApplicationError):
-    """A classified workflow failure. Surfaced as ObservationStatus.FAILED with the kind label on the frontend."""
+    """A classified workflow failure. Surfaced as ObservationStatus.FAILED with the kind label on the frontend.
+
+    A retryable kind (provider/infra transient, undecodable render upload) recovers on Temporal's own retry,
+    so reporting each pre-recovery attempt to error tracking is pure noise — a single dropped connection to
+    the provider fingerprinted three separate live issues that all recovered. Retryable failures are therefore
+    minted as `_RetryableScannerFailureError`, which the Temporal interceptor skips via `NonReportableError`;
+    terminal failures stay plain and reportable.
+    """
+
+    def __new__(cls, message: str, *, kind: FailureKind) -> "ScannerFailureError":
+        target = _RetryableScannerFailureError if cls is ScannerFailureError and kind.is_retryable else cls
+        return super().__new__(target)
 
     def __init__(self, message: str, *, kind: FailureKind) -> None:
         super().__init__(message, kind=kind, type=SCANNER_FAILURE_ERROR_TYPE, non_retryable=not kind.is_retryable)
+
+
+class _RetryableScannerFailureError(ScannerFailureError, NonReportableError):
+    """A ScannerFailureError whose kind is retryable. The `NonReportableError` marker keeps Temporal's retry
+    attempts out of error tracking; nothing else distinguishes it from its parent."""
 
 
 class _ConsentKind(StrEnum):

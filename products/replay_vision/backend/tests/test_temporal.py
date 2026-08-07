@@ -31,6 +31,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.temporal.common.errors import NonReportableError
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -1899,6 +1900,9 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
         ("NO_SNAPSHOTS", True, "no_snapshots"),
         ("CAPTURE_ABORTED", False, "rasterization_failed"),
         (None, False, "rasterization_failed"),
+        # The object store returned an unreadable response while storing the rendered video — its own kind, not a
+        # blanket "video failed", so the user isn't sent to support over a storage hiccup and a recording that plays.
+        ("S3_UPLOAD_UNDECODABLE_RESPONSE", False, "render_upload_failed"),
     ],
 )
 async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
@@ -1936,6 +1940,52 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_marks_child_timeout_as_infra_transient() -> None:
+    # A rasterize child that hits its execution timeout arrives as a ChildWorkflowError whose cause is a
+    # TimeoutError (no rasterizer error type). It's capacity, not a render defect, so it must land as the
+    # retryable infra_transient kind rather than telling the user their recording's video failed to render.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(
+            TemporalTimeoutError("child timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        ),
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-slow"), mocks)
+
+    assert mocks.activity_calls[-1][1].error_reason.startswith("infra_transient:")
+
+
+@parameterized.expand(
+    [
+        # Retryable kinds recover on Temporal's own retry, so each pre-recovery attempt is marked NonReportable
+        # to keep transient noise out of error tracking; terminal kinds stay reportable so real defects surface.
+        (FailureKind.PROVIDER_TRANSIENT, True),
+        (FailureKind.INFRA_TRANSIENT, True),
+        (FailureKind.RENDER_UPLOAD_FAILED, True),
+        (FailureKind.RASTERIZATION_FAILED, False),
+        (FailureKind.PROVIDER_REJECTED, False),
+        (FailureKind.INTERNAL_ERROR, False),
+    ]
+)
+def test_scanner_failure_error_is_nonreportable_only_when_retryable(
+    kind: FailureKind, expect_nonreportable: bool
+) -> None:
+    error = ScannerFailureError("boom", kind=kind)
+    assert isinstance(error, ScannerFailureError)
+    assert isinstance(error, NonReportableError) is expect_nonreportable
+    assert error.kind is kind
+    assert error.non_retryable is not kind.is_retryable
 
 
 @pytest.mark.asyncio
@@ -2550,7 +2600,9 @@ class TestGeminiErrorRedaction:
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
-        assert exc_info.value.message == "PostHog could not reach the AI provider (ConnectError)"
+        # No exception class name in the message: every transport variant (ConnectError, ReadError, ProxyError)
+        # shares one message so they group into a single error tracking issue; the class lives in the log's error_type.
+        assert exc_info.value.message == "PostHog could not reach the AI provider"
 
 
 class TestWorkflowErrorHelpers:

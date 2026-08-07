@@ -23,6 +23,7 @@ class FailureKind(StrEnum):
     PROVIDER_TRANSIENT = "provider_transient"  # AI provider outage / rate limit / network; retry usually helps
     PROVIDER_REJECTED = "provider_rejected"  # AI provider couldn't process the video — won't recover
     RASTERIZATION_FAILED = "rasterization_failed"  # Rasterizer couldn't render this recording — known issue
+    RENDER_UPLOAD_FAILED = "render_upload_failed"  # Render succeeded but the object store returned an unreadable response; retry usually helps
     VALIDATION_FAILED = "validation_failed"  # LLM output didn't match the scanner schema after internal retries
     INFRA_TRANSIENT = "infra_transient"  # PostHog-side dependency was slow or at capacity; retry usually helps
     INTERNAL_ERROR = "internal_error"  # Unclassified / bug paths — user can't fix
@@ -30,8 +31,12 @@ class FailureKind(StrEnum):
 
     @property
     def is_retryable(self) -> bool:
-        """Whether Temporal should re-run the activity that raised this. Only the two transient kinds recover on their own."""
-        return self in (FailureKind.PROVIDER_TRANSIENT, FailureKind.INFRA_TRANSIENT)
+        """Whether one more attempt can plausibly land differently — the transient kinds recover on their own."""
+        return self in (
+            FailureKind.PROVIDER_TRANSIENT,
+            FailureKind.INFRA_TRANSIENT,
+            FailureKind.RENDER_UPLOAD_FAILED,
+        )
 
 
 # Shared by the model field and the API serializer so the documented vocabulary can't drift from the enums.

@@ -9,6 +9,7 @@ describe('retry guidance', () => {
             ['provider_transient', true, false],
             ['infra_transient', true, false],
             ['rasterization_failed', true, false],
+            ['render_upload_failed', true, false],
             ['orphaned', true, false],
             ['internal_error', true, false],
             ['provider_rejected', false, true],

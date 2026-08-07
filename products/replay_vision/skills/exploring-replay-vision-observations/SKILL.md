@@ -55,12 +55,12 @@ Pick the axis that matches the question:
 
 Triage `status` so you don't mistake a non-result for "nothing wrong":
 
-| status                | meaning                                                       | typical `error_reason`                                                                                   |
-| --------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `succeeded`           | has a `scanner_result`                                        | —                                                                                                        |
-| `ineligible`          | session couldn't be analysed — a normal outcome, not an error | `too_short`, `no_recording`, `too_inactive`, `too_long`, `no_events`                                     |
-| `failed`              | the scan errored                                              | `provider_rejected`, `validation_failed`, `rasterization_failed`, `provider_transient`, `internal_error` |
-| `pending` / `running` | still in flight                                               | —                                                                                                        |
+| status                | meaning                                                       | typical `error_reason`                                                                                                           |
+| --------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `succeeded`           | has a `scanner_result`                                        | —                                                                                                                                |
+| `ineligible`          | session couldn't be analysed — a normal outcome, not an error | `too_short`, `no_recording`, `too_inactive`, `too_long`, `no_events`                                                             |
+| `failed`              | the scan errored                                              | `provider_rejected`, `validation_failed`, `rasterization_failed`, `render_upload_failed`, `provider_transient`, `internal_error` |
+| `pending` / `running` | still in flight                                               | —                                                                                                                                |
 
 A scanner that looks like it "found nothing" is often producing mostly `ineligible` observations — check the
 mix before concluding.

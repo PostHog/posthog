@@ -90,6 +90,7 @@ export type FailureKind =
     | 'provider_transient'
     | 'provider_rejected'
     | 'rasterization_failed'
+    | 'render_upload_failed'
     | 'validation_failed'
     | 'infra_transient'
     | 'internal_error'
@@ -118,9 +119,15 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
         retryHint: 'The provider already declined this video, so a retry will most likely fail the same way.',
     },
     rasterization_failed: {
-        label: 'Recording video failed',
+        label: 'Video for AI analysis failed',
         description:
-            'PostHog could not turn this recording into a video for the AI. Retry the scan, and contact support if it fails again.',
+            "PostHog could not turn this recording into a video for the AI to watch. The session recording itself is fine and still plays; only the AI's copy of it failed to render. Retry the scan, and contact support if it fails again.",
+        retryWorthwhile: true,
+    },
+    render_upload_failed: {
+        label: 'Storing the AI video failed',
+        description:
+            'PostHog rendered the video but the object store returned an unreadable response, so the scan could not finish. The session recording itself is fine and still plays. This is usually temporary, so retry the scan.',
         retryWorthwhile: true,
     },
     validation_failed: {
