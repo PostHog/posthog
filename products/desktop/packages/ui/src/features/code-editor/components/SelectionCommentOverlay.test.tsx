@@ -25,6 +25,26 @@ vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
 
 import { SelectionCommentOverlay } from "./SelectionCommentOverlay";
 
+function renderCollapsed(
+  props: Partial<Parameters<typeof SelectionCommentOverlay>[0]> = {},
+) {
+  return render(
+    <SelectionCommentOverlay
+      selection={{
+        text: "selected",
+        fromLine: 1,
+        toLine: 1,
+        anchor: { top: 20, endX: 20, bottom: 38 },
+      }}
+      open
+      filePath="report.md"
+      onSubmit={vi.fn()}
+      onDismiss={vi.fn()}
+      {...props}
+    />,
+  );
+}
+
 describe("SelectionCommentOverlay", () => {
   it("keeps the existing add-to-chat action available", () => {
     render(
@@ -33,7 +53,7 @@ describe("SelectionCommentOverlay", () => {
           text: "selected",
           fromLine: 1,
           toLine: 1,
-          anchor: { top: 20, left: 20 },
+          anchor: { top: 20, endX: 20, bottom: 38 },
         }}
         open
         filePath="report.md"
@@ -43,6 +63,23 @@ describe("SelectionCommentOverlay", () => {
     );
 
     expect(screen.getByLabelText("Add to chat")).toBeInTheDocument();
+  });
+
+  it("shows no tooltip on the comment action, whose label is already visible", () => {
+    renderCollapsed({ actionLabel: "Add comment", showActionText: true });
+
+    fireEvent.focus(screen.getByLabelText("Add comment"));
+
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(screen.queryByText("Add comment")).not.toBeInTheDocument();
+  });
+
+  it("keeps the tooltip on the icon-only action, which has no visible label", () => {
+    renderCollapsed();
+
+    fireEvent.focus(screen.getByLabelText("Add to chat"));
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Add to chat");
   });
   it("prevents duplicate comment creation while submitting", async () => {
     let resolveSubmit: (() => void) | undefined;
@@ -58,7 +95,7 @@ describe("SelectionCommentOverlay", () => {
           text: "selected",
           fromLine: 1,
           toLine: 1,
-          anchor: { top: 20, left: 20 },
+          anchor: { top: 20, endX: 20, bottom: 38 },
         }}
         open
         filePath="report.md"
@@ -93,7 +130,7 @@ describe("SelectionCommentOverlay", () => {
           text: "selected",
           fromLine: 1,
           toLine: 1,
-          anchor: { top: 20, left: 20 },
+          anchor: { top: 20, endX: 20, bottom: 38 },
         }}
         open
         filePath="report.md"
