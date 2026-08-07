@@ -29,6 +29,7 @@ import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubs
 import { template as intercomEventTemplate } from './_destinations/intercom/intercom-event.template'
 import { template as intercomTemplate } from './_destinations/intercom/intercom.template'
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
+import { template as knockTemplate } from './_destinations/knock/knock.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as makeTemplate } from './_destinations/make/make.template'
@@ -140,6 +141,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     makeTemplate,
     teamsTemplate,
     onesignalTemplate,
+    knockTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
