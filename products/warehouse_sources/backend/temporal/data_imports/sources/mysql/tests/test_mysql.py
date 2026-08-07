@@ -2225,6 +2225,24 @@ class TestMySQLSourceNonRetryableErrors:
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Too-many-connections error should be classified retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "(1105, 'unknown: target: keyspace.-.primary: primary is not serving, "
+            "there may be a reparent operation in progress')",
+            "reparent operation in progress",
+        ],
+    )
+    def test_vitess_reparent_is_classified_retryable(self, source, error_msg):
+        # `_retry_on_transient_tablet_unavailable` already retries this in-process during metadata
+        # discovery, but a reparent can outlast that bounded budget; once exhausted it re-raises for
+        # Temporal to retry the whole activity. Without this classification `_handle_import_error`
+        # logs it at `exception` on every occurrence, flooding error tracking with a self-recovering
+        # Vitess/PlanetScale failover.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Vitess reparent error should be classified retryable: {error_msg}"
+
 
 class TestMySQLSourceValidateCredentials:
     @pytest.fixture
