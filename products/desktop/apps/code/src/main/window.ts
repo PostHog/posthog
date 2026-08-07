@@ -10,9 +10,11 @@ import {
   type MenuItemConstructorOptions,
   screen,
 } from "electron";
+import { APP_WINDOW_ARG } from "../shared/constants";
 import { container } from "./di/container";
 import { setupExternalLinkHandlers } from "./external-links";
 import { buildApplicationMenu } from "./menu";
+import { setupArtifactPreviewWebviews } from "./platform-adapters/electron-artifact-preview";
 import type { ElectronMainWindow } from "./platform-adapters/electron-main-window";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
 import { POSTHOG_SESSION_ID_ARG } from "./posthog-session-arg";
@@ -255,9 +257,11 @@ export function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
+      webviewTag: true,
       enableBlinkFeatures: "GetDisplayMedia",
       partition: "persist:main",
       additionalArguments: [
+        APP_WINDOW_ARG,
         ...(isDev ? ["--posthog-code-dev"] : []),
         `${POSTHOG_SESSION_ID_ARG}${posthogNodeAnalytics.getOrCreateSessionId()}`,
         encodeDevFlagsForArg(readDevFlagsSync()),
@@ -341,6 +345,7 @@ export function createWindow(): void {
     : pathToFileURL(rendererFilePath);
 
   setupExternalLinkHandlers(mainWindow, appHome);
+  setupArtifactPreviewWebviews(mainWindow);
   setupEditableContextMenu(mainWindow);
   setupCrashLogging(mainWindow);
   buildApplicationMenu();

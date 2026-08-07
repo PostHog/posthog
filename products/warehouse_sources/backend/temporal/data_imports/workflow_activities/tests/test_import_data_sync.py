@@ -9,6 +9,7 @@ from unittest import mock
 
 from django.db import InterfaceError, OperationalError
 
+from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
@@ -421,6 +422,37 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
 
     # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
     # positional args (as this branch once had) fails here instead of only at runtime.
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
+    # The shared REST engine compiles data_selector/cursor_path/resolve-param fields as JSONPath at
+    # sync time, not manifest-validation time — a malformed path (e.g. a typo'd data_selector) raises
+    # jsonpath_ng's JSONPathError deep in shared code. It's a fixed string, so it fails identically on
+    # every retry regardless of source. It must be non-retryable by type, since jsonpath_ng's error
+    # messages vary across parse/lex failure shapes and can't be matched via get_non_retryable_errors.
+    error = JsonPathParserError("Parse error at 1:0 near token . (.)")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
     with (
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
         mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,

@@ -52,7 +52,7 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
@@ -754,7 +754,19 @@ const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
         })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+        const filtered = omitResponseFields(result, [
+            'results.*.result.hogql',
+            'results.*.result.clickhouse_sql',
+            'results.*.result.cache_key',
+            'results.*.result.is_cached',
+            'results.*.result.cache_target_age',
+            'results.*.result.next_allowed_client_refresh',
+            'results.*.result.calculation_trigger',
+            'results.*.result.query_status',
+            'results.*.result.stats_version',
+            'results.*.result.insight',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
     },
 })
 
@@ -774,7 +786,19 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
         })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+        const filtered = omitResponseFields(result, [
+            'results.*.result.hogql',
+            'results.*.result.clickhouse_sql',
+            'results.*.result.cache_key',
+            'results.*.result.is_cached',
+            'results.*.result.cache_target_age',
+            'results.*.result.next_allowed_client_refresh',
+            'results.*.result.calculation_trigger',
+            'results.*.result.query_status',
+            'results.*.result.stats_version',
+            'results.*.result.insight',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
     },
 })
 
@@ -1062,7 +1086,19 @@ const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResu
                     metric_uuid: params.metric_uuid,
                 },
             })
-            return result
+            const filtered = omitResponseFields(result, [
+                'timeseries.*.hogql',
+                'timeseries.*.clickhouse_sql',
+                'timeseries.*.cache_key',
+                'timeseries.*.is_cached',
+                'timeseries.*.cache_target_age',
+                'timeseries.*.next_allowed_client_refresh',
+                'timeseries.*.calculation_trigger',
+                'timeseries.*.query_status',
+                'timeseries.*.stats_version',
+                'timeseries.*.insight',
+            ]) as typeof result
+            return filtered
         },
     })
 

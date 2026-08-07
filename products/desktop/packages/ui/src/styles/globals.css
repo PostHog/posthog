@@ -797,13 +797,36 @@ body {
 }
 
 .markdown-link {
-  color: var(--accent-11);
+  /* currentColor fallback: Radix accent vars don't reach portalled surfaces
+     (quill dialogs), and an unresolvable var would drop the declaration. */
+  color: var(--accent-11, currentColor);
   text-decoration: none;
   cursor: pointer;
 }
 
 .markdown-link:hover {
   text-decoration: underline;
+}
+
+/* Announcement modals center vertically; quill dialogs otherwise anchor near
+   the top of the window. Doubled selector to outrank .quill-dialog__content. */
+.quill-dialog__content.announcement-dialog {
+  top: 50%;
+  translate: -50% -50%;
+  max-height: calc(100dvh - 2rem);
+}
+
+[dir="rtl"] .quill-dialog__content.announcement-dialog {
+  translate: 50% -50%;
+}
+
+/* No focus rings for pointer interaction inside announcement modals —
+   clicking the scroll body, links, or buttons kept drawing them. Keyboard
+   focus (:focus-visible) keeps its indicators for accessibility. box-shadow
+   also carries Tailwind ring utilities. */
+.quill-dialog__content.announcement-dialog :focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .rich-text-editor-content {
