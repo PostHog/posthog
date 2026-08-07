@@ -1115,6 +1115,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         except Person.DoesNotExist:
             return False
+        except CH_TRANSIENT_ERRORS:
+            # Exhausted the capacity retries: an expected transient outcome that surfaces as a 503,
+            # so re-raise for the caller to translate rather than capturing it as an error.
+            raise
         except Exception as err:
             logger.exception(
                 "Failed to remove user from cohort",
