@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Upsert a repository detection. The `(repository, kind)` pair is the idempotency anchor — reposting the same pair replaces the existing row. Returns 201 on create, 200 on update.
+ * Upsert a repository detection. The `(repository, kind)` pair is the idempotency anchor — reposting the same pair replaces the existing row. Returns 201 on create, 200 on update. A push whose `task_run_id` differs from the run currently stamped on the row is rejected with 409.
  */
 export const wizardRepositoryDetectionsCreateBodyReportOneProjectsItemPathMax = 512
 
@@ -112,7 +112,9 @@ export const WizardRepositoryDetectionsCreateBody = /* @__PURE__ */ zod
         task_run_id: zod
             .uuid()
             .nullish()
-            .describe('TaskRun UUID of the cloud run producing this result. Omit for local runs.'),
+            .describe(
+                'TaskRun UUID of the cloud run producing this result. Omit for local runs. Must match the run currently stamped on the row when one is; a mismatch is rejected.'
+            ),
         repository: zod
             .string()
             .max(wizardRepositoryDetectionsCreateBodyRepositoryMax)
