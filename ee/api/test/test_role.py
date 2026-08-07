@@ -216,6 +216,38 @@ class TestRoleAPI(APILicensedTest):
         # Constant query count as members grow: the social-auth/2FA lookups are prefetched, not N+1.
         self.assertEqual(len(few_members.captured_queries), len(more_members.captured_queries))
 
+    def test_listing_roles_does_not_scale_domain_queries_with_role_count(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        def add_roles(count: int) -> None:
+            for _ in range(count):
+                role = Role.objects.create(name=f"Role {uuid4()}", organization=self.organization)
+                RoleMembership.objects.create(
+                    role=role, user=self.user, organization_member=self.organization_membership
+                )
+
+        def domain_queries(captured: CaptureQueriesContext) -> int:
+            return len([q for q in captured.captured_queries if "posthog_organizationdomain" in q["sql"]])
+
+        # Warm up per-process caches (instance settings etc.) so they don't skew the counts below.
+        self.client.get("/api/organizations/@current/roles")
+
+        add_roles(1)
+        with CaptureQueriesContext(connection) as few_roles:
+            res = self.client.get("/api/organizations/@current/roles")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        add_roles(3)
+        with CaptureQueriesContext(connection) as more_roles:
+            res = self.client.get("/api/organizations/@current/roles")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.json()["results"]), 4)
+
+        # Every role nests its own member serializer, so the SSO-enforced domain lookup behind
+        # `has_sso_enforcement` has to be cached per request rather than per serializer instance.
+        self.assertEqual(domain_queries(few_roles), domain_queries(more_roles))
+
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

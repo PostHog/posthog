@@ -648,9 +648,10 @@ export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
-    /** Whether the member's email domain requires SSO, which means their identity provider handles 2FA. */
-    // Optional here, unlike on the serializer, so the existing fixtures that build members by hand
-    // don't all have to set it.
+    /**
+     * Whether the member's email domain requires SSO, which means their identity provider handles 2FA.
+     * Optional here, unlike on the serializer, so hand-built member fixtures don't all have to set it.
+     */
     has_sso_enforcement?: OrganizationMemberApi['has_sso_enforcement']
 }
 

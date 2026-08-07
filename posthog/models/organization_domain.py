@@ -1,5 +1,6 @@
 import secrets
 from typing import TYPE_CHECKING, Any, Optional
+from uuid import UUID
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -154,7 +155,7 @@ class OrganizationDomainManager(models.Manager):
 
         return candidate_sso_enforcement
 
-    def get_sso_enforced_domains_for_organization(self, organization_id: Any) -> set[str]:
+    def get_sso_enforced_domains_for_organization(self, organization_id: UUID) -> set[str]:
         """
         Lowercased verified domains of an organization on which SSO enforcement is actually in effect.
         Resolves every domain in one query, so callers checking many email addresses at once (e.g. a
@@ -182,7 +183,7 @@ class OrganizationDomainManager(models.Manager):
         available_product_features: list[dict[str, Any]],
         *,
         domain: str,
-        organization_id: Any,
+        organization_id: UUID,
     ) -> bool:
         """Whether a domain's configured `sso_enforcement` actually applies — the organization must be
         licensed for it, and a recognized provider must be configured. A provider we don't recognize
@@ -213,7 +214,7 @@ class OrganizationDomainManager(models.Manager):
                 # A value outside the provider list means the domain's config is broken. Keep
                 # enforcing rather than falling back to password login, which would quietly undo
                 # what the organization asked for; the auth callers already refuse a value they
-                # don't recognize. Subscripting here used to raise instead.
+                # don't recognize.
                 logger.warning(
                     f"SSO is enforced for domain {domain} with an unrecognized provider ({candidate_sso_enforcement}).",
                     domain=domain,

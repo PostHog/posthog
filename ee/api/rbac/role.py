@@ -108,7 +108,9 @@ class RoleSerializer(serializers.ModelSerializer):
                 for rm in memberships
                 if rm.organization_member_id and str(rm.organization_member_id) in visible_membership_ids
             ]
-        return RoleMembershipSerializer(memberships, many=True).data
+        # Pass the context down so per-request caches on nested serializers are shared across roles
+        # rather than rebuilt (and re-queried) for each one.
+        return RoleMembershipSerializer(memberships, many=True, context=self.context).data
 
     def to_representation(self, instance: Role):
         data = super().to_representation(instance)

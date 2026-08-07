@@ -1,4 +1,5 @@
 from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
@@ -50,6 +51,8 @@ tracer = trace.get_tracer(__name__)
 ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
 DEFAULT_ORDERING = "-joined_at"
 
+SSO_ENFORCED_DOMAINS_CONTEXT_KEY = "_sso_enforced_domains_by_organization"
+
 
 def organization_members_base_queryset() -> QuerySet:
     """Active, non-bot organization memberships with their user prefetched.
@@ -94,8 +97,6 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
     )
     last_login = serializers.DateTimeField(read_only=True)
 
-    _sso_enforced_domains_cache: dict[Any, set[str]] | None = None
-
     class Meta:
         model = OrganizationMembership
         fields = [
@@ -126,18 +127,21 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
         email = instance.user.email
         if "@" not in email:
             return False
-        return email.rsplit("@", 1)[1].lower() in self._sso_enforced_domains(instance.organization_id)
+        # Split on the first `@`, matching how `OrganizationDomainManager` resolves a domain. Splitting
+        # on the last one instead would let this claim SSO covers a member the auth path does not.
+        domain = email[email.index("@") + 1 :].lower()
+        return domain in self._sso_enforced_domains(instance.organization_id)
 
-    def _sso_enforced_domains(self, organization_id: Any) -> set[str]:
-        # The enforced domains are the same for every member of an organization, so resolve them
-        # once per serializer instance instead of once per member
-        if self._sso_enforced_domains_cache is None:
-            self._sso_enforced_domains_cache = {}
-        if organization_id not in self._sso_enforced_domains_cache:
-            self._sso_enforced_domains_cache[organization_id] = (
-                OrganizationDomain.objects.get_sso_enforced_domains_for_organization(organization_id)
+    def _sso_enforced_domains(self, organization_id: UUID) -> set[str]:
+        # Every member of an organization shares the same enforced domains. The cache lives on the
+        # serializer context rather than on `self`, because the role endpoint nests this serializer
+        # and builds a fresh instance per role — an instance-level cache would query once per role.
+        cache: dict[UUID, set[str]] = self.context.setdefault(SSO_ENFORCED_DOMAINS_CONTEXT_KEY, {})
+        if organization_id not in cache:
+            cache[organization_id] = OrganizationDomain.objects.get_sso_enforced_domains_for_organization(
+                organization_id
             )
-        return self._sso_enforced_domains_cache[organization_id]
+        return cache[organization_id]
 
     def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
         updated_membership = instance
