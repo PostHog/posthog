@@ -494,9 +494,7 @@ export function TaskCommentsList({
   const scoped = threads.filter(inSource);
   const openCount = scoped.filter((thread) => !thread.resolved).length;
   const resolvedCount = scoped.length - openCount;
-  const visibleThreads = scoped.filter((thread) =>
-    stateFilteredThreads.includes(thread),
-  );
+  const visibleThreads = stateFilteredThreads.filter(inSource);
 
   const openThread = useCallback(
     (thread: TaskCommentThread, requestThreadFocus = true) => {
