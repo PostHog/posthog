@@ -6705,6 +6705,21 @@
         },
         "feature_flag": "logs-alerting"
     },
+    "logs-anomalies-scan": {
+        "description": "Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus per-severity learning status. Requires a serviceName (use logs-services-list or the resource attribute values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours to a day. Per-bucket band evidence is omitted from the tool response to save tokens; the API endpoint returns it for charts.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Scan a service's logs for volume anomalies",
+        "title": "Scan a service's logs for volume anomalies",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-anomalies"
+    },
     "logs-attribute-values-list": {
         "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
         "category": "Logs",
@@ -7087,7 +7102,7 @@
         "feature_flag": "marketing-analytics-mcp"
     },
     "marketing-analytics-suggest-utm-mappings": {
-        "description": "USE THIS TOOL — DO NOT FALL BACK TO SQL — whenever the user asks about utm_source mappings, custom_source_mappings, unmatched / non-integrated UTM values, or the question \"what utm_sources do I have and which ad platform do they belong to?\". Returns full_utm_source_catalogue (every utm_source value seen on events in the window, matched + unmatched, with event count and the integration it resolves to), source_suggestions (mapping recommendations where a value's token matches a known alias, e.g. raw facebook_paid → MetaAds), raw_unmatched_samples (every unmatched value, including likely-not-an-ad values like organic/newsletter/partner), and current_mappings (every alias already in effect — canonical + team_custom — so duplicates aren't suggested). Read-only — applying mappings is a separate write tool.",
+        "description": "USE THIS TOOL — DO NOT FALL BACK TO SQL — whenever the user asks about utm_source OR utm_campaign mappings, custom_source_mappings, campaign_name_mappings, unmatched / non-integrated UTM values, typo'd campaign names, or the question \"what utm_sources do I have and which ad platform do they belong to?\". Returns full_utm_source_catalogue (every utm_source value seen on events in the window, matched + unmatched, with event count and the integration it resolves to), source_suggestions (mapping recommendations where a value's token matches a known alias, e.g. raw facebook_paid → MetaAds), campaign_suggestions (campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real campaign, e.g. sprng_sale_2024 → spring_sale_2024, each folding every raw value that should point at one clean name), raw_unmatched_samples (every unmatched value, including likely-not-an-ad values like organic/newsletter/partner), and current_mappings (every alias already in effect — canonical + team_custom — so duplicates aren't suggested). campaign_suggestions deliberately omits near-ties, so an orphan missing from it may still be mappable — it just needs a human to choose. Read-only — applying mappings is a separate write tool.",
         "category": "Marketing analytics",
         "feature": "marketing_analytics",
         "summary": "Suggest utm_source → integration mappings",
