@@ -1070,6 +1070,28 @@ class TestGetSchemas:
         assert set(schemas.keys()) == {"events"}
 
 
+class TestGetTable:
+    """Tests `_get_table`, used by the sync path to build the SELECT column list."""
+
+    def _make_mock_client(self, cols_rows, engine: str | None = "MergeTree"):
+        client = MagicMock()
+        cols_result = MagicMock()
+        cols_result.result_rows = cols_rows
+        engine_result = MagicMock()
+        engine_result.result_rows = [(engine,)] if engine is not None else []
+        client.query.side_effect = [cols_result, engine_result]
+        return client
+
+    def test_excludes_alias_and_ephemeral_columns_from_query(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = self._make_mock_client([("id", "UInt64")])
+        ch_module._get_table(client, "default", "events")
+
+        cols_query = client.query.call_args_list[0].args[0]
+        assert "default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in cols_query
+
+
 class TestSourceClassValidateCredentials:
     """High-level checks on validate_credentials error mapping."""
 
