@@ -1,11 +1,18 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
+from ee.models import AccessControl
+
+_ACCESS_CONTROL_FLAG = "ee.hogai.tools.execute_sql.direct_connection_suggestions.feature_enabled_or_false"
 
 JOB_INPUTS = {
     "host": "localhost",
@@ -143,3 +150,49 @@ class TestBuildDirectConnectionSuggestion(APIBaseTest):
         assert "<" not in metadata_line
         assert ">" not in metadata_line
         assert "IGNORE PREVIOUS" in metadata_line  # kept, but declawed on a single line
+
+    def _become_member_with_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+    def _deny(self, table: DataWarehouseTable) -> None:
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+
+    def test_hides_a_table_the_member_cannot_access(self):
+        # Naming a table in a hint confirms it exists, so a per-table denial must suppress it — else a
+        # member could probe for a denied table's connection with guessed names.
+        self._become_member_with_access_control()
+        source = self._create_source()
+        table = self._create_table(source, "orders")
+        self._deny(table)
+
+        with patch(_ACCESS_CONTROL_FLAG, return_value=True):
+            assert build_direct_connection_suggestion(self.team, self.user, ["orders"]) is None
+
+    def test_suggests_a_table_the_member_can_access(self):
+        self._become_member_with_access_control()
+        source = self._create_source()
+        self._create_table(source, "orders")
+
+        with patch(_ACCESS_CONTROL_FLAG, return_value=True):
+            suggestion = build_direct_connection_suggestion(self.team, self.user, ["orders"])
+
+        assert suggestion is not None
+        assert "`orders`" in suggestion
+
+    def test_hides_a_dual_mode_schema_backed_by_an_inaccessible_table(self):
+        self._become_member_with_access_control()
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, direct_query_enabled=True)
+        table = self._create_table(source, "invoices")
+        ExternalDataSchema.objects.create(team=self.team, source=source, name="invoices", should_sync=True, table=table)
+        self._deny(table)
+
+        with patch(_ACCESS_CONTROL_FLAG, return_value=True):
+            assert build_direct_connection_suggestion(self.team, self.user, ["invoices"]) is None

@@ -15,6 +15,7 @@ from django.db.models import Q
 
 from posthog.hogql.direct_sql.capability import is_direct_capable
 
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
@@ -82,13 +83,40 @@ def _name_filter(missing_tables: list[str], field: str) -> Q:
     )
 
 
+def _table_access_gate(team: "Team", user: Optional["User"]) -> Optional[UserAccessControl]:
+    """A `UserAccessControl` to filter suggestions by table-level access, or None when none applies.
+
+    Naming a connection's table in a hint confirms it exists, so it must honor the same per-table
+    denials the HogQL catalog enforces (`Database._is_warehouse_table_denied`) — otherwise a member
+    denied one table could probe for it with guessed names. Gating mirrors that catalog: only when
+    the `hogql-warehouse-access-control` flag is on and there's a user to check against; org admins
+    are unrestricted, so they skip filtering too.
+    """
+    if user is None:
+        return None
+    if not feature_enabled_or_false(
+        "hogql-warehouse-access-control",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    ):
+        return None
+    access_control = UserAccessControl(user=user, team=team)
+    return None if access_control.is_organization_admin else access_control
+
+
 def _matching_table_names(
-    team: "Team", sources: list[ExternalDataSource], missing_tables: list[str]
+    team: "Team", user: Optional["User"], sources: list[ExternalDataSource], missing_tables: list[str]
 ) -> dict[str, list[tuple[str, ExternalDataSource]]]:
     """Map each missing table (lowercased) to the `(table name, source)` pairs that could serve it."""
     wanted = {name.lower() for name in missing_tables}
     sources_by_id = {str(source.id): source for source in sources}
     found: dict[str, list[tuple[str, ExternalDataSource]]] = {}
+    gate = _table_access_gate(team, user)
 
     def record(table_name: str, source_id: str) -> None:
         source = sources_by_id.get(source_id)
@@ -109,15 +137,15 @@ def _matching_table_names(
     dual_mode_ids = set(sources_by_id) - pure_direct_ids
 
     if pure_direct_ids:
-        for table_name, source_id in (
-            DataWarehouseTable.objects.queryable()
-            .filter(_name_filter(missing_tables, "name"), team_id=team.pk, external_data_source_id__in=pure_direct_ids)
-            .values_list("name", "external_data_source_id")
+        for table in DataWarehouseTable.objects.queryable().filter(
+            _name_filter(missing_tables, "name"), team_id=team.pk, external_data_source_id__in=pure_direct_ids
         ):
-            record(table_name, str(source_id))
+            if gate is not None and not gate.check_access_level_for_object(table, required_level="viewer"):
+                continue
+            record(table.name, str(table.external_data_source_id))
 
     if dual_mode_ids:
-        for table_name, source_id in (
+        for schema in (
             ExternalDataSchema.objects.filter(
                 _name_filter(missing_tables, "name"),
                 team_id=team.pk,
@@ -125,9 +153,15 @@ def _matching_table_names(
                 should_sync=True,
             )
             .exclude(deleted=True)
-            .values_list("name", "source_id")
+            .select_related("table", "table__external_data_source")
         ):
-            record(table_name, str(source_id))
+            # A schema's access control lives on its synced table. Match the catalog's fail-closed
+            # stance: a schema not yet backed by a table has nothing to authorize against, so deny it.
+            if gate is not None and (
+                schema.table is None or not gate.check_access_level_for_object(schema.table, required_level="viewer")
+            ):
+                continue
+            record(schema.name, str(schema.source_id))
 
     return found
 
@@ -143,7 +177,7 @@ def build_direct_connection_suggestion(
     if not sources:
         return None
 
-    matches = _matching_table_names(team, sources, missing_tables)
+    matches = _matching_table_names(team, user, sources, missing_tables)
     if not matches:
         return None
 
