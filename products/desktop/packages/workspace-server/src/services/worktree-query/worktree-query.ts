@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { createGitClient } from "@posthog/git/client";
 import { listWorktrees } from "@posthog/git/queries";
+import { forceRemove } from "@posthog/git/utils";
 import { WorktreeManager } from "@posthog/git/worktree";
 
 const execFileAsync = promisify(execFile);
@@ -42,6 +43,37 @@ export async function deleteWorktree(
 ): Promise<void> {
   const manager = new WorktreeManager({ mainRepoPath, worktreeBasePath });
   await manager.deleteWorktree(worktreePath);
+}
+
+/**
+ * Whether the parent directory of a worktree is a dedicated per-worktree
+ * container that may be removed along with it. True for the nested layout
+ * (`<base>/<name>/<repo>`, where the parent exists only for this worktree);
+ * false for the grouped layout (`<base>/<repo>/<name>`, where the parent is
+ * shared by every worktree of the repo and removing it would delete siblings).
+ *
+ * Distinguishes the layouts by whether the leaf folder is the repo name. This
+ * is sound only because WorktreeManager reserves the repo name as a worktree
+ * name (see RESERVED_WORKTREE_NAMES and the repo-name guard), so a grouped
+ * worktree can never have the repo name as its leaf.
+ */
+export function isDedicatedWorktreeContainer(
+  worktreePath: string,
+  mainRepoPath: string,
+): boolean {
+  return path.basename(worktreePath) === path.basename(mainRepoPath);
+}
+
+/**
+ * Remove a deleted worktree's dedicated container directory; a shared
+ * (grouped-layout) parent holding sibling worktrees is left in place.
+ */
+export async function removeWorktreeContainer(
+  worktreePath: string,
+  mainRepoPath: string,
+): Promise<void> {
+  if (!isDedicatedWorktreeContainer(worktreePath, mainRepoPath)) return;
+  await forceRemove(path.dirname(worktreePath));
 }
 
 export interface RawTwigWorktree {

@@ -107,6 +107,7 @@ function createMocks() {
   } satisfies WorkspaceFocus;
   const workspaceSettings = {
     getWorktreeLocation: () => "/tmp/worktrees",
+    getWorktreeNamingScheme: () => "codename",
   } as unknown as IWorkspaceSettings;
   const analytics = {
     track: vi.fn(),
@@ -736,6 +737,141 @@ describe("WorkspaceService", () => {
 
       expect(mockWorktreeManager.createWorktree).not.toHaveBeenCalled();
     });
+  });
+
+  describe("createWorkspace (worktree naming scheme)", () => {
+    const mainRepoPath = "/tmp/repo";
+
+    beforeEach(() => {
+      vi.mocked(getDefaultBranch).mockResolvedValue("main");
+      vi.mocked(getCurrentBranch).mockResolvedValue("main");
+      vi.mocked(listLinkedWorktrees).mockResolvedValue([]);
+      mockWorktreeManager.createWorktree.mockReset();
+      mockWorktreeManager.createWorktreeForExistingBranch.mockReset();
+      mockWorktreeManager.createWorktreeForRemoteBranch.mockReset();
+      mockWorktreeManager.createWorktree.mockResolvedValue({
+        worktreePath: "/tmp/worktrees/main-repo/some-slug",
+        worktreeName: "some-slug",
+        branchName: "",
+        baseBranch: "main",
+        createdAt: new Date().toISOString(),
+      });
+      mockWorktreeManager.createWorktreeForExistingBranch.mockResolvedValue({
+        worktreePath: "/tmp/worktrees/main-repo/some-slug",
+        worktreeName: "some-slug",
+        branchName: "feature/x",
+        baseBranch: "feature/x",
+        createdAt: new Date().toISOString(),
+      });
+      vi.mocked(hasTrackedFiles).mockResolvedValue(true);
+    });
+
+    function branchInput(
+      taskId: string,
+      overrides?: Partial<CreateWorkspaceInput>,
+    ): CreateWorkspaceInput {
+      return {
+        taskId,
+        mainRepoPath,
+        folderId: "folder-1",
+        folderPath: mainRepoPath,
+        mode: "worktree",
+        branch: "feature/x",
+        ...overrides,
+      };
+    }
+
+    function trunkInput(
+      taskId: string,
+      overrides?: Partial<CreateWorkspaceInput>,
+    ): CreateWorkspaceInput {
+      return {
+        taskId,
+        mainRepoPath,
+        folderId: "folder-1",
+        folderPath: mainRepoPath,
+        mode: "worktree",
+        // No `branch` -> doCreateWorkspace falls back to the default branch,
+        // which getDefaultBranch reports as "main" (the trunk).
+        ...overrides,
+      };
+    }
+
+    it("descriptive scheme derives the preferred name from the branch slug for a non-trunk branch", async () => {
+      mocks.workspaceSettings.getWorktreeNamingScheme = () => "descriptive";
+
+      await service.createWorkspace(branchInput("task-branch"));
+
+      expect(
+        mockWorktreeManager.createWorktreeForExistingBranch,
+      ).toHaveBeenCalledWith(
+        "feature/x",
+        "feature-x",
+        expect.objectContaining({ onOutput: expect.any(Function) }),
+      );
+      expect(mockWorktreeManager.createWorktree).not.toHaveBeenCalled();
+    });
+
+    it("descriptive scheme derives the preferred name from taskTitle when trunk is selected", async () => {
+      mocks.workspaceSettings.getWorktreeNamingScheme = () => "descriptive";
+
+      await service.createWorkspace(
+        trunkInput("task-trunk", { taskTitle: "Fix login bug" }),
+      );
+
+      expect(mockWorktreeManager.createWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseBranch: "main",
+          preferredName: "fix-login-bug",
+        }),
+      );
+      expect(
+        mockWorktreeManager.createWorktreeForExistingBranch,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("descriptive scheme with trunk selected and no taskTitle leaves the preferred name undefined", async () => {
+      mocks.workspaceSettings.getWorktreeNamingScheme = () => "descriptive";
+
+      await service.createWorkspace(trunkInput("task-trunk-untitled"));
+
+      expect(mockWorktreeManager.createWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({ preferredName: undefined }),
+      );
+    });
+
+    it.each([
+      {
+        name: "non-trunk branch",
+        input: (taskId: string) => branchInput(taskId),
+        assert: () =>
+          expect(
+            mockWorktreeManager.createWorktreeForExistingBranch,
+          ).toHaveBeenCalledWith(
+            "feature/x",
+            undefined,
+            expect.objectContaining({ onOutput: expect.any(Function) }),
+          ),
+      },
+      {
+        name: "trunk with a taskTitle",
+        input: (taskId: string) =>
+          trunkInput(taskId, { taskTitle: "Fix login bug" }),
+        assert: () =>
+          expect(mockWorktreeManager.createWorktree).toHaveBeenCalledWith(
+            expect.objectContaining({ preferredName: undefined }),
+          ),
+      },
+    ])(
+      "codename scheme leaves the preferred name undefined for $name",
+      async ({ input, assert }) => {
+        mocks.workspaceSettings.getWorktreeNamingScheme = () => "codename";
+
+        await service.createWorkspace(input("task-codename"));
+
+        assert();
+      },
+    );
   });
 
   describe("pending creations", () => {

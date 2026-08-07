@@ -1,4 +1,5 @@
 import {
+  WORKTREE_NAMING_SCHEMES,
   workspaceInfoSchema,
   workspaceModeSchema,
   workspaceSchema,
@@ -13,6 +14,12 @@ export {
   worktreeInfoSchema,
 };
 
+export const worktreeNamingSchemeSchema = z.enum(WORKTREE_NAMING_SCHEMES);
+
+export const setWorktreeNamingSchemeInput = z.object({
+  scheme: worktreeNamingSchemeSchema,
+});
+
 // Input schemas
 export const createWorkspaceInput = z
   .object({
@@ -22,6 +29,9 @@ export const createWorkspaceInput = z
     folderPath: z.string(),
     mode: workspaceModeSchema,
     branch: z.string().optional(),
+    // Names the worktree folder under the "descriptive" naming scheme when the
+    // task has no branch yet. Ignored under the default "codename" scheme.
+    taskTitle: z.string().optional(),
     useExistingBranch: z.boolean().optional(),
     // When set, a worktree branch that exists only on the remote is fetched and
     // checked out locally instead of failing. Gated behind a user confirmation.
@@ -333,6 +343,7 @@ export type {
 } from "@posthog/shared";
 
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceInput>;
+export type WorktreeNamingScheme = z.infer<typeof worktreeNamingSchemeSchema>;
 export type CheckWorktreeBranchInput = z.infer<typeof checkWorktreeBranchInput>;
 export type CheckWorktreeBranchOutput = z.infer<
   typeof checkWorktreeBranchOutput

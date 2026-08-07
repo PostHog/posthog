@@ -227,24 +227,20 @@ export class FoldersService {
     }
 
     const workspaces = this.workspaceRepo.findAllByRepositoryId(folderId);
-    const worktreeBasePath = this.workspaceSettings.getWorktreeLocation();
-    const repoName = path.basename(repo.path);
 
     for (const workspace of workspaces) {
       if (workspace.mode === "worktree") {
         const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
         if (worktree) {
-          const worktreePath = path.join(
-            worktreeBasePath,
-            repoName,
-            worktree.name,
-          );
           try {
             await this.createWorktreeManager(repo.path).deleteWorktree(
-              worktreePath,
+              worktree.path,
             );
           } catch (error) {
-            this.log.error(`Failed to delete worktree ${worktreePath}:`, error);
+            this.log.error(
+              `Failed to delete worktree ${worktree.path}:`,
+              error,
+            );
           }
         }
       }

@@ -86,6 +86,7 @@ function createMocks() {
     getWorktreeLocation: () => "/tmp/worktrees",
     getAllWorktreeLocations: () => ["/tmp/worktrees"],
     setWorktreeLocation: vi.fn(),
+    getWorktreeNamingScheme: () => "codename",
   } as unknown as IWorkspaceSettings;
   const logger = {
     debug: vi.fn(),

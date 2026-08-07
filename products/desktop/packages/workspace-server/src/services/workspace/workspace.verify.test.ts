@@ -60,6 +60,7 @@ function createService(worktreeBasePath: string) {
     { onBranchRenamed: vi.fn() } satisfies WorkspaceFocus,
     {
       getWorktreeLocation: () => worktreeBasePath,
+      getWorktreeNamingScheme: () => "codename",
     } as unknown as IWorkspaceSettings,
     { track: vi.fn() } as unknown as IAnalytics,
     { deleteImportForTask: async () => {} },

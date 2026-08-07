@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -7,8 +6,7 @@ import {
 import { createGitClient } from "@posthog/git/client";
 import { isGitRepository } from "@posthog/git/queries";
 import { deleteCheckpoint } from "@posthog/git/sagas/checkpoint";
-import { forceRemove } from "@posthog/git/utils";
-import { WorktreeManager } from "@posthog/git/worktree";
+import { type WorktreeInfo, WorktreeManager } from "@posthog/git/worktree";
 import {
   type IWorkspaceSettings,
   WORKSPACE_SETTINGS_SERVICE,
@@ -50,8 +48,10 @@ import {
   captureWorktreeCheckpoint,
   restoreWorktreeFromCheckpoint,
 } from "../worktree-checkpoint/worktree-checkpoint";
-import { deriveWorktreePath as deriveWorktreePathFromBase } from "../worktree-path/worktree-path";
-import { getCurrentBranchName } from "../worktree-query/worktree-query";
+import {
+  getCurrentBranchName,
+  removeWorktreeContainer,
+} from "../worktree-query/worktree-query";
 import { recoverArchiveDetailsFromLogs } from "./archive-recovery";
 import { ARCHIVE_FILE_WATCHER, ARCHIVE_SESSION_CANCELLER } from "./identifiers";
 import type { ArchiveFileWatcher, SessionCanceller } from "./ports";
@@ -300,14 +300,7 @@ export class ArchiveService {
         await step(
           async () => {
             try {
-              const manager = new WorktreeManager({
-                mainRepoPath: folderPath,
-                worktreeBasePath: this.workspaceSettings.getWorktreeLocation(),
-                logger: this.log,
-              });
-              await manager.deleteWorktree(worktreePath);
-              const parentDir = path.dirname(worktreePath);
-              await forceRemove(parentDir);
+              await this.deleteWorktreeOnDisk(folderPath, worktreePath);
             } catch (error) {
               this.log.warn(
                 `Failed to remove worktree at ${worktreePath}; archiving anyway (on-disk worktree may need manual cleanup)`,
@@ -427,6 +420,9 @@ export class ArchiveService {
     }
 
     const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
+    let restoredWorktree: WorktreeInfo | null = null;
+    // Tracked besides restoredWorktree: the returned name falls back to the
+    // stored row when the checkpoint-restore branch below doesn't run.
     let restoredWorktreeName: string | null = worktree?.name ?? null;
 
     if (workspace.repositoryId) {
@@ -442,44 +438,33 @@ export class ArchiveService {
       if (shouldRestoreWorktree) {
         await step(
           async () => {
-            restoredWorktreeName = await this.restoreWorktreeFromCheckpoint(
+            restoredWorktree = await this.restoreWorktreeFromCheckpoint(
               folderPath,
               workspace,
               archive,
               recreateBranch,
             );
+            restoredWorktreeName = restoredWorktree.worktreeName;
           },
           async () => {
-            if (restoredWorktreeName) {
-              const manager = new WorktreeManager({
-                mainRepoPath: folderPath,
-                worktreeBasePath: this.workspaceSettings.getWorktreeLocation(),
-                logger: this.log,
-              });
-              const worktreePath = await this.deriveWorktreePath(
+            if (restoredWorktree) {
+              await this.deleteWorktreeOnDisk(
                 folderPath,
-                restoredWorktreeName,
+                restoredWorktree.worktreePath,
               );
-              await manager.deleteWorktree(worktreePath);
-              const parentDir = path.dirname(worktreePath);
-              await forceRemove(parentDir);
             }
           },
         );
 
         await step(
           async () => {
-            if (!restoredWorktreeName) {
+            if (!restoredWorktree) {
               throw new Error("Failed to restore worktree");
             }
-            const worktreePath = await this.deriveWorktreePath(
-              folderPath,
-              restoredWorktreeName,
-            );
             this.worktreeRepo.create({
               workspaceId: workspace.id,
-              name: restoredWorktreeName,
-              path: worktreePath,
+              name: restoredWorktree.worktreeName,
+              path: restoredWorktree.worktreePath,
             });
           },
           async () => {
@@ -724,12 +709,20 @@ export class ArchiveService {
     return `Unknown task (${branchName ?? worktreeName ?? taskId.slice(0, 8)})`;
   }
 
-  private deriveWorktreePath(folderPath: string, worktreeName: string): string {
-    return deriveWorktreePathFromBase(
-      this.workspaceSettings.getWorktreeLocation(),
-      folderPath,
-      worktreeName,
-    );
+  private createWorktreeManager(folderPath: string): WorktreeManager {
+    return new WorktreeManager({
+      mainRepoPath: folderPath,
+      worktreeBasePath: this.workspaceSettings.getWorktreeLocation(),
+      logger: this.log,
+    });
+  }
+
+  private async deleteWorktreeOnDisk(
+    folderPath: string,
+    worktreePath: string,
+  ): Promise<void> {
+    await this.createWorktreeManager(folderPath).deleteWorktree(worktreePath);
+    await removeWorktreeContainer(worktreePath, folderPath);
   }
 
   private getCurrentBranchName(worktreePath: string): Promise<string> {
@@ -749,7 +742,7 @@ export class ArchiveService {
     workspace: Workspace,
     archive: Archive,
     recreateBranch?: boolean,
-  ): Promise<string> {
+  ): Promise<WorktreeInfo> {
     if (!archive.checkpointId) {
       throw new Error("checkpointId is required for restoring worktree");
     }
@@ -758,6 +751,7 @@ export class ArchiveService {
     const newWorktree = await restoreWorktreeFromCheckpoint({
       mainRepoPath: folderPath,
       worktreeBasePath: this.workspaceSettings.getWorktreeLocation(),
+      namingScheme: this.workspaceSettings.getWorktreeNamingScheme(),
       preferredName: worktree?.name ?? undefined,
       branchName: archive.branchName,
       checkpointId: archive.checkpointId,
@@ -769,6 +763,6 @@ export class ArchiveService {
       this.worktreeRepo.deleteByWorkspaceId(workspace.id);
     }
 
-    return newWorktree.worktreeName;
+    return newWorktree;
   }
 }

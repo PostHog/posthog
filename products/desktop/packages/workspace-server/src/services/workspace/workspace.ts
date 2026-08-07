@@ -17,6 +17,7 @@ import {
 import { CreateOrSwitchBranchSaga } from "@posthog/git/sagas/branch";
 import { DetachHeadSaga } from "@posthog/git/sagas/head";
 import { WorktreeManager } from "@posthog/git/worktree";
+import { worktreeNameFromPath } from "@posthog/git/worktree-name";
 import {
   ANALYTICS_SERVICE,
   type IAnalytics,
@@ -25,7 +26,13 @@ import {
   type IWorkspaceSettings,
   WORKSPACE_SETTINGS_SERVICE,
 } from "@posthog/platform/workspace-settings";
-import { ANALYTICS_EVENTS, TypedEventEmitter } from "@posthog/shared";
+import {
+  ANALYTICS_EVENTS,
+  slugifyWorktreeName,
+  TypedEventEmitter,
+  type WorktreeNamingScheme,
+  worktreeNameFromBranch,
+} from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import {
   DATABASE_SERVICE,
@@ -563,16 +570,10 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     if (!match) return null;
 
     // `worktreeName` is a cosmetic label only; `worktreePath` is authoritative.
-    // Recover the name layout-aware for managed worktrees: new layout is
-    // `<base>/<name>/<repo>` (name is the parent dir), legacy is
-    // `<base>/<repo>/<name>` (name is the final segment). For an external
-    // worktree neither layout holds, so the final segment is a sensible label.
-    const repoName = path.basename(mainRepoPath);
-    const finalSegment = path.basename(match.worktreePath);
-    const worktreeName =
-      finalSegment === repoName
-        ? path.basename(path.dirname(match.worktreePath))
-        : finalSegment;
+    const worktreeName = worktreeNameFromPath(
+      match.worktreePath,
+      path.basename(mainRepoPath),
+    );
 
     // baseBranch/createdAt are unknown for an already-existing worktree; mirror
     // WorktreeManager.listWorktrees() and leave them empty rather than fabricate.
@@ -624,6 +625,42 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     }
   }
 
+  getWorktreeNamingScheme(): WorktreeNamingScheme {
+    return this.workspaceSettings.getWorktreeNamingScheme();
+  }
+
+  setWorktreeNamingScheme(scheme: WorktreeNamingScheme): void {
+    this.workspaceSettings.setWorktreeNamingScheme(scheme);
+  }
+
+  private createWorktreeManager(mainRepoPath: string): WorktreeManager {
+    return new WorktreeManager({
+      mainRepoPath,
+      worktreeBasePath: this.workspaceSettings.getWorktreeLocation(),
+      namingScheme: this.workspaceSettings.getWorktreeNamingScheme(),
+      logger: this.log,
+    });
+  }
+
+  /**
+   * Preferred worktree folder name under the "descriptive" naming scheme: the
+   * branch slug when the task starts from a branch, otherwise a slug of the
+   * task title. Undefined falls back to a random codename.
+   */
+  private descriptiveWorktreeName(
+    scheme: WorktreeNamingScheme,
+    source: { branch?: string | null; taskTitle?: string },
+  ): string | undefined {
+    if (scheme !== "descriptive") return undefined;
+    if (source.branch) {
+      return worktreeNameFromBranch(source.branch) ?? undefined;
+    }
+    if (source.taskTitle) {
+      return slugifyWorktreeName(source.taskTitle) ?? undefined;
+    }
+    return undefined;
+  }
+
   private async doCreateWorkspace(
     options: CreateWorkspaceInput,
   ): Promise<WorkspaceInfo> {
@@ -633,6 +670,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       folderPath,
       mode,
       branch,
+      taskTitle,
       useExistingBranch,
       allowRemoteBranchCheckout,
       reuseExistingWorktree,
@@ -716,12 +754,8 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       };
     }
 
-    const worktreeBasePath = this.workspaceSettings.getWorktreeLocation();
-    const worktreeManager = new WorktreeManager({
-      mainRepoPath,
-      worktreeBasePath,
-      logger: this.log,
-    });
+    const namingScheme = this.workspaceSettings.getWorktreeNamingScheme();
+    const worktreeManager = this.createWorktreeManager(mainRepoPath);
     let worktree: WorktreeInfo;
 
     try {
@@ -730,6 +764,10 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       );
       const selectedBranch = branch ?? defaultBranch;
       const isTrunkSelected = selectedBranch === defaultBranch;
+      const preferredName = this.descriptiveWorktreeName(namingScheme, {
+        branch: isTrunkSelected ? null : selectedBranch,
+        taskTitle,
+      });
 
       // Renderer provisioning output is dropped when no view subscribes; mirror it into the main log.
       const onOutput = (data: string) => {
@@ -765,6 +803,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         );
         worktree = await worktreeManager.createWorktree({
           baseBranch: defaultBranch,
+          preferredName,
           onOutput,
           fetchBeforeCreate: true,
         });
@@ -778,7 +817,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         try {
           worktree = await worktreeManager.createWorktreeForExistingBranch(
             selectedBranch,
-            undefined,
+            preferredName,
             { onOutput },
           );
           this.log.info(
@@ -810,7 +849,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
             );
             worktree = await worktreeManager.createWorktreeForRemoteBranch(
               selectedBranch,
-              undefined,
+              preferredName,
               { onOutput },
             );
             this.log.info(
@@ -1356,12 +1395,8 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       return null;
     }
 
-    const worktreeBasePath = this.workspaceSettings.getWorktreeLocation();
-    const worktreeManager = new WorktreeManager({
-      mainRepoPath,
-      worktreeBasePath,
-      logger: this.log,
-    });
+    const namingScheme = this.workspaceSettings.getWorktreeNamingScheme();
+    const worktreeManager = this.createWorktreeManager(mainRepoPath);
 
     let worktree: WorktreeInfo;
     try {
@@ -1377,7 +1412,10 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         }
       }
 
-      worktree = await worktreeManager.createWorktreeForExistingBranch(branch);
+      worktree = await worktreeManager.createWorktreeForExistingBranch(
+        branch,
+        this.descriptiveWorktreeName(namingScheme, { branch }),
+      );
       this.log.info(
         `Created worktree for promoted task: ${worktree.worktreeName} at ${worktree.worktreePath}`,
       );

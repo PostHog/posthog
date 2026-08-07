@@ -1,7 +1,11 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { SagaLogger } from "@posthog/shared";
+import {
+  DEFAULT_WORKTREE_NAMING_SCHEME,
+  type SagaLogger,
+  type WorktreeNamingScheme,
+} from "@posthog/shared";
 import {
   matchesExcludePatterns,
   parseExcludePatterns,
@@ -17,7 +21,10 @@ import {
   listWorktrees as listWorktreesRaw,
 } from "./queries";
 import { clonePath, forceRemove, safeSymlink } from "./utils";
-import { generateHumanReadableName } from "./worktree-name";
+import {
+  generateHumanReadableName,
+  worktreeNameFromPath,
+} from "./worktree-name";
 
 export interface WorktreeInfo {
   worktreePath: string;
@@ -31,6 +38,14 @@ export interface WorktreeInfo {
 export interface WorktreeConfig {
   mainRepoPath: string;
   worktreeBasePath?: string;
+  /**
+   * Folder layout for new worktrees: "codename" nests the repo under a random
+   * name (`<base>/<name>/<repo>`); "descriptive" groups worktrees by repo with
+   * the name as the leaf folder (`<base>/<repo>/<name>`), so editors and
+   * terminals show the name instead of the repo. Only applies when
+   * `worktreeBasePath` is set. Defaults to "codename".
+   */
+  namingScheme?: WorktreeNamingScheme;
   logger?: SagaLogger;
 }
 
@@ -42,6 +57,11 @@ const noopLogger: SagaLogger = {
 };
 
 const WORKTREE_FOLDER_NAME = ".posthog-code";
+
+// "local" is the stash worktree namespace (getLocalWorktreePath), and a name
+// equal to the repo folder collapses both layouts into the same `<x>/<x>` path
+// whose parent is indistinguishable from a shared group folder on deletion.
+const RESERVED_WORKTREE_NAMES = new Set(["local"]);
 
 const WORKTREE_ADD_TIMEOUT_MS = 120_000;
 const POST_CHECKOUT_HOOK_TIMEOUT_MS = 300_000;
@@ -76,12 +96,14 @@ export class WorktreeManager {
   private mainRepoPath: string;
   private worktreeBasePath: string | null;
   private repoName: string;
+  private namingScheme: WorktreeNamingScheme;
   private log: SagaLogger;
 
   constructor(config: WorktreeConfig) {
     this.mainRepoPath = config.mainRepoPath;
     this.worktreeBasePath = config.worktreeBasePath ?? null;
     this.repoName = path.basename(config.mainRepoPath);
+    this.namingScheme = config.namingScheme ?? DEFAULT_WORKTREE_NAMING_SCHEME;
     this.log = config.logger ?? noopLogger;
   }
 
@@ -101,6 +123,9 @@ export class WorktreeManager {
   }
 
   private getWorktreePath(name: string): string {
+    if (this.namingScheme === "descriptive" && this.usesExternalPath()) {
+      return path.join(this.getWorktreeBaseFolderPath(), this.repoName, name);
+    }
     return path.join(this.getWorktreeBaseFolderPath(), name, this.repoName);
   }
 
@@ -170,6 +195,8 @@ export class WorktreeManager {
 
   async createWorktree(options?: {
     baseBranch?: string;
+    /** Worktree folder name to use when available; collisions get a numeric suffix. */
+    preferredName?: string;
     onOutput?: (data: string) => void;
     /** Base the worktree on `origin/<baseBranch>` after fetching; falls back to the local ref if the fetch fails. */
     fetchBeforeCreate?: boolean;
@@ -177,6 +204,7 @@ export class WorktreeManager {
     this.log.info("createWorktree started", {
       mainRepoPath: this.mainRepoPath,
       baseBranch: options?.baseBranch ?? null,
+      preferredName: options?.preferredName ?? null,
       fetchBeforeCreate: options?.fetchBeforeCreate ?? false,
     });
 
@@ -186,7 +214,7 @@ export class WorktreeManager {
       setupPromises.push(this.ensureArrayDirIgnored());
     }
 
-    const worktreeNamePromise = this.generateUniqueWorktreeName();
+    const worktreeNamePromise = this.pickWorktreeName(options?.preferredName);
     setupPromises.push(worktreeNamePromise);
 
     const baseBranchPromise = options?.baseBranch
@@ -250,7 +278,7 @@ export class WorktreeManager {
       throw new Error(`Branch '${branch}' does not exist`);
     }
 
-    const worktreeName = await this.resolveAvailableWorktreeName(preferredName);
+    const worktreeName = await this.pickWorktreeName(preferredName);
     const { worktreePath, targetPath } =
       await this.prepareWorktreePath(worktreeName);
 
@@ -317,7 +345,7 @@ export class WorktreeManager {
       );
     }
 
-    const worktreeName = await this.resolveAvailableWorktreeName(preferredName);
+    const worktreeName = await this.pickWorktreeName(preferredName);
     const { worktreePath, targetPath } =
       await this.prepareWorktreePath(worktreeName);
 
@@ -346,36 +374,48 @@ export class WorktreeManager {
   }
 
   /**
-   * Resolves a worktree name that does not collide with an existing worktree,
-   * falling back to a freshly generated unique name when the preferred (or
-   * default) name is already registered or present on disk.
+   * The worktree name to create with: a deduped variant of `preferredName`
+   * when one is given, otherwise a freshly generated unique random name.
    */
+  private pickWorktreeName(preferredName?: string): Promise<string> {
+    return preferredName
+      ? this.resolveAvailableWorktreeName(preferredName)
+      : this.generateUniqueWorktreeName();
+  }
+
   private async resolveAvailableWorktreeName(
-    preferredName?: string,
+    preferredName: string,
   ): Promise<string> {
-    let worktreeName = preferredName ?? this.generateWorktreeName();
+    const existingWorktrees = await this.listWorktrees();
+    const registeredPaths = new Set(
+      existingWorktrees.map((wt) => wt.worktreePath),
+    );
+    const isAvailable = async (name: string): Promise<boolean> =>
+      !RESERVED_WORKTREE_NAMES.has(name) &&
+      name !== this.repoName &&
+      !registeredPaths.has(this.getWorktreePath(name)) &&
+      !(await this.worktreeExists(name));
 
-    if (preferredName) {
-      const worktreePath = this.getWorktreePath(preferredName);
-      const existingWorktrees = await this.listWorktrees();
-      const isRegistered = existingWorktrees.some(
-        (wt) => wt.worktreePath === worktreePath,
-      );
-      const existsOnDisk = await this.worktreeExists(preferredName);
-
-      if (isRegistered || existsOnDisk) {
-        worktreeName = `${this.generateWorktreeName()}${Date.now()}`;
-        this.log.warn("Preferred worktree name unavailable, generated new", {
-          preferredName,
-          isRegistered,
-          existsOnDisk,
-          worktreeName,
-        });
-      }
-    } else if (await this.worktreeExists(worktreeName)) {
-      worktreeName = `${this.generateWorktreeName()}${Date.now()}`;
+    if (await isAvailable(preferredName)) {
+      return preferredName;
     }
 
+    for (let n = 2; n <= 9; n++) {
+      const candidate = `${preferredName}-${n}`;
+      if (await isAvailable(candidate)) {
+        this.log.info("Preferred worktree name taken, using numbered variant", {
+          preferredName,
+          worktreeName: candidate,
+        });
+        return candidate;
+      }
+    }
+
+    const worktreeName = `${this.generateWorktreeName()}${Date.now()}`;
+    this.log.warn("Preferred worktree name unavailable, generated new", {
+      preferredName,
+      worktreeName,
+    });
     return worktreeName;
   }
 
@@ -451,7 +491,7 @@ export class WorktreeManager {
       preferredName: preferredName ?? null,
     });
 
-    const worktreeName = await this.resolveAvailableWorktreeName(preferredName);
+    const worktreeName = await this.pickWorktreeName(preferredName);
     const { worktreePath, targetPath } =
       await this.prepareWorktreePath(worktreeName);
 
@@ -762,7 +802,7 @@ export class WorktreeManager {
     const trashDir = this.getTrashFolderPath();
     const trashedPath = path.join(
       trashDir,
-      `${path.basename(path.dirname(worktreePath))}-${Date.now()}`,
+      `${worktreeNameFromPath(worktreePath, this.repoName)}-${Date.now()}`,
     );
     try {
       await fs.mkdir(trashDir, { recursive: true });
@@ -801,7 +841,7 @@ export class WorktreeManager {
         })
         .map((wt) => ({
           worktreePath: wt.path,
-          worktreeName: path.basename(path.dirname(wt.path)),
+          worktreeName: worktreeNameFromPath(wt.path, this.repoName),
           branchName: wt.branch as string,
           baseBranch: "",
           createdAt: "",

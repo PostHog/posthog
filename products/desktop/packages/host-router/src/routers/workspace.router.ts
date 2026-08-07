@@ -39,6 +39,7 @@ import {
   reconcileCloudWorkspacesInput,
   reconcileCloudWorkspacesOutput,
   setPrimaryPrUrlInput,
+  setWorktreeNamingSchemeInput,
   taskPrStatusInput,
   taskPrStatusOutput,
   togglePinInput,
@@ -46,6 +47,7 @@ import {
   unlinkBranchInput,
   verifyWorkspaceInput,
   verifyWorkspaceOutput,
+  worktreeNamingSchemeSchema,
 } from "@posthog/workspace-server/services/workspace/schemas";
 import {
   type WorkspaceService,
@@ -95,6 +97,16 @@ export const workspaceRouter = router({
     .output(checkWorktreeBranchOutput)
     .query(({ ctx, input, signal }) =>
       getService(ctx.container).checkWorktreeBranch(input, signal),
+    ),
+
+  getWorktreeNamingScheme: publicProcedure
+    .output(worktreeNamingSchemeSchema)
+    .query(({ ctx }) => getService(ctx.container).getWorktreeNamingScheme()),
+
+  setWorktreeNamingScheme: publicProcedure
+    .input(setWorktreeNamingSchemeInput)
+    .mutation(({ ctx, input }) =>
+      getService(ctx.container).setWorktreeNamingScheme(input.scheme),
     ),
 
   reconcileCloudWorkspaces: publicProcedure

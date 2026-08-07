@@ -231,6 +231,107 @@ describe("WorktreeManager lifecycle (add / exists / list / remove / prune)", () 
   });
 });
 
+describe("WorktreeManager naming scheme (descriptive)", () => {
+  let remoteDir: string;
+  let localDir: string;
+  let worktreeBaseDir: string;
+  let repoName: string;
+
+  beforeEach(async () => {
+    remoteDir = await initBareRemote();
+
+    const seedDir = await mkdtemp(path.join(tmpdir(), "posthog-code-seed-"));
+    const seedGit = createGitClient(seedDir);
+    await seedGit.init(["--initial-branch", "main"]);
+    await seedGit.addConfig("user.name", "Test");
+    await seedGit.addConfig("user.email", "test@example.com");
+    await seedGit.addConfig("commit.gpgsign", "false");
+    await commit(seedDir, "initial.txt", "initial\n");
+    await seedGit.addRemote("origin", remoteDir);
+    await seedGit.push(["origin", "main"]);
+    await rm(seedDir, { recursive: true, force: true });
+
+    localDir = await realpath(await initLocalClone(remoteDir));
+    worktreeBaseDir = await realpath(
+      await mkdtemp(path.join(tmpdir(), "posthog-code-wts-")),
+    );
+    repoName = path.basename(localDir);
+  });
+
+  afterEach(async () => {
+    for (const d of [remoteDir, localDir, worktreeBaseDir]) {
+      await rm(d, { recursive: true, force: true });
+    }
+  });
+
+  it("creates the worktree at <base>/<repoName>/<slug> and reports the slug as the name", async () => {
+    const manager = new WorktreeManager({
+      mainRepoPath: localDir,
+      worktreeBasePath: worktreeBaseDir,
+      namingScheme: "descriptive",
+    });
+
+    const info = await manager.createWorktree({
+      baseBranch: "main",
+      preferredName: "fix-login-bug",
+    });
+
+    expect(info.worktreeName).toBe("fix-login-bug");
+    expect(info.worktreePath).toBe(
+      path.join(worktreeBaseDir, repoName, "fix-login-bug"),
+    );
+    expect(await dirExists(info.worktreePath)).toBe(true);
+  });
+
+  it("dedupes a colliding preferred name by appending -2", async () => {
+    const manager = new WorktreeManager({
+      mainRepoPath: localDir,
+      worktreeBasePath: worktreeBaseDir,
+      namingScheme: "descriptive",
+    });
+
+    const first = await manager.createWorktree({
+      baseBranch: "main",
+      preferredName: "fix-login-bug",
+    });
+    const second = await manager.createWorktree({
+      baseBranch: "main",
+      preferredName: "fix-login-bug",
+    });
+
+    expect(first.worktreeName).toBe("fix-login-bug");
+    expect(second.worktreeName).toBe("fix-login-bug-2");
+    expect(second.worktreePath).toBe(
+      path.join(worktreeBaseDir, repoName, "fix-login-bug-2"),
+    );
+    expect(await dirExists(first.worktreePath)).toBe(true);
+    expect(await dirExists(second.worktreePath)).toBe(true);
+  });
+
+  it("lists a grouped-layout worktree under its slug, not the repo name", async () => {
+    // listWorktrees only reports branch-backed worktrees, so check out a branch
+    // rather than a detached worktree.
+    await createGitClient(localDir).branch(["feature-login-fix"]);
+
+    const manager = new WorktreeManager({
+      mainRepoPath: localDir,
+      worktreeBasePath: worktreeBaseDir,
+      namingScheme: "descriptive",
+    });
+
+    const info = await manager.createWorktreeForExistingBranch(
+      "feature-login-fix",
+      "fix-login-bug",
+    );
+
+    const listed = await manager.listWorktrees();
+    const entry = listed.find((wt) => wt.worktreePath === info.worktreePath);
+
+    expect(entry?.worktreeName).toBe("fix-login-bug");
+    expect(entry?.worktreeName).not.toBe(repoName);
+  });
+});
+
 describe("WorktreeManager worktree link/include processing", () => {
   let remoteDir: string;
   let localDir: string;

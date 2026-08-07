@@ -99,6 +99,7 @@ interface CreateTestContextOpts {
   failOnArchiveDelete?: boolean;
   failOnWorktreeCreate?: boolean;
   failOnWorktreeDelete?: boolean;
+  namingScheme?: "codename" | "descriptive";
 }
 
 async function withTestContext(
@@ -131,8 +132,10 @@ async function withTestContext(
     processTracking: { killByTaskId: vi.fn() },
     fileWatcher: { stopWatching: vi.fn() },
   };
+  const namingScheme = opts.namingScheme ?? "codename";
   const workspaceSettings = {
     getWorktreeLocation: () => testWorktreeBasePath,
+    getWorktreeNamingScheme: () => namingScheme,
   };
   const scopedLogger = {
     debug: vi.fn(),
@@ -179,6 +182,7 @@ async function withTestContext(
     const manager = new WorktreeManager({
       mainRepoPath: repoPath,
       worktreeBasePath,
+      namingScheme,
     });
     const result =
       method === "detached"
@@ -372,6 +376,32 @@ describe("ArchiveService integration", () => {
         expect(content).toBe("my precious work");
 
         expect(ctx.archiveRepo.findAll()).toHaveLength(0);
+      }));
+
+    it("under descriptive scheme, unarchive persists the grouped path, not a colliding codename worktree", () =>
+      withTestContext({ namingScheme: "descriptive" }, async (ctx) => {
+        const { worktreePath } = await ctx.setupWorktree("detached");
+        const repoName = path.basename(ctx.repoPath);
+
+        // A leftover codename-layout worktree folder whose name collides with
+        // the restored slug. The scheme-unaware path probe checks this shape
+        // first, so persisting from it would point the row at the wrong tree.
+        await fs.mkdir(path.join(ctx.worktreeBasePath, "test-wt", repoName), {
+          recursive: true,
+        });
+
+        await ctx.service.archiveTask(ctx.archiveInput());
+        expect(await pathExists(worktreePath)).toBe(false);
+
+        await ctx.service.unarchiveTask(TASK_ID);
+
+        const workspace = ctx.workspaceRepo.findByTaskId(TASK_ID);
+        const restored = workspace
+          ? ctx.worktreeRepo.findByWorkspaceId(workspace.id)
+          : null;
+        expect(restored?.path).toBe(
+          path.join(ctx.worktreeBasePath, repoName, "test-wt"),
+        );
       }));
 
     it("archive and unarchive preserves branch name", () =>

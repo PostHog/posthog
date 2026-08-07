@@ -7,11 +7,13 @@ import {
   getMaxActiveWorktrees,
   getPreventSleepWhileRunning,
   getWorktreeLocation,
+  getWorktreeNaming,
   setAutoSuspendAfterDays,
   setAutoSuspendEnabled,
   setMaxActiveWorktrees,
   setPreventSleepWhileRunning,
   setWorktreeLocation,
+  setWorktreeNaming,
 } from "../services/settingsStore";
 
 @injectable()
@@ -26,6 +28,14 @@ export class ElectronWorkspaceSettings implements IWorkspaceSettings {
 
   setWorktreeLocation(location: string): void {
     setWorktreeLocation(location);
+  }
+
+  getWorktreeNamingScheme(): "codename" | "descriptive" {
+    return getWorktreeNaming();
+  }
+
+  setWorktreeNamingScheme(value: "codename" | "descriptive"): void {
+    setWorktreeNaming(value);
   }
 
   getMaxActiveWorktrees(): number {

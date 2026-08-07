@@ -13,6 +13,7 @@ vi.mock("@posthog/git/queries", () => ({
 
 import {
   getWorktreeFileUsage,
+  isDedicatedWorktreeContainer,
   listLinkedWorktrees,
   listTwigWorktrees,
 } from "./worktree-query";
@@ -134,5 +135,27 @@ describe("getWorktreeFileUsage", () => {
       usesWorktreeLink: false,
       usesWorktreeInclude: false,
     });
+  });
+});
+
+describe("isDedicatedWorktreeContainer", () => {
+  it("allows removing the parent for the nested layout (<base>/<name>/<repo>)", () => {
+    // Nested layout gives each worktree its own dedicated `<base>/<name>`
+    // folder, so removing the parent only ever deletes that one worktree.
+    const worktreePath = `${BASE}/amber-heron-42/posthog`;
+    const mainRepoPath = "/repos/posthog";
+
+    expect(isDedicatedWorktreeContainer(worktreePath, mainRepoPath)).toBe(true);
+  });
+
+  it("refuses to remove the parent for the grouped layout (<base>/<repo>/<slug>)", () => {
+    // Grouped layout's parent is `<base>/<repo>`, shared by every worktree of
+    // that repo; force-removing it would delete sibling worktrees too.
+    const worktreePath = `${BASE}/posthog/fix-login`;
+    const mainRepoPath = "/repos/posthog";
+
+    expect(isDedicatedWorktreeContainer(worktreePath, mainRepoPath)).toBe(
+      false,
+    );
   });
 });

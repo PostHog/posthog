@@ -17,6 +17,7 @@ export interface CreateWorkspaceArgs {
   folderPath: string;
   mode: WorkspaceMode;
   branch?: string;
+  taskTitle?: string;
   allowRemoteBranchCheckout?: boolean;
   reuseExistingWorktree?: boolean;
 }

@@ -1,12 +1,18 @@
 import { existsSync, renameSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import {
+  DEFAULT_WORKTREE_NAMING_SCHEME,
+  WORKTREE_NAMING_SCHEMES,
+  type WorktreeNamingScheme,
+} from "@posthog/shared";
 import { LEGACY_DATA_DIRS, WORKTREES_DIR } from "@shared/constants";
 import Store from "electron-store";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 
 interface SettingsSchema {
   worktreeLocation: string;
+  worktreeNaming: WorktreeNamingScheme;
   preventSleepWhileRunning: boolean;
   autoSuspendEnabled: boolean;
   maxActiveWorktrees: number;
@@ -68,6 +74,11 @@ const schema = {
     type: "string" as const,
     default: getDefaultWorktreeLocation(),
   },
+  worktreeNaming: {
+    type: "string" as const,
+    enum: [...WORKTREE_NAMING_SCHEMES],
+    default: DEFAULT_WORKTREE_NAMING_SCHEME,
+  },
   preventSleepWhileRunning: {
     type: "boolean" as const,
     default: false,
@@ -112,6 +123,7 @@ export const settingsStore = new Store<SettingsSchema>({
   cwd: getUserDataDir(),
   defaults: {
     worktreeLocation: getDefaultWorktreeLocation(),
+    worktreeNaming: DEFAULT_WORKTREE_NAMING_SCHEME,
     preventSleepWhileRunning: false,
     autoSuspendEnabled: true,
     maxActiveWorktrees: 5,
@@ -165,6 +177,14 @@ export function getAllWorktreeLocations(): string[] {
 
 export function setWorktreeLocation(location: string): void {
   settingsStore.set("worktreeLocation", location);
+}
+
+export function getWorktreeNaming(): WorktreeNamingScheme {
+  return settingsStore.get("worktreeNaming", DEFAULT_WORKTREE_NAMING_SCHEME);
+}
+
+export function setWorktreeNaming(value: WorktreeNamingScheme): void {
+  settingsStore.set("worktreeNaming", value);
 }
 
 export function getAutoSuspendEnabled(): boolean {

@@ -5,11 +5,12 @@ import {
   RevertCheckpointSaga,
 } from "@posthog/git/sagas/checkpoint";
 import { type WorktreeInfo, WorktreeManager } from "@posthog/git/worktree";
-import type { SagaLogger } from "@posthog/shared";
+import type { SagaLogger, WorktreeNamingScheme } from "@posthog/shared";
 
 export interface RestoreWorktreeFromCheckpointParams {
   mainRepoPath: string;
   worktreeBasePath: string;
+  namingScheme?: WorktreeNamingScheme;
   /** Reuse this worktree name if provided. */
   preferredName: string | undefined;
   branchName: string | null;
@@ -29,6 +30,7 @@ export async function restoreWorktreeFromCheckpoint(
   const manager = new WorktreeManager({
     mainRepoPath: params.mainRepoPath,
     worktreeBasePath: params.worktreeBasePath,
+    namingScheme: params.namingScheme,
     logger: params.logger,
   });
 

@@ -2,6 +2,8 @@ export interface IWorkspaceSettings {
   getWorktreeLocation(): string;
   getAllWorktreeLocations(): string[];
   setWorktreeLocation(location: string): void;
+  getWorktreeNamingScheme(): "codename" | "descriptive";
+  setWorktreeNamingScheme(value: "codename" | "descriptive"): void;
   getMaxActiveWorktrees(): number;
   setMaxActiveWorktrees(value: number): void;
   getAutoSuspendEnabled(): boolean;

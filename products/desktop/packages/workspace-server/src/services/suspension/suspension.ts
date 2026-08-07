@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -6,8 +5,7 @@ import {
 } from "@posthog/di/logger";
 import { createGitClient } from "@posthog/git/client";
 import { deleteCheckpoint } from "@posthog/git/sagas/checkpoint";
-import { forceRemove } from "@posthog/git/utils";
-import { WorktreeManager } from "@posthog/git/worktree";
+import { type WorktreeInfo, WorktreeManager } from "@posthog/git/worktree";
 import {
   type IWorkspaceSettings,
   WORKSPACE_SETTINGS_SERVICE,
@@ -38,8 +36,10 @@ import {
   captureWorktreeCheckpoint,
   restoreWorktreeFromCheckpoint,
 } from "../worktree-checkpoint/worktree-checkpoint";
-import { deriveWorktreePath as deriveWorktreePathFromBase } from "../worktree-path/worktree-path";
-import { getCurrentBranchName } from "../worktree-query/worktree-query";
+import {
+  getCurrentBranchName,
+  removeWorktreeContainer,
+} from "../worktree-query/worktree-query";
 import {
   SUSPENSION_FILE_WATCHER,
   SUSPENSION_SESSION_CANCELLER,
@@ -317,7 +317,7 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
   ): Promise<void> {
     const manager = this.createWorktreeManager(folderPath);
     await manager.deleteWorktree(worktreePath);
-    await forceRemove(path.dirname(worktreePath));
+    await removeWorktreeContainer(worktreePath, folderPath);
   }
 
   private async killTaskProcesses(
@@ -414,6 +414,9 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
     if (!suspension) throw new Error(`Suspended task not found: ${taskId}`);
 
     const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
+    let restoredWorktree: WorktreeInfo | null = null;
+    // Tracked besides restoredWorktree: the returned name falls back to the
+    // stored row when the checkpoint-restore branch below doesn't run.
     let restoredWorktreeName: string | null = worktree?.name ?? null;
 
     if (
@@ -424,37 +427,32 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
       const checkpointId = suspension.checkpointId;
       await step(
         async () => {
-          restoredWorktreeName = await this.restoreWorktreeFromCheckpoint(
+          restoredWorktree = await this.restoreWorktreeFromCheckpoint(
             folderPath,
             workspace,
             suspension.branchName,
             checkpointId,
             recreateBranch,
           );
+          restoredWorktreeName = restoredWorktree.worktreeName;
         },
         async () => {
-          if (restoredWorktreeName) {
-            const worktreePath = await this.deriveWorktreePath(
+          if (restoredWorktree) {
+            await this.deleteWorktreeOnDisk(
               folderPath,
-              restoredWorktreeName,
+              restoredWorktree.worktreePath,
             );
-            await this.deleteWorktreeOnDisk(folderPath, worktreePath);
           }
         },
       );
 
       await step(
         async () => {
-          if (!restoredWorktreeName)
-            throw new Error("Failed to restore worktree");
-          const worktreePath = await this.deriveWorktreePath(
-            folderPath,
-            restoredWorktreeName,
-          );
+          if (!restoredWorktree) throw new Error("Failed to restore worktree");
           this.worktreeRepo.create({
             workspaceId: workspace.id,
-            name: restoredWorktreeName,
-            path: worktreePath,
+            name: restoredWorktree.worktreeName,
+            path: restoredWorktree.worktreePath,
           });
         },
         async () => this.worktreeRepo.deleteByWorkspaceId(workspace.id),
@@ -494,12 +492,13 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
     branchName: string | null,
     checkpointId: string,
     recreateBranch?: boolean,
-  ): Promise<string> {
+  ): Promise<WorktreeInfo> {
     const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
 
     const newWorktree = await restoreWorktreeFromCheckpoint({
       mainRepoPath: folderPath,
       worktreeBasePath: this.workspaceSettings.getWorktreeLocation(),
+      namingScheme: this.workspaceSettings.getWorktreeNamingScheme(),
       preferredName: worktree?.name ?? undefined,
       branchName,
       checkpointId,
@@ -508,14 +507,6 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
     });
 
     if (worktree) this.worktreeRepo.deleteByWorkspaceId(workspace.id);
-    return newWorktree.worktreeName;
-  }
-
-  private deriveWorktreePath(folderPath: string, worktreeName: string): string {
-    return deriveWorktreePathFromBase(
-      this.workspaceSettings.getWorktreeLocation(),
-      folderPath,
-      worktreeName,
-    );
+    return newWorktree;
   }
 }

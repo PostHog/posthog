@@ -160,6 +160,7 @@ export class TaskCreationSaga extends Saga<
               folderPath: repoPath,
               mode: workspaceMode,
               branch: branch ?? undefined,
+              taskTitle: task.title || undefined,
               allowRemoteBranchCheckout: input.allowRemoteBranchCheckout,
               reuseExistingWorktree: input.reuseExistingWorktree,
             });

@@ -1,12 +1,14 @@
 import { Folder, X } from "@phosphor-icons/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
+import type { WorktreeNamingScheme } from "@posthog/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "../../../primitives/toast";
 import { logger } from "../../../shell/logger";
 import { FolderPicker } from "../../folder-picker/FolderPicker";
 import { SettingRow } from "../SettingRow";
+import { SettingsOptionSelect } from "../SettingsOptionSelect";
 
 const log = logger.scope("workspaces-settings");
 
@@ -15,6 +17,8 @@ const DEFAULT_DIRECTORIES_QUERY_KEY = [
   "additionalDirectories",
   "defaults",
 ] as const;
+
+const WORKTREE_NAMING_QUERY_KEY = ["settings", "worktreeNaming"] as const;
 
 export function WorkspacesSettings() {
   const hostClient = useHostTRPCClient();
@@ -47,6 +51,18 @@ export function WorkspacesSettings() {
       log.error("Failed to set worktree location:", error);
     }
   };
+
+  const namingSchemeQuery = useQuery({
+    queryKey: WORKTREE_NAMING_QUERY_KEY,
+    queryFn: () => hostClient.workspace.getWorktreeNamingScheme.query(),
+  });
+
+  const namingSchemeMutation = useMutation({
+    mutationFn: (scheme: WorktreeNamingScheme) =>
+      hostClient.workspace.setWorktreeNamingScheme.mutate({ scheme }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: WORKTREE_NAMING_QUERY_KEY }),
+  });
 
   const defaultsQuery = useQuery({
     queryKey: DEFAULT_DIRECTORIES_QUERY_KEY,
@@ -93,6 +109,29 @@ export function WorkspacesSettings() {
             value={localWorktreeLocation}
             onChange={handleWorktreeLocationChange}
             placeholder="~/.posthog-code"
+          />
+        </div>
+      </SettingRow>
+      <SettingRow
+        label="Workspace folder names"
+        description="How folders for new workspaces are named. Existing workspaces keep their names."
+      >
+        <div className="min-w-[200px]">
+          <SettingsOptionSelect
+            value={namingSchemeQuery.data ?? "codename"}
+            options={[
+              { value: "codename", label: "Random codename" },
+              { value: "descriptive", label: "Branch or task name" },
+            ]}
+            onValueChange={(value) =>
+              namingSchemeMutation.mutate(
+                value === "descriptive" ? "descriptive" : "codename",
+              )
+            }
+            disabled={
+              namingSchemeQuery.isLoading || namingSchemeMutation.isPending
+            }
+            ariaLabel="Workspace folder names"
           />
         </div>
       </SettingRow>

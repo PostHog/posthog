@@ -1,4 +1,4 @@
-import { BRANCH_PREFIX } from "@posthog/shared";
+import { BRANCH_PREFIX, slugifyWorktreeName } from "@posthog/shared";
 
 export function sanitizeBranchName(input: string): string {
   return input.replace(/ /g, "-");
@@ -55,14 +55,7 @@ export function validateBranchName(name: string): string | null {
 }
 
 export function deriveBranchName(title: string, fallbackId: string): string {
-  const slug = title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60)
-    .replace(/-$/, "");
+  const slug = slugifyWorktreeName(title);
 
   if (!slug) return `${BRANCH_PREFIX}task-${fallbackId}`;
   return `${BRANCH_PREFIX}${slug}`;

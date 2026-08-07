@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import * as path from "node:path";
 
 /**
  * Curated adjective-noun word list used to label worktrees. Words are short,
@@ -31,4 +32,20 @@ export function generateHumanReadableName(): string {
   const noun = NOUNS[crypto.randomInt(0, NOUNS.length)];
   const suffix = crypto.randomInt(10, 100).toString();
   return `${adjective}-${noun}-${suffix}`;
+}
+
+/**
+ * The worktree name from its path, inverting the layouts WorktreeManager
+ * creates: the nested layout (`<base>/<name>/<repo>`) keeps the name in the
+ * parent folder, the grouped layout (`<base>/<repo>/<name>`) keeps it in the
+ * leaf. For a path in neither layout (an external worktree) the leaf is the
+ * label.
+ */
+export function worktreeNameFromPath(
+  worktreePath: string,
+  repoName: string,
+): string {
+  return path.basename(worktreePath) === repoName
+    ? path.basename(path.dirname(worktreePath))
+    : path.basename(worktreePath);
 }
