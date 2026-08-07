@@ -20,6 +20,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
 
+from posthog.api.github_callback.personal_state import usable_personal_github_token
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
     GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
@@ -31,6 +32,7 @@ from posthog.api.github_callback.team_services import (
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -3612,10 +3614,14 @@ class TestGitHubTeamIntegrationComplete:
         assert by_id["222"]["account_name"] == "coderabbitai"
         assert by_id["222"]["account_type"] == "Organization"
 
-    @patch("posthog.api.github_callback.personal_state.github_request", side_effect=requests.RequestException("boom"))
-    def test_available_installations_degrades_to_sibling_only_when_personal_fetch_fails(self, _mock_request):
-        # A stale personal token or a GitHub outage must not break the sibling-only listing that
-        # already worked before adoption existed.
+    @pytest.mark.parametrize("fetch_error", [requests.RequestException("boom"), GitHubEgressBudgetExhausted()])
+    @patch("posthog.api.github_callback.personal_state.github_request")
+    def test_available_installations_degrades_to_sibling_only_when_personal_fetch_fails(
+        self, mock_request, fetch_error
+    ):
+        # A stale personal token, a GitHub outage, or our own exhausted egress budget must not
+        # break the sibling-only listing that already worked before adoption existed.
+        mock_request.side_effect = fetch_error
         sibling = self._sibling_github_integration("Acme Org", "111")
         self._personal_github_integration(self.user)
 
@@ -3625,6 +3631,24 @@ class TestGitHubTeamIntegrationComplete:
 
         assert [installation["installation_id"] for installation in installations] == ["111"]
         assert installations[0]["source_team_id"] == sibling.team_id
+
+    @patch("posthog.api.github_callback.personal_state.UserGitHubIntegration.get_usable_user_access_token")
+    def test_usable_personal_github_token_falls_back_to_older_link(self, mock_get_token):
+        # The newest personal link can hold stale credentials while an older one still refreshes.
+        mock_get_token.side_effect = [requests.RequestException("stale"), "gho_older_token"]
+        self._personal_github_integration(self.user)
+        older = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="66666",
+            config={"github_user": {"login": "personaluser", "id": 1}},
+            sensitive_config={"user_access_token": "gho_older_token"},
+        )
+        older.created_at = older.created_at - timedelta(days=30)
+        older.save(update_fields=["created_at"])
+
+        assert usable_personal_github_token(self.user) == "gho_older_token"
+        assert mock_get_token.call_count == 2
 
     @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
     def test_link_existing_rejects_leading_zero_installation_id(self, mock_verify):

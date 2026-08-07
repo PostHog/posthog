@@ -10,7 +10,7 @@ from typing import Any
 
 import requests
 
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
@@ -42,17 +42,22 @@ def personal_github_login(user: User) -> str | None:
 def usable_personal_github_token(user: User) -> str | None:
     """Return a usable user-to-server GitHub token for ``user``, refreshing it if needed.
 
-    Returns None when the user has no personal GitHub link, or the token can't be refreshed
-    (expired refresh token, GitHub rejects the refresh) — callers must treat this as "can't verify"
-    rather than raise, since a stale personal link is common and not itself an error.
+    Tries every personal GitHub link newest-first, since the newest row can hold stale credentials
+    while an older one still refreshes fine. Returns None when no link yields a token — callers
+    must treat this as "can't verify" rather than raise, since a stale personal link is common and
+    not itself an error.
     """
-    integration = _newest_personal_github_integration(user)
-    if integration is None:
-        return None
-    try:
-        return UserGitHubIntegration(integration).get_usable_user_access_token()
-    except Exception:
-        return None
+    integrations = (
+        UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).order_by("-created_at")
+    )
+    for integration in integrations:
+        try:
+            token = UserGitHubIntegration(integration).get_usable_user_access_token()
+        except Exception:
+            continue
+        if token:
+            return token
+    return None
 
 
 def list_user_github_app_installations(user: User) -> list[dict[str, Any]] | None:
@@ -77,7 +82,7 @@ def list_user_github_app_installations(user: User) -> list[dict[str, Any]] | Non
             params={"per_page": 100},
             timeout=10,
         )
-    except requests.RequestException:
+    except (requests.RequestException, GitHubEgressBudgetExhausted):
         return None
 
     if response.status_code != 200:

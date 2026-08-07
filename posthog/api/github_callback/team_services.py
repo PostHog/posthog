@@ -30,6 +30,7 @@ from posthog.api.github_callback.types import (
     is_valid_github_installation_id,
 )
 from posthog.auth import SessionAuthentication
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models import Team
 from posthog.models.integration import (
     GitHubInstallationAccess,
@@ -128,7 +129,7 @@ def link_github_installation_for_user(
         raise ValidationError("Invalid installation_id")
     try:
         has_access = GitHubIntegration.verify_user_installation_access(installation_id, authorization.access_token)
-    except requests.RequestException:
+    except (requests.RequestException, GitHubEgressBudgetExhausted):
         logger.warning(
             "github_integration_create: installation ownership check failed",
             installation_id=installation_id,
@@ -196,7 +197,7 @@ def authorize_link_existing_installation(
         )
     try:
         has_access = GitHubIntegration.verify_user_installation_access(source_installation_id, user_access_token)
-    except requests.RequestException:
+    except (requests.RequestException, GitHubEgressBudgetExhausted):
         raise ValidationError("Failed to verify installation access")
     if not has_access:
         raise ValidationError(
@@ -223,7 +224,7 @@ def adopt_orphan_installation(*, user: User, team_id: int, installation_id: str)
         )
     try:
         has_access = GitHubIntegration.verify_user_installation_access(installation_id, token)
-    except requests.RequestException:
+    except (requests.RequestException, GitHubEgressBudgetExhausted):
         raise ValidationError("Failed to verify installation access")
     if not has_access:
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
