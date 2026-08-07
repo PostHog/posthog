@@ -32,6 +32,7 @@ export type ArtifactRow =
       artifactId: string | null;
       name: string;
       runId: string | null;
+      size: number | undefined;
     }
   | { kind: "slack"; key: string; url: string };
 
@@ -187,6 +188,7 @@ export function buildRows(
       artifactId: file.id ?? null,
       name,
       runId,
+      size: file.size,
     });
   }
 

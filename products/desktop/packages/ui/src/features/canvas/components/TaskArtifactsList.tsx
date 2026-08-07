@@ -44,6 +44,7 @@ import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEna
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { type ReactNode, useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
@@ -227,12 +228,14 @@ function FileRow({
   runId,
   artifactId,
   name,
+  size,
   commentCount,
 }: {
   taskId: string;
   runId: string | null;
   artifactId: string | null;
   name: string;
+  size: number | undefined;
   /** Supplied by the pane's single comments query so each row doesn't fetch. */
   commentCount: number;
 }) {
@@ -240,6 +243,7 @@ function FileRow({
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const [downloading, setDownloading] = useState(false);
   const canOpen = !!runId && !!artifactId;
+  const sizeLabel = formatFileSize(size);
   const onOpen = canOpen
     ? () => {
         openArtifactTab(taskId, {
@@ -282,14 +286,15 @@ function FileRow({
       icon={<FileIcon filename={name} size={14} />}
       title={name}
       detail={
-        commentCount > 0 ? (
-          <Badge>
-            <ChatCircleIcon />
-            {commentCount}
-          </Badge>
-        ) : (
-          "File"
-        )
+        <div className="flex items-center gap-1.5">
+          <span>{sizeLabel ? `File · ${sizeLabel}` : "File"}</span>
+          {commentCount > 0 && (
+            <Badge>
+              <ChatCircleIcon />
+              {commentCount}
+            </Badge>
+          )}
+        </div>
       }
       onOpen={onOpen}
       fileActions={
@@ -395,6 +400,7 @@ export function TaskArtifactsList({
             runId={row.runId}
             artifactId={row.artifactId}
             name={row.name}
+            size={row.size}
             commentCount={
               row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
             }

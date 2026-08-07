@@ -184,7 +184,7 @@ describe("TaskArtifactsList", () => {
     const row = screen.getByText("report.md").closest("button");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("2")).toBeTruthy();
-    expect(within(row as HTMLElement).queryByText(/File|KB/)).toBeNull();
+    expect(within(row as HTMLElement).getByText("File · 17 KB")).toBeTruthy();
   });
 
   // The threads themselves live in the Comments tab now, so the pane must not
@@ -309,7 +309,7 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getAllByText("report.md")).toHaveLength(1);
-    expect(screen.queryByText(/File ·|KB/)).toBeNull();
+    expect(screen.getByText("File · 2 KB")).toBeInTheDocument();
   });
 
   it.each([
