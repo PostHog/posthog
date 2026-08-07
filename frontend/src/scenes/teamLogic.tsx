@@ -619,10 +619,15 @@ export const teamLogic = kea<teamLogicType>([
             // Keep the API layer's default team AND project scope in lockstep with the loaded team.
             // Setting only the team id left a stale project id behind after switching teams (e.g.
             // deleting an org then creating a new project), so later requests still targeted the old
-            // project and 404'd with "Project not found." Reset both to null when there's no team so
-            // we stop carrying a deleted id.
-            ApiConfig.setCurrentTeamId(currentTeam?.id ?? null)
-            ApiConfig.setCurrentProjectId(currentTeam?.project_id ?? null)
+            // project and 404'd with "Project not found." Only touch scope when a team is present: a
+            // null team means the logged-out/shared context (the exporter sets its own scope for
+            // shared views), and clobbering that would make shared views leak team-scoped requests.
+            if (currentTeam) {
+                ApiConfig.setCurrentTeamId(currentTeam.id)
+                if (currentTeam.project_id) {
+                    ApiConfig.setCurrentProjectId(currentTeam.project_id)
+                }
+            }
         },
         updateCurrentTeamSuccess: () => {
             // Reload user after team update to keep user object in sync

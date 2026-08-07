@@ -42,11 +42,14 @@ describe('teamLogic', () => {
             expect(ApiConfig.getCurrentProjectId()).toBe(8484)
         })
 
-        it('resets the team and project scope when there is no current team', async () => {
+        // A null team is the logged-out/shared context (the exporter sets its own scope for shared
+        // views). Clobbering that scope made shared views leak team-scoped requests, so a null team
+        // must leave the existing scope untouched.
+        it('leaves the existing scope untouched when there is no current team', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
             logic.actions.loadCurrentTeamSuccess(null)
-            expect(ApiConfig.hasCurrentTeamId()).toBe(false)
-            expect(() => ApiConfig.getCurrentProjectId()).toThrow()
+            expect(ApiConfig.getCurrentTeamId()).toBe(MOCK_TEAM_ID)
+            expect(ApiConfig.getCurrentProjectId()).toBe(MOCK_DEFAULT_TEAM.project_id)
         })
     })
 

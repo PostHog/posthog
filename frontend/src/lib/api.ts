@@ -445,7 +445,7 @@ export class ApiConfig {
         return !!this._currentTeamId
     }
 
-    static setCurrentTeamId(id: TeamType['id'] | null): void {
+    static setCurrentTeamId(id: TeamType['id']): void {
         this._currentTeamId = id
     }
 
@@ -456,7 +456,7 @@ export class ApiConfig {
         return this._currentProjectId
     }
 
-    static setCurrentProjectId(id: ProjectType['id'] | null): void {
+    static setCurrentProjectId(id: ProjectType['id']): void {
         this._currentProjectId = id
     }
 }
