@@ -6,11 +6,15 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal } from '@posthog/lemon
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-
 export function ExpressionModal(): JSX.Element {
-    const { isExpressionModalOpen, expressionToEdit, selectedTableName, error, isExpressionFormSubmitting } =
-        useValues(expressionModalLogic)
+    const {
+        isExpressionModalOpen,
+        expressionToEdit,
+        expressionSourceQuery,
+        selectedTableName,
+        error,
+        isExpressionFormSubmitting,
+    } = useValues(expressionModalLogic)
     const { closeExpressionModal } = useActions(expressionModalLogic)
 
     return (
@@ -43,11 +47,7 @@ export function ExpressionModal(): JSX.Element {
                             onChange={(newValue) => onChange(newValue ?? '')}
                             language="hogQLExpr"
                             minHeight="78px"
-                            sourceQuery={
-                                selectedTableName
-                                    ? { kind: NodeKind.HogQLQuery, query: `SELECT * FROM ${selectedTableName}` }
-                                    : undefined
-                            }
+                            sourceQuery={expressionSourceQuery}
                         />
                     )}
                 </Field>

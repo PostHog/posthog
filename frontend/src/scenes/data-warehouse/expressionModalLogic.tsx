@@ -10,6 +10,8 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+
 import {
     warehouseExpressionsCreate,
     warehouseExpressionsList,
@@ -39,6 +41,7 @@ export interface expressionModalLogicValues {
     expressionFormTouched: boolean
     expressionFormTouches: Record<string, boolean>
     expressionFormValidationErrors: DeepPartialMap<ExpressionFormValues, ValidationErrorType>
+    expressionSourceQuery: HogQLQuery | undefined
     expressionToEdit: DataWarehouseExpressionApi | null
     expressions: DataWarehouseExpressionApi[]
     expressionsByFieldName: Record<string, DataWarehouseExpressionApi>
@@ -132,6 +135,10 @@ export interface expressionModalLogicActions {
 export interface expressionModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeConnectionId: (connectionId: string | null) => string | null
+        expressionSourceQuery: (
+            selectedTableName: string | null,
+            activeConnectionId: string | null
+        ) => HogQLQuery | undefined
         expressionsByFieldName: (
             expressions: DataWarehouseExpressionApi[],
             activeConnectionId: string | null
@@ -248,6 +255,17 @@ export const expressionModalLogic = kea<expressionModalLogicType>([
             (s) => [s.connectionId],
             (connectionId: string | null): string | null =>
                 connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : null,
+        ],
+        expressionSourceQuery: [
+            (s) => [s.selectedTableName, s.activeConnectionId],
+            (selectedTableName: string | null, activeConnectionId: string | null): HogQLQuery | undefined =>
+                selectedTableName
+                    ? {
+                          kind: NodeKind.HogQLQuery,
+                          query: `SELECT * FROM ${selectedTableName}`,
+                          connectionId: activeConnectionId ?? undefined,
+                      }
+                    : undefined,
         ],
         // Only expressions scoped to the active connection (null scope means the default warehouse)
         expressionsByFieldName: [
