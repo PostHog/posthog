@@ -12,6 +12,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
+    UPSTREAM_NAMES_IN_SKIP_REASON,
     GetDAGStructureInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
@@ -316,8 +317,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         skipped_jobs.append(
                             SkippedDataModelingNode(
                                 node_id=node_id,
-                                failed_upstream_node_ids=failed_upstream,
-                                suspended_upstream_node_ids=suspended_upstream,
+                                failed_upstream_node_ids=failed_upstream[:UPSTREAM_NAMES_IN_SKIP_REASON],
+                                failed_upstream_total=len(failed_upstream),
+                                suspended_upstream_node_ids=suspended_upstream[:UPSTREAM_NAMES_IN_SKIP_REASON],
+                                suspended_upstream_total=len(suspended_upstream),
                             )
                         )
                 elif node_id in ephemeral_node_set:

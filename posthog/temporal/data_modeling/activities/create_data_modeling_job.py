@@ -27,11 +27,19 @@ class CreatedDataModelingJob:
     saved_query_id: str | None
 
 
+UPSTREAM_NAMES_IN_SKIP_REASON = 3
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SkippedDataModelingNode:
     node_id: str
+    # Only the ids the reason can name, plus how many there were. A node in a dense graph can
+    # sit downstream of hundreds of broken ancestors, and the whole payload has to fit in one
+    # Temporal activity argument.
     failed_upstream_node_ids: list[str] = dataclasses.field(default_factory=list)
+    failed_upstream_total: int = 0
     suspended_upstream_node_ids: list[str] = dataclasses.field(default_factory=list)
+    suspended_upstream_total: int = 0
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -85,26 +93,32 @@ async def create_data_modeling_job_activity(inputs: CreateDataModelingJobInputs)
     return created.job_id
 
 
-def _name_list(names: list[str]) -> str:
-    """Render at most three names, so one broken source feeding a wide graph stays readable."""
-    if len(names) > 3:
-        return f"{', '.join(names[:3])} and {len(names) - 3} more"
-    if len(names) > 1:
-        return f"{', '.join(names[:-1])} and {names[-1]}"
-    return names[0]
+def _subject(names: list[str], total: int) -> str:
+    """Name at most three upstreams and count the rest, so one broken source feeding a wide
+    graph stays readable. Names can be missing if a node was deleted mid-run; the count still
+    tells the truth about how many blocked this one."""
+    shown = names[:UPSTREAM_NAMES_IN_SKIP_REASON]
+    if not shown:
+        return "an upstream view" if total <= 1 else f"{total} upstream views"
+    noun = "upstream view" if total == 1 else "upstream views"
+    extra = total - len(shown)
+    if extra > 0:
+        return f"{noun} {', '.join(shown)} and {extra} more"
+    if len(shown) > 1:
+        return f"{noun} {', '.join(shown[:-1])} and {shown[-1]}"
+    return f"{noun} {shown[0]}"
 
 
-def _skip_reason(failed: list[str], suspended: list[str]) -> str:
-    if failed and suspended:
-        return f"Skipped because upstream views {_name_list(failed + suspended)} are failing or paused."
-    if failed:
-        plural = "s" if len(failed) > 1 else ""
-        verb = "are" if len(failed) > 1 else "is"
-        return f"Skipped because upstream view{plural} {_name_list(failed)} {verb} failing."
-    if suspended:
-        plural = "s" if len(suspended) > 1 else ""
-        verb = "were" if len(suspended) > 1 else "was"
-        return f"Skipped because upstream view{plural} {_name_list(suspended)} {verb} paused after repeated failures."
+def _skip_reason(*, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int) -> str:
+    if failed_total and suspended_total:
+        subject = _subject(failed + suspended, failed_total + suspended_total)
+        return f"Skipped because {subject} are failing or paused."
+    if failed_total:
+        verb = "is" if failed_total == 1 else "are"
+        return f"Skipped because {_subject(failed, failed_total)} {verb} failing."
+    if suspended_total:
+        verb = "was" if suspended_total == 1 else "were"
+        return f"Skipped because {_subject(suspended, suspended_total)} {verb} paused after repeated failures."
     return "Skipped because an upstream view failed."
 
 
@@ -147,8 +161,10 @@ def _record_skipped_data_modeling_jobs(
                 engine=inputs.engine,
                 rows_materialized=0,
                 error=_skip_reason(
-                    [nodes[i].name for i in skipped.failed_upstream_node_ids if i in nodes],
-                    [nodes[i].name for i in skipped.suspended_upstream_node_ids if i in nodes],
+                    failed=[nodes[i].name for i in skipped.failed_upstream_node_ids if i in nodes],
+                    failed_total=skipped.failed_upstream_total,
+                    suspended=[nodes[i].name for i in skipped.suspended_upstream_node_ids if i in nodes],
+                    suspended_total=skipped.suspended_upstream_total,
                 ),
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,

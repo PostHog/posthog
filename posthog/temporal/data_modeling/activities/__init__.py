@@ -1,4 +1,5 @@
 from .create_data_modeling_job import (
+    UPSTREAM_NAMES_IN_SKIP_REASON,
     CreateDataModelingJobInputs,
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
@@ -28,6 +29,7 @@ from .succeed_materialization import (
 )
 
 __all__ = [
+    "UPSTREAM_NAMES_IN_SKIP_REASON",
     "CreateDataModelingJobInputs",
     "RecordSkippedDataModelingJobsInputs",
     "SkippedDataModelingNode",
