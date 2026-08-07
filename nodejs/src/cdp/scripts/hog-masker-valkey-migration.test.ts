@@ -1,16 +1,17 @@
 import IORedis, { Redis } from 'ioredis'
 
+import { MASK_KEY_PREFIX } from '../services/monitoring/hog-masker.keys'
 import {
+    DEFAULT_KEY_PATTERN,
     MaskerMigrationOptions,
-    copyMaskerKeys,
-    emptyMigrationSummary,
-    migrationHasMismatches,
+    migrationHasDrift,
     runMaskerMigration,
 } from './hog-masker-valkey-migration'
 
-const KEY_PATTERN = '@posthog-test/hog-masker/mask/*'
-const SOURCE_KEY = '@posthog-test/hog-masker/mask/function/hash'
-const EXTRA_KEY = '@posthog-test/hog-masker/mask/extra/hash'
+const SOURCE_KEY = `${MASK_KEY_PREFIX}function/hash`
+const MISSING_KEY = `${MASK_KEY_PREFIX}function/missing`
+const EXPIRY_KEY = `${MASK_KEY_PREFIX}function/expiry`
+const TARGET_ONLY_KEY = `${MASK_KEY_PREFIX}function/target-only`
 
 describe('HogMasker Valkey migration', () => {
     let source: Redis
@@ -19,10 +20,12 @@ describe('HogMasker Valkey migration', () => {
     const options = (overrides: Partial<MaskerMigrationOptions> = {}): MaskerMigrationOptions => ({
         phase: 'copy',
         execute: true,
-        writersPaused: false,
+        keyPattern: DEFAULT_KEY_PATTERN,
         scanCount: 10,
+        limit: null,
+        sleepMsBetweenBatches: 0,
         ttlToleranceMs: 500,
-        keyPattern: KEY_PATTERN,
+        sampleKeysPerBucket: 5,
         ...overrides,
     })
 
@@ -43,71 +46,78 @@ describe('HogMasker Valkey migration', () => {
         await Promise.all([source.quit(), target.quit()])
     })
 
-    it('keeps dry-run copy read-only', async () => {
+    it('refuses a key pattern outside the masker prefix', async () => {
+        await expect(runMaskerMigration(source, target, options({ keyPattern: '*' }))).rejects.toThrow(
+            `Key pattern must start with ${MASK_KEY_PREFIX}`
+        )
+    })
+
+    it('reports the copy it would make without writing anything', async () => {
         await source.set(SOURCE_KEY, '42', 'PX', 60_000)
 
         const summary = await runMaskerMigration(source, target, options({ execute: false }))
 
-        expect(summary).toMatchObject({ sourceKeys: 1, copiedKeys: 0 })
+        expect(summary).toMatchObject({ dryRun: true, scannedSourceKeys: 1, missingFromTarget: 1, copiedKeys: 0 })
         await expect(target.get(SOURCE_KEY)).resolves.toBeNull()
     })
 
-    it('copies values while preserving the remaining expiry', async () => {
+    it('copies missing keys while preserving the remaining expiry', async () => {
         await source.set(SOURCE_KEY, '42', 'PX', 60_000)
 
         const summary = await runMaskerMigration(source, target, options())
         const [sourceTtl, targetTtl] = await Promise.all([source.pttl(SOURCE_KEY), target.pttl(SOURCE_KEY)])
 
-        expect(summary).toMatchObject({ sourceKeys: 1, copiedKeys: 1 })
+        expect(summary).toMatchObject({ scannedSourceKeys: 1, missingFromTarget: 1, copiedKeys: 1 })
         await expect(target.get(SOURCE_KEY)).resolves.toBe('42')
         expect(Math.abs(sourceTtl - targetTtl)).toBeLessThan(500)
     })
 
-    it('fails the migration and does not count copies when a target write fails', async () => {
-        await source.set(SOURCE_KEY, '42', 'PX', 60_000)
-        const failingPipeline = {
-            set: jest.fn(),
-            exec: jest.fn().mockResolvedValue([[new Error('write rejected'), null]]),
-        }
-        failingPipeline.set.mockReturnValue(failingPipeline)
-        jest.spyOn(target, 'pipeline').mockReturnValueOnce(failingPipeline as any)
-        const summary = emptyMigrationSummary()
-
-        await expect(copyMaskerKeys(source, target, options(), summary)).rejects.toThrow(
-            'Target Valkey write pipeline failed: write rejected'
-        )
-        expect(summary.copiedKeys).toBe(0)
-    })
-
-    it('finalizes an identical target and removes target-only keys', async () => {
-        await source.set(SOURCE_KEY, '42', 'PX', 60_000)
-        await target.set(EXTRA_KEY, '1', 'PX', 60_000)
-
-        const summary = await runMaskerMigration(source, target, options({ phase: 'finalize', writersPaused: true }))
-
-        expect(summary).toMatchObject({ copiedKeys: 1, deletedExtraKeys: 1, missingTargetKeys: 0 })
-        expect(migrationHasMismatches(summary)).toBe(false)
-        await expect(target.get(EXTRA_KEY)).resolves.toBeNull()
-    })
-
-    it('detects missing, different, and differently expiring target keys', async () => {
+    it('leaves a counter the target already holds untouched', async () => {
         await source.set(SOURCE_KEY, '42', 'PX', 60_000)
         await target.set(SOURCE_KEY, '7', 'PX', 30_000)
-        await target.set(EXTRA_KEY, '1', 'PX', 60_000)
+
+        const summary = await runMaskerMigration(source, target, options())
+
+        expect(summary).toMatchObject({ presentInTarget: 1, missingFromTarget: 0, copiedKeys: 0 })
+        await expect(target.get(SOURCE_KEY)).resolves.toBe('7')
+        expect(await target.pttl(SOURCE_KEY)).toBeLessThanOrEqual(30_000)
+    })
+
+    it('stops at the limit and marks the counts as a sample', async () => {
+        for (let index = 0; index < 25; index++) {
+            await source.set(`${MASK_KEY_PREFIX}function/${index}`, '1', 'PX', 60_000)
+        }
+
+        const summary = await runMaskerMigration(source, target, options({ phase: 'stats', execute: false, limit: 5 }))
+
+        expect(summary).toMatchObject({ scannedSourceKeys: 5, missingFromTarget: 5, limitReached: true })
+        expect(summary.sourceTtlBuckets.under1h).toBe(5)
+    })
+
+    it('reports drift in both directions without deleting anything', async () => {
+        await source.set(SOURCE_KEY, '42', 'PX', 60_000)
+        await target.set(SOURCE_KEY, '7', 'PX', 60_000)
+        await source.set(MISSING_KEY, '1', 'PX', 60_000)
+        await source.set(EXPIRY_KEY, '1', 'PX', 60_000)
+        await target.set(EXPIRY_KEY, '1', 'PX', 30_000)
+        await target.set(TARGET_ONLY_KEY, '1', 'PX', 60_000)
 
         const summary = await runMaskerMigration(
             source,
             target,
-            options({ phase: 'verify', execute: false, ttlToleranceMs: 100 })
+            options({ phase: 'check', execute: false, ttlToleranceMs: 100 })
         )
 
-        expect(summary).toMatchObject({ mismatchedValues: 1, mismatchedExpiries: 1, extraTargetKeys: 1 })
-        expect(migrationHasMismatches(summary)).toBe(true)
-    })
-
-    it('refuses to finalize without paused writers', async () => {
-        await expect(
-            runMaskerMigration(source, target, options({ phase: 'finalize', writersPaused: false }))
-        ).rejects.toThrow('Finalization requires execute=true and writersPaused=true')
+        expect(summary).toMatchObject({
+            scannedSourceKeys: 3,
+            scannedTargetKeys: 3,
+            missingFromTarget: 1,
+            valueDrift: 1,
+            targetBehindSource: 1,
+            expiryDrift: 1,
+            targetOnlyKeys: 1,
+        })
+        expect(migrationHasDrift(summary)).toBe(true)
+        await expect(target.exists(TARGET_ONLY_KEY)).resolves.toBe(1)
     })
 })

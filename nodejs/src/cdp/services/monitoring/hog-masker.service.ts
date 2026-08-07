@@ -10,9 +10,7 @@ import {
 } from '../../types'
 import { execHog } from '../../utils/hog-exec'
 import { mirrorCall } from '../../utils/mirror-call'
-
-export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
-const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
+import { MASK_KEY_PREFIX } from './hog-masker.keys'
 
 // NOTE: These are controlled via the api so are more of a sanity fallback
 const MASKER_MAX_TTL_HOG_FUNCTION = 60 * 60 * 24
@@ -148,9 +146,9 @@ export class HogMaskerService {
 
         const buildPipeline = (pipeline: RedisClientPipeline): void => {
             Object.values(masks).forEach(({ hogFunctionId, hash, increment, ttl }) => {
-                pipeline.incrby(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, increment)
+                pipeline.incrby(`${MASK_KEY_PREFIX}${hogFunctionId}/${hash}`, increment)
                 // @ts-expect-error - NX is not typed in ioredis
-                pipeline.expire(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, ttl, 'NX')
+                pipeline.expire(`${MASK_KEY_PREFIX}${hogFunctionId}/${hash}`, ttl, 'NX')
             })
         }
 

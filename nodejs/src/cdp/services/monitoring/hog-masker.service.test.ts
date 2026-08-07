@@ -9,7 +9,8 @@ import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
-import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
+import { BASE_REDIS_KEY } from './hog-masker.keys'
+import { HogMaskerService } from './hog-masker.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
