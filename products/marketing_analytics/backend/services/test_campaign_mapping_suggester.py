@@ -411,3 +411,22 @@ class TestScale:
         # Or the timing would pass for a suggester that bailed out. All 100 land in `ambiguous`:
         # 500 names one digit apart is a wall of near-ties, i.e. the slowest path.
         assert len(result.proposals) + len(result.ambiguous) + len(result.unresolved) == 100
+
+    def test_oversized_values_cannot_slow_the_fuzzy_pass(self):
+        # `utm_campaign` comes off an event property, which has no length bound. At the documented
+        # caps but 20k characters a side this took 309 seconds; the length cap is what holds it at
+        # milliseconds, so the assertion is the point of the test rather than the timing.
+        pad = "y" * 20_000
+        campaigns = [_campaign(f"{pad}_camp_{i:04d}", str(i), spend=float(i)) for i in range(500)]
+        utm_events = _events(*[(f"{pad}_camp_{i:04d}z", "google", 100) for i in range(100)])
+
+        started = time.perf_counter()
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+        elapsed = time.perf_counter() - started
+
+        assert elapsed < 2.0, f"took {elapsed:.2f}s"
+        # Dropped outright rather than truncated: a mapping has to carry the whole raw value to
+        # apply, and a 20k-character utm_campaign is not a typo of any real campaign name.
+        assert result.proposals == []
+        assert result.ambiguous == []
+        assert result.unresolved == []

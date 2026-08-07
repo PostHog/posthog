@@ -41,6 +41,13 @@ logger = structlog.get_logger(__name__)
 MIN_EVENT_COUNT = 25
 MAX_UNMATCHED_VALUES = 100
 
+# Longer than any real campaign name — Google Ads caps them at 128 characters and the rest are in
+# that range — so anything past this is junk that can't be a typo of a real name. It is also the
+# only bound on the fuzzy pass's cost: `utm_campaign` arrives from an event property with no length
+# limit, and 100 orphans against 500 candidates takes 60ms at realistic lengths and 5 minutes when
+# both sides are 20k characters.
+MAX_VALUE_LENGTH = 200
+
 # 88, not the helper's default 70: that one is tuned for a search box with a human reading it.
 SCORE_CUTOFF = 88.0
 MIN_MARGIN = 6.0
@@ -176,7 +183,7 @@ def _orphans(utm_events: dict[tuple[str, str], int], excluded: set[str]) -> list
     totals: Counter[str] = Counter()
     by_source: dict[str, Counter[str]] = defaultdict(Counter)
     for (utm_campaign, utm_source), count in utm_events.items():
-        if not utm_campaign or utm_campaign in excluded:
+        if not utm_campaign or len(utm_campaign) > MAX_VALUE_LENGTH or utm_campaign in excluded:
             continue
         totals[utm_campaign] += count
         by_source[utm_campaign][utm_source] += count
@@ -269,7 +276,7 @@ def _classify(
     natives_by_value: dict[str, set[str]] = {}
     for campaign in candidates:
         value = get_match_value_raw(campaign, mappings)
-        if not value or value.lower() in seen:
+        if not value or len(value) > MAX_VALUE_LENGTH or value.lower() in seen:
             continue
         native = native_for_primary_source(campaign.source_name)
         if native is None:
