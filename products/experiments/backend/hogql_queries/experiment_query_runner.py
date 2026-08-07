@@ -875,7 +875,7 @@ class ExperimentQueryRunner(QueryRunner):
         if funnel_step > num_metric_steps:
             raise ValidationError(
                 f"Invalid conversion step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+                f"Valid conversion steps: 0 (exposure step) to {num_metric_steps}."
             )
 
         # Extract exposure configuration from actors query

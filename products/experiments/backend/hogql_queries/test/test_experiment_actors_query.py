@@ -414,8 +414,8 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         error_message = str(context.exception)
         self.assertIn("Invalid conversion step 3", error_message)  # Shows the invalid value
         self.assertIn("2 metric steps", error_message)  # Shows context
-        self.assertIn("Valid conversion steps: 1", error_message)  # Shows valid range start
-        self.assertIn("(first metric step) to 2", error_message)  # Shows valid range end with explanation
+        self.assertIn("Valid conversion steps: 0", error_message)  # Shows valid range start
+        self.assertIn("(exposure step) to 2", error_message)  # Shows valid range end with explanation
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
