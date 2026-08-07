@@ -10,10 +10,12 @@ const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked
 
 describe('inboxReportDetailLogic feedback note submission', () => {
     let logic: ReturnType<typeof inboxReportDetailLogic.build>
-    let feedbackPosts: number
+    let notePosts: number
+    let bareRatingPosts: number
 
     beforeEach(() => {
-        feedbackPosts = 0
+        notePosts = 0
+        bareRatingPosts = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
@@ -21,9 +23,14 @@ describe('inboxReportDetailLogic feedback note submission', () => {
                 '/api/projects/:team_id/signals/reports/available_reviewers/': [],
             },
             post: {
-                '/api/projects/:team_id/signals/reports/:id/feedback/': () => {
-                    feedbackPosts += 1
-                    return [200, { forwarded: true }]
+                '/api/projects/:team_id/signals/reports/:id/feedback/': async ({ request }) => {
+                    const body = (await request.json()) as { note?: string }
+                    if (body.note) {
+                        notePosts += 1
+                    } else {
+                        bareRatingPosts += 1
+                    }
+                    return [200, { forwarded: Boolean(body.note) }]
                 },
             },
         })
@@ -43,7 +50,9 @@ describe('inboxReportDetailLogic feedback note submission', () => {
         logic.actions.submitFeedbackNote('the repro steps were right')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(feedbackPosts).toBe(1)
+        // The rating itself posts once (consumption evidence), the note once despite the double-click.
+        expect(bareRatingPosts).toBe(1)
+        expect(notePosts).toBe(1)
         expect(logic.values.feedbackNoteSubmitting).toBe(false)
 
         // Re-rating reopens the note flow; the guard must have reset or this submit is silently dropped.
@@ -51,6 +60,7 @@ describe('inboxReportDetailLogic feedback note submission', () => {
         logic.actions.submitFeedbackNote('actually this was stale')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(feedbackPosts).toBe(2)
+        expect(bareRatingPosts).toBe(2)
+        expect(notePosts).toBe(2)
     })
 })
