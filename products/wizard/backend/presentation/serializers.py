@@ -207,7 +207,10 @@ class UpsertWizardRepositoryDetectionRequestSerializer(DataclassSerializer):
     task_run_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="TaskRun UUID of the cloud run producing this result. Omit for local runs.",
+        help_text=(
+            "TaskRun UUID of the cloud run producing this result. Omit for local runs. Must "
+            "match the run currently stamped on the row when one is; a mismatch is rejected."
+        ),
     )
 
     class Meta:

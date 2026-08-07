@@ -35,6 +35,11 @@ class TestBuildDetectionCommand(SimpleTestCase):
         assert "--api-key" not in command
         assert command.index("upload-source-maps") < command.index("--install-dir")
         assert "--project-id 123" in command
+        # npx must never execute from inside the checkout, where a committed .npmrc could
+        # redirect the @posthog scope to an attacker registry.
+        assert command.startswith("mkdir -p /tmp/wizard-detection && cd /tmp/wizard-detection &&")
+        assert "cd /tmp/workspace/repos/acme/app" not in command
+        assert "--install-dir /tmp/workspace/repos/acme/app" in command
 
     def test_every_registered_kind_maps_to_a_subcommand(self) -> None:
         # A registry entry whose args accidentally start with a flag would run the default

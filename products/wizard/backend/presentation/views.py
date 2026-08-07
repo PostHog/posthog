@@ -34,6 +34,7 @@ from products.wizard.backend.facade.contracts import (
     UpsertWizardRepositoryDetectionRequest,
     UpsertWizardSessionInput,
     UpsertWizardSessionRequest,
+    WizardRepositoryDetectionRunMismatchError,
     WizardSessionDTO,
     WizardSessionOwnershipError,
 )
@@ -386,12 +387,14 @@ class WizardRepositoryDetectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         description=(
             "Upsert a repository detection. The `(repository, kind)` pair is the idempotency "
             "anchor — reposting the same pair replaces the existing row. Returns 201 on "
-            "create, 200 on update."
+            "create, 200 on update. A push whose `task_run_id` differs from the run currently "
+            "stamped on the row is rejected with 409."
         ),
         request=UpsertWizardRepositoryDetectionRequestSerializer,
         responses={
             200: WizardRepositoryDetectionSerializer,
             201: WizardRepositoryDetectionSerializer,
+            409: OpenApiResponse(description="task_run_id does not match the run currently stamped on the row."),
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -402,17 +405,20 @@ class WizardRepositoryDetectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         user = getattr(request, "user", None)
         created_by_id = user.id if user is not None and not user.is_anonymous else None
 
-        dto, created = wizard_facade.upsert_wizard_repository_detection(
-            UpsertWizardRepositoryDetectionInput(
-                team_id=self.team_id,
-                repository=req.repository,
-                kind=req.kind,
-                report=req.report,
-                error=req.error,
-                task_run_id=req.task_run_id,
-                created_by_id=created_by_id,
+        try:
+            dto, created = wizard_facade.upsert_wizard_repository_detection(
+                UpsertWizardRepositoryDetectionInput(
+                    team_id=self.team_id,
+                    repository=req.repository,
+                    kind=req.kind,
+                    report=req.report,
+                    error=req.error,
+                    task_run_id=req.task_run_id,
+                    created_by_id=created_by_id,
+                )
             )
-        )
+        except WizardRepositoryDetectionRunMismatchError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(WizardRepositoryDetectionSerializer(dto).data, status=response_status)
 

@@ -4,7 +4,11 @@ Business logic for repository detections.
 
 from django.db import transaction
 
-from products.wizard.backend.facade.contracts import UpsertWizardRepositoryDetectionInput, WizardRepositoryDetectionDTO
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardRepositoryDetectionInput,
+    WizardRepositoryDetectionDTO,
+    WizardRepositoryDetectionRunMismatchError,
+)
 from products.wizard.backend.models import WizardRepositoryDetection
 
 
@@ -15,8 +19,25 @@ def upsert_wizard_repository_detection(
 
     Each push fully replaces `report` / `error` / `task_run_id`. Concurrent POSTs for a
     brand-new key can race the unique constraint into a 500; the client's HTTP retry covers it.
+
+    A push carrying a `task_run_id` other than the row's currently stamped one is rejected:
+    it is either a stale scan replaying over a newer trigger, or a caller stamping an
+    unrelated run to jam the trigger's concurrency gate. Pushes without a `task_run_id`
+    (local wizard runs) always land.
     """
     with transaction.atomic():
+        existing = WizardRepositoryDetection.objects.filter(
+            team_id=params.team_id, repository=params.repository, kind=params.kind
+        ).first()
+        if (
+            existing is not None
+            and params.task_run_id is not None
+            and existing.task_run_id is not None
+            and str(existing.task_run_id) != params.task_run_id
+        ):
+            raise WizardRepositoryDetectionRunMismatchError(
+                "This detection's task_run_id does not match the run currently stamped on the row."
+            )
         defaults = {
             "report": params.report,
             "error": params.error,

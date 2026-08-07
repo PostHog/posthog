@@ -72,14 +72,17 @@ def _build_wizard_repository_detection_command(kind: str, repo_path: str, projec
     # it never appears on the command line. No headless flag: detection subcommands don't declare
     # it, and yargs rejects flags a command doesn't declare.
     parts = [
-        f"cd {shlex.quote(repo_path)} &&",
+        # npx must not run inside the checkout: a committed .npmrc could redirect the @posthog
+        # scope to an attacker registry, swapping the wizard for a package that runs with the
+        # sandbox's tokens. Run from a fresh directory and hand the checkout over via --install-dir.
+        "mkdir -p /tmp/wizard-detection && cd /tmp/wizard-detection &&",
         # `timeout` makes an over-budget run exit WIZARD_TIMEOUT_EXIT_CODE (124); -k escalates to SIGKILL.
         f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS}",
         f"npx --yes {WIZARD_PACKAGE}",
         *program,
         # The sandbox clone's origin remote carries a token URL, so pass the repository explicitly.
         f"--repository {shlex.quote(repository)}",
-        "--install-dir .",
+        f"--install-dir {shlex.quote(repo_path)}",
         f"--region {shlex.quote(_wizard_region())}",
         f"--project-id {shlex.quote(str(project_id))}",
     ]

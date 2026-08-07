@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 
 from django.test import SimpleTestCase
@@ -9,6 +11,7 @@ from posthog.models import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.models import WizardRepositoryDetection
 from products.wizard.backend.presentation.serializers import (
     MAX_DETECTED_PROJECTS,
@@ -113,6 +116,42 @@ class TestWizardRepositoryDetectionViewSet(APIBaseTest):
     def test_invalid_payload_rejected(self):
         response = self.client.post(self._url(), self._payload(report=None), format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("mismatched_run_rejected", str(uuid4()), status.HTTP_409_CONFLICT),
+            ("matching_run_lands", None, status.HTTP_200_OK),
+            ("local_push_without_run_lands", "omit", status.HTTP_200_OK),
+        ]
+    )
+    def test_push_must_match_the_stamped_run(self, _name, pushed_run_id, expected_status):
+        # A push carrying another run's id is either a stale scan replaying over a newer trigger
+        # or a member jamming the trigger's concurrency gate with an unrelated run.
+        stamped_run_id = str(uuid4())
+        wizard_facade.record_wizard_repository_detection_run(
+            team_id=self.team.id,
+            repository="posthog/posthog",
+            kind="error-tracking-source-maps",
+            task_run_id=stamped_run_id,
+            created_by_id=self.user.id,
+        )
+
+        payload = self._payload()
+        if pushed_run_id == "omit":
+            pass
+        elif pushed_run_id is None:
+            payload["task_run_id"] = stamped_run_id
+        else:
+            payload["task_run_id"] = pushed_run_id
+        response = self.client.post(self._url(), payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        with team_scope(self.team.id):
+            detection = WizardRepositoryDetection.objects.get()
+        if expected_status == status.HTTP_409_CONFLICT:
+            self.assertIsNone(detection.report)
+        else:
+            self.assertIsNotNone(detection.report)
 
 
 class TestUpsertWizardRepositoryDetectionValidation(SimpleTestCase):

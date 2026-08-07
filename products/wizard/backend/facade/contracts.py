@@ -51,6 +51,10 @@ class WizardSessionOwnershipError(Exception):
     """Raised when an upsert would overwrite a session owned by a different user."""
 
 
+class WizardRepositoryDetectionRunMismatchError(Exception):
+    """Raised when a detection push carries a task_run_id other than the row's stamped run."""
+
+
 @dataclass(frozen=True)
 class UpsertWizardSessionRequest:
     """What the wizard CLI POSTs. team_id is derived from the URL, not the body."""
