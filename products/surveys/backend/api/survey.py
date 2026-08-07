@@ -130,6 +130,8 @@ def _normalize_language_code(raw: str) -> str:
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
     [
         "name",
+        "submitButtonText",
+        "backButtonText",
         "thankYouMessageHeader",
         "thankYouMessageDescription",
         "thankYouMessageCloseButtonText",
@@ -141,6 +143,8 @@ FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
 ]
 SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
 SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
+    "submitButtonText",
+    "backButtonText",
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
@@ -1111,6 +1115,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             for field in [
                 "name",
                 "description",
+                "submitButtonText",
+                "backButtonText",
                 "thankYouMessageHeader",
                 "thankYouMessageDescription",
                 "thankYouMessageCloseButtonText",
