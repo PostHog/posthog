@@ -306,6 +306,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
         "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
+        "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
+        "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
     }
@@ -378,6 +380,14 @@ class TestOauthIntegrationModel(BaseTest):
             assert (
                 url
                 == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
+            )
+
+    def test_authorize_url_google_calendar(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-calendar", token="state_token", next="/projects/test")
+            assert (
+                url
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-calendar-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-calendar%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")
