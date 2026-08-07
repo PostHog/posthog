@@ -117,8 +117,8 @@ A table can be part of a source, so rules can exist at both levels.
 1. This table
 2. Its source
 3. All tables and views (the `warehouse_objects` umbrella)
-4. All sources
-5. The team default
+4. All sources (the `external_data_source` resource)
+5. The built-in default from `default_access_level()`, which is `editor` for warehouse resources
 
 So denying one source denies every table it syncs, but a rule on a specific table still beats it.
 Tables with no source (self-managed, S3, manually linked) skip tiers 2 and 4, and views never resolve through a source.
