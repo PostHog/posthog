@@ -21,7 +21,7 @@ import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
-import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 
 export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -109,7 +109,8 @@ export class HogFunctionInvocationPipeline {
                 instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
                     return await this.deps.hogWatcher.getEffectiveStates(hogFunctionIds)
                 }),
-            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFunctionIds)
+            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFunctionIds),
+            sameWatcherStates
         )
 
         const rateLimitInputs: KeyedRateLimitRequest[] = possibleInvocations.map((x) => ({

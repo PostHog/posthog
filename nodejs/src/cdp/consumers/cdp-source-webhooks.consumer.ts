@@ -11,7 +11,7 @@ import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { HogWatcherFunctionState, HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -442,7 +442,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             dualRead(
                 'hog-watcher.getCachedEffectiveState',
                 () => this.hogWatcher.getCachedEffectiveState(webhookId),
-                () => this.hogWatcherMirror.getCachedEffectiveState(webhookId)
+                () => this.hogWatcherMirror.getCachedEffectiveState(webhookId),
+                sameWatcherState
             ),
         ])
 

@@ -53,7 +53,12 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import {
+    HogWatcherService,
+    HogWatcherState,
+    sameWatcherState,
+    sameWatcherStates,
+} from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -312,7 +317,8 @@ export class CdpApi {
             const summary = await dualRead(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
-                () => this.hogWatcherMirror.getPersistedState(id)
+                () => this.hogWatcherMirror.getPersistedState(id),
+                sameWatcherState
             )
 
             res.json(summary)
@@ -333,7 +339,8 @@ export class CdpApi {
             const summary = await dualRead(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
-                () => this.hogWatcherMirror.getPersistedState(id)
+                () => this.hogWatcherMirror.getPersistedState(id),
+                sameWatcherState
             )
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
@@ -359,7 +366,8 @@ export class CdpApi {
                 await dualRead(
                     'hog-watcher.getPersistedState',
                     () => this.hogWatcher.getPersistedState(id),
-                    () => this.hogWatcherMirror.getPersistedState(id)
+                    () => this.hogWatcherMirror.getPersistedState(id),
+                    sameWatcherState
                 )
             )
         }
@@ -371,7 +379,8 @@ export class CdpApi {
                 const allStates = await dualRead(
                     'hog-watcher.getAllFunctionStates',
                     () => this.hogWatcher.getAllFunctionStates(),
-                    () => this.hogWatcherMirror.getAllFunctionStates()
+                    () => this.hogWatcherMirror.getAllFunctionStates(),
+                    sameWatcherStates
                 )
 
                 // Transform the data for better consumption by Grafana and sort by tokens ascending

@@ -23,7 +23,7 @@ import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
-import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 
 export interface HogFlowInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -111,7 +111,8 @@ export class HogFlowInvocationPipeline {
                 instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
                     return await this.deps.hogWatcher.getEffectiveStates(hogFlowIds)
                 }),
-            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFlowIds)
+            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFlowIds),
+            sameWatcherStates
         )
 
         const rateLimitInputs: KeyedRateLimitRequest[] = possibleInvocations.map((x) => ({
