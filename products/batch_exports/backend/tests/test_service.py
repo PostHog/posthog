@@ -8,6 +8,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportBackfill,
     BatchExportDestination,
     BatchExportRun,
+    BatchExportSource,
 )
 from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
@@ -18,6 +19,7 @@ from products.batch_exports.backend.service import (
     S3BatchExportInputs,
     aget_or_create_batch_export_backfill,
     align_timestamp_to_interval,
+    batch_export_model_from,
 )
 
 DESTINATION_INPUTS = {
@@ -135,6 +137,36 @@ class TestTypeCoercionInBatchExportInputs:
             max_file_size_mb=None,
         )
         assert inputs.max_file_size_mb is None
+
+
+class TestBatchExportModelFrom:
+    def test_threads_hogql_query_from_source(self):
+        # Scheduled and debug exports build their model here; dropping the query (the
+        # original bug) makes a hogql export fail downstream with a missing query.
+        batch_export = BatchExport(
+            model="hogql",
+            schema=None,
+            filters=None,
+            source=BatchExportSource(hogql_query="SELECT event AS event FROM events"),
+        )
+
+        model = batch_export_model_from(batch_export)
+
+        assert model.name == "hogql"
+        assert model.hogql_query == "SELECT event AS event FROM events"
+
+    def test_hogql_query_is_none_when_source_is_null(self):
+        # `source` is SET_NULL, so a deleted source leaves a hogql export without its query.
+        batch_export = BatchExport(model="hogql", schema=None, filters=None, source=None)
+
+        model = batch_export_model_from(batch_export)
+
+        assert model.hogql_query is None
+
+    def test_defaults_to_events_when_model_unset(self):
+        batch_export = BatchExport(model=None, schema=None, filters=None, source=None)
+
+        assert batch_export_model_from(batch_export).name == "events"
 
 
 @pytest.fixture

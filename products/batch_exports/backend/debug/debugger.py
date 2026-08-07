@@ -24,9 +24,9 @@ from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportField,
-    BatchExportModel,
     BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
+    batch_export_model_from,
 )
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
@@ -273,11 +273,7 @@ class BatchExportsDebugger:
             team_id=self.batch_export.team_id,
             batch_export_id=str(self.batch_export.id),
             interval=str(self.batch_export.interval),
-            batch_export_model=BatchExportModel(
-                name=self.batch_export.model or "events",
-                schema=self.batch_export.schema,
-                filters=self.batch_export.filters,
-            ),
+            batch_export_model=batch_export_model_from(self.batch_export),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
         )

@@ -369,7 +369,10 @@ def resolve_batch_exports_model(
                 record_batch_model = SessionsRecordBatchModel(team_id=team_id, batch_export_id=batch_export_id)
             elif model_name == "hogql":
                 if model.hogql_query is None:
-                    raise UnsupportedHogQLQueryError("Batch export model is 'hogql' but no HogQL query was provided")
+                    raise UnsupportedHogQLQueryError(
+                        "Batch export model is 'hogql' but no HogQL query was provided "
+                        f"(team_id={team_id}, batch_export_id={batch_export_id})"
+                    )
                 record_batch_model = HogQLQueryRecordBatchModel(
                     team_id=team_id, hogql_query=model.hogql_query, batch_export_id=batch_export_id
                 )

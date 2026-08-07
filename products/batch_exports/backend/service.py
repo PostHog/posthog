@@ -161,6 +161,21 @@ class BatchExportModel:
     hogql_query: str | None = None
 
 
+def batch_export_model_from(batch_export: BatchExport) -> BatchExportModel:
+    """Build the `BatchExportModel` for a scheduled batch export.
+
+    A `hogql` model keeps its query on the `source`, which takes precedence over `model`;
+    threading it here is what lets a scheduled hogql export actually run instead of failing
+    downstream with a missing query.
+    """
+    return BatchExportModel(
+        name=batch_export.model or "events",
+        schema=batch_export.schema,
+        filters=batch_export.filters,
+        hogql_query=batch_export.source.hogql_query if batch_export.source is not None else None,
+    )
+
+
 @dataclass
 class BackfillDetails:
     backfill_id: str | None
@@ -1187,11 +1202,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
                     timezone=str(batch_export.timezone_info),
-                    batch_export_model=BatchExportModel(
-                        name=batch_export.model or "events",
-                        schema=batch_export.schema,
-                        filters=batch_export.filters,
-                    ),
+                    batch_export_model=batch_export_model_from(batch_export),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing
                     # batch exports may still be using it.

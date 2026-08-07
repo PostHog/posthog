@@ -204,7 +204,11 @@ async def execute_batch_export_using_internal_stage(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
                 maximum_interval=dt.timedelta(seconds=maximum_stage_retry_interval_seconds),
                 maximum_attempts=maximum_attempts,
-                non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
+                non_retryable_error_types=[
+                    "InvalidFilterError",
+                    "DataIntervalEndInFutureError",
+                    "UnsupportedHogQLQueryError",
+                ],
             ),
         }
         # The stage activity's return type changed from `str` (just the folder) to

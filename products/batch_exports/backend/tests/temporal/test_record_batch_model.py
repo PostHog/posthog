@@ -239,6 +239,11 @@ class TestHogQLQueryRecordBatchModel:
         assert record_batch_model.hogql_query == batch_export_model.hogql_query
 
     async def test_resolve_batch_exports_model_raises_without_hogql_query(self):
-        """Without this, a missing query would fall through to the events template path and export the wrong data."""
-        with pytest.raises(UnsupportedHogQLQueryError):
-            resolve_batch_exports_model(team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None))
+        """Without this, a missing query would fall through to the events template path and export the wrong data.
+
+        The message carries team_id and batch_export_id so the captured exception is traceable.
+        """
+        with pytest.raises(UnsupportedHogQLQueryError, match=r"team_id=1.*batch_export_id=abc"):
+            resolve_batch_exports_model(
+                team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None), batch_export_id="abc"
+            )
