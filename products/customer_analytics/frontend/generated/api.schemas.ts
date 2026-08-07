@@ -447,6 +447,43 @@ export interface PatchedAccountApi {
 }
 
 /**
+ * One attendee of a synced calendar meeting (read-only).
+ */
+export interface MeetingParticipantApi {
+    /** Email address of the attendee. */
+    readonly email: string
+    /** Display name from the calendar event; may be empty. */
+    readonly display_name: string
+    /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
+    readonly response_status: string
+    /** Whether this attendee organized the meeting. */
+    readonly is_organizer: boolean
+}
+
+/**
+ * A calendar meeting synced from a connected employee calendar (read-only).
+ */
+export interface MeetingApi {
+    /** UUID of the meeting. */
+    readonly id: string
+    /** Meeting title; may be empty. */
+    readonly title: string
+    /** When the meeting starts. */
+    readonly start_time: string
+    /**
+     * When the meeting ends.
+     * @nullable
+     */
+    readonly end_time: string | null
+    /** Email address of the meeting organizer; may be empty. */
+    readonly organizer_email: string
+    /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
+    readonly status: string
+    /** Attendees of the meeting. */
+    readonly participants: readonly MeetingParticipantApi[]
+}
+
+/**
  * Metadata for one message a channel summary covered — never the message text.
  */
 export interface ChannelSummaryMessageApi {
