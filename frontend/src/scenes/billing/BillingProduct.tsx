@@ -295,19 +295,36 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         : variant.product.projected_amount_usd || '0'
                                     const discountMultiplier = 1 - combinedMonetaryData.discountPercent / 100
 
+                                    const isVariantExpanded = !!variantExpandedStates?.[variant.key]
+                                    const toggleLabel = isVariantExpanded
+                                        ? 'Collapse usage details'
+                                        : 'Expand usage details'
                                     return (
                                         <div key={variant.key}>
-                                            <div className="grid grid-cols-[auto_1fr_130px_100px] gap-4 items-center">
+                                            <div
+                                                className="grid grid-cols-[auto_1fr_130px_100px] gap-4 items-center cursor-pointer rounded hover:bg-fill-highlight-50"
+                                                onClick={() => toggleVariantExpanded(variant.key)}
+                                                role="button"
+                                                tabIndex={0}
+                                                aria-expanded={isVariantExpanded}
+                                                aria-label={`${toggleLabel} for ${variant.displayName}`}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' || e.key === ' ') {
+                                                        e.preventDefault()
+                                                        toggleVariantExpanded(variant.key)
+                                                    }
+                                                }}
+                                            >
                                                 <LemonButton
                                                     icon={
-                                                        variantExpandedStates?.[variant.key] ? (
-                                                            <IconChevronDown />
-                                                        ) : (
-                                                            <IconChevronRight />
-                                                        )
+                                                        isVariantExpanded ? <IconChevronDown /> : <IconChevronRight />
                                                     }
                                                     size="small"
-                                                    onClick={() => toggleVariantExpanded(variant.key)}
+                                                    tooltip={toggleLabel}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        toggleVariantExpanded(variant.key)
+                                                    }}
                                                 />
                                                 <h4 className="mb-0 font-bold">{variant.displayName}</h4>
                                                 <div className="flex flex-col items-end">

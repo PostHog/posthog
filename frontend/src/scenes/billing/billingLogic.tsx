@@ -1566,6 +1566,16 @@ export const billingLogic = kea<billingLogicType>([
             if (element == null) {
                 element = document.querySelector(`[data-attr="billing-product-${productType}"]`)
             }
+            if (element == null) {
+                // The target may be an add-on that isn't rendered with its own anchor (e.g. enterprise in the
+                // platform comparison). Fall back to the parent product so the click still lands somewhere.
+                const parentProduct = values.billing?.products?.find((product) =>
+                    product.addons?.some((addon) => addon.type === productType)
+                )
+                if (parentProduct) {
+                    element = document.querySelector(`[data-attr="billing-product-${parentProduct.type}"]`)
+                }
+            }
             element?.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center',
