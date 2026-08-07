@@ -246,11 +246,9 @@ pub async fn update_producer_loop(
                     continue;
                 }
 
-                // TEMPORARY: both old (v1) and new (v2) write paths will utilize the old
-                // not-great caching strategy for now: optimistically add entries before
-                // they are safely persisted to Postgres, and painfully extract them
-                // when batch writes fail. This may be a fine trade for now, since
-                // v2 batch writes fail much less often than v1
+                // Optimistic caching: entries go in before they are persisted, and are evicted
+                // again if the batch write fails. That trade is acceptable because batch writes
+                // rarely fail, and the alternative costs a second pass over every batch.
                 shared_cache.insert(update.clone());
 
                 match channel.try_send(update) {

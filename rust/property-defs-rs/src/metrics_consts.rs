@@ -1,4 +1,3 @@
-pub const UPDATES_ISSUED: &str = "prop_defs_issued_updates";
 pub const EVENTS_RECEIVED: &str = "prop_defs_events_received";
 pub const EVENTS_SKIPPED: &str = "prop_defs_events_skipped";
 pub const FORCED_SMALL_BATCH: &str = "prop_defs_forced_small_batch";
@@ -9,7 +8,6 @@ pub const UPDATES_FILTERED_BY_CACHE: &str = "prop_defs_filtered_by_cache";
 pub const EMPTY_EVENTS: &str = "prop_defs_empty_events";
 pub const EVENT_PARSE_ERROR: &str = "prop_defs_event_parse_error";
 pub const BATCH_ACQUIRE_TIME: &str = "prop_defs_batch_acquire_time_ms";
-pub const UPDATE_ISSUE_TIME: &str = "prop_defs_update_issue_time_ms";
 pub const CACHE_CONSUMED: &str = "prop_defs_cache_space";
 pub const CACHE_LEN: &str = "prop_defs_cache_len";
 pub const CACHE_HITS: &str = "prop_defs_cache_hits";
@@ -21,18 +19,14 @@ pub const GROUP_TYPE_CACHE: &str = "prop_defs_group_type_cache";
 pub const RECV_DEQUEUED: &str = "prop_defs_recv_dequeued";
 pub const COMPACTED_UPDATES: &str = "prop_defs_compaction_dropped_updates";
 pub const UPDATES_SKIPPED: &str = "prop_defs_skipped_updates";
-pub const UPDATES_DROPPED: &str = "prop_defs_dropped_updates";
 pub const SKIPPED_DUE_TO_TEAM_FILTER: &str = "prop_defs_skipped_due_to_team_filter";
 pub const ISSUE_FAILED: &str = "prop_defs_issue_failed";
-pub const CHUNK_SIZE: &str = "prop_defs_chunk_size";
 pub const DUPLICATES_IN_BATCH: &str = "prop_defs_duplicates_in_batch";
 pub const CHANNEL_MESSAGES_IN_FLIGHT: &str = "prop_defs_channel_messages_in_flight";
 // Remaining free slots, not the channel size. CHANNEL_CAPACITY_TOTAL carries the size, so
 // occupancy is 1 - (capacity / capacity_total).
 pub const CHANNEL_CAPACITY: &str = "prop_defs_channel_capacity";
 pub const CHANNEL_CAPACITY_TOTAL: &str = "prop_defs_channel_capacity_total";
-
-pub const ISOLATED_PROPDEFS_DB_SELECTED: &str = "isolated_propdefs_db_selected";
 
 pub const PERSONHOG_RESOLVE_ERRORS: &str = "prop_defs_personhog_resolve_errors";
 pub const PERSONHOG_RESOLVE_DURATION: &str = "prop_defs_personhog_resolve_duration_ms";
@@ -41,7 +35,9 @@ pub const PERSONHOG_RETRIES_TOTAL: &str = "personhog_retries_total";
 pub const PERSONHOG_TERMINAL_ERRORS_TOTAL: &str = "personhog_terminal_errors_total";
 
 //
-// property-defs-rs "v2" batch write path metric keys below
+// Batch write path metric keys below. The "v2" prefix is vestigial and maps to nothing in the
+// current code, but Grafana dashboards query these names directly, so renaming them means
+// changing the dashboards in lockstep rather than editing this file alone.
 //
 
 pub const V2_EVENT_DEFS_BATCH_WRITE_TIME: &str = "propdefs_v2_eventdefs_batch_ms";
