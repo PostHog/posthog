@@ -10712,6 +10712,20 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_warm_repo_less_over_limit_returns_429_and_does_not_provision(
+        self, mock_gate, _mock_warm_enabled, mock_warm
+    ):
+        mock_gate.return_value = self.OVER_LIMIT
+
+        response = self.client.post("/api/projects/@current/tasks/warm/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        mock_warm.assert_not_called()
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_without_code_access_still_runs(self, mock_gate, mock_workflow):

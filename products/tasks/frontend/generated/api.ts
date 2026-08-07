@@ -2507,7 +2507,7 @@ export const getTasksWarmCreateUrl = (projectId: string) => {
  */
 export const tasksWarmCreate = async (
     projectId: string,
-    warmTaskRequestApi: WarmTaskRequestApi,
+    warmTaskRequestApi?: WarmTaskRequestApi,
     options?: RequestInit
 ): Promise<WarmTaskResponseApi> => {
     return apiMutator<WarmTaskResponseApi>(getTasksWarmCreateUrl(projectId), {
