@@ -76,10 +76,15 @@ def compute_schedule_fingerprint(snapshot: dict[str, Any] | None) -> str:
     return config_fingerprint(snapshot, length=SCHEDULE_FINGERPRINT_LENGTH)
 
 
-def _compute_offset(scanner_id: UUID) -> dt.timedelta:
-    # UUID.int is stable across processes; modulo distributes fires uniformly across the window.
-    interval_s = max(1, int(SCANNER_SCHEDULE_INTERVAL.total_seconds()))
-    return dt.timedelta(seconds=scanner_id.int % interval_s)
+def compute_schedule_offset(entity_id: UUID, interval: dt.timedelta) -> dt.timedelta:
+    """Stagger per-entity schedules across their interval so they don't all fire on the same boundary.
+
+    UUID.int is stable across processes; modulo distributes fires uniformly across the window. Without
+    this, sibling schedules tick together and each reads the same in-flight counts before any of them
+    has persisted a row.
+    """
+    interval_s = max(1, int(interval.total_seconds()))
+    return dt.timedelta(seconds=entity_id.int % interval_s)
 
 
 def _build_schedule(scanner_id: UUID, team_id: int) -> Schedule:
@@ -93,7 +98,12 @@ def _build_schedule(scanner_id: UUID, team_id: int) -> Schedule:
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=SCANNER_SCHEDULE_INTERVAL, offset=_compute_offset(scanner_id))]
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=SCANNER_SCHEDULE_INTERVAL,
+                    offset=compute_schedule_offset(scanner_id, SCANNER_SCHEDULE_INTERVAL),
+                )
+            ]
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCANNER_SCHEDULE_INTERVAL),
     )
@@ -124,6 +134,7 @@ async def upsert_interval_schedule(
     interval: dt.timedelta,
     execution_timeout: dt.timedelta,
     search_attributes: TypedSearchAttributes | None = None,
+    offset: dt.timedelta | None = None,
 ) -> None:
     """Create or update a singleton interval schedule with SKIP overlap; first creation triggers immediately."""
     schedule = Schedule(
@@ -135,7 +146,7 @@ async def upsert_interval_schedule(
             execution_timeout=execution_timeout,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval)]),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval, offset=offset)]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=interval),
     )
     if await a_schedule_exists(client, schedule_id):
@@ -199,6 +210,8 @@ async def a_upsert_backfill_schedule(
         inputs=BackfillTickInputs(backfill_id=backfill_id, team_id=team_id, scanner_id=scanner_id),
         interval=BACKFILL_TICK_INTERVAL,
         execution_timeout=BACKFILL_TICK_EXECUTION_TIMEOUT,
+        # Without this every backfill in the fleet ticks on the same minute boundary.
+        offset=compute_schedule_offset(backfill_id, BACKFILL_TICK_INTERVAL),
         search_attributes=TypedSearchAttributes(
             search_attributes=[
                 SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),

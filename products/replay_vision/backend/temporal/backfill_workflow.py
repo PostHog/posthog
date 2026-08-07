@@ -98,8 +98,10 @@ class BackfillScannerWorkflow(PostHogWorkflow):
                 exhausted=not find_result.saturated,
             )
         else:
+            # An empty batch means the window is drained only when nothing was held back: a tick that
+            # claimed no slots reports `saturated`, so it leaves the cursor alone and retries later.
             advance = AdvanceBackfillCursorInputs(
-                backfill_id=inputs.backfill_id, team_id=inputs.team_id, exhausted=True
+                backfill_id=inputs.backfill_id, team_id=inputs.team_id, exhausted=not find_result.saturated
             )
 
         result = await wf.execute_activity(

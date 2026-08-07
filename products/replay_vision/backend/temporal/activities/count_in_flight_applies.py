@@ -37,7 +37,9 @@ async def count_in_flight_applies_activity(inputs: CountInFlightAppliesInputs) -
         return 0
 
 
-def count_in_flight(team_id: int, scanner_id: UUID, backfill_id: UUID | None = None) -> dict[str, int]:
+def count_in_flight(
+    team_id: int, scanner_id: UUID, backfill_id: UUID | None = None, include_claims: bool = True
+) -> dict[str, int]:
     """Count in-flight (pending/running) observations for a scanner, its whole team, and optionally one backfill.
 
     Counts DB rows rather than Temporal visibility so concurrency shares the quota system's
@@ -51,9 +53,12 @@ def count_in_flight(team_id: int, scanner_id: UUID, backfill_id: UUID | None = N
     if backfill_id is not None:
         aggregates["backfill"] = Count("id", filter=Q(backfill_id=backfill_id))
     counts = ReplayObservation.in_flight_for_team(team_id).aggregate(**aggregates)
-    # On-demand scans hold enqueue claims until their rows persist.
-    counts["team"] += pending_enqueue_claims_for_team(team_id)
-    counts["scanner"] += pending_enqueue_claims_for_scanner(scanner_id)
+    if include_claims:
+        # Enqueued-but-not-yet-persisted scans hold claims until their rows exist.
+        counts["team"] += pending_enqueue_claims_for_team(team_id)
+        counts["scanner"] += pending_enqueue_claims_for_scanner(scanner_id)
+    # `include_claims=False` returns pure row counts, which is what `try_claim_enqueue_slot` expects:
+    # its Lua script adds the outstanding claims itself, so pre-adding them would double-count.
     return counts
 
 

@@ -17,6 +17,7 @@ from posthog.schema import RecordingsQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.replay_vision.backend.enqueue_claims import try_claim_enqueue_slot
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -39,6 +40,7 @@ from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_ID_PREFIX,
     BACKFILL_SCHEDULE_TYPE,
     backfill_dispatch_budget,
+    build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_backfill_tick_outcome
@@ -140,9 +142,29 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
     ).run()
 
+    # Claim each slot before the workflow starts its children: a started child is invisible to the
+    # row-count caps until it persists its observation, so concurrent ticks would otherwise all read
+    # the same headroom. `create_observation_activity` releases the claim once the row exists.
+    rows = count_in_flight(inputs.team_id, backfill.scanner_id, include_claims=False)
+    claimed: list[CandidateSessionPayload] = []
+    for candidate in candidates:
+        if not try_claim_enqueue_slot(
+            team_id=inputs.team_id,
+            scanner_id=backfill.scanner_id,
+            workflow_id=build_apply_scanner_workflow_id(backfill.scanner_id, candidate.session_id),
+            team_in_flight_rows=rows["team"],
+            scanner_in_flight_rows=rows["scanner"],
+        ):
+            # Stop at the first refusal so the returned list stays a prefix of the descending walk;
+            # the cursor then advances to the last claimed session and the rest are retried next tick.
+            break
+        claimed.append(CandidateSessionPayload(session_id=candidate.session_id, session_end=candidate.session_end))
+
     return FindBackfillCandidatesOutput(
-        candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        saturated=len(candidates) == inputs.candidate_limit,
+        candidates=claimed,
+        # More work below the keyset when the query filled the batch, or when the caps truncated it.
+        # Never let a truncated batch look like a drained window, which would complete the backfill.
+        saturated=len(candidates) == inputs.candidate_limit or len(claimed) < len(candidates),
     )
 
 
