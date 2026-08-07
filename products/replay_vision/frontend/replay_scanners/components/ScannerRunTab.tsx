@@ -8,7 +8,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
+import {
+    convertUniversalFiltersToRecordingsQuery,
+    recordingsQueryToUniversalFilters,
+} from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { ReplayFiltersTab } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import {
     getDefaultFilters,
@@ -86,10 +89,17 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
-    const { observationBySession, pendingId, refreshingObservations, bulkScanning } = useValues(
+    const {
+        observationBySession,
+        pendingId,
+        refreshingObservations,
+        bulkScanning,
+        resolvingSelection,
+        resolvedSelection,
+    } = useValues(scannerRunTabLogic({ scannerId }))
+    const { setVisibleSessionIds, startScan, startBulkScan, selectAllMatching } = useActions(
         scannerRunTabLogic({ scannerId })
     )
-    const { setVisibleSessionIds, startScan, startBulkScan } = useActions(scannerRunTabLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
@@ -98,6 +108,15 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     useEffect(() => {
         setVisibleSessionIds(visibleIdsKey ? visibleIdsKey.split(',') : [])
     }, [visibleIdsKey, setVisibleSessionIds])
+
+    // The table owns the bulk selection state (setSelectedKeys is only exposed inside renderActions), so
+    // bridge the logic-resolved "select all matching" IDs into it via a ref the render callback keeps current.
+    const setSelectedKeysRef = useRef<((keys: string[]) => void) | null>(null)
+    useEffect(() => {
+        if (resolvedSelection) {
+            setSelectedKeysRef.current?.(resolvedSelection.sessionIds)
+        }
+    }, [resolvedSelection])
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -223,22 +242,41 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                         observationBySession[recording.id] || pendingId === recording.id
                             ? { disabledReason: 'Already scanned' }
                             : true,
-                    renderActions: ({ selectedKeys, selectedCount, clearSelection }) => (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconPlay />}
-                            loading={bulkScanning}
-                            disabledReason={editDisabledReason}
-                            onClick={() => {
-                                startBulkScan(selectedKeys as string[])
-                                clearSelection()
-                            }}
-                            data-attr="vision-run-bulk-scan"
-                        >
-                            Scan {selectedCount} selected
-                        </LemonButton>
-                    ),
+                    renderActions: ({ selectedKeys, selectedCount, clearSelection, setSelectedKeys }) => {
+                        // Keep the ref pointing at the live setter so the resolve effect can push into it.
+                        setSelectedKeysRef.current = setSelectedKeys as (keys: string[]) => void
+                        return (
+                            <>
+                                {hasNext && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={resolvingSelection}
+                                        onClick={() =>
+                                            selectAllMatching(convertUniversalFiltersToRecordingsQuery(filters))
+                                        }
+                                        data-attr="vision-run-select-all-matching"
+                                    >
+                                        Select all matching your filters
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    icon={<IconPlay />}
+                                    loading={bulkScanning}
+                                    disabledReason={editDisabledReason}
+                                    onClick={() => {
+                                        startBulkScan(selectedKeys as string[])
+                                        clearSelection()
+                                    }}
+                                    data-attr="vision-run-bulk-scan"
+                                >
+                                    Scan {selectedCount} selected
+                                </LemonButton>
+                            </>
+                        )
+                    },
                 }}
             />
             {hasNext && (

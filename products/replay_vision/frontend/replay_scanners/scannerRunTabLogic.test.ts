@@ -109,4 +109,24 @@ describe('scannerRunTabLogic', () => {
         expect(postedBody).toEqual({ session_ids: ['a', 'b', 'c'] })
         expect(logic.values.bulkScanning).toBe(false)
     })
+
+    it('select all matching resolves filters to unscanned sessions, excluding already-scanned rows', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/session_recordings': () => [
+                    200,
+                    { results: [{ id: 's1' }, { id: 's2' }, { id: 's3' }, { id: 's4' }, { id: 's5' }], has_next: true },
+                ],
+            },
+        })
+        // Load observations so s1–s3 read as scanned, matching the per-row selectable gate the affordance mirrors.
+        await expectLogic(logic, () => logic.actions.setVisibleSessionIds(['s1', 's2', 's3'])).toDispatchActions([
+            'loadObservationsSuccess',
+        ])
+        await expectLogic(logic, () => logic.actions.selectAllMatching({} as any)).toDispatchActions([
+            'selectAllMatchingSuccess',
+        ])
+        // Only the unscanned matches are handed to the table's selection — scanned sessions would be a backend no-op.
+        expect(logic.values.resolvedSelection).toEqual({ sessionIds: ['s4', 's5'] })
+    })
 })
