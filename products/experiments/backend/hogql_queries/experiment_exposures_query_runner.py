@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import structlog
-from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 from scipy.stats import chisquare
 
@@ -297,9 +296,15 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Unlike bias_risk, this is emitted for stopped experiments too: the staleness gap
         # already shaped the collected exposures, and swapping the cohort for a person-property
         # filter and recomputing is still actionable after the experiment ends.
-        criteria = self.exposure_criteria
-        criteria_filters: Any = criteria.model_dump() if isinstance(criteria, BaseModel) else criteria
-        cohort_ids = _collect_cohort_ids(criteria_filters) if criteria_filters else set()
+        #
+        # Read the criteria off the experiment record, NOT self.exposure_criteria (which comes
+        # from the caller's query). This response carries cohort names, which the cohort API
+        # gates behind `cohort:read` — sourcing the ids from caller input would let a
+        # `query:read`-only token enumerate cohort ids and read back their names. The saved
+        # criteria is also the right thing to describe: the warning tells the user to go change
+        # their experiment's configuration, not whatever criteria this one query passed in.
+        criteria: Any = self.experiment.exposure_criteria
+        cohort_ids = _collect_cohort_ids(criteria) if criteria else set()
         if not cohort_ids:
             return None
         referenced_cohorts = list(

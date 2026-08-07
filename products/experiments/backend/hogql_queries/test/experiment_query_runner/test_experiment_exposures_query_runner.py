@@ -15,6 +15,7 @@ from posthog.schema import ActionsNode, ExperimentEventExposureConfig, Experimen
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -1810,3 +1811,61 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         date_to = runner._get_date_range().date_to
         assert date_to is not None
         assert datetime.fromisoformat(date_to) == query_end
+
+    def _cohort_criteria(self, cohort_id: int) -> dict:
+        return {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "$feature_flag_called",
+                "properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}],
+            }
+        }
+
+    def _exposure_query_for(self, experiment, exposure_criteria) -> ExperimentExposureQuery:
+        return ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=experiment.start_date.isoformat() if experiment.start_date else None,
+            end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+            exposure_criteria=exposure_criteria,
+        )
+
+    def test_dynamic_cohort_in_saved_criteria_is_reported(self):
+        cohort = Cohort.objects.create(team=self.team, name="Signups in tier-3 countries", is_static=False)
+        self.experiment.exposure_criteria = self._cohort_criteria(cohort.pk)
+        self.experiment.save()
+
+        runner = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._exposure_query_for(self.experiment, self.experiment.exposure_criteria)
+        )
+        risk = runner._evaluate_dynamic_cohort_risk()
+
+        assert risk is not None
+        self.assertEqual([(c.id, c.name) for c in risk.cohorts], [(cohort.pk, "Signups in tier-3 countries")])
+
+    def test_static_cohort_in_saved_criteria_is_not_reported(self):
+        cohort = Cohort.objects.create(team=self.team, name="Uploaded CSV", is_static=True)
+        self.experiment.exposure_criteria = self._cohort_criteria(cohort.pk)
+        self.experiment.save()
+
+        runner = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._exposure_query_for(self.experiment, self.experiment.exposure_criteria)
+        )
+
+        self.assertIsNone(runner._evaluate_dynamic_cohort_risk())
+
+    def test_cohort_ids_injected_via_the_query_are_ignored(self):
+        # The response carries cohort names, which the cohort API gates behind `cohort:read`.
+        # Sourcing ids from caller input would let a `query:read`-only token enumerate cohort
+        # ids and read back their names, so the risk must come from the saved experiment only.
+        cohort = Cohort.objects.create(team=self.team, name="Secret cohort name", is_static=False)
+        self.experiment.exposure_criteria = {}
+        self.experiment.save()
+
+        runner = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._exposure_query_for(self.experiment, self._cohort_criteria(cohort.pk))
+        )
+
+        self.assertIsNone(runner._evaluate_dynamic_cohort_risk())
