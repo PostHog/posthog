@@ -62,7 +62,11 @@ service PersonHogLeader {
   // Safe under at-least-once delivery: re-applying the same fold on
   // unchanged target state changes no content and only bumps the version.
   // (The standard re-appliable-merge residual applies — see the request's
-  // op_id comment.) A target fenced by a
+  // op_id comment.) The op must hold the target as its live mark in the
+  // lifecycle database or the fold is refused FAILED_PRECONDITION —
+  // fail closed, mirroring ReleaseFence; the check is read-time, so it
+  // closes late re-drives from a settled op, not a fold already in
+  // flight when the op settles. A target fenced by a
   // different lifecycle op rejects FAILED_PRECONDITION (the merge target
   // is marked, never fenced, so this only fires on a ghost fence — the
   // retry goes through once the healer clears it); a destroyed target

@@ -25,7 +25,10 @@ use crate::cache::{
     PersonCacheKey,
 };
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
-use crate::fence::{fenced_status, mark_status, FenceHealer, FenceMap, FenceState};
+use crate::fence::{
+    fenced_status, mark_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap,
+    FenceState,
+};
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
@@ -34,7 +37,8 @@ use crate::pg::{load_person_from_pg, PgFallback};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
-    jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size, TrimResult,
+    can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
+    trim_properties_with_candidates, TrimResult,
 };
 
 /// Mirrors the config's `fence_map_max_entries` default; production
@@ -1245,17 +1249,52 @@ impl PersonHogLeader for PersonHogLeaderService {
             return Err(Status::not_found("person is destroyed"));
         }
 
+        // The mark row — the fence's source of truth — must vouch for the
+        // op holding this person as its live merge target before the fold
+        // may write. The fence check above proves nothing here (the target
+        // is marked, never fenced), and without this a superseded or
+        // settled saga runner's late fold would still land. Mirrors
+        // ReleaseFence: unverifiable requests are refused — fail closed.
+        let Some(fallback) = &self.fallback else {
+            return Err(semantic_refusal(
+                "no lifecycle database configured; refusing to fold",
+                "no-lifecycle-db",
+            ));
+        };
+        match target_mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
+            Ok(Some(status)) if status == "marked" => {}
+            Ok(_) => {
+                counter!("personhog_leader_fences_total", "action" => "fold_unverified")
+                    .increment(1);
+                return Err(semantic_refusal(
+                    "op holds no live target mark for this person; refusing to fold",
+                    "fold-unverified",
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "target mark verification failed; rejecting (fail closed)");
+                return Err(Status::unavailable(
+                    "could not verify the lifecycle op against its target mark; retry",
+                ));
+            }
+        }
+
         // The fold: the target wins every key it has; snapshots fill
         // still-absent keys in request order; then the merge event's $set
         // overrides and $set_once fills. All inputs are sanitized, so the
         // merged document is measured in stored form.
-        let mut folded = person.properties.clone();
-        if !folded.is_object() {
-            folded = serde_json::Value::Object(serde_json::Map::new());
-        }
+        let target_properties = if person.properties.is_object() {
+            person.properties.clone()
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+        let target_map = target_properties
+            .as_object()
+            .expect("target_properties was just normalized to an object");
+        let mut folded = target_properties.clone();
         let folded_map = folded
             .as_object_mut()
-            .expect("folded was just normalized to an object");
+            .expect("folded clones the normalized target");
         for (snapshot_properties, _, _) in &snapshots {
             if let Some(map) = snapshot_properties.as_object() {
                 for (key, value) in map {
@@ -1279,15 +1318,51 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         // Unlike a property update, a fold cannot be rejected for size:
-        // the saga would re-drive it forever. Deterministic trimming is
-        // the only completing behavior, so an oversized fold trims (same
-        // remediation the update path applies to already-oversized rows),
-        // and if protected keys alone exceed the target the fold keeps
-        // the target's stored properties — state admission already
-        // accepted — discarding the fold's property contribution.
+        // the saga would re-drive it forever, so trimming is the only
+        // completing behavior. Trim candidates are the fold's own
+        // contribution — keys the target did not already hold — so a
+        // within-limit target never loses a key it had to a fold. The
+        // target's own keys join the candidates only when its stored
+        // document already exceeded the limit (the remediation the update
+        // path applies to already-oversized rows). The trim aims for the
+        // hysteresis target first and, when that is unreachable, retries
+        // against the hard ceiling: any document at or under the
+        // threshold is still applyable by the writer. When neither bound
+        // is reachable, the fold keeps the target's properties,
+        // discarding its contribution.
         let jsonb_size = jsonb_column_size(&folded);
+        let mut fold_outcome = "folded";
         if jsonb_size > self.size_limits.threshold {
-            match trim_properties_to_fit_size(&folded, self.size_limits.trim_target) {
+            let target_size = jsonb_column_size(&target_properties);
+            let target_oversized = target_size >= self.size_limits.threshold;
+            let mut candidates: Vec<String> = folded
+                .as_object()
+                .expect("folded is an object")
+                .keys()
+                .filter(|k| !target_map.contains_key(*k) && can_trim_property(k))
+                .cloned()
+                .collect();
+            candidates.sort();
+            if target_oversized {
+                let mut own: Vec<String> = target_map
+                    .keys()
+                    .filter(|k| can_trim_property(k))
+                    .cloned()
+                    .collect();
+                own.sort();
+                candidates.extend(own);
+            }
+            let trim_result = match trim_properties_with_candidates(
+                &folded,
+                self.size_limits.trim_target,
+                candidates.clone(),
+            ) {
+                TrimResult::CannotFit => {
+                    trim_properties_with_candidates(&folded, self.size_limits.threshold, candidates)
+                }
+                result => result,
+            };
+            match trim_result {
                 TrimResult::Trimmed(trimmed) => {
                     counter!("personhog_leader_properties_trimmed_total").increment(1);
                     self.warnings.emit(&SizeViolationWarning {
@@ -1301,8 +1376,6 @@ impl PersonHogLeader for PersonHogLeaderService {
                 }
                 TrimResult::Fits => {}
                 TrimResult::CannotFit => {
-                    counter!("personhog_leader_folds_total", "outcome" => "unremediable")
-                        .increment(1);
                     self.warnings.emit(&SizeViolationWarning {
                         team_id: cache_key.team_id,
                         person_uuid: person.uuid.clone(),
@@ -1310,7 +1383,34 @@ impl PersonHogLeader for PersonHogLeaderService {
                                   be trimmed; the merged-in properties were discarded"
                             .to_string(),
                     });
-                    folded = person.properties.clone();
+                    if target_oversized {
+                        // No applyable document exists: the stored one
+                        // itself violates the size constraint (protected
+                        // keys alone exceed the ceiling). Producing it
+                        // anyway would halt the writer — admission
+                        // promises every acked record applies verbatim,
+                        // and the writer fail-stops on a violation rather
+                        // than skip — and rejecting would wedge the
+                        // saga's re-drive loop. The fold completes
+                        // without producing: this person's fold effects
+                        // (properties and scalars) are skipped. Accepted
+                        // residual — README, "Admission".
+                        counter!("personhog_leader_folds_total", "outcome" => "unapplyable")
+                            .increment(1);
+                        tracing::error!(
+                            team_id = cache_key.team_id,
+                            person_uuid = %person.uuid,
+                            stored_size = target_size,
+                            threshold = self.size_limits.threshold,
+                            "fold target's stored properties exceed the size constraint; \
+                             skipping the fold's document write"
+                        );
+                        return Ok(Response::new(FoldPersonDocumentResponse {
+                            person: Some(cached_person_to_proto(&person)),
+                        }));
+                    }
+                    fold_outcome = "unremediable";
+                    folded = target_properties.clone();
                 }
             }
         }
@@ -1360,7 +1460,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         let proto = self
             .commit_document(partition, &cache_key, folded_person)
             .await?;
-        counter!("personhog_leader_folds_total", "outcome" => "folded").increment(1);
+        counter!("personhog_leader_folds_total", "outcome" => fold_outcome).increment(1);
 
         Ok(Response::new(FoldPersonDocumentResponse {
             person: Some(proto),
@@ -1550,8 +1650,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // would rewrite the row's identity on its way out.
                 if let Some(person) = &current {
                     if person.uuid != req.person_uuid {
-                        return Err(Status::failed_precondition(
+                        return Err(semantic_refusal(
                             "person_uuid does not match the person being released",
+                            "uuid-mismatch",
                         ));
                     }
                 }
@@ -1564,8 +1665,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // document. Unverifiable requests are refused — fail
                 // closed.
                 let Some(fallback) = &self.fallback else {
-                    return Err(Status::failed_precondition(
+                    return Err(semantic_refusal(
                         "no lifecycle database configured; refusing to produce a death document",
+                        "no-lifecycle-db",
                     ));
                 };
                 match mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
@@ -1581,9 +1683,10 @@ impl PersonHogLeader for PersonHogLeaderService {
                     Ok(_) => {
                         counter!("personhog_leader_fences_total", "action" => "release_unverified")
                             .increment(1);
-                        return Err(Status::failed_precondition(
+                        return Err(semantic_refusal(
                             "op holds no live mark for this person; \
                              refusing to produce a death document",
+                            "release-unverified",
                         ));
                     }
                     Err(e) => {
