@@ -60,6 +60,10 @@ class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["dag__name"]
     ordering = "-created_at"
+    # An edge's source and target nodes are non-editable, so the serializer can't accept them on
+    # create; a POST would build an edge with null endpoints and fail deep in the model. Edges are
+    # created by the saved-query sync path via the ORM, not through this API.
+    http_method_names = ["get", "put", "patch", "delete", "head", "options"]
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()

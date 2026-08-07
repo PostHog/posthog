@@ -139,7 +139,22 @@ class NodeSerializer(serializers.ModelSerializer):
         target_dag = attrs.get("dag")
         if target_dag is not None and target_dag.is_managed:
             raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
+        # A non-table node requires a saved query (DB check constraint), but saved_query is not
+        # writable through this serializer, so one can only ever be created as a table node.
+        # Reject the impossible case here rather than letting it fail as a 500 on insert.
+        if self.instance is None and attrs.get("type", NodeType.TABLE) != NodeType.TABLE:
+            raise serializers.ValidationError(
+                "Nodes created through the API must be table nodes. View and materialized-view nodes "
+                "are created by syncing a saved query."
+            )
         return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> Node:
+        # TeamAndOrgViewSetMixin scopes reads and seeds the context, but does not inject team_id
+        # into validated_data on write, so it has to be set here or the create hits a non-null FK
+        # with team_id=None. Matches DAGSerializer.create.
+        validated_data["team_id"] = self.context["team_id"]
+        return super().create(validated_data)
 
 
 class NodePagination(PageNumberPagination):

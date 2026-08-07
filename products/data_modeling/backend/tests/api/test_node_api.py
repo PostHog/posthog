@@ -166,6 +166,25 @@ class TestNodeViewSet(APIBaseTest):
         dag_names = {d["name"] for d in response.json()["dag_ids"]}
         self.assertEqual(dag_names, {"another_dag", self.dag_id})
 
+    def test_create_table_node_scopes_to_url_team(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/",
+            {"name": "new_table", "dag": str(self.dag.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        node = Node.objects.get(id=response.json()["id"])
+        self.assertEqual(node.team_id, self.team.id)
+        self.assertEqual(node.name, "new_table")
+
+    def test_create_non_table_node_is_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/",
+            {"name": "new_view", "dag": str(self.dag.id), "type": NodeType.VIEW},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_run_requires_direction(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",
@@ -811,3 +830,13 @@ class TestEdgeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         edge.refresh_from_db()
         self.assertEqual(edge.properties, {"a": 1})
+
+    def test_create_edge_is_not_allowed(self):
+        # The serializer can't accept source/target, so a create can never build a valid edge;
+        # the endpoint rejects the method instead of failing with a 500.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_edges/",
+            {"dag": str(self.dag.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
