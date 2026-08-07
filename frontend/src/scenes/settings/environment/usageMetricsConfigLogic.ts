@@ -3,6 +3,8 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -111,6 +113,33 @@ export function actionFilterValueToSavedFilters(
         properties: payload.properties ?? [],
         filter_test_accounts: payload.filter_test_accounts,
     } as FilterType
+}
+
+/**
+ * Which required data warehouse field is still missing, if any. Mirrors the backend's
+ * `_DW_FILTER_REQUIRED_FIELDS` so an incomplete metric fails in the form instead of the API.
+ */
+export function dataWarehouseFiltersError(filters: UsageMetricFormData['filters']): string | undefined {
+    if (getMetricSource(filters) !== 'data_warehouse') {
+        return undefined
+    }
+    const dw = filters as UsageMetricFiltersDataWarehouse
+    if (!dw.table_name) {
+        return 'Select a data warehouse table'
+    }
+    if (!dw.timestamp_field) {
+        return 'Select the timestamp column for this table'
+    }
+    if (!dw.key_field) {
+        return 'Select the group key column for this table'
+    }
+    return undefined
+}
+
+/** Pull a human-readable message off a failed save so the API rejection is shown instead of swallowed. */
+export function usageMetricErrorMessage(errorObject: unknown, fallbackMessage?: string): string {
+    const detail = errorObject instanceof ApiError ? errorObject.detail : null
+    return detail || fallbackMessage || 'Could not save usage metric. Please try again.'
 }
 
 // Hardcoded to 0 — the backend model is coupled to groups but will be refactored to be group-agnostic
@@ -360,6 +389,14 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
                             ? 'Column to sum is required'
                             : 'Property is required for sum'
                         : undefined,
+                // Surface the missing warehouse field in the form so the save doesn't silently 400
+                // (most common when switching an events metric to a table, where these were never collected).
+                // The whole `filters` field is edited in one control, so we attach a single string error to it;
+                // kea-forms types object-field errors as a nested map but renders a plain string fine.
+                filters: dataWarehouseFiltersError(filters) as unknown as DeepPartialMap<
+                    UsageMetricFormData['filters'],
+                    ValidationErrorType
+                >,
             }),
             submit: (formData) => {
                 if (formData?.id) {
@@ -397,6 +434,12 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
             actions.loadUsageMetrics()
             actions.reportUsageMetricDeleted()
             props.onMetricsChanged?.()
+        },
+        addUsageMetricFailure: ({ error, errorObject }) => {
+            lemonToast.error(usageMetricErrorMessage(errorObject, error))
+        },
+        updateUsageMetricFailure: ({ error, errorObject }) => {
+            lemonToast.error(usageMetricErrorMessage(errorObject, error))
         },
     })),
 ])
