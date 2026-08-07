@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.models.integration import Integration
+from posthog.models.integration import GitLabIntegrationError, Integration
 
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
@@ -263,6 +263,19 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             team=self.team,
             kind=Integration.IntegrationKind.GITHUB.value,
             config={"account": {"name": "acme"}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with self.assertRaises(api.ExternalReferenceValidationError):
+            api.search_external_issues(team_id=self.team.id, integration_id=integration.id, search="boom")
+
+    @patch("products.error_tracking.backend.logic.GitLabIntegration.search_issues")
+    def test_search_external_issues_maps_provider_failures_to_validation_errors(self, mock_search_issues):
+        mock_search_issues.side_effect = GitLabIntegrationError("rate limited")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITLAB.value,
+            config={"hostname": "https://gitlab.example.com", "project_id": 1},
             sensitive_config={"access_token": "access-token"},
         )
 

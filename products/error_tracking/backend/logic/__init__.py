@@ -8,7 +8,9 @@ from django.db.models import Count, Q, QuerySet
 
 from posthog.models.integration import (
     GitHubIntegration,
+    GitHubIntegrationError,
     GitLabIntegration,
+    GitLabIntegrationError,
     Integration,
     JiraIntegration,
     LinearIntegration,
@@ -397,16 +399,21 @@ def search_external_issues(
     if integration is None:
         raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
 
-    if integration.kind == Integration.IntegrationKind.GITHUB:
-        if not repository:
-            raise ErrorTrackingExternalReferenceValidationError("A repository is required to search GitHub issues.")
-        return GitHubIntegration(integration).search_issues(repository, search)
-    elif integration.kind == Integration.IntegrationKind.GITLAB:
-        return GitLabIntegration(integration).search_issues(search)
-    elif integration.kind == Integration.IntegrationKind.LINEAR:
-        return LinearIntegration(integration).search_issues(search)
-    elif integration.kind == Integration.IntegrationKind.JIRA:
-        return JiraIntegration(integration).search_issues(search)
+    # Provider failures (expired tokens, rate limits) surface as validation errors so the
+    # endpoint returns an actionable 400 instead of a 500.
+    try:
+        if integration.kind == Integration.IntegrationKind.GITHUB:
+            if not repository:
+                raise ErrorTrackingExternalReferenceValidationError("A repository is required to search GitHub issues.")
+            return GitHubIntegration(integration).search_issues(repository, search)
+        elif integration.kind == Integration.IntegrationKind.GITLAB:
+            return GitLabIntegration(integration).search_issues(search)
+        elif integration.kind == Integration.IntegrationKind.LINEAR:
+            return LinearIntegration(integration).search_issues(search)
+        elif integration.kind == Integration.IntegrationKind.JIRA:
+            return JiraIntegration(integration).search_issues(search)
+    except (GitHubIntegrationError, GitLabIntegrationError) as error:
+        raise ErrorTrackingExternalReferenceValidationError(f"Failed to search {integration.kind} issues.") from error
 
     raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
