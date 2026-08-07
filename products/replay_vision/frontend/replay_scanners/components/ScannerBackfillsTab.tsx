@@ -18,12 +18,26 @@ import { formatCreditCount, formatCredits } from '../../utils/credits'
 import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 
+// Hour-scale presets matter as much as day-scale ones: a common case is re-scanning the last couple
+// of hours after fixing a prompt, not re-scanning a month.
 const BACKFILL_DATE_OPTIONS: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
+    { key: 'Last 3 hours', values: ['-3h'] },
+    { key: 'Last 6 hours', values: ['-6h'] },
+    { key: 'Last 24 hours', values: ['-24h'] },
     { key: 'Last 7 days', values: ['-7d'] },
     { key: 'Last 30 days', values: ['-30d'] },
     { key: 'Last 90 days', values: ['-90d'] },
 ]
+
+/** Windows can be hours wide, so drop to date-only formatting just when both bounds sit on midnight. */
+function formatWindow(start: string, end: string): string {
+    const from = dayjs(start)
+    const to = dayjs(end)
+    const wholeDays = from.isSame(from.startOf('day')) && to.isSame(to.startOf('day'))
+    const format = wholeDays ? 'MMM D, YYYY' : 'MMM D, YYYY HH:mm'
+    return `${from.format(format)} to ${to.format(format)}`
+}
 
 const BACKFILL_STATUS_TAG: Record<BackfillStatusEnumApi, { label: string; type: LemonTagType }> = {
     running: { label: 'Running', type: 'success' },
@@ -73,10 +87,7 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
             title: 'Window',
             key: 'window',
             render: (_, backfill) => (
-                <span className="whitespace-nowrap">
-                    {dayjs(backfill.window_start).format('MMM D, YYYY')} to{' '}
-                    {dayjs(backfill.window_end).format('MMM D, YYYY')}
-                </span>
+                <span className="whitespace-nowrap">{formatWindow(backfill.window_start, backfill.window_end)}</span>
             ),
         },
         {
@@ -191,6 +202,9 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                         dateTo={windowDateTo}
                         dateOptions={BACKFILL_DATE_OPTIONS}
                         onChange={(dateFrom, dateTo) => estimateWindow(dateFrom, dateTo)}
+                        allowTimePrecision
+                        allowFixedRangeWithTime
+                        allowedRollingDateOptions={['hours', 'days', 'weeks', 'months']}
                         data-attr="vision-backfill-date-filter"
                     />
                     <LemonButton
