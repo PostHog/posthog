@@ -569,6 +569,7 @@ pub fn test_cached_person() -> CachedPerson {
         version: 1,
         is_identified: false,
         is_deleted: false,
+        last_seen_at: None,
         approx_bytes: approx_person_bytes(64),
     }
 }

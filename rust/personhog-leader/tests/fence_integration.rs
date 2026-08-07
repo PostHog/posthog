@@ -62,6 +62,8 @@ fn update_request(team_id: i64, person_id: i64) -> UpdatePersonPropertiesRequest
         set_properties: serde_json::to_vec(&serde_json::json!({"name": "after-fence"})).unwrap(),
         set_once_properties: vec![],
         unset_properties: vec![],
+        is_identified: None,
+        last_seen_at: None,
     }
 }
 

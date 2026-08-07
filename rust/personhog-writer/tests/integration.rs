@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
@@ -153,6 +154,97 @@ async fn writer_version_guard_skips_stale_updates() {
             .unwrap();
 
     assert_eq!(row.0, 5); // version unchanged
+
+    cleanup_team(&pool, team_id).await;
+}
+
+#[tokio::test]
+async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_006;
+    cleanup_team(&pool, team_id).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+    );
+
+    let fetch = |pool: sqlx::PgPool| async move {
+        let row: (i64, Option<String>, Option<DateTime<Utc>>) = sqlx::query_as(
+            "SELECT version, properties_last_updated_at::text, last_seen_at
+             FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+        )
+        .bind(team_id)
+        .bind(1_i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        (row.0, row.1, row.2.map(|t| t.timestamp_millis()))
+    };
+
+    // Seed a row carrying meta and a last-seen value, as ingestion's direct
+    // writer produces today.
+    let mut person = make_person(team_id as i64, 1, 1);
+    person.properties_last_updated_at =
+        serde_json::to_vec(&serde_json::json!({"email": "2026-01-01T00:00:00Z"})).unwrap();
+    person.last_seen_at = Some(5000);
+    assert!(matches!(
+        writer.upsert_batch(vec![person]).await,
+        BatchOutcome::Success
+    ));
+    let (version, meta, last_seen) = fetch(pool.clone()).await;
+    assert_eq!((version, last_seen), (1, Some(5000)));
+    let seeded_meta = meta.expect("insert must land the seeded meta");
+
+    // A leader-shaped record: newer version, no meta, older last-seen. The
+    // version guard admits it, but it must not erase the meta or lower the
+    // last-seen value.
+    let mut leader_record = make_person(team_id as i64, 1, 2);
+    leader_record.last_seen_at = Some(3000);
+    assert!(matches!(
+        writer.upsert_batch(vec![leader_record]).await,
+        BatchOutcome::Success
+    ));
+    let (version, meta, last_seen) = fetch(pool.clone()).await;
+    assert_eq!(version, 2, "the version guard must admit the newer record");
+    assert_eq!(
+        meta.as_deref(),
+        Some(seeded_meta.as_str()),
+        "a record without meta must leave the stored meta in place"
+    );
+    assert_eq!(
+        last_seen,
+        Some(5000),
+        "a record with an older last-seen must not lower the stored value"
+    );
+
+    // A record with no last-seen at all (predating the field) must also
+    // leave the stored value in place.
+    let no_last_seen = make_person(team_id as i64, 1, 3);
+    assert!(matches!(
+        writer.upsert_batch(vec![no_last_seen]).await,
+        BatchOutcome::Success
+    ));
+    let (version, _, last_seen) = fetch(pool.clone()).await;
+    assert_eq!((version, last_seen), (3, Some(5000)));
+
+    // A record that does carry meta and a newer last-seen replaces both —
+    // merging must not freeze the columns at their first values.
+    let mut advancing = make_person(team_id as i64, 1, 4);
+    advancing.properties_last_updated_at =
+        serde_json::to_vec(&serde_json::json!({"email": "2026-02-01T00:00:00Z"})).unwrap();
+    advancing.last_seen_at = Some(6000);
+    assert!(matches!(
+        writer.upsert_batch(vec![advancing]).await,
+        BatchOutcome::Success
+    ));
+    let (version, meta, last_seen) = fetch(pool.clone()).await;
+    assert_eq!((version, last_seen), (4, Some(6000)));
+    assert_ne!(
+        meta.as_deref(),
+        Some(seeded_meta.as_str()),
+        "a record carrying meta must replace the stored meta"
+    );
 
     cleanup_team(&pool, team_id).await;
 }

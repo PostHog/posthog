@@ -41,6 +41,10 @@ pub struct CachedPerson {
     /// than dropped) so reads answer an authoritative not-found instead of
     /// falling back to a PG row the writer may not have tombstoned yet.
     pub is_deleted: bool,
+    /// Epoch milliseconds of the person's last observed activity, when
+    /// known (matching `created_at`'s unit). Max-merged on update — the
+    /// value only ever advances — and deliberately not a change by itself.
+    pub last_seen_at: Option<i64>,
     /// Byte weight charged against the cache capacity; see
     /// [`approx_person_bytes`].
     pub approx_bytes: usize,
@@ -64,6 +68,7 @@ impl TryFrom<Person> for CachedPerson {
             version: person.version,
             is_identified: person.is_identified,
             is_deleted: person.is_deleted,
+            last_seen_at: person.last_seen_at,
             approx_bytes,
         })
     }
@@ -161,6 +166,7 @@ mod tests {
             version: 1,
             is_identified: false,
             is_deleted: false,
+            last_seen_at: None,
             approx_bytes: approx_person_bytes(64),
         }
     }
