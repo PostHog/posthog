@@ -79,6 +79,7 @@ import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
 import type { AgentPluginsService } from "../agent-plugins/agent-plugins";
 import { AGENT_PLUGINS_SERVICE } from "../agent-plugins/identifiers";
+import { probeMcpInitialize } from "../agent-plugins/mcp-probe";
 import {
   STDIO_BRIDGE_MARKER_HEADER,
   STDIO_BRIDGE_PROBE_HEADER,
@@ -1013,6 +1014,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       try {
         pluginMcpServers =
           await this.agentPluginsService.prepareRuntimeMcpServers(
+            taskId,
             taskRunId,
             new Set(mcpServers.map((server) => server.name)),
           );
@@ -1391,49 +1393,12 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
   private async isMcpServerReachable(
     server: Pick<McpServerConnection, "url" | "headers">,
   ): Promise<boolean> {
-    const PROBE_TIMEOUT_MS = 2_000;
     try {
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-      };
-      for (const header of server.headers) {
-        headers[header.name] = header.value;
-      }
-      if (
-        server.headers.some(
-          (header) => header.name.toLowerCase() === STDIO_BRIDGE_MARKER_HEADER,
-        )
-      ) {
-        headers[STDIO_BRIDGE_PROBE_HEADER] = "1";
-      }
-      const response = await fetch(server.url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 0,
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-06-18",
-            capabilities: {},
-            clientInfo: { name: "posthog-code", version: "1.0.0" },
-          },
-        }),
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      });
-      // Release the body without draining it. A cancel rejection (e.g. an
-      // already-disturbed stream) is a cleanup detail, not a reachability
-      // signal, so it must not flip the result to unreachable.
-      try {
-        await response.body?.cancel();
-      } catch {
-        // ignore body cleanup failures
-      }
-      // The neutral Agent Plugin proxy marks upstream transport failures. Other
-      // HTTP responses still prove that codex-acp can establish the transport.
-      return (
-        response.headers?.get?.("x-posthog-agent-plugin-proxy-error") !== "1"
+      return await probeMcpInitialize(
+        server.url,
+        server.headers,
+        STDIO_BRIDGE_MARKER_HEADER,
+        STDIO_BRIDGE_PROBE_HEADER,
       );
     } catch (err) {
       this.log.debug("MCP server reachability probe failed", {

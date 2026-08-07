@@ -67,6 +67,19 @@ export function useSetAgentPluginEnabled(): UseMutationResult<
   });
 }
 
+export function useApproveAgentPluginStdio(): UseMutationResult<
+  AgentPluginInstallation,
+  Error,
+  { id: string }
+> {
+  const client = useService<AgentPluginsClient>(AGENT_PLUGINS_CLIENT);
+  const invalidate = useInvalidateAgentPlugins();
+  return useMutation({
+    mutationFn: ({ id }) => client.approveStdio(id),
+    onSuccess: invalidate,
+  });
+}
+
 export function useUnregisterAgentPlugin(): UseMutationResult<
   void,
   Error,

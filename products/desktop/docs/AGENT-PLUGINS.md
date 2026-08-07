@@ -14,6 +14,8 @@ PostHog Desktop keeps a reference to the selected directory. When an agent sessi
 
 You can disable a plugin without removing it. Disabling a plugin stops its running stdio MCP servers but preserves its app-managed plugin data. Removing a plugin stops its stdio MCP servers and deletes its app-managed plugin data. It does not delete the source directory.
 
+Adding a plugin approves the stdio command, arguments, environment values, and working directory shown in the preview. PostHog Desktop stores only a digest of each approved definition. If an executable definition is added or changed later, that server is skipped until you review the display-safe details and select **Approve stdio commands**. Environment values remain in the source `mcp.json` and are never returned to the app UI or stored in the installation registry.
+
 ## Supported format
 
 A plugin must target Agent Plugins 1.0.0 and can provide Agent Skills in the standard location:
@@ -74,7 +76,7 @@ Stdio MCP servers can use a bare executable name or a bundled executable path be
 }
 ```
 
-PostHog Desktop starts stdio commands without a shell and makes them available to Claude and Codex through a local managed bridge. A server that fails to start is skipped without stopping sibling servers or skills. Running processes stop when the agent session ends, the plugin is disabled or removed, or the app shuts down.
+PostHog Desktop starts stdio commands without a shell and makes them available to Claude and Codex through a local managed bridge. The bridge binds to loopback, uses an unguessable route for each server, rejects browser requests, and limits request bodies. A server that fails to initialize or later disconnects is skipped or restarted without stopping sibling servers or skills. Running processes stop when the agent session ends, session startup fails, the plugin is disabled or removed, or the app shuts down.
 
 Every installed plugin gets a stable writable `PLUGIN_DATA` directory. Its contents persist across plugin source updates and while the plugin is disabled. Removing the plugin deletes this directory. `PLUGIN_ROOT` points to the resolved source directory.
 

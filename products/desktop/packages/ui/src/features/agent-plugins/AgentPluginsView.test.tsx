@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   select: vi.fn(),
   register: vi.fn(),
+  approveStdio: vi.fn(),
   setEnabled: vi.fn(),
   unregister: vi.fn(),
 }));
@@ -25,6 +26,12 @@ vi.mock("./useAgentPlugins", () => ({
     error: null,
     isPending: false,
     mutate: mocks.register,
+  }),
+  useApproveAgentPluginStdio: () => ({
+    error: null,
+    isPending: false,
+    variables: undefined,
+    mutate: mocks.approveStdio,
   }),
   useSetAgentPluginEnabled: () => ({
     error: null,
@@ -81,6 +88,7 @@ describe("AgentPluginsView", () => {
           },
           skills: [],
           mcpServers: [],
+          stdioApprovalRequired: false,
           diagnostics: [
             {
               severity: "error",

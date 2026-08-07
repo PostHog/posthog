@@ -819,7 +819,12 @@ describe("Agent Plugins skills support", () => {
 
     const preview = await service.selectDirectory();
     expect(preview?.mcpServers).toEqual([
-      { name: "analytics", type: "streamable-http", supported: true },
+      {
+        name: "analytics",
+        type: "streamable-http",
+        supported: true,
+        approval: "not-required",
+      },
     ]);
     const installation = await service.register(preview?.selectionToken ?? "");
     expect(installation.mcpServers).toEqual(preview?.mcpServers);
@@ -883,7 +888,11 @@ describe("Agent Plugins skills support", () => {
       "analytics",
     );
 
-    const runtime = await service.prepareRuntimeMcpServers("run-1", new Set());
+    const runtime = await service.prepareRuntimeMcpServers(
+      "task-1",
+      "run-1",
+      new Set(),
+    );
     expect(runtime).toEqual([
       expect.objectContaining({ name: expectedName, type: "http" }),
     ]);
@@ -900,9 +909,9 @@ describe("Agent Plugins skills support", () => {
     expect(httpProxy.unregisterInstallation).toHaveBeenCalledWith(
       installation.id,
     );
-    expect(await service.prepareRuntimeMcpServers("run-2", new Set())).toEqual(
-      [],
-    );
+    expect(
+      await service.prepareRuntimeMcpServers("task-1", "run-2", new Set()),
+    ).toEqual([]);
   });
 
   it("revokes HTTP targets when an installation is removed", async () => {
@@ -1019,5 +1028,76 @@ describe("Agent Plugins skills support", () => {
 
     expect(deferredProxy.proxy.register).toHaveBeenCalledTimes(2);
     expect(deferredProxy.active.size).toBe(1);
+  it("requires fresh approval when stdio definitions change", async () => {
+    const pluginDirectory = path.join(root, "plugin-consent");
+    const appDataPath = path.join(root, "app-data-consent");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      local: {
+        type: "stdio",
+        command: "node",
+        args: ["one"],
+        env: { PRIVATE_VALUE: "not-for-renderer" },
+        cwd: "${PLUGIN_ROOT}",
+      },
+    });
+    const stdioBridge = createStdioBridge();
+    const service = createService(
+      appDataPath,
+      [pluginDirectory],
+      createHttpProxy(),
+      stdioBridge,
+    );
+    const installation = await registerSelectedPlugin(service);
+
+    expect(installation.stdioApprovalRequired).toBe(false);
+    expect(installation.mcpServers[0]).toMatchObject({
+      command: "node",
+      args: ["one"],
+      envNames: ["PRIVATE_VALUE"],
+      approval: "approved",
+    });
+    expect(JSON.stringify(installation)).not.toContain("not-for-renderer");
+    expect(
+      await fs.promises.readFile(
+        path.join(appDataPath, "agent-plugins", "installations.json"),
+        "utf8",
+      ),
+    ).not.toContain("not-for-renderer");
+
+    await writeMcp(pluginDirectory, {
+      local: { type: "stdio", command: "node", args: ["two"] },
+    });
+    const changed = (await service.list())[0];
+    expect(changed.stdioApprovalRequired).toBe(true);
+    expect(changed.mcpServers[0]?.approval).toBe("required");
+    expect(
+      await service.prepareRuntimeMcpServers("task-1", "run-1", new Set()),
+    ).toEqual([]);
+    expect(stdioBridge.register).not.toHaveBeenCalled();
+
+    await service.setEnabled(installation.id, false);
+    await expect(service.setEnabled(installation.id, true)).rejects.toThrow(
+      "Review and approve",
+    );
+    const approved = await service.approveStdio(installation.id);
+    expect(approved.enabled).toBe(true);
+    expect(approved.stdioApprovalRequired).toBe(false);
+    await service.prepareRuntimeMcpServers("task-1", "run-2", new Set());
+    const bridgeRegistration = vi.mocked(stdioBridge.register).mock
+      .calls[0]?.[0];
+    expect(bridgeRegistration).toBeDefined();
+
+    await writeMcp(pluginDirectory, {
+      local: { type: "stdio", command: "node", args: ["three"] },
+    });
+    await expect(bridgeRegistration?.prepare()).rejects.toThrow(
+      "changed after it was approved",
+    );
+
+    await writeMcp(pluginDirectory, {});
+    const removed = (await service.list())[0];
+    expect(removed.stdioApprovalRequired).toBe(false);
+    expect(removed.mcpServers).toEqual([]);
   });
 });

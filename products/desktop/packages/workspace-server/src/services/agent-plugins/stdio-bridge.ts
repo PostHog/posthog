@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import http from "node:http";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -17,16 +18,22 @@ import type { ProcessTrackingService } from "../process-tracking/process-trackin
 export const STDIO_BRIDGE_MARKER_HEADER = "x-posthog-agent-plugin-stdio-bridge";
 export const STDIO_BRIDGE_PROBE_HEADER = "x-posthog-agent-plugin-stdio-probe";
 const BRIDGE_ERROR_HEADER = "x-posthog-agent-plugin-proxy-error";
+const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024;
 
-export interface AgentPluginStdioBridgeRegistration {
-  id: string;
-  runId: string;
-  installationId: string;
-  runtimeName: string;
+export interface AgentPluginStdioLaunchConfig {
   command: string;
   args: string[];
   env: Record<string, string>;
   cwd: string;
+}
+
+export interface AgentPluginStdioBridgeRegistration {
+  id: string;
+  taskId: string;
+  runId: string;
+  installationId: string;
+  runtimeName: string;
+  prepare: () => Promise<AgentPluginStdioLaunchConfig>;
   onFailure: (message: string) => void;
 }
 
@@ -44,9 +51,11 @@ interface BridgeConnection {
 }
 
 interface BridgeTarget extends AgentPluginStdioBridgeRegistration {
+  routeToken: string;
   connection?: BridgeConnection;
   connectionPromise?: Promise<BridgeConnection>;
   failureReported: boolean;
+  active: boolean;
 }
 
 function relatedRequestId(message: JSONRPCMessage): RequestId | undefined {
@@ -60,12 +69,21 @@ function relatedRequestId(message: JSONRPCMessage): RequestId | undefined {
   return undefined;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message
+    ? error.message
+    : "The stdio MCP server stopped unexpectedly.";
+}
+
+class RequestBodyTooLargeError extends Error {}
+
 @injectable()
 export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
   private server: http.Server | null = null;
   private port: number | null = null;
   private startPromise: Promise<void> | null = null;
   private readonly targets = new Map<string, BridgeTarget>();
+  private readonly routeByRegistration = new Map<string, string>();
   private readonly log: ScopedLogger;
 
   constructor(
@@ -80,13 +98,19 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     registration: AgentPluginStdioBridgeRegistration,
   ): Promise<string> {
     await this.start();
-    const existing = this.targets.get(registration.id);
-    if (existing) await this.closeTarget(existing);
-    this.targets.set(registration.id, {
+    const existingRoute = this.routeByRegistration.get(registration.id);
+    if (existingRoute) await this.unregisterRoute(existingRoute);
+
+    const routeToken = crypto.randomBytes(32).toString("base64url");
+    const target: BridgeTarget = {
       ...registration,
+      routeToken,
       failureReported: false,
-    });
-    return `http://127.0.0.1:${this.port}/${encodeURIComponent(registration.id)}`;
+      active: true,
+    };
+    this.targets.set(routeToken, target);
+    this.routeByRegistration.set(registration.id, routeToken);
+    return `http://127.0.0.1:${this.port}/${routeToken}`;
   }
 
   async unregisterRun(runId: string): Promise<void> {
@@ -102,9 +126,10 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
   @preDestroy()
   async stop(): Promise<void> {
     await Promise.all(
-      [...this.targets.values()].map((target) => this.closeTarget(target)),
+      [...this.targets.keys()].map((routeToken) =>
+        this.unregisterRoute(routeToken),
+      ),
     );
-    this.targets.clear();
     if (!this.server) return;
 
     const server = this.server;
@@ -118,13 +143,13 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
   }
 
   protected createStdioTransport(
-    registration: AgentPluginStdioBridgeRegistration,
+    config: AgentPluginStdioLaunchConfig,
   ): StdioClientTransport {
     return new StdioClientTransport({
-      command: registration.command,
-      args: registration.args,
-      env: registration.env,
-      cwd: registration.cwd,
+      command: config.command,
+      args: config.args,
+      env: config.env,
+      cwd: config.cwd,
       stderr: "pipe",
     });
   }
@@ -136,15 +161,23 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
   private async unregisterMatching(
     predicate: (target: BridgeTarget) => boolean,
   ): Promise<void> {
-    const matches = [...this.targets.entries()].filter(([, target]) =>
-      predicate(target),
-    );
+    const routes = [...this.targets.entries()]
+      .filter(([, target]) => predicate(target))
+      .map(([routeToken]) => routeToken);
     await Promise.all(
-      matches.map(async ([id, target]) => {
-        this.targets.delete(id);
-        await this.closeTarget(target);
-      }),
+      routes.map((routeToken) => this.unregisterRoute(routeToken)),
     );
+  }
+
+  private async unregisterRoute(routeToken: string): Promise<void> {
+    const target = this.targets.get(routeToken);
+    if (!target) return;
+    this.targets.delete(routeToken);
+    target.active = false;
+    if (this.routeByRegistration.get(target.id) === routeToken) {
+      this.routeByRegistration.delete(target.id);
+    }
+    await this.closeTarget(target);
   }
 
   private async closeTarget(target: BridgeTarget): Promise<void> {
@@ -165,6 +198,10 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     if (this.server && this.port !== null) return;
     if (this.startPromise) return this.startPromise;
     this.startPromise = this.startServer().catch((error) => {
+      this.server?.closeAllConnections();
+      this.server?.close();
+      this.server = null;
+      this.port = null;
       this.startPromise = null;
       throw error;
     });
@@ -175,12 +212,19 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     const server = http.createServer((request, response) => {
       void this.handleRequest(request, response).catch((error) => {
         this.log.warn("Agent Plugin stdio bridge request failed", {
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         });
         if (!response.headersSent) {
-          response.writeHead(502, { [BRIDGE_ERROR_HEADER]: "1" });
+          response.writeHead(
+            error instanceof RequestBodyTooLargeError ? 413 : 502,
+            { [BRIDGE_ERROR_HEADER]: "1" },
+          );
         }
-        response.end("Agent Plugin stdio bridge error");
+        response.end(
+          error instanceof RequestBodyTooLargeError
+            ? "Agent Plugin MCP request body is too large"
+            : "Agent Plugin stdio bridge error",
+        );
       });
     });
     this.server = server;
@@ -206,25 +250,70 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     request: http.IncomingMessage,
     response: http.ServerResponse,
   ): Promise<void> {
+    if (request.headers.origin || request.headers["sec-fetch-site"]) {
+      response.writeHead(403);
+      response.end("Browser requests are not allowed");
+      return;
+    }
+
     const incomingUrl = new URL(request.url ?? "/", "http://localhost");
-    const rawId = incomingUrl.pathname.split("/").filter(Boolean)[0];
-    const id = rawId ? decodeURIComponent(rawId) : "";
-    const target = this.targets.get(id);
-    if (!target) {
+    const routeToken = incomingUrl.pathname.split("/").filter(Boolean)[0];
+    const target = routeToken ? this.targets.get(routeToken) : undefined;
+    if (!target || !target.active) {
       response.writeHead(404);
       response.end("Unknown Agent Plugin stdio target");
       return;
     }
 
+    let parsedBody: unknown;
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      const body = await this.readRequestBody(request);
+      try {
+        parsedBody = JSON.parse(body.toString("utf8"));
+      } catch {
+        response.writeHead(400);
+        response.end("Agent Plugin MCP request body is not valid JSON");
+        return;
+      }
+    }
+
     const isProbe = request.headers[STDIO_BRIDGE_PROBE_HEADER] === "1";
     const connection = isProbe
-      ? await this.startConnection(target, true)
+      ? await this.startConnection(target)
       : await this.getOrStartConnection(target);
     try {
-      await connection.http.handleRequest(request, response);
+      await connection.http.handleRequest(request, response, parsedBody);
+    } catch (error) {
+      if (!isProbe) this.invalidateConnection(target, connection, error);
+      throw error;
     } finally {
       if (isProbe) await connection.close();
     }
+  }
+
+  private readRequestBody(request: http.IncomingMessage): Promise<Buffer> {
+    const contentLength = Number(request.headers["content-length"] ?? 0);
+    if (
+      Number.isFinite(contentLength) &&
+      contentLength > MAX_REQUEST_BODY_BYTES
+    ) {
+      return Promise.reject(new RequestBodyTooLargeError());
+    }
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      request.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_REQUEST_BODY_BYTES) {
+          reject(new RequestBodyTooLargeError());
+          request.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      request.on("end", () => resolve(Buffer.concat(chunks)));
+      request.on("error", reject);
+    });
   }
 
   private getOrStartConnection(
@@ -233,34 +322,51 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     if (target.connection) return Promise.resolve(target.connection);
     if (target.connectionPromise) return target.connectionPromise;
 
-    target.connectionPromise = this.startConnection(target, false)
-      .then((connection) => {
+    const startPromise = this.startConnection(target)
+      .then(async (connection) => {
+        if (!target.active) {
+          await connection.close();
+          throw new Error("Agent Plugin stdio target was removed.");
+        }
         target.connection = connection;
         target.connectionPromise = undefined;
+        target.failureReported = false;
         return connection;
       })
       .catch((error) => {
-        target.connectionPromise = undefined;
+        if (target.connectionPromise === startPromise) {
+          target.connectionPromise = undefined;
+        }
         this.reportFailure(target, error);
         throw error;
       });
-    return target.connectionPromise;
+    target.connectionPromise = startPromise;
+    return startPromise;
   }
 
   private async startConnection(
     target: BridgeTarget,
-    ephemeral: boolean,
   ): Promise<BridgeConnection> {
-    const stdio = this.createStdioTransport(target);
+    const config = await target.prepare();
+    if (!target.active) {
+      throw new Error("Agent Plugin stdio target was removed.");
+    }
+    const stdio = this.createStdioTransport(config);
     const httpTransport = this.createHttpTransport();
     let connection: BridgeConnection | undefined;
     let intentionallyClosing = false;
 
-    httpTransport.onmessage = (message) => {
-      void stdio.send(message).catch((error) => {
+    const fail = (error: unknown): void => {
+      if (intentionallyClosing) return;
+      if (connection) {
+        this.invalidateConnection(target, connection, error);
+      } else {
         this.reportFailure(target, error);
-        void httpTransport.close();
-      });
+      }
+    };
+
+    httpTransport.onmessage = (message) => {
+      void stdio.send(message).catch(fail);
     };
     stdio.onmessage = (message) => {
       const requestId = relatedRequestId(message);
@@ -271,7 +377,7 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
         )
         .catch((error) => {
           if (requestId !== undefined || "id" in message) {
-            this.reportFailure(target, error);
+            fail(error);
           } else {
             this.log.debug(
               "Dropped stdio MCP notification without a client stream",
@@ -279,21 +385,12 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
           }
         });
     };
-    stdio.onerror = (error) => this.reportFailure(target, error);
+    stdio.onerror = fail;
     stdio.onclose = () => {
       if (connection) {
         this.processTracking.unregister(connection.pid, "mcp-exited");
-        if (!ephemeral && target.connection === connection) {
-          target.connection = undefined;
-        }
       }
-      if (!intentionallyClosing) {
-        this.reportFailure(
-          target,
-          new Error("The stdio MCP server stopped unexpectedly."),
-        );
-      }
-      void httpTransport.close();
+      fail(new Error("The stdio MCP server stopped unexpectedly."));
     };
 
     await httpTransport.start();
@@ -306,7 +403,7 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     }
     const pid = stdio.pid;
     if (pid === null) {
-      await Promise.all([stdio.close(), httpTransport.close()]);
+      await Promise.allSettled([stdio.close(), httpTransport.close()]);
       throw new Error("Agent Plugin stdio server did not start.");
     }
 
@@ -316,11 +413,12 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
       "child",
       `agent-plugin:${target.runtimeName}`,
       {
+        taskId: target.taskId,
         taskRunId: target.runId,
         installationId: target.installationId,
         server: target.runtimeName,
       },
-      target.runId,
+      target.taskId,
     );
 
     let closed = false;
@@ -332,21 +430,28 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
         if (closed) return;
         closed = true;
         intentionallyClosing = true;
-        await httpTransport.close();
+        if (target.connection === connection) target.connection = undefined;
+        this.processTracking.unregister(pid, "mcp-closed");
         this.processTracking.kill(pid);
-        await stdio.close();
+        await Promise.allSettled([httpTransport.close(), stdio.close()]);
       },
     };
     return connection;
   }
 
+  private invalidateConnection(
+    target: BridgeTarget,
+    connection: BridgeConnection,
+    error: unknown,
+  ): void {
+    if (target.connection === connection) target.connection = undefined;
+    this.reportFailure(target, error);
+    void connection.close();
+  }
+
   private reportFailure(target: BridgeTarget, error: unknown): void {
     if (target.failureReported) return;
     target.failureReported = true;
-    target.onFailure(
-      error instanceof Error && error.message
-        ? error.message
-        : "The stdio MCP server stopped unexpectedly.",
-    );
+    target.onFailure(errorMessage(error));
   }
 }

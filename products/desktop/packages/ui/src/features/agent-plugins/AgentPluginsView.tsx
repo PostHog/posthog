@@ -20,6 +20,7 @@ import {
 import type { ReactElement } from "react";
 import {
   useAgentPlugins,
+  useApproveAgentPluginStdio,
   useRegisterAgentPlugin,
   useSelectAgentPlugin,
   useSetAgentPluginEnabled,
@@ -38,6 +39,7 @@ export function AgentPluginsView(): ReactElement {
   const plugins = useAgentPlugins();
   const selectPlugin = useSelectAgentPlugin();
   const registerPlugin = useRegisterAgentPlugin();
+  const approveStdio = useApproveAgentPluginStdio();
   const setEnabled = useSetAgentPluginEnabled();
   const unregister = useUnregisterAgentPlugin();
   const preview = selectPlugin.data;
@@ -115,13 +117,38 @@ export function AgentPluginsView(): ReactElement {
                       </Badge>
                     ))}
                   </div>
+                  {preview.mcpServers
+                    .filter((server) => server.type === "stdio")
+                    .map((server) => (
+                      <div
+                        key={server.name}
+                        className="flex flex-col gap-1 rounded-md border border-border p-3"
+                      >
+                        <Text size="xs" weight="medium">
+                          {server.name}
+                        </Text>
+                        <Text size="xs" className="break-all">
+                          Command: {server.command}{" "}
+                          {(server.args ?? []).join(" ")}
+                        </Text>
+                        <Text size="xs" variant="muted" className="break-all">
+                          Working directory: {server.cwd}
+                        </Text>
+                        <Text size="xs" variant="muted" className="break-all">
+                          Environment names:{" "}
+                          {server.envNames?.join(", ") || "None"}
+                        </Text>
+                        <Text size="xs" variant="muted" className="break-all">
+                          Digest: {server.digest}
+                        </Text>
+                      </div>
+                    ))}
                   {preview.mcpServers.some(
                     (server) => server.type === "stdio",
                   ) && (
                     <Text size="xs" variant="muted">
-                      Stdio MCP servers run local commands. Review their
-                      command, arguments, and environment in mcp.json before
-                      adding this plugin.
+                      Adding this plugin approves the stdio commands shown
+                      above. PostHog Desktop will ask again if they change.
                     </Text>
                   )}
                 </div>
@@ -169,11 +196,13 @@ export function AgentPluginsView(): ReactElement {
 
         {(errorMessage(selectPlugin.error) ||
           errorMessage(registerPlugin.error) ||
+          errorMessage(approveStdio.error) ||
           errorMessage(setEnabled.error) ||
           errorMessage(unregister.error)) && (
           <Text variant="destructive" size="sm">
             {errorMessage(selectPlugin.error) ??
               errorMessage(registerPlugin.error) ??
+              errorMessage(approveStdio.error) ??
               errorMessage(setEnabled.error) ??
               errorMessage(unregister.error)}
           </Text>
@@ -235,7 +264,10 @@ export function AgentPluginsView(): ReactElement {
                       )}
                       <Switch
                         checked={plugin.enabled}
-                        disabled={setEnabled.isPending}
+                        disabled={
+                          setEnabled.isPending ||
+                          (!plugin.enabled && plugin.stdioApprovalRequired)
+                        }
                         aria-label={`Enable ${plugin.manifest.name}`}
                         onCheckedChange={(enabled) =>
                           setEnabled.mutate({ id: plugin.id, enabled })
@@ -255,6 +287,60 @@ export function AgentPluginsView(): ReactElement {
                         <Trash />
                       </Button>
                     </div>
+                    {plugin.mcpServers
+                      .filter((server) => server.type === "stdio")
+                      .map((server) => (
+                        <div
+                          key={server.name}
+                          className="flex flex-col gap-1 rounded-md border border-border p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <Text size="xs" weight="medium">
+                              {server.name}
+                            </Text>
+                            <Badge
+                              variant={
+                                server.approval === "approved"
+                                  ? "success"
+                                  : "warning"
+                              }
+                            >
+                              {server.approval === "approved"
+                                ? "Approved"
+                                : "Review required"}
+                            </Badge>
+                          </div>
+                          <Text size="xs" className="break-all">
+                            Command: {server.command}{" "}
+                            {(server.args ?? []).join(" ")}
+                          </Text>
+                          <Text size="xs" variant="muted" className="break-all">
+                            Working directory: {server.cwd}
+                          </Text>
+                          <Text size="xs" variant="muted" className="break-all">
+                            Environment names:{" "}
+                            {server.envNames?.join(", ") || "None"}
+                          </Text>
+                          <Text size="xs" variant="muted" className="break-all">
+                            Digest: {server.digest}
+                          </Text>
+                        </div>
+                      ))}
+                    {plugin.stdioApprovalRequired && (
+                      <div className="flex justify-end">
+                        <Button
+                          variant="primary"
+                          loading={
+                            approveStdio.isPending &&
+                            approveStdio.variables?.id === plugin.id
+                          }
+                          disabled={approveStdio.isPending}
+                          onClick={() => approveStdio.mutate({ id: plugin.id })}
+                        >
+                          Approve stdio commands
+                        </Button>
+                      </div>
+                    )}
                     {plugin.diagnostics.length > 0 && (
                       <div className="flex flex-col gap-1 rounded-md border border-border p-3">
                         {plugin.diagnostics.map((item, index) => (

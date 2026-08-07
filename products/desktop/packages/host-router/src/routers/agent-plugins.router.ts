@@ -4,6 +4,7 @@ import { AGENT_PLUGINS_SERVICE } from "@posthog/workspace-server/services/agent-
 import {
   agentPluginIdInput,
   agentPluginInstallation,
+  approveAgentPluginStdioInput,
   listAgentPluginsOutput,
   registerAgentPluginInput,
   selectAgentPluginOutput,
@@ -38,6 +39,14 @@ export const agentPluginsRouter = router({
       ctx.container
         .get<AgentPluginsService>(AGENT_PLUGINS_SERVICE)
         .setEnabled(input.id, input.enabled),
+    ),
+  approveStdio: publicProcedure
+    .input(approveAgentPluginStdioInput)
+    .output(agentPluginInstallation)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentPluginsService>(AGENT_PLUGINS_SERVICE)
+        .approveStdio(input.id),
     ),
   unregister: publicProcedure
     .input(agentPluginIdInput)

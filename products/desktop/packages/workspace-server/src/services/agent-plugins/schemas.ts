@@ -62,6 +62,14 @@ export const agentPluginMcpServerSummary = z.object({
   name: z.string(),
   type: z.enum(["streamable-http", "stdio", "sse"]),
   supported: z.boolean(),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  envNames: z.array(z.string()).optional(),
+  digest: z.string().optional(),
+  approval: z
+    .enum(["not-required", "approved", "required"])
+    .default("not-required"),
 });
 
 export const agentPluginPreview = z.object({
@@ -82,6 +90,7 @@ export const agentPluginInstallation = z.object({
   skills: z.array(agentPluginSkill),
   mcpServers: z.array(agentPluginMcpServerSummary),
   diagnostics: z.array(agentPluginDiagnostic),
+  stdioApprovalRequired: z.boolean(),
 });
 
 export const listAgentPluginsOutput = z.array(agentPluginInstallation);
@@ -90,6 +99,9 @@ export const registerAgentPluginInput = z.object({
   selectionToken: z.string().uuid(),
 });
 export const agentPluginIdInput = z.object({
+  id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
+});
+export const approveAgentPluginStdioInput = z.object({
   id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
 });
 export const setAgentPluginEnabledInput = z.object({
@@ -103,6 +115,8 @@ export const agentPluginState = z.object({
     agentPluginInstallation.extend({
       id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
       mcpServers: z.array(agentPluginMcpServerSummary).default([]),
+      stdioApprovalRequired: z.boolean().default(false),
+      approvedStdioDigests: z.record(z.string(), z.string()).default({}),
     }),
   ),
 });

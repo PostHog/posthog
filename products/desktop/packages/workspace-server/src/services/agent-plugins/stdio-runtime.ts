@@ -101,6 +101,12 @@ async function resolveContainedDirectory(
     throw new Error("The stdio working directory escapes its allowed root.");
   }
   if (create) await fs.promises.mkdir(absoluteCandidate, { recursive: true });
+  const candidateStat = await fs.promises.lstat(absoluteCandidate);
+  if (candidateStat.isSymbolicLink()) {
+    throw new Error(
+      "The stdio working directory escapes its allowed root through a symbolic link.",
+    );
+  }
   const resolvedCandidate = await fs.promises.realpath(absoluteCandidate);
   if (!isPathContained(root, resolvedCandidate)) {
     throw new Error("The stdio working directory escapes its allowed root.");
@@ -137,19 +143,38 @@ export async function resolveStdioServer(
   ambient: NodeJS.ProcessEnv = process.env,
 ): Promise<ResolvedStdioServer> {
   const pluginRoot = await fs.promises.realpath(pluginSourcePath);
-  const pluginDataParentPath = path.dirname(pluginDataPath);
+  const absolutePluginDataPath = path.resolve(pluginDataPath);
+  const pluginDataParentPath = path.dirname(absolutePluginDataPath);
   await fs.promises.mkdir(pluginDataParentPath, { recursive: true });
   const pluginDataParent = await fs.promises.realpath(pluginDataParentPath);
-  await fs.promises.mkdir(pluginDataPath, { recursive: true });
-  const pluginData = await fs.promises.realpath(pluginDataPath);
-  if (!isPathContained(pluginDataParent, pluginData)) {
+  await fs.promises.mkdir(absolutePluginDataPath, { recursive: true });
+  const pluginDataStat = await fs.promises.lstat(absolutePluginDataPath);
+  if (pluginDataStat.isSymbolicLink() || !pluginDataStat.isDirectory()) {
+    throw new Error(
+      "The plugin data directory escapes app-managed storage or is unsafe.",
+    );
+  }
+  const pluginData = await fs.promises.realpath(absolutePluginDataPath);
+  const expectedPluginData = path.join(
+    pluginDataParent,
+    path.basename(absolutePluginDataPath),
+  );
+  if (
+    !isPathContained(pluginDataParent, pluginData) ||
+    path.resolve(pluginData) !== expectedPluginData
+  ) {
     throw new Error("The plugin data directory escapes app-managed storage.");
   }
   await fs.promises.access(pluginData, fs.constants.W_OK);
 
   let command = server.command;
   if (command.startsWith("./")) {
-    command = await fs.promises.realpath(path.resolve(pluginRoot, command));
+    const commandPath = path.resolve(pluginRoot, command);
+    const commandLstat = await fs.promises.lstat(commandPath);
+    if (commandLstat.isSymbolicLink() || !commandLstat.isFile()) {
+      throw new Error("The stdio command must be a regular file.");
+    }
+    command = await fs.promises.realpath(commandPath);
     if (!isPathContained(pluginRoot, command)) {
       throw new Error(
         "The stdio command resolves outside the plugin directory.",

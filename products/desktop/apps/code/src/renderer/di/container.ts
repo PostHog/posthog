@@ -196,6 +196,8 @@ container.bind(AGENT_PLUGINS_CLIENT).toConstantValue({
     hostTrpcClient.agentPlugins.register.mutate({ selectionToken }),
   setEnabled: (id: string, enabled: boolean) =>
     hostTrpcClient.agentPlugins.setEnabled.mutate({ id, enabled }),
+  approveStdio: (id: string) =>
+    hostTrpcClient.agentPlugins.approveStdio.mutate({ id }),
   unregister: async (id: string) => {
     await hostTrpcClient.agentPlugins.unregister.mutate({ id });
   },

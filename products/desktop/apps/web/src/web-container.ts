@@ -717,6 +717,9 @@ container.bind(AGENT_PLUGINS_CLIENT).toConstantValue({
   setEnabled: async () => {
     throw new Error("Agent Plugins are not available on the web");
   },
+  approveStdio: async () => {
+    throw new Error("Agent Plugins are not available on the web");
+  },
   unregister: async () => {
     throw new Error("Agent Plugins are not available on the web");
   },

@@ -31,6 +31,12 @@ export interface AgentPluginMcpServerSummary {
   name: string;
   type: "streamable-http" | "stdio" | "sse";
   supported: boolean;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  envNames?: string[];
+  digest?: string;
+  approval: "not-required" | "approved" | "required";
 }
 
 export interface AgentPluginPreview {
@@ -51,6 +57,7 @@ export interface AgentPluginInstallation {
   skills: AgentPluginSkill[];
   mcpServers: AgentPluginMcpServerSummary[];
   diagnostics: AgentPluginDiagnostic[];
+  stdioApprovalRequired: boolean;
 }
 
 export interface AgentPluginsClient {
@@ -58,5 +65,6 @@ export interface AgentPluginsClient {
   select(): Promise<AgentPluginPreview | null>;
   register(selectionToken: string): Promise<AgentPluginInstallation>;
   setEnabled(id: string, enabled: boolean): Promise<AgentPluginInstallation>;
+  approveStdio(id: string): Promise<AgentPluginInstallation>;
   unregister(id: string): Promise<void>;
 }

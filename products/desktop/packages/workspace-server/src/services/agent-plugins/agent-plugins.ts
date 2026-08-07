@@ -25,8 +25,11 @@ import {
   type AgentPluginInstallation,
   type AgentPluginMcpServer,
   type AgentPluginMcpServerSummary,
+  type AgentPluginPersistedInstallation,
   type AgentPluginPreview,
+  type AgentPluginStdioMcpServer,
   agentPluginState,
+  type LoadedAgentPlugin,
 } from "./schemas";
 import {
   type AgentPluginStdioBridge,
@@ -41,7 +44,7 @@ interface RuntimeAgentPlugin {
 
 interface PersistedState {
   version: 1;
-  installations: AgentPluginInstallation[];
+  installations: AgentPluginPersistedInstallation[];
 }
 
 interface PendingSelection {
@@ -62,14 +65,81 @@ const MAX_PLUGIN_SNAPSHOT_FILES = 1024;
 const MAX_PLUGIN_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 const SNAPSHOT_READ_CHUNK_BYTES = 64 * 1024;
 
+export function agentPluginStdioDigest(
+  installationId: string,
+  pluginName: string,
+  server: AgentPluginStdioMcpServer,
+): string {
+  const normalizedEnvironment = Object.fromEntries(
+    Object.entries(server.env ?? {}).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  );
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        installationId,
+        pluginName,
+        serverName: server.name,
+        command: server.command,
+        args: server.args ?? [],
+        env: normalizedEnvironment,
+        cwd: server.cwd ?? "${PLUGIN_ROOT}",
+      }),
+    )
+    .digest("hex");
+}
+
+function stdioDigests(
+  installationId: string,
+  pluginName: string,
+  servers: AgentPluginMcpServer[],
+): Record<string, string> {
+  return Object.fromEntries(
+    servers
+      .filter(
+        (server): server is AgentPluginStdioMcpServer =>
+          server.type === "stdio",
+      )
+      .map((server) => [
+        server.name,
+        agentPluginStdioDigest(installationId, pluginName, server),
+      ]),
+  );
+}
+
 function summarizeMcpServers(
   servers: AgentPluginMcpServer[],
+  installationId: string,
+  pluginName: string,
+  approvedStdioDigests: Readonly<Record<string, string>>,
 ): AgentPluginMcpServerSummary[] {
-  return servers.map((server) => ({
-    name: server.name,
-    type: server.type,
-    supported: true,
-  }));
+  return servers.map((server) => {
+    if (server.type === "streamable-http") {
+      return {
+        name: server.name,
+        type: server.type,
+        supported: true,
+        approval: "not-required" as const,
+      };
+    }
+    const digest = agentPluginStdioDigest(installationId, pluginName, server);
+    return {
+      name: server.name,
+      type: server.type,
+      supported: true,
+      command: server.command,
+      args: server.args ?? [],
+      cwd: server.cwd ?? "${PLUGIN_ROOT}",
+      envNames: Object.keys(server.env ?? {}).sort(),
+      digest,
+      approval:
+        approvedStdioDigests[server.name] === digest
+          ? ("approved" as const)
+          : ("required" as const),
+    };
+  });
 }
 
 export function agentPluginRuntimeMcpName(
@@ -109,41 +179,14 @@ export class AgentPluginsService {
   list(): Promise<AgentPluginInstallation[]> {
     return this.withStateTransaction(async () => {
       const state = await this.readState();
-      const installations = await Promise.all(
-        state.installations.map(async (installation) => {
-          const preview = await loadAgentPlugin(installation.sourcePath);
-          const sourceUnchanged =
-            preview.sourcePath === installation.sourcePath;
-          return {
-            ...installation,
-            manifest:
-              sourceUnchanged && preview.manifest
-                ? preview.manifest
-                : installation.manifest,
-            skills: sourceUnchanged && preview.valid ? preview.skills : [],
-            mcpServers:
-              sourceUnchanged && preview.valid
-                ? summarizeMcpServers(preview.mcpServers)
-                : [],
-            diagnostics: [
-              ...(sourceUnchanged
-                ? preview.diagnostics
-                : [
-                    ...preview.diagnostics,
-                    {
-                      severity: "error" as const,
-                      code: "source_changed",
-                      message:
-                        "The Agent Plugin directory changed. Remove it and add it again.",
-                    },
-                  ]),
-              ...(this.runtimeDiagnostics.get(installation.id) ?? []),
-            ],
-          } satisfies AgentPluginInstallation;
-        }),
+      return Promise.all(
+        state.installations.map(async (installation) =>
+          this.toPublicInstallation(
+            installation,
+            await loadAgentPlugin(installation.sourcePath),
+          ),
+        ),
       );
-      await this.writeState({ version: 1, installations });
-      return installations;
     });
   }
 
@@ -157,7 +200,14 @@ export class AgentPluginsService {
     const preview = await loadAgentPlugin(sourcePath);
     const publicPreview: AgentPluginPreview = {
       ...preview,
-      mcpServers: summarizeMcpServers(preview.mcpServers),
+      mcpServers: preview.manifest
+        ? summarizeMcpServers(
+            preview.mcpServers,
+            this.installationId(preview.sourcePath),
+            preview.manifest.name,
+            {},
+          )
+        : [],
     };
     if (!preview.valid) return publicPreview;
 
@@ -193,14 +243,26 @@ export class AgentPluginsService {
       const existing = state.installations.find(
         (installation) => installation.id === id,
       );
-      const installation: AgentPluginInstallation = {
+      const approvedStdioDigests = stdioDigests(
+        id,
+        manifest.name,
+        preview.mcpServers,
+      );
+      const installation: AgentPluginPersistedInstallation = {
         id,
         sourcePath: preview.sourcePath,
         enabled: existing?.enabled ?? true,
         manifest,
         skills: preview.skills,
-        mcpServers: summarizeMcpServers(preview.mcpServers),
+        mcpServers: summarizeMcpServers(
+          preview.mcpServers,
+          id,
+          manifest.name,
+          approvedStdioDigests,
+        ),
         diagnostics: preview.diagnostics,
+        stdioApprovalRequired: false,
+        approvedStdioDigests,
       };
       const installations = state.installations.filter(
         (item) => item.id !== installation.id,
@@ -208,7 +270,7 @@ export class AgentPluginsService {
       installations.push(installation);
       this.runtimeDiagnostics.delete(installation.id);
       await this.writeState({ version: 1, installations });
-      return installation;
+      return this.toPublicInstallation(installation, preview);
     });
   }
 
@@ -217,8 +279,19 @@ export class AgentPluginsService {
       this.assertInstallationId(id);
       const state = await this.readState();
       const installation = state.installations.find((item) => item.id === id);
-      if (!installation)
+      if (!installation) {
         throw new Error("Agent Plugin installation not found.");
+      }
+      const preview = await loadAgentPlugin(installation.sourcePath);
+      const publicInstallation = this.toPublicInstallation(
+        installation,
+        preview,
+      );
+      if (enabled && publicInstallation.stdioApprovalRequired) {
+        throw new Error(
+          "Review and approve the current stdio commands before enabling this plugin.",
+        );
+      }
       const updated = { ...installation, enabled };
       await this.writeState({
         version: 1,
@@ -231,7 +304,48 @@ export class AgentPluginsService {
         this.httpProxy.unregisterInstallation(id);
         await this.stdioBridge.unregisterInstallation(id);
       }
-      return updated;
+      return this.toPublicInstallation(updated, preview);
+    });
+  }
+
+  approveStdio(id: string): Promise<AgentPluginInstallation> {
+    return this.withStateTransaction(async () => {
+      const state = await this.readState();
+      const installation = state.installations.find((item) => item.id === id);
+      if (!installation) {
+        throw new Error("Agent Plugin installation not found.");
+      }
+      const preview = await loadAgentPlugin(installation.sourcePath);
+      if (
+        !preview.valid ||
+        !preview.manifest ||
+        preview.sourcePath !== installation.sourcePath
+      ) {
+        throw new Error(
+          "The Agent Plugin could not be validated. Fix it before approving stdio commands.",
+        );
+      }
+      const approvedStdioDigests = stdioDigests(
+        installation.id,
+        preview.manifest.name,
+        preview.mcpServers,
+      );
+      const updated: AgentPluginPersistedInstallation = {
+        ...installation,
+        enabled: true,
+        approvedStdioDigests,
+        stdioApprovalRequired: false,
+      };
+      await this.writeState({
+        version: 1,
+        installations: state.installations.map((item) =>
+          item.id === id ? updated : item,
+        ),
+      });
+      this.runtimeDiagnostics.delete(id);
+      this.httpProxy.unregisterInstallation(id);
+      await this.stdioBridge.unregisterInstallation(id);
+      return this.toPublicInstallation(updated, preview);
     });
   }
 
@@ -254,6 +368,7 @@ export class AgentPluginsService {
   }
 
   prepareRuntimeMcpServers(
+    taskId: string,
     taskRunId: string,
     reservedServerNames: ReadonlySet<string>,
   ): Promise<McpServerConnection[]> {
@@ -265,6 +380,7 @@ export class AgentPluginsService {
       this.httpProxy.unregisterRun(taskRunId);
       try {
         return await this.prepareRuntimeMcpServersLocked(
+          taskId,
           taskRunId,
           reservedServerNames,
         );
@@ -276,6 +392,7 @@ export class AgentPluginsService {
   }
 
   private async prepareRuntimeMcpServersLocked(
+    taskId: string,
     taskRunId: string,
     reservedServerNames: ReadonlySet<string>,
   ): Promise<McpServerConnection[]> {
@@ -336,20 +453,34 @@ export class AgentPluginsService {
             continue;
           }
 
-          const resolved = await resolveStdioServer(
-            preview.sourcePath,
-            this.pluginDataPath(installation.id),
+          const approvedDigest = installation.approvedStdioDigests[server.name];
+          const currentDigest = agentPluginStdioDigest(
+            installation.id,
+            preview.manifest.name,
             server,
           );
+          if (approvedDigest !== currentDigest) {
+            this.addRuntimeDiagnostic(installation.id, {
+              severity: "error",
+              code: "mcp_stdio_approval_required",
+              message: `Skipped MCP server ${server.name} because its executable configuration needs approval.`,
+              path: `mcp.json/mcpServers/${server.name}`,
+            });
+            continue;
+          }
+
           const url = await this.stdioBridge.register({
             id: `${taskRunId}:${runtimeName}`,
+            taskId,
             runId: taskRunId,
             installationId: installation.id,
             runtimeName,
-            command: resolved.command,
-            args: resolved.args,
-            env: resolved.env,
-            cwd: resolved.cwd,
+            prepare: () =>
+              this.resolveApprovedStdioServer(
+                installation,
+                server.name,
+                currentDigest,
+              ),
             onFailure: () => {
               this.addRuntimeDiagnostic(installation.id, {
                 severity: "error",
@@ -503,6 +634,100 @@ export class AgentPluginsService {
       await this.stdioBridge.unregisterRun(taskRunId);
       await this.removeManagedPath(this.runtimeRoot(taskRunId));
     });
+  }
+
+  private toPublicInstallation(
+    installation: AgentPluginPersistedInstallation,
+    preview: LoadedAgentPlugin,
+  ): AgentPluginInstallation {
+    const sourceUnchanged = preview.sourcePath === installation.sourcePath;
+    const manifest =
+      sourceUnchanged && preview.manifest
+        ? preview.manifest
+        : installation.manifest;
+    const mcpServers =
+      sourceUnchanged && preview.valid
+        ? summarizeMcpServers(
+            preview.mcpServers,
+            installation.id,
+            manifest.name,
+            installation.approvedStdioDigests,
+          )
+        : [];
+    const diagnostics: AgentPluginDiagnostic[] = [
+      ...(sourceUnchanged
+        ? preview.diagnostics
+        : [
+            ...preview.diagnostics,
+            {
+              severity: "error" as const,
+              code: "source_changed",
+              message:
+                "The Agent Plugin directory changed. Remove it and add it again.",
+            },
+          ]),
+      ...(this.runtimeDiagnostics.get(installation.id) ?? []),
+    ];
+    const stdioApprovalRequired = mcpServers.some(
+      (server) => server.approval === "required",
+    );
+    if (stdioApprovalRequired) {
+      diagnostics.push({
+        severity: "warning",
+        code: "mcp_stdio_approval_required",
+        message:
+          "Review and approve the current stdio commands before they can run.",
+        path: "mcp.json",
+      });
+    }
+    return {
+      id: installation.id,
+      sourcePath: installation.sourcePath,
+      enabled: installation.enabled,
+      manifest,
+      skills: sourceUnchanged && preview.valid ? preview.skills : [],
+      mcpServers,
+      diagnostics,
+      stdioApprovalRequired,
+    };
+  }
+
+  private async resolveApprovedStdioServer(
+    installation: AgentPluginPersistedInstallation,
+    serverName: string,
+    approvedDigest: string,
+  ): Promise<Awaited<ReturnType<typeof resolveStdioServer>>> {
+    const preview = await loadAgentPlugin(installation.sourcePath);
+    if (
+      !preview.valid ||
+      !preview.manifest ||
+      preview.sourcePath !== installation.sourcePath
+    ) {
+      throw new Error(
+        "The Agent Plugin changed before its stdio server started.",
+      );
+    }
+    const server = preview.mcpServers.find(
+      (candidate): candidate is AgentPluginStdioMcpServer =>
+        candidate.type === "stdio" && candidate.name === serverName,
+    );
+    if (
+      !server ||
+      installation.approvedStdioDigests[serverName] !== approvedDigest ||
+      agentPluginStdioDigest(installation.id, preview.manifest.name, server) !==
+        approvedDigest
+    ) {
+      throw new Error(
+        "The stdio executable configuration changed after it was approved.",
+      );
+    }
+    const pluginData = this.pluginDataPath(installation.id);
+    await this.makeManagedDirectory(pluginData);
+    return resolveStdioServer(
+      preview.sourcePath,
+      await this.assertManagedPath(pluginData),
+      server,
+    );
   }
 
   private addRuntimeDiagnostic(

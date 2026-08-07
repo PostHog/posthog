@@ -261,6 +261,19 @@ function createMockDependencies() {
   };
 }
 
+function successfulMcpInitializeResponse(init?: RequestInit): Response {
+  const request = JSON.parse(String(init?.body)) as { id: string };
+  return Response.json({
+    jsonrpc: "2.0",
+    id: request.id,
+    result: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      serverInfo: { name: "test", version: "1.0.0" },
+    },
+  });
+}
+
 const baseSessionParams = {
   taskId: "task-1",
   taskRunId: "run-1",
@@ -278,7 +291,12 @@ describe("AgentService", () => {
 
     // The Codex MCP reachability probe hits the network; default it to "reachable"
     // so unrelated session tests stay deterministic and offline-safe.
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ body: null }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+        successfulMcpInitializeResponse(init),
+      ),
+    );
 
     deps = createMockDependencies();
     service = new AgentService(
@@ -614,7 +632,7 @@ describe("AgentService", () => {
         );
         expect(
           deps.agentPluginsService.prepareRuntimeMcpServers,
-        ).toHaveBeenCalledWith("run-1", new Set(["posthog"]));
+        ).toHaveBeenCalledWith("task-1", "run-1", new Set(["posthog"]));
       },
     );
 
@@ -632,7 +650,10 @@ describe("AgentService", () => {
           ],
         },
       ]);
-      const fetchMock = vi.fn().mockResolvedValue({ body: null });
+      const fetchMock = vi.fn(
+        async (_input: string | URL | Request, init?: RequestInit) =>
+          successfulMcpInitializeResponse(init),
+      );
       vi.stubGlobal("fetch", fetchMock);
 
       await service.startSession({ ...baseSessionParams, adapter: "codex" });
@@ -664,14 +685,14 @@ describe("AgentService", () => {
       ]);
       vi.stubGlobal(
         "fetch",
-        vi.fn(async (input: string | URL | Request) => {
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
           if (String(input).includes("127.0.0.1:4567")) {
             return new Response("proxy error", {
               status: 502,
               headers: { "x-posthog-agent-plugin-proxy-error": "1" },
             });
           }
-          return new Response("reachable", { status: 401 });
+          return successfulMcpInitializeResponse(init);
         }),
       );
 
