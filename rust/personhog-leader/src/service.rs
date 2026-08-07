@@ -402,21 +402,26 @@ impl PersonHogLeaderService {
     }
 }
 
+/// Upper bound on the epoch-millisecond timestamps the leader will put in
+/// a changelog record: the last instant of year 9999. Comfortably inside
+/// both chrono's representable range and Postgres's `timestamptz` range,
+/// so any value under this bound is bindable by the writer.
+const MAX_EPOCH_MS_YEAR_9999: i64 = 253_402_300_799_999;
+
+/// The granularity `last_seen_at` is stored at. Matches ingestion's own
+/// hourly truncation so both write paths produce identical stored values.
+const MS_PER_HOUR: i64 = 3_600_000;
+
 /// The changelog contract: every produced record must be applyable by the
 /// writer's upsert verbatim. Properties are guaranteed by admission
 /// (NUL sanitization plus the exact size measure); this checks the
-/// identity fields against the writer's bind conversions — uuid must
-/// parse, team_id must fit the column's `integer`, and created_at must
-/// sit inside a sanity range ([1970, 9999]) any legitimately created
-/// person satisfies.
-///
-/// These three are the only fields that need checking because they are
-/// the only writer-bound fields representable in `CachedPerson`: the
-/// legacy jsonb columns and `last_seen_at` have no cache field and are
-/// unconditionally empty in `cached_person_to_proto`, so a leader-produced
+/// remaining writer-bound fields against the writer's bind conversions —
+/// uuid must parse, team_id must fit the column's `integer`, and the
+/// timestamps must sit inside a sanity range ([1970, 9999]) any
+/// legitimate value satisfies. The legacy jsonb columns have no cache
+/// field and are unconditionally empty in `cached_person_to_proto`, so a
 /// record structurally cannot carry values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
-    const MAX_EPOCH_SECS_YEAR_9999: i64 = 253_402_300_799;
     if Uuid::parse_str(&p.uuid).is_err() {
         return Err("uuid does not parse as a UUID".to_string());
     }
@@ -426,11 +431,16 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
             p.team_id
         ));
     }
-    if p.created_at < 0 || p.created_at > MAX_EPOCH_SECS_YEAR_9999 {
+    if p.created_at < 0 || p.created_at > MAX_EPOCH_MS_YEAR_9999 {
         return Err(format!(
             "created_at epoch {} is outside sane bounds",
             p.created_at
         ));
+    }
+    if let Some(t) = p.last_seen_at {
+        if !(0..=MAX_EPOCH_MS_YEAR_9999).contains(&t) {
+            return Err(format!("last_seen_at epoch {t} is outside sane bounds"));
+        }
     }
     Ok(())
 }
@@ -448,7 +458,7 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
         version: p.version,
         is_identified: p.is_identified,
         is_user_id: None,
-        last_seen_at: None,
+        last_seen_at: p.last_seen_at,
     }
 }
 
@@ -631,8 +641,35 @@ impl PersonHogLeader for PersonHogLeaderService {
             &person.properties,
         );
 
+        // OR-merge: identification never reverts through this RPC, so
+        // only a true that finds false is a change. It counts as one on
+        // its own — an $identify with no property diffs must still
+        // produce a record.
+        let identified_now = person.is_identified || req.is_identified == Some(true);
+        let identity_changed = identified_now != person.is_identified;
+
+        // last_seen_at is request-borne and best-effort: an out-of-range
+        // value is discarded rather than failing the update, so the
+        // acked ⇒ writeable invariant never hinges on it. In-range values
+        // are floored to the hour — Node's startOf('hour') on its
+        // UTC-normalized timestamps, expressed in epoch terms — so record
+        // volume is bounded at one per person-hour by construction, not
+        // by trusting callers to coarsen.
+        let requested_last_seen = req
+            .last_seen_at
+            .filter(|t| (0..=MAX_EPOCH_MS_YEAR_9999).contains(t));
+        if requested_last_seen != req.last_seen_at {
+            counter!("personhog_leader_last_seen_discarded_total").increment(1);
+        }
+        let requested_last_seen = requested_last_seen.map(|t| t - t % MS_PER_HOUR);
+        // Max-merge: the stored value only ever advances, and an advance
+        // is a change in its own right — ingestion's direct write path
+        // persists a last-seen-only advance, so this path must too.
+        let merged_last_seen = person.last_seen_at.max(requested_last_seen);
+        let last_seen_changed = merged_last_seen != person.last_seen_at;
+
         // Fast path: no diffs detected, skip the clone in apply_property_updates
-        if !updates.has_changes {
+        if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
                 person: Some(cached_person_to_proto(&person)),
@@ -645,7 +682,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         let (new_properties, actually_updated) =
             apply_property_updates(&updates, &person.properties);
 
-        if !actually_updated {
+        if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
                 person: Some(cached_person_to_proto(&person)),
@@ -767,7 +804,8 @@ impl PersonHogLeader for PersonHogLeaderService {
             properties: new_properties,
             created_at: person.created_at,
             version: base_version + 1,
-            is_identified: person.is_identified,
+            is_identified: identified_now,
+            last_seen_at: merged_last_seen,
             approx_bytes,
         };
 
@@ -1153,6 +1191,7 @@ mod tests {
                 created_at: 0,
                 version: 1,
                 is_identified: false,
+                last_seen_at: None,
                 approx_bytes: 64,
             },
         );
@@ -1217,6 +1256,7 @@ mod tests {
                 created_at: 0,
                 version: 1,
                 is_identified: false,
+                last_seen_at: None,
                 approx_bytes: 64,
             },
         );
@@ -1229,6 +1269,8 @@ mod tests {
                 set_properties: serde_json::to_vec(&serde_json::json!({"a": 1})).unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             });
             request
                 .metadata_mut()
@@ -1315,6 +1357,7 @@ mod tests {
                 created_at: 0,
                 version: 1,
                 is_identified: false,
+                last_seen_at: None,
                 approx_bytes: 64,
             },
         );
@@ -1359,6 +1402,7 @@ mod tests {
                 created_at: 0,
                 version: 1,
                 is_identified: false,
+                last_seen_at: None,
                 approx_bytes: 64,
             },
         );
@@ -1380,6 +1424,8 @@ mod tests {
             set_properties: serde_json::to_vec(&serde_json::json!({"a": 1})).unwrap(),
             set_once_properties: vec![],
             unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
         });
         request
             .metadata_mut()
@@ -1461,6 +1507,8 @@ mod tests {
             set_properties: serde_json::to_vec(&serde_json::json!({"a": 1})).unwrap(),
             set_once_properties: vec![],
             unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
         });
         write
             .metadata_mut()

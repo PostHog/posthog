@@ -52,9 +52,10 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # Overlap SKIP means a slow run absorbs later ticks instead of stacking.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 
-# The agentic refresh may run several tool rounds and up to two cold summaries. Its in-process budget
-# (_AGENT_BUDGET_BACKGROUND_S) keeps typical runs well under this, so the activity finishes cleanly and
-# a suggestion lands; this cap is the backstop for a hung provider.
+# The agentic refresh may run several tool rounds. _AGENT_BUDGET_BACKGROUND_S stops new rounds from
+# starting, but the in-flight round and the final structured turn can each add up to _MODEL_CALL_TIMEOUT_MS
+# on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
+# attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"

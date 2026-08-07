@@ -297,6 +297,8 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
             channelId={channelId}
             channelName={channelName}
             channelContext={channelContext}
+            channelRepositories={channel?.repositories}
+            channelGithubIntegration={channel?.github_integration}
             onTaskCreated={onTaskCreated}
             onPendingStart={addPending}
             onPendingEnd={removePending}

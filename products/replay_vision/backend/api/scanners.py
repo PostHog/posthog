@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError
@@ -49,10 +48,6 @@ from products.replay_vision.backend.api.trigger import (
 )
 from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
-from products.replay_vision.backend.enqueue_claims import (
-    pending_enqueue_claims_for_scanner,
-    pending_enqueue_claims_for_team,
-)
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
@@ -60,9 +55,7 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
-from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
 from products.replay_vision.backend.models.replay_observation import (
-    TERMINAL_STATUSES,
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
@@ -84,27 +77,24 @@ from products.replay_vision.backend.queries import (
 )
 from products.replay_vision.backend.quota import (
     ScannerSpend,
-    compute_quota_snapshot,
     credits_used_by_scanner,
     current_period_bounds,
     sum_enabled_scanner_estimated_credits,
 )
-from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
-from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.constants import (
-    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
-    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
-    MAX_SESSION_ID_LENGTH,
+from products.replay_vision.backend.scanner_config import (
+    MAX_PROMPT_LENGTH,
+    MAX_TAG_LENGTH,
+    acting_user,
+    scanner_config_error,
 )
-from products.replay_vision.backend.temporal.scanners import validate_scanner_config
+from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 # Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
-_MAX_PROMPT_LENGTH = 20_000
-_MAX_TAGS = 100
-_MAX_TAG_LENGTH = 100
 _MAX_DESCRIPTION_LENGTH = 1_000
 
 logger = structlog.get_logger(__name__)
@@ -151,53 +141,6 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
         refresh_scanner_estimate(scanner, max_execution_seconds=ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS)
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
-
-
-def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any) -> str | None:
-    if not isinstance(scanner_config, dict):
-        return "Scanner configuration must be a JSON object."
-    prompt = scanner_config.get("prompt")
-    if not isinstance(prompt, str) or not prompt.strip():
-        return "Prompt is required."
-    if len(prompt) > _MAX_PROMPT_LENGTH:
-        return f"Prompt can be at most {_MAX_PROMPT_LENGTH:,} characters."
-    if scanner_type == ScannerType.CLASSIFIER:
-        tags = scanner_config.get("tags") or []
-        if len(tags) == 0:
-            return "Tag vocabulary must have at least one tag."
-        if len(tags) > _MAX_TAGS:
-            return f"Tag vocabulary can have at most {_MAX_TAGS} tags."
-        if any(not isinstance(t, str) or not t.strip() for t in tags):
-            return "Tags can't be blank."
-        if any(len(t) > _MAX_TAG_LENGTH for t in tags):
-            return f"Tags can be at most {_MAX_TAG_LENGTH} characters."
-        # Uniqueness on the slug, since filtering/stripping/search all compare slugified tags downstream.
-        slugged: dict[str, str] = {}
-        for t in tags:
-            slug = slugify_tag(t)
-            if not slug:
-                return "Tags must contain letters or numbers."
-            if slug in slugged:
-                return f"Tags must be unique: '{slugged[slug]}' and '{t}' are the same tag."
-            slugged[slug] = t
-    if scanner_type == ScannerType.SCORER:
-        scale = scanner_config.get("scale")
-        if not isinstance(scale, dict):
-            return "Scale is required."
-        min_v, max_v = scale.get("min"), scale.get("max")
-        if not isinstance(min_v, (int, float)) or not isinstance(max_v, (int, float)):
-            return "Scale min and max must be numbers."
-        if min_v >= max_v:
-            return "Scale max must be greater than min."
-    try:
-        scanner = validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
-    except (ValueError, PydanticValidationError):
-        return "Scanner configuration is invalid."
-    # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
-    unknown = set(scanner_config) - set(type(scanner).model_fields)
-    if unknown:
-        return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
-    return None
 
 
 class FeedbackThemeSessionSerializer(serializers.Serializer):
@@ -457,7 +400,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         scanner_config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None))
         if scanner_type is None:
             return  # Upstream `scanner_type` ChoiceField rejects this on create; PATCH with no instance is unreachable.
-        message = _scanner_config_error_message(ScannerType(scanner_type), scanner_config)
+        message = scanner_config_error(ScannerType(scanner_type), scanner_config)
         if message is not None:
             raise serializers.ValidationError({"scanner_config": message})
 
@@ -484,7 +427,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
-        user = cast(User, self.context["request"].user)
+        user = acting_user(self.context)
         if not team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
@@ -504,7 +447,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "replay_vision_scanner_created",
             _scanner_lifecycle_properties(scanner),
             team=team,
-            request=self.context["request"],
+            request=self.context.get("request"),
         )
         return scanner
 
@@ -524,8 +467,8 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
         changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
-        request = self.context["request"]
-        user = cast(User, request.user)
+        request = self.context.get("request")
+        user = acting_user(self.context)
         team = self.context["get_team"]()
         if scanner.enabled != was_enabled:
             report_user_action(
@@ -694,21 +637,6 @@ class ObserveResponseSerializer(serializers.Serializer):
 # One request can start at most this many scans. Bounds the fan-out of a single bulk trigger well
 # under the in-flight caps; the frontend selects from one loaded page, so this is rarely the binding
 # limit — the concurrency headroom usually is.
-BULK_OBSERVE_MAX_SESSIONS = 200
-
-
-@dataclass(frozen=True, kw_only=True)
-class _Headroom:
-    """What `_scan_headroom` worked out, kept together so a request computes it once.
-
-    Keyword-only because `team_rows` and `scanner_rows` are both counts of in-flight observations, and
-    swapping them would silently loosen one of the two caps.
-    """
-
-    max_starts: int
-    skip_reason: str
-    team_rows: int
-    scanner_rows: int
 
 
 class BulkObserveRequestSerializer(serializers.Serializer):
@@ -717,9 +645,9 @@ class BulkObserveRequestSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
         allow_empty=False,
-        max_length=BULK_OBSERVE_MAX_SESSIONS,
+        max_length=MAX_SESSIONS_PER_SCAN,
         help_text=(
-            f"Session recording IDs to scan on demand, at most {BULK_OBSERVE_MAX_SESSIONS} per request. "
+            f"Session recording IDs to scan on demand, at most {MAX_SESSIONS_PER_SCAN} per request. "
             "Scans start until the in-flight limit or monthly credit quota is reached; the rest are "
             "reported as skipped rather than failing the whole batch. Already-running sessions are a no-op."
         ),
@@ -780,15 +708,15 @@ class InlineScanRequestSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
         allow_empty=False,
-        max_length=BULK_OBSERVE_MAX_SESSIONS,
+        max_length=MAX_SESSIONS_PER_SCAN,
         help_text=(
-            f"Session recording IDs to scan, at most {BULK_OBSERVE_MAX_SESSIONS} per request. Scans start "
+            f"Session recording IDs to scan, at most {MAX_SESSIONS_PER_SCAN} per request. Scans start "
             "until the in-flight limit or monthly credit quota is reached; the rest are reported as "
             "skipped rather than failing the whole batch."
         ),
     )
     prompt = serializers.CharField(
-        max_length=_MAX_PROMPT_LENGTH,
+        max_length=MAX_PROMPT_LENGTH,
         help_text="What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
     )
     scanner_type = serializers.ChoiceField(
@@ -821,7 +749,7 @@ class InlineScanRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError({"scanner_config": "Set the prompt in `prompt`, not here."})
         # One config from here on, validated exactly like a saved scanner's. The key covers it whole.
         merged = {**config, "prompt": attrs["prompt"]}
-        message = _scanner_config_error_message(ScannerType(attrs["scanner_type"]), merged)
+        message = scanner_config_error(ScannerType(attrs["scanner_type"]), merged)
         if message is not None:
             raise serializers.ValidationError({"scanner_config": message})
         attrs["scanner_config"] = merged
@@ -1068,7 +996,7 @@ class _ImpactQualifiersSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        max_length=_MAX_TAG_LENGTH,
+        max_length=MAX_TAG_LENGTH,
         help_text=(
             "Classifier scanners only, required for them: count sessions carrying this tag "
             "(fixed or freeform). Not applicable to other scanner types."
@@ -1266,6 +1194,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+        # Every scan entrypoint gates this: create_observation fails closed on consent once the workflow
+        # is already running, so without the check the caller gets a 202 for a scan that never happens.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can run a Replay Vision scan."
+            )
 
         try:
             check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
@@ -1335,6 +1269,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Observation output exposes recording contents, so this requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering on-demand observations requires session_recording read access.")
+        # The scan sends recordings to an LLM, the same reason observe, inline_scan and retry gate on
+        # this. Without it a batch was accepted and then silently scanned nothing, because
+        # create_observation fails closed on consent once the workflow is already running.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can run a Replay Vision scan."
+            )
 
         body = BulkObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -1342,13 +1283,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         session_ids = list(dict.fromkeys(body.validated_data["session_ids"]))
         user = cast(User, request.user)
 
-        started, results = self._start_observations(
-            scanner,
-            session_ids,
-            user,
-            headroom=self._scan_headroom(model=scanner.model, scanner=scanner),
-            finished=self._finished_sessions(scanner, session_ids),
-        )
+        started, results = scan_existing_scanner(scanner=scanner, session_ids=session_ids, user=user)
 
         report_user_action(
             user,
@@ -1410,38 +1345,24 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         scanner_config = body.validated_data["scanner_config"]
         model = body.validated_data["model"]
 
-        key = inline_scan_key(scanner_type=scanner_type, scanner_config=scanner_config, model=model)
-        scanner = find_inline_scanner(team=self.team, key=key)
-        headroom = self._scan_headroom(model=model, scanner=scanner)
-        if scanner is None:
-            # Mint only once something can actually start, so an org with no headroom doesn't leave a
-            # scanner behind for every question it was unable to answer.
-            if headroom.max_starts <= 0:
-                if headroom.skip_reason == "skipped_quota":
-                    self._report_quota_exhausted(None, "inline")
-                return Response(
-                    InlineScanResponseSerializer(
-                        {
-                            "scan_id": None,
-                            "started": 0,
-                            "results": [{"session_id": s, "scan_outcome": headroom.skip_reason} for s in session_ids],
-                        }
-                    ).data,
-                    status=status.HTTP_202_ACCEPTED,
-                )
-            scanner = create_inline_scanner(
-                team=self.team,
-                key=key,
-                scanner_type=scanner_type,
-                scanner_config=scanner_config,
-                model=model,
+        scan = run_inline_scan(
+            team=self.team,
+            user=user,
+            session_ids=session_ids,
+            scanner_type=scanner_type,
+            scanner_config=scanner_config,
+            model=model,
+        )
+        if scan.scanner is None:
+            # Nothing started and nothing already existed, so there is no id to read results through.
+            # Key off the outcomes: the in-flight cap can bind here too, and that is not exhaustion.
+            if any(result["scan_outcome"] == "skipped_quota" for result in scan.results):
+                self._report_quota_exhausted(None, "inline")
+            return Response(
+                InlineScanResponseSerializer({"scan_id": None, "started": 0, "results": scan.results}).data,
+                status=status.HTTP_202_ACCEPTED,
             )
-            # A scanner that did not exist a statement ago has no observations to have settled.
-            finished: frozenset[str] = frozenset()
-        else:
-            finished = self._finished_sessions(scanner, session_ids)
-
-        started, results = self._start_observations(scanner, session_ids, user, headroom=headroom, finished=finished)
+        scanner, started, results = scan.scanner, scan.started, scan.results
 
         report_user_action(
             user,
@@ -1463,79 +1384,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             status=status.HTTP_202_ACCEPTED,
         )
 
-    def _finished_sessions(self, scanner: ReplayScanner, session_ids: list[str]) -> frozenset[str]:
-        """Sessions this scanner already settled on.
-
-        A terminal observation makes (scanner, session) permanently taken, so starting a workflow for one
-        would burn a run only to lose the INSERT and hand back the row we can already see.
-        """
-        return frozenset(
-            ReplayObservation.objects.filter(
-                scanner_id=scanner.id,
-                session_id__in=session_ids,
-                status__in=TERMINAL_STATUSES,
-            ).values_list("session_id", flat=True)
-        )
-
-    def _start_observations(
-        self,
-        scanner: ReplayScanner,
-        session_ids: list[str],
-        user: User,
-        *,
-        headroom: _Headroom,
-        finished: frozenset[str],
-    ) -> tuple[int, list[dict[str, str]]]:
-        """Start a scan per session, as many as fit. Returns (started, per-session outcomes).
-
-        "Scan what fits": the caller works out how many NEW scans can start once, up front, and passes it
-        in so one request takes the quota snapshot once. The tighter of the in-flight caps and the
-        remaining monthly quota bounds it; the loser names the skip reason so the user knows which limit
-        they hit. Decrementing a local counter as we start models each new in-flight row without
-        re-querying (a started scan consumes exactly one slot).
-        """
-        max_starts, skip_reason = headroom.max_starts, headroom.skip_reason
-        results: list[dict[str, str]] = []
-        started = 0
-        for session_id in session_ids:
-            # Checked before the cap so a settled session reports what it is rather than being
-            # reported as skipped, and consumes no headroom. `start_apply_scanner_workflow` enforces the
-            # same rule for callers that don't prefetch.
-            if session_id in finished:
-                results.append({"session_id": session_id, "scan_outcome": "already_scanned"})
-                continue
-            if started >= max_starts:
-                results.append({"session_id": session_id, "scan_outcome": skip_reason})
-                continue
-            _, outcome = start_apply_scanner_workflow(
-                scanner,
-                session_id,
-                triggered_by_user_id=user.id,
-                trigger=ObservationTrigger.ON_DEMAND,
-                # Row counts are this request's snapshot; the atomic claim inside makes racing
-                # requests visible to each other, which the snapshot alone cannot.
-                team_in_flight_rows=headroom.team_rows,
-                scanner_in_flight_rows=headroom.scanner_rows,
-                finished_sessions=finished,
-            )
-            if outcome is WorkflowStartOutcome.STARTED:
-                started += 1
-                results.append({"session_id": session_id, "scan_outcome": "started"})
-            elif outcome is WorkflowStartOutcome.ALREADY_SCANNED:
-                # The prefetched set was taken before the loop, so a session can settle mid-batch.
-                results.append({"session_id": session_id, "scan_outcome": "already_scanned"})
-            elif outcome is WorkflowStartOutcome.ALREADY_RUNNING:
-                # Already in flight — counted in the caps already, so it consumes no new headroom.
-                results.append({"session_id": session_id, "scan_outcome": "already_running"})
-            elif outcome is WorkflowStartOutcome.CAPPED:
-                # A racing request consumed the remaining slots, so the in-flight cap binds the rest.
-                results.append({"session_id": session_id, "scan_outcome": "skipped_limit"})
-                max_starts = started
-                skip_reason = "skipped_limit"
-            else:
-                results.append({"session_id": session_id, "scan_outcome": "failed"})
-        return started, results
-
     def _report_quota_exhausted(self, scanner: ReplayScanner | None, trigger: str) -> None:
         """A scan was blocked or capped by the org's monthly Replay vision credit limit.
 
@@ -1551,48 +1399,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             },
             team=self.team,
             request=self.request,
-        )
-
-    def _scan_headroom(self, *, model: str, scanner: ReplayScanner | None) -> _Headroom:
-        """How many new scans can start, the reason once that's used up, and the row counts the
-        per-start slot claims reuse.
-
-        `scanner=None` asks the same question for a config that has no scanner yet, so an inline scan can
-        decide whether minting one is worth it. The per-scanner terms are zero by definition there, which
-        is also why the caller can pass the answer straight into `_start_observations`.
-        """
-        team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
-        scanner_in_flight = 0
-        scanner_claims = 0
-        if scanner is not None:
-            scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
-            scanner_claims = pending_enqueue_claims_for_scanner(scanner.id)
-        # Enqueued-but-not-yet-persisted scans hold claims instead of rows.
-        in_flight_limit = max(
-            0,
-            min(
-                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight - scanner_claims,
-                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight - pending_enqueue_claims_for_team(self.team_id),
-            ),
-        )
-        snapshot = compute_quota_snapshot(self.team.organization_id)
-        cost = observation_credits_for_model(model)
-        # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of
-        # THIS model's cost fit.
-        quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
-        # Report quota as the reason only when it's the strictly tighter limit.
-        if quota_limit < in_flight_limit:
-            return _Headroom(
-                max_starts=quota_limit,
-                skip_reason="skipped_quota",
-                team_rows=team_in_flight,
-                scanner_rows=scanner_in_flight,
-            )
-        return _Headroom(
-            max_starts=in_flight_limit,
-            skip_reason="skipped_limit",
-            team_rows=team_in_flight,
-            scanner_rows=scanner_in_flight,
         )
 
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
