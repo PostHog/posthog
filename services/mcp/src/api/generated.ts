@@ -14636,6 +14636,8 @@ export namespace Schemas {
       tag: string;
       /** Number of succeeded observations carrying this tag. */
       count: number;
+      /** Person-backed users carrying this tag — the number that saving these sessions as a cohort would add. Absent when person resolution was unavailable. Lower than `count`, which also counts observations from unidentified recordings that have no person to add. */
+      users?: number;
     }
 
     export interface ClassifierStats {
@@ -66603,7 +66605,7 @@ export namespace Schemas {
     export interface ScannerImpact {
       /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
       readonly affected_sessions: number;
-      /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
+      /** Distinct persons behind the affected sessions that could be saved to a cohort. Counts only distinct IDs that resolve to a person profile, so anonymous device IDs from unidentified recordings are excluded and this matches the size of the cohort you would get. */
       readonly affected_users: number;
       /** Affected sessions whose recording carried no distinct ID at all. */
       readonly sessions_without_user: number;
