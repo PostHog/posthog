@@ -60,8 +60,8 @@ export class CodeEditor extends Component<CodeEditorProps, State> {
                         className="w-full max-w-md"
                         action={{ children: 'Try again', onClick: this.retry }}
                     >
-                        The code editor failed to load. This is usually a temporary network problem. Try again, or
-                        reload the page if it keeps happening.
+                        The code editor failed to load. This is usually a temporary network problem. Reload the page if
+                        retrying doesn't help.
                     </LemonBanner>
                 </div>
             )
