@@ -104,11 +104,13 @@ def _post_search(session: Session, base_url: str, body: dict[str, Any]) -> Searc
     if not isinstance(payload, dict):
         raise CloseSearchError(f"Unexpected Close search response: {str(payload)[:200]}")
 
-    rows = payload.get("data")
-    return SearchPage(
-        rows=[row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else [],
-        cursor=payload.get("cursor") or None,
-    )
+    raw_rows = payload.get("data")
+    rows = [row for row in raw_rows if isinstance(row, dict)] if isinstance(raw_rows, list) else []
+    # `id` is the primary key the whole walk dedupes and merges on. A row without one can't be
+    # tracked across the inclusive anchor re-reads, so it would silently duplicate — fail instead.
+    if any(not row.get("id") for row in rows):
+        raise CloseSearchError("Close returned a search row without an id")
+    return SearchPage(rows=rows, cursor=payload.get("cursor") or None)
 
 
 def fetch_custom_field_selectors(
@@ -184,7 +186,7 @@ def iter_search_rows(
         if not page.rows:
             return
 
-        fresh = [row for row in page.rows if row.get("id") not in emitted_at_anchor]
+        fresh = [row for row in page.rows if row["id"] not in emitted_at_anchor]
         if fresh:
             yield fresh
 
@@ -201,7 +203,7 @@ def iter_search_rows(
                     f"Close returned more than {MAX_PLATEAU_PAGES * limit} {object_type} rows "
                     f"sharing {cursor_field}={anchor}, which cannot be paged past"
                 )
-            emitted_at_anchor.update(row["id"] for row in page.rows if row.get("id"))
+            emitted_at_anchor.update(row["id"] for row in page.rows)
             if page.cursor is None:
                 return
             page_cursor = page.cursor
@@ -209,7 +211,7 @@ def iter_search_rows(
 
         plateau_pages = 0
         anchor = last_value
-        emitted_at_anchor = {row["id"] for row in page.rows if row.get("id") and row.get(cursor_field) == last_value}
+        emitted_at_anchor = {row["id"] for row in page.rows if row.get(cursor_field) == last_value}
         page_cursor = None
         if on_checkpoint is not None:
             on_checkpoint(anchor)

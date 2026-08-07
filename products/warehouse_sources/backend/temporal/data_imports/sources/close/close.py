@@ -7,7 +7,6 @@ from typing import Any, Optional
 from dateutil import parser
 from requests import Response, Session
 from structlog.types import FilteringBoundLogger
-from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
     fetch_custom_field_selectors,
@@ -45,14 +44,9 @@ INITIAL_INCREMENTAL_VALUE = "1970-01-01T00:00:00+00:00"
 
 # The shared DEFAULT_RETRY only allows GET/HEAD/OPTIONS, so a transient failure on the
 # Advanced Filtering POST would not be retried. The search call is a read-only query, so it is
-# safe to retry alongside everything else.
-CLOSE_RETRY = Retry(
-    total=DEFAULT_RETRY.total,
-    backoff_factor=DEFAULT_RETRY.backoff_factor,
-    status_forcelist=DEFAULT_RETRY.status_forcelist,
-    allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"},
-    raise_on_status=DEFAULT_RETRY.raise_on_status,
-)
+# safe to retry alongside everything else. Derived via `.new()` so the policy stays a
+# BoundedRetry (Retry-After clamping) and every other knob tracks DEFAULT_RETRY.
+CLOSE_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
 
 
 @dataclasses.dataclass

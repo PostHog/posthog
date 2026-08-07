@@ -6,11 +6,13 @@ from unittest.mock import MagicMock
 
 from requests import RequestException, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.close import search as close_search
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import (
     close_search_source,
     close_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
+    CloseCursorExpiredError,
     CloseSearchError,
     build_search_body,
     fetch_custom_field_selectors,
@@ -234,6 +236,44 @@ class TestIterSearchRows:
 
         with pytest.raises(CloseSearchError, match="unknown field"):
             _walk(session)
+
+    @pytest.mark.parametrize(
+        ("row", "match"),
+        [
+            ({"date_created": "2024-01-01T00:00:00+00:00"}, "without an id"),
+            ({"id": "c1"}, "without a date_created value"),
+        ],
+        ids=["missing_id", "missing_cursor_field"],
+    )
+    def test_malformed_rows_fail_loudly(self, row: dict[str, Any], match: str) -> None:
+        # A row the walker can't key or order would otherwise duplicate silently (no id to
+        # dedupe the inclusive anchor re-reads on) or re-request the same page forever (no
+        # cursor-field value to advance the anchor with).
+        session = FakeSession([_response({"data": [row]})])
+
+        with pytest.raises(CloseSearchError, match=match):
+            _walk(session)
+
+    def test_expired_cursor_on_a_cursorless_request_is_fatal(self) -> None:
+        # The re-anchor recovery only makes sense when a cursor was actually sent; replaying
+        # an identical cursor-less request can never succeed, so it must propagate instead of
+        # retrying forever.
+        session = FakeSession([_response({"error": "Expired cursor"}, status_code=400)])
+
+        with pytest.raises(CloseCursorExpiredError):
+            _walk(session)
+
+        assert len(session.bodies) == 1
+
+    def test_endless_single_timestamp_run_aborts_instead_of_looping(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # If Close's cursor never terminates a run of identical timestamps, the plateau guard
+        # is the only thing standing between the walk and an infinite loop.
+        monkeypatch.setattr(close_search, "MAX_PLATEAU_PAGES", 2)
+        tied = "2024-01-01T00:00:00+00:00"
+        close = FakeClose([_row(f"c{i}", tied) for i in range(1, 13)])
+
+        with pytest.raises(CloseSearchError, match="cannot be paged past"):
+            _walk(close)
 
 
 class TestFetchCustomFieldSelectors:
