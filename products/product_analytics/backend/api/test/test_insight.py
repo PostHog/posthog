@@ -5089,14 +5089,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
-            ("ExposedCHQueryError", "posthog.errors.ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse"),
-            ("ExposedHogQLError", "posthog.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
-            ("HogVMException", "common.hogvm.python.utils.HogVMException", "Global variable not found: variables"),
+            ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
+            ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
+            ("HogVMException", "Global variable not found: variables", None),
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    def test_retrieve_returns_400_for_exposed_errors(
-        self, _name: str, error_class_path: str, error_message: str, mock_calculate: mock.MagicMock
+    def test_retrieve_degrades_in_place_for_exposed_errors(
+        self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
     ) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
@@ -5121,8 +5121,13 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(error_message, str(response.json()))
+        # A bad query degrades this insight in place instead of 400ing the whole response, so a
+        # dashboard tile can render an error rather than failing (and being retried) as an HTTP 400.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        query_status = response.json()["query_status"]
+        self.assertTrue(query_status["error"])
+        self.assertIn(error_message, query_status["error_message"])
+        self.assertEqual(query_status["error_code"], expected_error_code)
 
     @parameterized.expand(
         [
