@@ -323,3 +323,31 @@ class TestAssignmentRuleAPI(APIBaseTest):
         assert rule.user_id == self.user.id
         assert rule.order_key == 0
         assert rule.disabled_data is None
+
+    def test_reorder_updates_order_keys(self) -> None:
+        first = self._create_rule()
+        second = self._create_rule()
+
+        response = self.client.patch(
+            f"{self._url()}reorder/",
+            data={"orders": {str(first.id): 1, str(second.id): 0}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.data is None
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.order_key == 1
+        assert second.order_key == 0
+
+    @parameterized.expand(
+        [
+            ("array_body", [{"id": "0"}]),
+            ("missing_orders", {}),
+        ]
+    )
+    def test_reorder_rejects_wrong_body_shape(self, _name: str, body: Any) -> None:
+        response = self.client.patch(f"{self._url()}reorder/", data=body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

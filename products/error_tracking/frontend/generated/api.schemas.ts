@@ -387,22 +387,13 @@ export interface PatchedErrorTrackingAssignmentRuleUpdateRequestApi {
 }
 
 /**
- * @nullable
+ * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
  */
-export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
-    readonly type?: 'user' | 'role'
-    readonly id?: number | string
-} | null
+export type PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders = { [key: string]: number }
 
-export interface PatchedErrorTrackingAssignmentRuleApi {
-    readonly id?: string
-    filters?: unknown
-    /** @nullable */
-    readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
-    order_key?: number
-    disabled_data?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
+export interface PatchedErrorTrackingAssignmentRuleReorderRequestApi {
+    /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+    orders?: PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingBypassRuleApi {
@@ -444,19 +435,14 @@ export interface PatchedErrorTrackingBypassRuleUpdateRequestApi {
     filters?: PropertyGroupFilterValueApi
 }
 
-export interface PatchedErrorTrackingBypassRuleApi {
-    /** Unique identifier of the bypass rule. */
-    readonly id?: string
-    /** Property-group filters that define which incoming error events bypass rate limiting. */
-    filters?: unknown
-    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
-    order_key?: number
-    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
-    disabled_data?: unknown
-    /** When the rule was created. */
-    readonly created_at?: string
-    /** When the rule was last updated. */
-    readonly updated_at?: string
+/**
+ * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
+ */
+export type PatchedErrorTrackingBypassRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingBypassRuleReorderRequestApi {
+    /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+    orders?: PatchedErrorTrackingBypassRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingExternalReferenceIntegrationResultApi {
@@ -595,35 +581,13 @@ export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
 }
 
 /**
- * @nullable
+ * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
  */
-export type PatchedErrorTrackingGroupingRuleApiAssignee = {
-    readonly type?: 'user' | 'role'
-    readonly id?: number | string
-} | null
+export type PatchedErrorTrackingGroupingRuleReorderRequestApiOrders = { [key: string]: number }
 
-/**
- * Issue linked to this rule
- * @nullable
- */
-export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
-
-export interface PatchedErrorTrackingGroupingRuleApi {
-    readonly id?: string
-    filters?: unknown
-    /** @nullable */
-    readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
-    /** @nullable */
-    description?: string | null
-    /**
-     * Issue linked to this rule
-     * @nullable
-     */
-    readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
-    order_key?: number
-    disabled_data?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
+export interface PatchedErrorTrackingGroupingRuleReorderRequestApi {
+    /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+    orders?: PatchedErrorTrackingGroupingRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingIssueAssigneeReadApi {
@@ -1683,14 +1647,14 @@ export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
     sampling_rate?: number
 }
 
-export interface PatchedErrorTrackingSuppressionRuleApi {
-    readonly id?: string
-    filters?: unknown
-    order_key?: number
-    disabled_data?: unknown
-    sampling_rate?: number
-    readonly created_at?: string
-    readonly updated_at?: string
+/**
+ * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
+ */
+export type PatchedErrorTrackingSuppressionRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingSuppressionRuleReorderRequestApi {
+    /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+    orders?: PatchedErrorTrackingSuppressionRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingSymbolSetApi {

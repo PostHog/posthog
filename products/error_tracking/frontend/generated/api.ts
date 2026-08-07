@@ -76,18 +76,18 @@ import type {
     PaginatedErrorTrackingStackFrameListApi,
     PaginatedErrorTrackingSuppressionRuleListApi,
     PaginatedErrorTrackingSymbolSetListApi,
-    PatchedErrorTrackingAssignmentRuleApi,
+    PatchedErrorTrackingAssignmentRuleReorderRequestApi,
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
-    PatchedErrorTrackingBypassRuleApi,
+    PatchedErrorTrackingBypassRuleReorderRequestApi,
     PatchedErrorTrackingBypassRuleUpdateRequestApi,
-    PatchedErrorTrackingGroupingRuleApi,
+    PatchedErrorTrackingGroupingRuleReorderRequestApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueReadApi,
     PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
-    PatchedErrorTrackingSuppressionRuleApi,
+    PatchedErrorTrackingSuppressionRuleReorderRequestApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
     _SymbolSetDownloadResponseApi,
 } from './api.schemas'
@@ -231,14 +231,14 @@ export const getErrorTrackingAssignmentRulesReorderPartialUpdateUrl = (projectId
 
 export const errorTrackingAssignmentRulesReorderPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingAssignmentRuleApi?: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
+    patchedErrorTrackingAssignmentRuleReorderRequestApi?: PatchedErrorTrackingAssignmentRuleReorderRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingAssignmentRulesReorderPartialUpdateUrl(projectId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
+        body: JSON.stringify(patchedErrorTrackingAssignmentRuleReorderRequestApi),
     })
 }
 
@@ -358,14 +358,14 @@ export const getErrorTrackingBypassRulesReorderPartialUpdateUrl = (projectId: st
 
 export const errorTrackingBypassRulesReorderPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingBypassRuleApi?: NonReadonly<PatchedErrorTrackingBypassRuleApi>,
+    patchedErrorTrackingBypassRuleReorderRequestApi?: PatchedErrorTrackingBypassRuleReorderRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingBypassRulesReorderPartialUpdateUrl(projectId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingBypassRuleApi),
+        body: JSON.stringify(patchedErrorTrackingBypassRuleReorderRequestApi),
     })
 }
 
@@ -720,14 +720,14 @@ export const getErrorTrackingGroupingRulesReorderPartialUpdateUrl = (projectId: 
 
 export const errorTrackingGroupingRulesReorderPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingGroupingRuleApi?: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
+    patchedErrorTrackingGroupingRuleReorderRequestApi?: PatchedErrorTrackingGroupingRuleReorderRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingGroupingRulesReorderPartialUpdateUrl(projectId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
+        body: JSON.stringify(patchedErrorTrackingGroupingRuleReorderRequestApi),
     })
 }
 
@@ -1527,14 +1527,14 @@ export const getErrorTrackingSuppressionRulesReorderPartialUpdateUrl = (projectI
 
 export const errorTrackingSuppressionRulesReorderPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingSuppressionRuleApi?: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
+    patchedErrorTrackingSuppressionRuleReorderRequestApi?: PatchedErrorTrackingSuppressionRuleReorderRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingSuppressionRulesReorderPartialUpdateUrl(projectId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
+        body: JSON.stringify(patchedErrorTrackingSuppressionRuleReorderRequestApi),
     })
 }
 

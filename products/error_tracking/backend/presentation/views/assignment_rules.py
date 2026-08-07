@@ -102,6 +102,16 @@ class ErrorTrackingAssignmentRuleUpdateRequestSerializer(serializers.Serializer)
     )
 
 
+class ErrorTrackingAssignmentRuleReorderRequestSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            "Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. "
+            "Include every rule you want to move; omitted rules keep their current order."
+        ),
+    )
+
+
 class ErrorTrackingAssignmentRuleSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     filters = serializers.JSONField()
@@ -209,8 +219,11 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
+    @validated_request(
+        request_serializer=ErrorTrackingAssignmentRuleReorderRequestSerializer,
+        responses={204: None},
+    )
     @action(methods=["PATCH"], detail=False)
-    def reorder(self, request, **kwargs) -> Response:
-        orders: dict[str, int] = request.data.get("orders", {})
-        error_tracking_api.reorder_assignment_rules(self.team.id, orders)
-        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+    def reorder(self, request: ValidatedRequest, **kwargs) -> Response:
+        error_tracking_api.reorder_assignment_rules(self.team.id, request.validated_data["orders"])
+        return Response(status=status.HTTP_204_NO_CONTENT)

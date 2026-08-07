@@ -96,9 +96,12 @@ export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod
 })
 
 export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    order_key: zod.number().optional(),
-    disabled_data: zod.unknown().optional(),
+    orders: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe(
+            'Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.'
+        ),
 })
 
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -131,19 +134,11 @@ export const ErrorTrackingBypassRulesPartialUpdateBody = /* @__PURE__ */ zod.obj
 })
 
 export const ErrorTrackingBypassRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod
-        .unknown()
-        .optional()
-        .describe('Property-group filters that define which incoming error events bypass rate limiting.'),
-    order_key: zod
-        .number()
-        .optional()
-        .describe("Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order."),
-    disabled_data: zod
-        .unknown()
+    orders: zod
+        .record(zod.string(), zod.number())
         .optional()
         .describe(
-            'Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active.'
+            'Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.'
         ),
 })
 
@@ -218,10 +213,12 @@ export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.o
 })
 
 export const ErrorTrackingGroupingRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    description: zod.string().nullish(),
-    order_key: zod.number().optional(),
-    disabled_data: zod.unknown().optional(),
+    orders: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe(
+            'Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.'
+        ),
 })
 
 export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
@@ -1047,10 +1044,12 @@ export const ErrorTrackingSuppressionRulesPartialUpdateBody = /* @__PURE__ */ zo
 })
 
 export const ErrorTrackingSuppressionRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    order_key: zod.number().optional(),
-    disabled_data: zod.unknown().optional(),
-    sampling_rate: zod.number().optional(),
+    orders: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe(
+            'Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.'
+        ),
 })
 
 export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod.object({
