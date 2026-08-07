@@ -62,6 +62,7 @@ from posthog.schema import (
     MetricsQuery,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryStatus,
@@ -101,7 +102,7 @@ from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
     get_api_team_rate_limiter,
@@ -341,6 +342,7 @@ RunnableQueryNode = Union[
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
     ActorsQuery,
@@ -496,6 +498,17 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "PathsV2Query":
+        from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
+
+        return PathsV2QueryRunner(
+            query=cast(PathsV2Query | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "CalendarHeatmapQuery":
         from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
@@ -605,6 +618,7 @@ def get_query_runner(
         "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
+        "PathsV2ActorsQuery",
     ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
@@ -1164,6 +1178,34 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
+            MarketingAnalyticsAttributionQueryRunner,
+        )
+
+        return MarketingAnalyticsAttributionQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_runner import (
+            MarketingAnalyticsAttributionPathsQueryRunner,
+        )
+
+        return MarketingAnalyticsAttributionPathsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
             NonIntegratedConversionsTableQueryRunner,
@@ -1370,6 +1412,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
     # cached response as raw JSON bytes in raw_cached_results_bytes instead of parsing it,
     # leaving a `results=[]` placeholder on the returned model.
@@ -1387,6 +1430,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         workload: Workload = Workload.DEFAULT,
         extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
         user: Optional[User] = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ):
         self.team = team
         self.user = user
@@ -1394,6 +1438,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
         self.workload = workload
+        self.ch_user = ch_user
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -1497,9 +1542,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             groups=(groups(self.team.organization, self.team)),
         )
 
+        # A shared-link viewer has no user row, so `user_id` is None and the worker would otherwise
+        # run userless - denying every warehouse table and fingerprinting the cache differently than
+        # this request. Carry the share along so the worker can rebuild the same principal.
+        # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
+        principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
+        sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
+
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
+            sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
@@ -1604,12 +1657,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
 
             if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
-                count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
+                count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
-            count_query_cache_hit(self.team.pk, hit="stale", trigger=cached_response.calculation_trigger or "")
+            count_query_cache_hit(hit="stale", trigger=cached_response.calculation_trigger or "")
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -1641,7 +1694,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
         else:
-            count_query_cache_hit(self.team.pk, hit="miss", trigger="")
+            count_query_cache_hit(hit="miss", trigger="")
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:

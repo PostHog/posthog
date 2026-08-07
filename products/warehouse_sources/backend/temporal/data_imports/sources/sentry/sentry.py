@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
 
 import structlog
 from dateutil import parser as dateutil_parser
@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
@@ -77,6 +78,45 @@ class SentryResumeConfig:
     issue_id: Optional[str] = None
     tag_key: Optional[str] = None
     values_next_url: Optional[str] = None
+
+
+# Sentry exposes an org URL as `https://<org>.sentry.io/` in its UI and as
+# `https://sentry.io/organizations/<org>/...` in deep links, so users routinely paste one of
+# those into the slug field instead of the bare slug.
+_SENTRY_NON_ORG_SUBDOMAINS = {"www", "us", "de", "eu", "app"}
+
+
+def _normalize_organization_slug(organization_slug: str) -> str:
+    """Pull the org slug out of a pasted Sentry URL.
+
+    A valid Sentry org slug is lowercase alphanumeric plus hyphens, so any `/`, `:`, or `.` in the
+    value means it's a URL or host, not a slug. Extract the slug from the two shapes Sentry uses and
+    leave a bare slug untouched. Because a real slug can never contain those characters, an input we
+    rewrite here would have failed the credential check anyway, so a wrong guess can only produce the
+    same failure with a clearer target, never hijack a valid slug.
+    """
+    slug = organization_slug.strip()
+    if not any(char in slug for char in "/:."):
+        return slug
+
+    parsed = urlparse(slug if "//" in slug else f"https://{slug}")
+    segments = [segment for segment in parsed.path.split("/") if segment]
+
+    if "organizations" in segments:
+        index = segments.index("organizations")
+        if index + 1 < len(segments):
+            return segments[index + 1]
+
+    host = (parsed.hostname or "").lower()
+    if host.endswith(".sentry.io"):
+        subdomain = host.removesuffix(".sentry.io")
+        if subdomain and subdomain not in _SENTRY_NON_ORG_SUBDOMAINS:
+            return subdomain
+
+    # Couldn't confidently identify a slug (e.g. a bare `sentry.io` or an `/organizations/` path
+    # with no slug after it), so leave the value untouched. The credential check then reports the
+    # exact thing the user typed rather than a misleading guess like the literal "organizations".
+    return slug
 
 
 def _normalize_api_base_url(api_base_url: str | None) -> str:
@@ -157,9 +197,9 @@ def _sentry_retention_incremental_window(cursor_path: str) -> IncrementalConfig:
     }
 
 
-def _retention_window(incremental_value: Any = None) -> tuple[str, str]:
+def _retention_window(incremental_value: Any = None) -> SyncWindow[str]:
     now = datetime.now(UTC)
-    return _retention_bounded_start_param(incremental_value), _start_param_for_sentry(now)
+    return SyncWindow(start=_retention_bounded_start_param(incremental_value), end=_start_param_for_sentry(now))
 
 
 def _parse_next_link(link_header: str) -> str | None:
@@ -599,7 +639,7 @@ def _iter_sessions_rows(
     incremental_value: Any = None,
 ) -> Iterator[dict[str, Any]]:
     """Release health sessions, flattened to one row per interval per group."""
-    start, end = _retention_window(incremental_value)
+    window = _retention_window(incremental_value)
     payload = _fetch_json(
         base_api_url,
         _endpoint_path("sessions", organization_slug=organization_slug),
@@ -608,8 +648,8 @@ def _iter_sessions_rows(
             "field": ["sum(session)", "count_unique(user)"],
             "groupBy": ["project", "release", "environment", "session.status"],
             "interval": "1d",
-            "start": start,
-            "end": end,
+            "start": window.start,
+            "end": window.end,
         },
     )
 
@@ -641,7 +681,7 @@ def _iter_organization_stats_rows(
     single period total when it is, which would make the interval column meaningless.
     Per-project volume lives in ``organization_stats_summary``.
     """
-    start, end = _retention_window(incremental_value)
+    window = _retention_window(incremental_value)
     payload = _fetch_json(
         base_api_url,
         _endpoint_path("organization_stats", organization_slug=organization_slug),
@@ -650,8 +690,8 @@ def _iter_organization_stats_rows(
             "field": "sum(quantity)",
             "groupBy": ["outcome", "category", "reason"],
             "interval": "1d",
-            "start": start,
-            "end": end,
+            "start": window.start,
+            "end": window.end,
         },
     )
 
@@ -920,7 +960,7 @@ def validate_credentials(
         if response.status_code == 200:
             return True, None
         if response.status_code == 401:
-            return False, "Invalid Sentry auth token"
+            return False, "Invalid Sentry auth token. Please update your token and reconnect."
         if response.status_code == 403:
             return (
                 False,

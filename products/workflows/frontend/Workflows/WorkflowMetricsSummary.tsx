@@ -22,11 +22,11 @@ import {
 } from './workflowMetricsSummaryLogic'
 
 const TRACKED_SENDS_TOOLTIP =
-    'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked).'
+    'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
-// should be read against. A step that tracked every send shows the count alone, because its Sent
-// column is already the right denominator.
+// should be read against, plus the rate over that denominator. A step with no tracked sends shows a
+// dash instead of a rate.
 function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Element {
     return (
         <span>
@@ -34,6 +34,10 @@ function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Elemen
             {row.untracked > 0 && (
                 <span className="text-muted"> of {row.trackedSends.toLocaleString()} tracked sends</span>
             )}
+            <span className="text-muted">
+                {' '}
+                ({row.trackedSends > 0 ? `${((value / row.trackedSends) * 100).toFixed(1)}%` : '-'})
+            </span>
         </span>
     )
 }

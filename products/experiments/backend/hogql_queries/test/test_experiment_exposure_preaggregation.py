@@ -68,7 +68,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
     def _build_lazy_computation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
         exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
-            experiment.exposure_criteria
+            experiment.exposure_criteria, experiment.team, experiment.start_date
         )
         as_of = experiment.end_date or datetime.now(UTC)
         date_range = experiment_window(experiment, self.team, as_of)

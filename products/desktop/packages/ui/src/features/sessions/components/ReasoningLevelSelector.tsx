@@ -4,10 +4,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import {
   ArrowCounterClockwise,
-  CaretDown,
-  Cpu,
   Lightning,
-  Robot,
   Spinner,
 } from "@phosphor-icons/react";
 import {
@@ -21,7 +18,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -40,6 +36,10 @@ import {
 } from "@posthog/shared/domain-types";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import {
+  type AgentHarness,
+  HarnessSubmenu,
+} from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatePresence, motion } from "framer-motion";
@@ -53,16 +53,6 @@ import {
   ReasoningSliderFace,
 } from "./ReasoningLevelDropdown";
 
-const ADAPTER_LABELS: Record<AgentAdapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
-
-const ADAPTER_ICONS: Record<AgentAdapter, React.ReactNode> = {
-  claude: <Robot size={14} weight="regular" />,
-  codex: <Cpu size={14} weight="regular" />,
-};
-
 // Separates model and effort in a slider stop key; never appears in ids.
 const STOP_SEPARATOR = "|";
 
@@ -75,6 +65,8 @@ interface ReasoningLevelSelectorProps {
   onChange?: (value: string) => void;
   onModelChange?: (value: string) => void;
   onAdapterChange?: (adapter: AgentAdapter) => void;
+  onHarnessChange?: (harness: AgentHarness) => void;
+  includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
   disabled?: boolean;
   isLoading?: boolean;
@@ -133,6 +125,8 @@ export function ReasoningLevelSelector({
   onChange,
   onModelChange,
   onAdapterChange,
+  onHarnessChange,
+  includePiHarness,
   onConfigOptionChange,
   disabled,
   isLoading,
@@ -319,12 +313,17 @@ export function ReasoningLevelSelector({
     });
   };
 
+  // Both labels can be blank while a config reloads. The trigger has no icon
+  // to fall back on, so it would render as an empty pill announced as
+  // "Reasoning: undefined".
   const triggerAriaLabel =
     modelLabel && effortLabel
       ? `Model and reasoning: ${modelLabel} ${effortLabel}`
       : modelLabel
         ? `Model: ${modelLabel}`
-        : `Reasoning: ${effortLabel}`;
+        : effortLabel
+          ? `Reasoning: ${effortLabel}`
+          : "Model and reasoning";
 
   return (
     <DropdownMenu
@@ -357,16 +356,10 @@ export function ReasoningLevelSelector({
               fastActive ? "ring-1 ring-amber-9 ring-inset" : undefined
             }
           >
-            {fastActive ? (
+            {fastActive && (
               <span className="text-amber-11">
                 <Lightning size={14} weight="fill" />
               </span>
-            ) : (
-              adapter && (
-                <span className="text-muted-foreground">
-                  {ADAPTER_ICONS[adapter]}
-                </span>
-              )
             )}
             {modelLabel && (
               <span className="font-medium text-foreground">{modelLabel}</span>
@@ -382,11 +375,9 @@ export function ReasoningLevelSelector({
                 {effortLabel}
               </span>
             )}
-            <CaretDown
-              size={10}
-              weight="bold"
-              className="text-muted-foreground"
-            />
+            {!modelLabel && !effortLabel && (
+              <span className="font-medium text-foreground">Model</span>
+            )}
           </Button>
         }
       />
@@ -407,34 +398,30 @@ export function ReasoningLevelSelector({
                 transition={{ duration: 0.12, ease: "easeOut" }}
               >
                 {onNotch && <BackRow onClick={() => setAdvanced(false)} />}
-                {onAdapterChange && adapter && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <span>Harness</span>
-                      <span className="flex-1 text-right text-muted-foreground">
-                        {ADAPTER_LABELS[adapter]}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuRadioGroup
-                        value={adapter}
-                        onValueChange={(value) => {
-                          if (value !== adapter) {
-                            selectAndClose(() =>
-                              onAdapterChange(value as AgentAdapter),
-                            );
-                          }
-                        }}
-                      >
-                        <DropdownMenuRadioItem value="claude">
-                          Claude Code
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="codex">
-                          Codex
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                {adapter && (onAdapterChange || onHarnessChange) && (
+                  <HarnessSubmenu
+                    value={adapter}
+                    includePi={includePiHarness && !!onHarnessChange}
+                    onChange={(harness) => {
+                      if (harness === adapter) {
+                        return;
+                      }
+
+                      selectAndClose(() => {
+                        if (harness === "pi") {
+                          onHarnessChange?.(harness);
+                          return;
+                        }
+
+                        if (onHarnessChange) {
+                          onHarnessChange(harness);
+                          return;
+                        }
+
+                        onAdapterChange?.(harness);
+                      });
+                    }}
+                  />
                 )}
                 {modelSelect && (
                   <DropdownMenuSub>

@@ -31,7 +31,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertySource,
     CustomPropertyValue,
 )
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -48,7 +48,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
             name="Acme Corp",
             external_id="acme-123",
             _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
                 stripe_customer_id="cus_1",
             ).model_dump(mode="json"),
         )
@@ -60,7 +59,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.team_id == self.team.id
         assert result.external_id == "acme-123"
         assert result.name == "Acme Corp"
-        assert result.properties.csm == contracts.AccountAssignment(id=self.user.id, email=self.user.email)
         assert result.properties.stripe_customer_id == "cus_1"
 
     def test_get_account_by_external_id_and_missing(self):
@@ -165,7 +163,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
             name="Acme Corp",
             external_id="acme-1",
             _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
+                stripe_customer_id="cus_1",
             ).model_dump(mode="json"),
         )
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
@@ -179,7 +177,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.name == "Acme Corp"
         assert result.tags == ["enterprise"]
         assert result.properties == account.properties.model_dump(mode="json")
-        assert result.properties["csm"] == {"id": self.user.id, "email": self.user.email}
+        assert result.properties["stripe_customer_id"] == "cus_1"
 
     def test_get_external_account_missing_and_other_team(self):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
@@ -252,7 +250,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         account.refresh_from_db()
         assert account.properties.stripe_customer_id == "cus_123"
-        assert account.properties.csm is None
 
     def test_update_external_account_rejects_non_member(self):
         definition = self._create_csm_definition()
@@ -818,11 +815,11 @@ class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
             team_id=self.team.pk,
             created_by=self.user,
             name="Acme",
-            _properties={"csm": {"id": self.user.id, "email": self.user.email}},
+            _properties={"sfdc_id": "001xx"},
         )
         facade.update_account(account, properties={"stripe_customer_id": "cus_123"})
         account.refresh_from_db()
-        assert account.properties.csm is None
+        assert account.properties.sfdc_id is None
         assert account.properties.stripe_customer_id == "cus_123"
 
     def test_update_account_leaves_properties_untouched_when_not_passed(self):

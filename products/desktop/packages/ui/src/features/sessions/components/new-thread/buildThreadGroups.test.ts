@@ -43,7 +43,7 @@ describe("buildThreadGroups MCP detection", () => {
 
     expect(isGroupableItem(mcpItem)).toBe(false);
 
-    const grouping = buildThreadGroups([mcpItem], "all", {});
+    const grouping = buildThreadGroups([mcpItem], {});
     expect(grouping.rows).toHaveLength(1);
     expect(grouping.rows[0].kind).toBe("item");
     expect(grouping.keepMounted).toEqual([0]);
@@ -55,7 +55,7 @@ describe("buildThreadGroups MCP detection", () => {
     });
 
     expect(isGroupableItem(legacyItem)).toBe(false);
-    const grouping = buildThreadGroups([legacyItem], "all", {});
+    const grouping = buildThreadGroups([legacyItem], {});
     expect(grouping.keepMounted).toEqual([0]);
   });
 
@@ -65,7 +65,7 @@ describe("buildThreadGroups MCP detection", () => {
     });
     const alsoPlain = toolCallItem("t2", undefined, { kind: "read" });
 
-    const grouping = buildThreadGroups([plain, alsoPlain], "all", {});
+    const grouping = buildThreadGroups([plain, alsoPlain], {});
     expect(grouping.rows).toHaveLength(1);
     expect(grouping.rows[0].kind).toBe("tool_group");
     expect(grouping.keepMounted).toEqual([]);
@@ -87,7 +87,7 @@ describe("buildThreadGroups MCP detection", () => {
       }),
     ];
 
-    const grouping = buildThreadGroups(items, "all", {});
+    const grouping = buildThreadGroups(items, {});
     const row = grouping.rows[0];
     expect(row.kind).toBe("tool_group");
     if (row.kind !== "tool_group") return;

@@ -756,6 +756,27 @@ def test_bigquery_ambiguous_column_is_non_retryable(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Incremental field (or an enabled column) renamed/dropped from the source table.
+        "400 Unrecognized name: ingested_at at [1:37]; reason: invalidQuery, location: query, "
+        "message: Unrecognized name: ingested_at at [1:37]\n\nLocation: europe-north1\nJob ID: "
+        "f50c015b-4295-4b95-a361-2503e9c936f7\n",
+        # Different column name and location — the match must not rely on either.
+        "400 Unrecognized name: legacy_status at [2:10]; reason: invalidQuery, location: query, "
+        "message: Unrecognized name: legacy_status at [2:10]",
+    ],
+)
+def test_bigquery_unrecognized_column_name_is_non_retryable(observed_error):
+    """A column referenced by our query (the incremental field, an enabled column, or a row
+    filter) that was renamed or dropped from the source table makes every retry fail identically."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Unrecognized column name error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
@@ -1558,6 +1579,28 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
     assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_bigquery_get_primary_keys_for_table_retries_transient_job_not_found(mock_sleep):
+    """The primary-key probe hits BigQuery's job-metadata race the same as the other queries in this
+    file; it must retry with a fresh job instead of crashing the whole sync."""
+    table = mock.MagicMock()
+    table.schema = [SimpleNamespace(name="id")]
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+
+    client = mock.MagicMock()
+    ok_job = mock.MagicMock()
+    ok_job.result.return_value = iter([{"column_name": "id"}])
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc"), ok_job]
+
+    primary_keys = _get_primary_keys_for_table(table, client)
+
+    assert primary_keys == ["id"]
+    assert client.query.call_count == 2
+    mock_sleep.assert_called_once()
+
+
 def test_run_destination_query_passes_job_retry():
     """The copy-into-temp-table query — where the production sync crashed on a transient per-second
     rate quota — must run under the extended job retry so it waits the rate limit out in place
@@ -1863,6 +1906,28 @@ def test_bigquery_resources_exceeded_is_non_retryable():
     matching = [key for key in non_retryable_errors if key in error_msg]
 
     assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+def test_bigquery_on_demand_ratio_exceeded_is_non_retryable():
+    """A query whose CPU-second usage relative to billed bytes exceeds the on-demand pricing
+    model's ratio fails deterministically for the same query shape and billing tier, so retrying
+    the identical temp-table copy in `_run_destination_query_with_job_retry` always fails — it must
+    be recognised as non-retryable rather than retried on every attempt."""
+    error_msg = str(
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=us-central1&prettyPrint=false: Query exceeded resource limits. "
+            "This query used 553474 CPU seconds but would charge only 1031M Analysis bytes. This "
+            "exceeds the ratio supported by the on-demand pricing model, which does not have this "
+            "limit. 553474 CPU seconds were used, and this query must use less than 263900 CPU seconds."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "on-demand pricing ratio failure should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 

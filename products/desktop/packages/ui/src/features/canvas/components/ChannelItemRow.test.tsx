@@ -209,6 +209,29 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
+  it("makes tasks draggable into the Command Center", () => {
+    renderRow(item());
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: "none" };
+
+    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+    expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
+    expect(dataTransfer.effectAllowed).toBe("copy");
+  });
+
+  it("does not make canvases draggable into the Command Center", () => {
+    renderRow(
+      item({
+        key: "canvas:canvas-1",
+        kind: "canvas",
+        id: "canvas-1",
+      }),
+    );
+
+    expect(screen.getByRole("button")).not.toHaveAttribute("draggable", "true");
+  });
+
   // The hover card and right-click render the same item list from one
   // definition, so both are asserted against the same expectations.
   const MENU_ITEMS = [

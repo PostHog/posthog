@@ -12,12 +12,14 @@ import type { UserBasicType, UserType } from '~/types'
 
 import {
     accountRelationshipDefinitionsList,
+    accountsPartialUpdate,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
     customPropertyDefinitionsList,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
+    AccountApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -45,6 +47,7 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountRelationshipDefinitionsList: jest.fn(),
     customPropertyDefinitionsList: jest.fn(),
+    accountsPartialUpdate: jest.fn(),
     accountsRelationshipsCreate: jest.fn(),
     accountsRelationshipsEndCreate: jest.fn(),
     accountsRelationshipsList: jest.fn(),
@@ -61,6 +64,7 @@ const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFuncti
     typeof accountsRelationshipsEndCreate
 >
 const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
+const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
     { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
@@ -74,6 +78,17 @@ const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): Acc
     user: { id: 42, email: 'alex@example.com' },
     started_at: '2026-01-01T00:00:00Z',
     ended_at: null,
+    ...overrides,
+})
+
+const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
+    id: 'acc-1',
+    name: 'Acme',
+    tags: [],
+    notebooks: [],
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
     ...overrides,
 })
 
@@ -337,7 +352,6 @@ describe('accountsLogic', () => {
         it('toggleSort on a fresh column starts ascending', () => {
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count'])
         })
 
         it('toggleSort cycles asc -> desc -> null on repeated clicks', () => {
@@ -345,10 +359,8 @@ describe('accountsLogic', () => {
             expect(logic.values.sortOrder?.direction).toBe('asc')
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'desc' })
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count DESC'])
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toBeNull()
-            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
 
         it('toggleSort on a different column resets to ascending', () => {
@@ -356,17 +368,38 @@ describe('accountsLogic', () => {
             logic.actions.toggleSort('notebook_count') // desc
             logic.actions.toggleSort('csm')
             expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['csm'])
         })
 
-        it('arbitrary column sorts by its alias directly', () => {
+        it('leaves orderBy off while the full list is loaded, for instant client-side sort', () => {
+            expect(logic.values.canSortClientSide).toBe(true)
+            logic.actions.toggleSort('notebook_count')
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+            expect(logic.values.sortedRowsTransformer).toEqual(expect.any(Function))
+            logic.actions.toggleSort('notebook_count') // desc
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+        })
+
+        it('adds orderBy once the list is paginated, for a global server-side sort', () => {
+            logic.actions.listLoadNextData()
+            expect(logic.values.canSortClientSide).toBe(false)
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count'])
+            logic.actions.toggleSort('notebook_count') // desc
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count DESC'])
+        })
+
+        it('returns to client-side sort after a fresh load re-evaluates pagination', () => {
+            logic.actions.listLoadNextData()
             logic.actions.toggleSort('name')
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name'])
-            logic.actions.toggleSort('name')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name DESC'])
+            logic.actions.listLoadData()
+            expect(logic.values.canSortClientSide).toBe(true)
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
 
-        it('skips the orderBy when the sorted role column has no matching definition', () => {
+        it('skips the server orderBy when the sorted role column has no matching definition', () => {
+            logic.actions.listLoadNextData()
             logic.actions.toggleSort('csm')
             accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
             expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
@@ -401,6 +434,7 @@ describe('accountsLogic', () => {
                 'sorts a %s column by its value cast to a float',
                 (displayType) => {
                     selectCustomProperty(displayType)
+                    logic.actions.listLoadNextData()
                     logic.actions.toggleSort(alias)
                     expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([floatExpr])
                     logic.actions.toggleSort(alias) // desc
@@ -410,6 +444,7 @@ describe('accountsLogic', () => {
 
             it('sorts a non-numeric custom property lexically by its alias', () => {
                 selectCustomProperty('text')
+                logic.actions.listLoadNextData()
                 logic.actions.toggleSort(alias)
                 expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([alias])
             })
@@ -605,6 +640,34 @@ describe('accountsLogic', () => {
             expect(logic.values.accountIdFilter).toBeNull()
         })
 
+        it('resolves to the account even when the viewer has filters of their own', async () => {
+            logic.actions.setSearchQuery('something else')
+            logic.actions.setAssignedToFilter([99])
+
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const source = logic.values.hogqlQuery.source as AccountsQuery
+            expect(filterExpressionOf(source)).toBe(`(toString(id) = '${ACCOUNT_ID}')`)
+            expect(source.search).toBeUndefined()
+            expect(source.assignedToUserIds).toBeUndefined()
+        })
+
+        it('survives a view-state restore rewriting the URL', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            const deepLinkPath = router.values.location.pathname
+
+            // Landing on a deep link, the saved-view restore and the default-column upgrade both
+            // dispatch the setters that mirror view state into the URL. They must not rewrite the
+            // path, or the link bounces to the unfiltered list before the user sees the account.
+            accountsColumnConfigLogic.findMounted()!.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe(deepLinkPath)
+            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
+        })
+
         it('clears the account filter when returning to the bare list', async () => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
             await expectLogic(logic).toFinishAllListeners()
@@ -696,6 +759,44 @@ describe('accountsLogic', () => {
 
             resolveFirst(buildRelationship())
             await expectLogic(logic).toFinishAllListeners()
+        })
+    })
+
+    describe('updateAccountTags', () => {
+        it('masks the cell optimistically and collapses an editing burst into one PATCH with the final list', async () => {
+            mockPartialUpdate.mockResolvedValue(buildAccount({ tags: ['vip', 'churn-risk'] }))
+
+            logic.actions.updateAccountTags('acc-1', ['vip'])
+            expect(logic.values.tagOverrides['acc-1']).toEqual(['vip'])
+            logic.actions.updateAccountTags('acc-1', ['vip', 'churn-risk'])
+            expect(logic.values.tagOverrides['acc-1']).toEqual(['vip', 'churn-risk'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockPartialUpdate).toHaveBeenCalledTimes(1)
+            expect(mockPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                tags: ['vip', 'churn-risk'],
+            })
+        })
+
+        it('reverts the optimistic override and clears saving on failure', async () => {
+            mockPartialUpdate.mockRejectedValueOnce(new Error('boom'))
+
+            logic.actions.updateAccountTags('acc-1', ['vip'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagOverrides['acc-1']).toBeUndefined()
+            expect(logic.values.isTagsSaving('acc-1')).toBe(false)
+        })
+    })
+
+    describe('addTagToFilter', () => {
+        it('compounds clicked tags into the filter and ignores tags already filtered', async () => {
+            logic.actions.addTagToFilter('vip')
+            logic.actions.addTagToFilter('churn-risk')
+            logic.actions.addTagToFilter('vip')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagsFilter).toEqual(['vip', 'churn-risk'])
         })
     })
 })

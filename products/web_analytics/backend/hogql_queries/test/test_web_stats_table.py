@@ -1184,6 +1184,34 @@ class TestWebStatsTableQueryRunner(
         assert drilled_down_values(flag_on=True) == [row_value]
         assert drilled_down_values(flag_on=False) == []
 
+    @parameterized.expand(
+        [
+            (
+                "multi_value_exact",
+                ["paid", "cpc", "ppc", "paidsearch", "paidSocial", "paid_social"],
+                PropertyOperator.EXACT,
+                ["cpc"],
+            ),
+            ("multi_value_exact_matching_both", ["cpc", "email"], PropertyOperator.EXACT, ["cpc", "email"]),
+            ("single_element_list", ["cpc"], PropertyOperator.EXACT, ["cpc"]),
+            ("empty_list", [], PropertyOperator.EXACT, ["cpc", "email"]),
+            ("multi_value_is_not", ["cpc", "paid"], PropertyOperator.IS_NOT, ["email"]),
+        ]
+    )
+    def test_first_pageview_attribution_rewrites_list_valued_filters(self, _name, filter_value, operator, expected):
+        self._seed_ssr_poisoned_session()
+        self._seed_first_pageview_session({"utm_medium": "email"}, distinct_id="d2")
+
+        with self._patch_first_pageview_flag(enabled=True):
+            results = self._run_web_stats_table_query(
+                "all",
+                "2024-06-27",
+                breakdown_by=WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+                properties=[SessionPropertyFilter(key="$entry_utm_medium", value=filter_value, operator=operator)],
+            ).results
+
+        assert sorted(row[0] for row in results) == expected
+
     @parameterized.expand([("bounce_rate", False), ("bounce_rate_and_avg_time", True)])
     def test_first_pageview_attribution_rewrites_drill_down_on_paths_tile(self, _name, include_avg_time_on_page):
         # The Paths tile splits user filters across three separate events scans

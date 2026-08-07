@@ -465,7 +465,22 @@ def _build_slim_template_image() -> modal.Image:
     )
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
+def _build_canvas_template_image() -> modal.Image:
+    # The builder script and its platform manifest are baked in beside the
+    # npm dependencies, so a build only ships its project payload into the
+    # sandbox. node resolves /scripts/node_modules from the script's parent.
+    builder_dir = Path(settings.CANVAS_BUILDER_DIR)
+    return (
+        _build_slim_template_image()
+        .add_local_file(str(builder_dir / "package.json"), "/scripts/package.json", copy=True)
+        .add_local_file(str(builder_dir / "package-lock.json"), "/scripts/package-lock.json", copy=True)
+        .run_commands("npm ci --prefix /scripts --omit=dev --no-audit --no-fund")
+        .add_local_file(str(builder_dir / "build.mjs"), "/scripts/canvas-builder/build.mjs", copy=True)
+        .add_local_file(str(builder_dir / "manifest.json"), "/scripts/canvas-builder/manifest.json", copy=True)
+    )
+
+
+_template_image_cache: TTLCache = TTLCache(maxsize=4, ttl=300)
 _template_image_lock = threading.Lock()
 
 
@@ -476,6 +491,8 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
         # Built inline (see _build_slim_template_image), never from a registry or a local
         # Dockerfile build context — same image in DEBUG and in production.
         return _build_slim_template_image()
+    if template == SandboxTemplate.CANVAS_BUILD:
+        return _build_canvas_template_image()
 
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
@@ -731,6 +748,9 @@ class ModalSandbox(SandboxBase):
 
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
+
+            if config.block_network:
+                create_kwargs["block_network"] = True
 
             if config.outbound_domain_allowlist:
                 create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist

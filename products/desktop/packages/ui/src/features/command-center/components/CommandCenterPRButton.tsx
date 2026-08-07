@@ -1,7 +1,7 @@
 import type { WorkspaceMode } from "@posthog/shared";
 import { PRBadgeLink } from "../../git-interaction/components/PRBadgeLink";
 import { usePrDetails } from "../../git-interaction/usePrDetails";
-import { useTaskPrUrl } from "../../git-interaction/useTaskPrUrl";
+import { useTaskPrUrls } from "../../git-interaction/useTaskPrUrl";
 
 interface CommandCenterPRButtonProps {
   taskId: string;
@@ -18,7 +18,7 @@ export function CommandCenterPRButton({
   workspaceMode,
 }: CommandCenterPRButtonProps) {
   const isCloud = workspaceMode === "cloud";
-  const prUrl = useTaskPrUrl(taskId, isCloud);
+  const { primaryUrl: prUrl, otherUrls } = useTaskPrUrls(taskId, isCloud);
 
   const {
     meta: { state, merged, draft },
@@ -33,6 +33,7 @@ export function CommandCenterPRButton({
       merged={merged}
       draft={draft}
       compact
+      otherCount={otherUrls.length}
     />
   );
 }

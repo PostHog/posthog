@@ -113,10 +113,9 @@ TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
 # Entries appended to a run's S3 JSONL log are also emitted as structured stdout log lines;
 # the per-cluster OTel collector already ships container stdout into the region's internal
 # PostHog project's Logs, so no transport or credentials are needed here. Only runs whose
-# task origin_product is in this list are mirrored — scoped to signals scouts for now;
-# widen the list to cover more task origins, or set it empty to disable.
+# task origin_product is in this list are mirrored. Set it empty to disable.
 TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
-    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout")
+    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout,user_created")
 )
 
 # Direct OTLP delivery for the mirror above. The token pins the destination: scout runs
@@ -177,23 +176,6 @@ STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
-MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
-# Per-worker cap on concurrent offline-cluster ClickHouse queries issued by the messaging
-# workflow family (reconcile-precalculated-data + realtime-cohort-calculation + the precalculated
-# backfills). They share one worker/event loop and the offline `default` user
-# (max_concurrent_queries=30), so an unbounded fan-out across tiers can trip
-# TOO_MANY_SIMULTANEOUS_QUERIES. Kept safely below 30, leaving headroom for other offline
-# consumers. Note this is per worker process, so the aggregate is this value times the number of
-# messaging worker replicas — size it accordingly.
-#
-# This is also the effective ceiling on reconcile parallelism: a reconcile activity holds one slot
-# for its whole streaming context, so raising RECONCILE_PRECALCULATED_DATA_TEAM_CONCURRENCY above
-# this value only queues the extra teams on the semaphore instead of running more queries at once.
-# Keep this at least as large as that concurrency, or a burst of reconcile teams can occupy every
-# slot and stall realtime-cohort activities (60-min start_to_close_timeout) while they wait.
-MESSAGING_CLICKHOUSE_MAX_CONCURRENT_QUERIES: int = get_from_env(
-    "MESSAGING_CLICKHOUSE_MAX_CONCURRENT_QUERIES", 10, type_cast=int
-)
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")

@@ -511,10 +511,66 @@ def get_deltalake_storage_options(
 STAGING_PREFIX = "__posthog_staging"
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DeltaTableSnapshotWorkload:
+    file_count: int
+    row_count: int | None
+    byte_count: int | None
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class StagedDeltaTable:
+    staging_uri: str
+    workload: DeltaTableSnapshotWorkload
+
+
 def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
     """Place source key path under __posthog_staging/ in the catalog bucket."""
     key_path = urlparse(source_uri).path.lstrip("/")
     return f"s3://{catalog_bucket}/{STAGING_PREFIX}/{key_path}"
+
+
+def _get_delta_snapshot(
+    source_uri: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> tuple[int, list[str], DeltaTableSnapshotWorkload]:
+    import deltalake
+
+    delta_table = deltalake.DeltaTable(
+        table_uri=source_uri,
+        storage_options=get_deltalake_storage_options(
+            storage_config=storage_config,
+            team_id=team_id,
+            organization_id=organization_id,
+        ),
+    )
+    version = delta_table.version()
+    data_keys = [urlparse(uri).path.lstrip("/") for uri in delta_table.file_uris()]
+
+    add_actions = delta_table.get_add_actions(flatten=True)
+    column_names = add_actions.schema.names
+
+    byte_count: int | None = None
+    if "size_bytes" in column_names:
+        sizes = add_actions.column("size_bytes").to_pylist()
+        if all(size is not None for size in sizes):
+            byte_count = sum(sizes)
+
+    row_count: int | None = None
+    if "num_records" in column_names:
+        record_counts = add_actions.column("num_records").to_pylist()
+        if all(record_count is not None for record_count in record_counts):
+            row_count = sum(record_counts)
+
+    workload = DeltaTableSnapshotWorkload(
+        file_count=len(data_keys),
+        row_count=row_count,
+        byte_count=byte_count,
+    )
+    return version, data_keys, workload
 
 
 def _get_delta_snapshot_files(
@@ -524,20 +580,10 @@ def _get_delta_snapshot_files(
     team_id: int | None = None,
     organization_id: str | None = None,
 ) -> tuple[int, list[str]]:
-    """Pin to the current Delta table version and return its data file S3 keys.
-
-    Opens the Delta table at *source_uri* using the deltalake library (which
-    reads the transaction log atomically), records the current version, and
-    converts the absolute ``file_uris()`` into plain S3 object keys.
-
-    Returns:
-        (version, data_file_keys) — version is the Delta log version that was
-        read; data_file_keys are S3 keys (no ``s3://bucket/`` prefix) for the
-        data files that belong to that version's snapshot.
-    """
+    """Pin to the current Delta table version and return its data file S3 keys."""
     import deltalake
 
-    dt = deltalake.DeltaTable(
+    delta_table = deltalake.DeltaTable(
         table_uri=source_uri,
         storage_options=get_deltalake_storage_options(
             storage_config=storage_config,
@@ -545,12 +591,25 @@ def _get_delta_snapshot_files(
             organization_id=organization_id,
         ),
     )
-    version = dt.version()
-    keys: list[str] = []
-    for uri in dt.file_uris():
-        parsed = urlparse(uri)
-        keys.append(parsed.path.lstrip("/"))
-    return version, keys
+    version = delta_table.version()
+    data_keys = [urlparse(uri).path.lstrip("/") for uri in delta_table.file_uris()]
+    return version, data_keys
+
+
+def get_delta_table_snapshot_workload(
+    source_uri: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> DeltaTableSnapshotWorkload:
+    _, _, workload = _get_delta_snapshot(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
+    return workload
 
 
 _DELTA_LOG_VERSION_RE = re.compile(r"^(\d{20})\.")
@@ -598,14 +657,36 @@ def stage_delta_table(
     team_id: int | None = None,
     organization_id: str | None = None,
 ) -> str:
-    """Copy a version-pinned Delta table snapshot to the catalog bucket under __posthog_staging/.
+    """Copy a version-pinned Delta table snapshot to the catalog staging prefix."""
+    version, data_keys = _get_delta_snapshot_files(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
+    return _copy_delta_snapshot_to_staging(source_uri, catalog_bucket, version, data_keys)
 
-    Pins to the current Delta table version via the deltalake library, then
-    copies only the data files and log entries for that version (or earlier).
-    This prevents inconsistency when a new transaction commits during the copy.
 
-    Returns the staging URI for the Delta table.
-    """
+def stage_delta_table_with_workload(
+    source_uri: str,
+    catalog_bucket: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> StagedDeltaTable:
+    """Stage a version-pinned Delta table and return its transaction-log workload."""
+    version, data_keys, workload = _get_delta_snapshot(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
+    staging_uri = _copy_delta_snapshot_to_staging(source_uri, catalog_bucket, version, data_keys)
+    return StagedDeltaTable(staging_uri=staging_uri, workload=workload)
+
+
+def _copy_delta_snapshot_to_staging(source_uri: str, catalog_bucket: str, version: int, data_keys: list[str]) -> str:
     from concurrent.futures import ThreadPoolExecutor
 
     import boto3
@@ -616,17 +697,8 @@ def stage_delta_table(
     if not source_prefix.endswith("/"):
         source_prefix += "/"
 
-    version, data_keys = _get_delta_snapshot_files(
-        source_uri,
-        storage_config=storage_config,
-        team_id=team_id,
-        organization_id=organization_id,
-    )
-
     s3 = boto3.client("s3")
-
     log_keys = _collect_delta_log_keys(s3, source_bucket, source_prefix, version)
-
     objects_to_copy = data_keys + log_keys
 
     def copy_one(key: str) -> None:

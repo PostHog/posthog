@@ -183,6 +183,9 @@ const dataCatalogCertificationPropose = (): ToolBase<
         if (params.notes !== undefined) {
             body['notes'] = params.notes
         }
+        if (params.proposed_status !== undefined) {
+            body['proposed_status'] = params.proposed_status
+        }
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/`,

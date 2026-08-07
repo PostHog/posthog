@@ -203,6 +203,52 @@ async fn post_batch(client: &TestClient, payload: String) {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+#[rstest]
+#[case("/e")]
+#[case("/batch")]
+#[tokio::test]
+async fn legacy_routes_strip_forged_gateway_properties(#[case] path: &str) {
+    let (router, sink) = setup_analytics_router(AiRouting::Primary, false, None, None);
+    let client = TestClient::new(router);
+    let event = json!({
+        "event": "$ai_span",
+        "distinct_id": DISTINCT_ID,
+        "properties": {
+            "$ai_gateway_verified": true,
+            "$ai_gateway_relay": true,
+            "$ai_gateway_request_id": "forged",
+            "$ai_trace_id": "trace-1"
+        }
+    });
+    let payload = if path == "/batch" {
+        json!({"api_key": TOKEN, "batch": [event]}).to_string()
+    } else {
+        json!({
+            "api_key": TOKEN,
+            "event": "$ai_span",
+            "distinct_id": DISTINCT_ID,
+            "properties": event["properties"].clone()
+        })
+        .to_string()
+    };
+
+    let response = client
+        .post(path)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(payload)
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let events = sink.get_events().await;
+    let data: serde_json::Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert_eq!(data["properties"]["$ai_trace_id"], "trace-1");
+    assert!(data["properties"].get("$ai_gateway_verified").is_none());
+    assert!(data["properties"].get("$ai_gateway_relay").is_none());
+    assert!(data["properties"].get("$ai_gateway_request_id").is_none());
+}
+
 fn allowlist(tokens: &[&str]) -> AiRouting {
     AiRouting::SecondaryAllowlist(tokens.iter().map(|t| t.to_string()).collect::<HashSet<_>>())
 }

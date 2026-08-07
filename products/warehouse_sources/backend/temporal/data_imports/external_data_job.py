@@ -593,6 +593,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 **timeout_params,
             )  # type: ignore
 
+            # Run-finalization ownership (terminal status write, v3 lock release, post-import
+            # start) — the full contract lives on the PipelineResult docstring. False on every
+            # failure path by construction: a raising activity returns no result, so this line
+            # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 

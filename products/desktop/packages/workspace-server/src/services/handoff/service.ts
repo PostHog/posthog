@@ -94,6 +94,7 @@ export class HandoffHostService implements HandoffHost {
       resumeState: {
         conversation: resumeState.conversation,
         latestGitCheckpoint: resumeState.latestGitCheckpoint,
+        latestGitCheckpoints: resumeState.latestGitCheckpoints,
       },
       cloudLogUrl: taskRun.log_url ?? null,
     };

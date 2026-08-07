@@ -137,7 +137,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             exposure_config,
             multiple_variant_handling,
             filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.exposure_criteria)
+        ) = get_exposure_config_params_for_builder(self.exposure_criteria, self.team, self.experiment.start_date)
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -278,7 +278,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
-        _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
+        _, handling, _ = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        )
         return evaluate_bias_risk(
             flag_variants=flag_variants,
             multiple_variant_handling=handling,

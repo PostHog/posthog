@@ -4,8 +4,8 @@ import {
   Bell,
   DotsSixVertical,
   EnvelopeSimple,
-  Lightning,
   SlidersHorizontal,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -29,7 +29,7 @@ const ITEM_ICONS: Record<
   React.ComponentType<{ size?: number | string }>
 > = {
   inbox: EnvelopeSimple,
-  "command-center": Lightning,
+  "command-center": SquaresFourIcon,
   activity: Bell,
   configure: SlidersHorizontal,
   loops: LoopIcon,

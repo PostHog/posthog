@@ -151,8 +151,10 @@ export function MessageMinimap({
   if (entries.length < 2) return null;
 
   return (
-    // Hugs the scroll container's top-right corner (clear of the scrollbar). The thread column
-    // reserves CHAT_CONTENT_GUTTER on this side, so rows never run underneath the rail.
+    // Hugs the scroll container's top-right corner (clear of the scrollbar). It floats over the
+    // column rather than displacing it: translucent and blurred, and pointer-transparent except on
+    // the trigger itself. Rows only pass underneath once the thread is too narrow for the column's
+    // own slack to clear the rail's 44px.
     <div className="pointer-events-none absolute top-2 right-3 z-10">
       <DropdownMenu open={open} onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger

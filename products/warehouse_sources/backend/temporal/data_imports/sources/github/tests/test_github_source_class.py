@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.models.integration import GitHubIntegrationError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -14,7 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.nam
     resolve_schema_repo_endpoint,
     split_schema_name,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
+    ENDPOINT_REQUIRED_PERMISSION,
+    ENDPOINTS,
+    GITHUB_ENDPOINTS,
+    GRANT_NAMES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -114,6 +120,64 @@ class TestGithubSource:
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 
+    @pytest.mark.parametrize(
+        "raised_message,expected_key",
+        [
+            (
+                'GitHub can\'t read this table: Resource not accessible by integration. Grant "Deployments: read" on a fine-grained token or app installation, or repo_deployment on a classic token, then sync again.',
+                "Resource not accessible by integration",
+            ),
+            # GitHub phrases some denials per endpoint, so no enumerated key can match them; the
+            # message prefix has to, or the job retries the denial forever instead of disabling
+            # the schema.
+            (
+                "GitHub can't read this table: Must have push access to view repository collaborators. Add the missing permission to your GitHub connection, or connect with a personal access token from an account that has the access GitHub names, then sync again.",
+                "GitHub can't read this table",
+            ),
+            (
+                "GitHub denied access: Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization. (url=https://api.github.com/repos/o/r/issues)",
+                "SAML enforcement",
+            ),
+            (
+                "GitHub can't read this table: Must have admin rights to Repository.",
+                "Must have admin rights",
+            ),
+            (
+                "GitHub can't read this table: Must have push access to repository.",
+                "Must have push access to repository",
+            ),
+            ("GitHub repository is not accessible: owner/repo", "GitHub repository is not accessible"),
+        ],
+    )
+    def test_sync_failures_pick_the_specific_friendly_error(self, raised_message, expected_key):
+        # The job picks the first matching key, so a specific cause must be declared ahead of the
+        # generic fallback or every denial reads as the vague one.
+        errors = self.source.get_non_retryable_errors()
+        matched = next(key for key in errors if error_message_matches(raised_message, [key]))
+        assert matched == expected_key
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "Resource not accessible by integration",
+            "Resource not accessible by personal access token",
+            "GitHub can't read this table",
+        ],
+    )
+    def test_grant_denials_keep_the_message_that_names_the_grant(self, key):
+        # latest_error is the only error field the schema serializer exposes, and the job overwrites
+        # it with the curated copy whenever that copy is not None. Curated copy here would replace
+        # the one sentence that names the grant to add with a vaguer one, which is the whole point
+        # of naming it.
+        assert self.source.get_non_retryable_errors()[key] is None
+
+    def test_required_permissions_reference_real_endpoints_and_grants(self):
+        # ENDPOINT_REQUIRED_PERMISSION sits ~700 lines from the endpoint definitions it keys on, so
+        # a typo or a renamed endpoint would silently drop the grant from the failure message and
+        # from the picker, with nothing else failing.
+        assert set(ENDPOINT_REQUIRED_PERMISSION) <= set(GITHUB_ENDPOINTS)
+        assert set(ENDPOINT_REQUIRED_PERMISSION.values()) <= set(GRANT_NAMES)
+
     def test_suspended_installation_token_refresh_is_non_retryable(self):
         # The raw GitHubIntegrationError raised by refresh_access_token on a suspended installation.
         error_message = (
@@ -165,6 +229,70 @@ class TestGithubSource:
         assert result["issues"] is None
         assert result["teams"] == "No GitHub account is connected. Please reconnect your GitHub account."
         assert result["team_members"] == result["teams"]
+
+    @pytest.mark.parametrize(
+        "endpoint,is_blocked",
+        [
+            # An installation can only hold permissions the App requests, so a table whose grant is
+            # absent from the held set can never sync on this connection. Offering it just defers
+            # the failure to the first sync.
+            ("traffic_views", True),
+            ("runners", True),
+            ("deployments", True),
+            ("code_scanning_alerts", True),
+            # The org tables short-circuit on the held set too, with their existing org reason.
+            ("teams", True),
+            ("issues", False),
+            # No required grant beyond the baseline every connection is validated for.
+            ("tags", False),
+        ],
+    )
+    def test_tables_the_installation_cannot_read_are_marked_unavailable(self, endpoint, is_blocked):
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=7, selection="oauth", personal_access_token=""),
+            repository="acme/widgets",
+        )
+        integration = mock.Mock()
+        integration.config = {"permissions": {"metadata": "read", "contents": "read", "issues": "read"}}
+
+        with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
+            result = self.source.get_endpoint_permissions(config, self.team_id, [endpoint])
+
+        reason = result[endpoint]
+        if is_blocked:
+            assert reason is not None
+            assert "personal access token" in reason
+        else:
+            assert reason is None
+
+    def test_pat_connections_are_not_blocked_by_permission_data(self):
+        # Token grants aren't introspectable, so a token connection must fail open here: a denial
+        # surfaces at sync time instead, where the error names the grant.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+
+        result = self.source.get_endpoint_permissions(config, self.team_id, ["traffic_views", "deployments"])
+
+        assert result == {"traffic_views": None, "deployments": None}
+
+    def test_unknown_permissions_fail_open(self):
+        # Rows connected before permissions were persisted have no stored set until the hourly
+        # token-refresh sweep backfills it. Blocking every gated table on missing data would hide
+        # tables the installation can actually read, so the picker shows them and sync-time errors
+        # carry the grant.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=7, selection="oauth", personal_access_token=""),
+            repository="acme/widgets",
+        )
+        integration = mock.Mock()
+        integration.config = {}
+
+        with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
+            result = self.source.get_endpoint_permissions(config, self.team_id, ["deployments"])
+
+        assert result == {"deployments": None}
 
     @pytest.mark.parametrize("endpoint", ["teams", "team_members"])
     def test_org_schemas_are_full_refresh_only_and_off_by_default(self, endpoint):

@@ -98,6 +98,19 @@ def format_cadence(interval: timedelta) -> str:
     return str(interval)
 
 
+def humanize_cadence(interval: timedelta) -> str:
+    """Plain-English cadence ("15 minutes", "6 hours", "1 day") for messages a user reads.
+
+    Separate from `format_cadence`, whose output doubles as the API's `sync_frequency` values.
+    """
+    seconds = int(interval.total_seconds())
+    for unit_seconds, unit in ((86400, "day"), (3600, "hour"), (60, "minute")):
+        if seconds >= unit_seconds and seconds % unit_seconds == 0:
+            count = seconds // unit_seconds
+            return f"{count} {unit}" if count == 1 else f"{count} {unit}s"
+    return format_cadence(interval)
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class Adjacency:
     children: dict[str, list[str]]  # upstream id -> downstream ids
@@ -295,19 +308,22 @@ def validate_declared_target(
     if target not in SCHEDULABLE_BUCKETS:
         supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
         raise UnsupportedFrequencyTargetError(
-            f"Requested freshness ({format_cadence(target)}) is not a schedulable cadence; pick one of: {supported}"
+            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
         )
     source_floor = all_source_floors(edges, source_intervals).get(node_id, STREAMING)
     consumer_ceiling = all_consumer_ceilings(edges, declared_targets).get(node_id)
+    # Both messages name the bound itself rather than a direction. Bounds are inclusive, so the
+    # bound is always a legal answer, while "or faster"/"or slower" promises room that may not
+    # exist: a 15min ceiling has nothing faster to offer through the cadence picker.
     if is_finer_than(target, source_floor):
         raise UnsatisfiableFrequencyError(
-            f"Requested freshness ({format_cadence(target)}) is more frequent than this node's data can change;"
-            f" its upstream sources deliver new data every {format_cadence(source_floor)} at the fastest"
+            f"Can't refresh every {humanize_cadence(target)}: the sources this query reads only deliver new data"
+            f" every {humanize_cadence(source_floor)}. Pick {humanize_cadence(source_floor)} instead."
         )
     if consumer_ceiling is not None and is_coarser_than(target, consumer_ceiling):
         raise UnsatisfiableFrequencyError(
-            f"Requested freshness ({format_cadence(target)}) is less frequent than a downstream consumer requires"
-            f" (tightest downstream target: {format_cadence(consumer_ceiling)})"
+            f"Can't refresh every {humanize_cadence(target)}: a view or endpoint built on this one needs data no"
+            f" older than {humanize_cadence(consumer_ceiling)}. Pick {humanize_cadence(consumer_ceiling)} instead."
         )
 
 

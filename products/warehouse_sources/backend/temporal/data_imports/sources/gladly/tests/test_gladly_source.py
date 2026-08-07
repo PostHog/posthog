@@ -82,35 +82,20 @@ class TestGladlySource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid",
+        "mock_return",
         [
-            (True, True),
-            (False, False),
+            (True, None),
+            (False, "probe failure message"),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source.validate_gladly_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
+    def test_validate_credentials_passes_the_probe_result_through(self, mock_validate, mock_return):
         mock_validate.return_value = mock_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        if not expected_valid:
-            assert error_message == "Invalid Gladly credentials"
+        assert self.source.validate_credentials(self.config, self.team_id) == mock_return
         mock_validate.assert_called_once_with("myorg", "agent@x.com", "token")
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source.validate_gladly_credentials"
-    )
-    def test_validate_credentials_surfaces_invalid_organization(self, mock_validate):
-        mock_validate.side_effect = ValueError("Invalid Gladly organization: bad org")
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is False
-        assert error_message == "Invalid Gladly organization: bad org"
 
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
