@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -129,6 +131,16 @@ describe('accountsLogic', () => {
         expect(logic.values.tagsFilter).toEqual([])
         expect(logic.values.allRolesUnassigned).toBe(false)
         expect(logic.values.assignedToFilter).toEqual([])
+    })
+
+    it('removes HogQL-only column groups when the cleanup flag is enabled', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_HOGQL_CLEANUP], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_HOGQL_CLEANUP]: true,
+        })
+
+        const config = accountsColumnConfigLogic.findMounted()!
+        expect(config.values.hogqlCleanupEnabled).toBe(true)
+        expect(config.values.accountsColumnGroups.map((group) => group.key)).not.toContain('sql_expression')
     })
 
     it('setTagsFilter updates the reducer', () => {
