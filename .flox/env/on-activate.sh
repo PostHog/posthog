@@ -224,6 +224,12 @@ export GOMODCACHE="$GOPATH/pkg/mod"
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
 export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 
+# `flox activate -- <cmd>` (command mode, how agents and scripts run things) never
+# sources the [profile] scripts, so the venv activation there doesn't apply and
+# hogli/python/ruff/pytest all come back "command not found". Exports from this
+# hook do propagate, so put the venv on PATH here rather than in [profile] alone.
+export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
