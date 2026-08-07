@@ -34,6 +34,39 @@ class TestGetTeamData(SimpleTestCase):
         redis_client.get.assert_called_once_with("sdk_versions:team:v2:7")
         mock_get_and_cache.assert_called_once_with(7, redis_client)
 
+    @patch("products.growth.backend.team_sdk_versions.get_and_cache_team_sdk_versions")
+    @patch("posthog.api.sdk_health.get_client")
+    def test_force_refresh_falls_back_to_cache_when_fetch_fails(
+        self, mock_get_client: MagicMock, mock_get_and_cache: MagicMock
+    ) -> None:
+        # A forced refresh that re-queries ClickHouse and fails must not dead-end the retry — it
+        # falls back to the last cached snapshot instead of returning None.
+        redis_client = MagicMock()
+        redis_client.get.return_value = b'{"web": []}'
+        mock_get_client.return_value = redis_client
+        mock_get_and_cache.side_effect = Exception("ClickHouse timed out")
+
+        result = get_team_data(7, force_refresh=True)
+
+        assert result == {"web": []}
+        mock_get_and_cache.assert_called_once_with(7, redis_client)
+
+    @patch("products.growth.backend.team_sdk_versions.get_and_cache_team_sdk_versions")
+    @patch("posthog.api.sdk_health.get_client")
+    def test_non_force_fetch_failure_returns_none(
+        self, mock_get_client: MagicMock, mock_get_and_cache: MagicMock
+    ) -> None:
+        # Without force_refresh there is no cached snapshot to fall back to, so a fetch failure
+        # surfaces as None (rendered as an error) rather than being masked.
+        redis_client = MagicMock()
+        redis_client.get.return_value = None
+        mock_get_client.return_value = redis_client
+        mock_get_and_cache.side_effect = Exception("ClickHouse timed out")
+
+        result = get_team_data(7, force_refresh=False)
+
+        assert result is None
+
 
 class TestSdkHealthViewSet(APIBaseTest):
     """Tests for the /api/projects/{team_id}/sdk_health/report/ MCP-accessible endpoint."""

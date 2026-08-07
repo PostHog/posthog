@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import * as drivingHogzillaPng from '@posthog/brand/hoggies/png/driving-hogzilla'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import type { LemonBannerProps } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -48,10 +48,10 @@ export const PlatformStatusBanner = (): JSX.Element => {
                 targetBlank: true,
             }}
         >
-            <div>
+            <Link to={statusPageUrl} target="_blank" className="block text-current hover:text-current hover:underline">
                 <div className="font-semibold">Platform status: {statusLabel}</div>
                 <div className="text-sm mt-0.5">{statusMessage}</div>
-            </div>
+            </Link>
         </LemonBanner>
     )
 }

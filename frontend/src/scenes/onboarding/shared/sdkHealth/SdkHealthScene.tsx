@@ -28,6 +28,7 @@ export function SdkHealthScene(): JSX.Element {
         reportLoading: loading,
         needsUpdatingCount,
         hasErrors,
+        reportError,
         snoozedUntil,
     } = useValues(sdkHealthLogic)
     const { isDev } = useValues(preflightLogic)
@@ -102,9 +103,18 @@ export function SdkHealthScene(): JSX.Element {
 
             <div className="p-3">
                 {loading ? null : hasErrors ? (
-                    <div className="text-center text-muted p-4">
-                        Error loading SDK information. Please try again later.
-                    </div>
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Retry',
+                            onClick: scanEvents,
+                        }}
+                    >
+                        <p className="font-semibold mb-0">Couldn't load your SDK information</p>
+                        <p className="text-sm mt-1 mb-0">
+                            {reportError ?? 'This can happen when a project has a lot of events. Retry to scan again.'}
+                        </p>
+                    </LemonBanner>
                 ) : Object.keys(augmentedData).length === 0 ? (
                     <div className="text-center text-muted p-4">
                         No SDK information found. Are you sure you have our SDK installed? You can scan events to get

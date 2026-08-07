@@ -272,24 +272,29 @@ def sdk_health(request: Request) -> Response:
     return Response(combined_data, status=200)
 
 
+def _read_cached_team_data(team_id: int, redis_client: Any) -> dict[str, list[SdkVersionEntry]] | None:
+    cache_key = team_sdk_versions_v2_key(team_id)
+    cached_data = redis_client.get(cache_key)
+    if not cached_data:
+        return None
+    try:
+        return json.loads(cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data)
+    except (json.JSONDecodeError, AttributeError) as e:
+        logger.warning("sdk_health_team_cache_corrupted", team_id=team_id, cache_key=cache_key, error=str(e))
+        capture_exception(e)
+        return None
+
+
 def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersionEntry]] | None:
     from products.growth.backend.team_sdk_versions import get_and_cache_team_sdk_versions
 
     redis_client = get_client()
 
     if not force_refresh:
-        cache_key = team_sdk_versions_v2_key(team_id)
-        cached_data = redis_client.get(cache_key)
-        if cached_data:
-            try:
-                sdk_versions = json.loads(
-                    cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data
-                )
-                logger.info("sdk_health_team_cache_hit", team_id=team_id, cache_key=cache_key)
-                return sdk_versions
-            except (json.JSONDecodeError, AttributeError) as e:
-                logger.warning("sdk_health_team_cache_corrupted", team_id=team_id, cache_key=cache_key, error=str(e))
-                capture_exception(e)
+        cached = _read_cached_team_data(team_id, redis_client)
+        if cached is not None:
+            logger.info("sdk_health_team_cache_hit", team_id=team_id)
+            return cached
     else:
         logger.info("sdk_health_team_force_refresh", team_id=team_id)
 
@@ -304,6 +309,13 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersio
     except Exception as e:
         logger.exception("sdk_health_team_fetch_failed", team_id=team_id)
         capture_exception(e)
+        # A forced refresh skips the cache, so a failed re-query would otherwise dead-end the retry.
+        # Fall back to the last cached snapshot so the user sees their previous data rather than an error.
+        if force_refresh:
+            cached = _read_cached_team_data(team_id, redis_client)
+            if cached is not None:
+                logger.info("sdk_health_team_force_refresh_cache_fallback", team_id=team_id)
+                return cached
 
     return None
 

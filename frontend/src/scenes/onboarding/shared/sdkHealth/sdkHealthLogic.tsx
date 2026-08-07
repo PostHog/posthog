@@ -71,6 +71,7 @@ export interface sdkHealthLogicValues {
     needsAttention: boolean
     needsUpdatingCount: number
     report: SdkHealthReportApi | null
+    reportError: string | null
     reportLoading: boolean
     sdkHealth: SdkHealthStatus
     snoozedUntil: string | null
@@ -114,7 +115,7 @@ export interface sdkHealthLogicMeta {
         needsUpdatingCount: (report: SdkHealthReportApi | null) => number
         needsAttention: (report: SdkHealthReportApi | null, snoozedUntil: string | null) => boolean
         sdkHealth: (report: SdkHealthReportApi | null) => SdkHealthStatus
-        hasErrors: (report: SdkHealthReportApi | null, reportLoading: boolean) => boolean
+        hasErrors: (report: SdkHealthReportApi | null, reportError: string | null, reportLoading: boolean) => boolean
     }
 }
 
@@ -158,6 +159,16 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
                 unsnooze: () => null,
             },
         ],
+        // Holds the last load error so the scene can show what failed instead of a generic message.
+        // Cleared when a load starts or succeeds.
+        reportError: [
+            null as string | null,
+            {
+                loadReport: () => null,
+                loadReportSuccess: () => null,
+                loadReportFailure: (_, { error }: { error?: string }) => error ?? null,
+            },
+        ],
     })),
 
     loaders(({ values }) => ({
@@ -170,15 +181,13 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
                     if (!values.currentTeamId) {
                         return null
                     }
-                    try {
-                        return await sdkHealthReportRetrieve(
-                            String(values.currentTeamId),
-                            options?.forceRefresh === true ? { force_refresh: true } : undefined
-                        )
-                    } catch (error) {
-                        console.error('Error loading SDK health report', error)
-                        return null
-                    }
+                    // Let failures surface: kea-loaders keeps the previous report and dispatches
+                    // loadReportFailure, so a failed scan no longer blanks the page and the error is
+                    // reported instead of being swallowed into a console log.
+                    return await sdkHealthReportRetrieve(
+                        String(values.currentTeamId),
+                        options?.forceRefresh === true ? { force_refresh: true } : undefined
+                    )
                 },
             },
         ],
@@ -253,19 +262,28 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
             (report: SdkHealthReportApi | null): SdkHealthStatus => report?.health ?? 'success',
         ],
 
+        // A hard error is a failed load with no report to fall back on. When a report is already
+        // loaded (e.g. a force-refresh scan failed), keep showing it rather than hiding everything.
         hasErrors: [
-            (s) => [s.report, s.reportLoading],
-            (report: SdkHealthReportApi | null, reportLoading: boolean): boolean => {
-                return !reportLoading && report === null
+            (s) => [s.report, s.reportError, s.reportLoading],
+            (report: SdkHealthReportApi | null, reportError: string | null, reportLoading: boolean): boolean => {
+                return !reportLoading && reportError !== null && report === null
             },
         ],
     }),
 
-    listeners({
+    listeners(({ values }) => ({
         snoozeSdkHealth: () => {
             lemonToast.success('SDK Health snoozed for 30 days')
         },
-    }),
+        loadReportFailure: ({ error }) => {
+            // If we still have a previous report on screen, the load that just failed was a refresh.
+            // Tell the user the refresh didn't take instead of silently leaving stale data.
+            if (values.report !== null) {
+                lemonToast.error(error || "Couldn't refresh SDK data. Showing the last results.")
+            }
+        },
+    })),
 
     subscriptions(({ actions, values }) => ({
         // If the team was still loading when the scene mounted (currentTeamId null), afterMount's

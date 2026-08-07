@@ -27,6 +27,7 @@ export interface healthSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     categorySummaries: CategoryHealthSummary[]
     healthIssues: HealthIssuesResponse | null
+    healthIssuesError: string | null
     healthIssuesLoading: boolean
     isManualRefresh: boolean
     isRefreshInFlight: boolean
@@ -132,6 +133,16 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
             {
                 refreshHealthData: (state, { isManual }) => (isManual ? true : state),
                 clearRefreshInFlight: () => false,
+            },
+        ],
+        // Capture the failure so the scene can show what actually went wrong instead of a blank page.
+        // Cleared whenever a load starts or succeeds.
+        healthIssuesError: [
+            null as string | null,
+            {
+                loadHealthIssues: () => null,
+                loadHealthIssuesSuccess: () => null,
+                loadHealthIssuesFailure: (_, { error }: { error?: string }) => error ?? null,
             },
         ],
     }),

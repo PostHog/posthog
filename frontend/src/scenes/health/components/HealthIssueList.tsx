@@ -13,7 +13,7 @@ import type { HealthIssue } from '../types'
 import { HealthIssueCard } from './HealthIssueCard'
 
 export const HealthIssueList = (): JSX.Element => {
-    const { issues, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
+    const { issues, healthIssuesLoading, healthIssues, healthIssuesError } = useValues(healthSceneLogic)
     const { dismissIssue, undismissIssue, loadHealthIssues } = useActions(healthSceneLogic)
 
     if (healthIssuesLoading && !healthIssues) {
@@ -29,7 +29,10 @@ export const HealthIssueList = (): JSX.Element => {
     if (!healthIssuesLoading && healthIssues === null) {
         return (
             <LemonBanner type="warning" action={{ children: 'Retry', onClick: () => loadHealthIssues() }}>
-                We couldn't load your health information. This is usually temporary — retry to try again.
+                <p className="font-semibold mb-0">We couldn't load your health information</p>
+                <p className="text-sm mt-1 mb-0">
+                    {healthIssuesError ?? 'This is usually temporary. Retry to try again.'}
+                </p>
             </LemonBanner>
         )
     }

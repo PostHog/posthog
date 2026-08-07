@@ -16,7 +16,7 @@ interface UsageEntry {
     status_reason?: string
 }
 
-const statusTag = (entry: UsageEntry, migrationRequired: boolean): JSX.Element => {
+const statusTag = (entry: UsageEntry, migrationRequired: boolean, releasesUrl?: string): JSX.Element => {
     const tag = migrationRequired ? (
         <LemonTag type="danger" size="small">
             Migration required
@@ -34,7 +34,17 @@ const statusTag = (entry: UsageEntry, migrationRequired: boolean): JSX.Element =
             Behind
         </LemonTag>
     )
-    return entry.status_reason ? <Tooltip title={entry.status_reason}>{tag}</Tooltip> : tag
+    // The status is the thing people click to act on, so a non-current version links straight to
+    // the SDK's releases. Current versions have nowhere useful to go, so they stay a plain tag.
+    const content =
+        !entry.is_latest && releasesUrl ? (
+            <Link to={releasesUrl} target="_blank" targetBlankIcon onClick={(e) => e.stopPropagation()}>
+                {tag}
+            </Link>
+        ) : (
+            tag
+        )
+    return entry.status_reason ? <Tooltip title={entry.status_reason}>{content}</Tooltip> : content
 }
 
 export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Element => {
@@ -59,10 +69,22 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                 </span>
                 {links && (
                     <div className="flex gap-2">
-                        <Link to={links.releases} target="_blank" targetBlankIcon className="text-xs">
+                        <Link
+                            to={links.releases}
+                            target="_blank"
+                            targetBlankIcon
+                            className="text-xs"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             Releases
                         </Link>
-                        <Link to={links.docs} target="_blank" targetBlankIcon className="text-xs">
+                        <Link
+                            to={links.docs}
+                            target="_blank"
+                            targetBlankIcon
+                            className="text-xs"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             Docs
                         </Link>
                     </div>
@@ -89,7 +111,7 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                                 <td className="py-1 pr-2">
                                     <TZLabel time={entry.max_timestamp} />
                                 </td>
-                                <td className="py-1">{statusTag(entry, migrationRequired)}</td>
+                                <td className="py-1">{statusTag(entry, migrationRequired, links?.releases)}</td>
                             </tr>
                         ))}
                     </tbody>
