@@ -146,7 +146,7 @@ async def eval_model_classifier(ctx: EvalContext) -> None:
         # Recorded on every case so an experiment says which model produced its scores —
         # otherwise two runs of the same suite are indistinguishable in the history, which
         # is exactly what you go to the history to compare.
-        classifier_model = classifiers.MODEL_OVERRIDE_CLASSIFIER_MODEL
+        classifier_model = classifiers.ROUTING_CLASSIFIER_MODEL
         try:
             # Sync, and blocking on the gateway — keep it off the event loop so cases
             # still run concurrently under the harness's limiter.
