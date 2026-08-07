@@ -18,6 +18,7 @@ import type {
     ErrorTrackingBypassRuleUpdateRequestApi,
     ErrorTrackingBypassRulesListParams,
     ErrorTrackingExternalIssueSearchResultApi,
+    ErrorTrackingExternalReferenceCreateApi,
     ErrorTrackingExternalReferenceLinkApi,
     ErrorTrackingExternalReferenceResultApi,
     ErrorTrackingExternalReferencesListParams,
@@ -411,14 +412,14 @@ export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) =
 
 export const errorTrackingExternalReferencesCreate = async (
     projectId: string,
-    errorTrackingExternalReferenceResultApi: NonReadonly<ErrorTrackingExternalReferenceResultApi>,
+    errorTrackingExternalReferenceCreateApi: NonReadonly<ErrorTrackingExternalReferenceCreateApi>,
     options?: RequestInit
 ): Promise<ErrorTrackingExternalReferenceResultApi> => {
     return apiMutator<ErrorTrackingExternalReferenceResultApi>(getErrorTrackingExternalReferencesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingExternalReferenceResultApi),
+        body: JSON.stringify(errorTrackingExternalReferenceCreateApi),
     })
 }
 

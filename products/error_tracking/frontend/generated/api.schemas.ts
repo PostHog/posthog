@@ -469,21 +469,13 @@ export interface ErrorTrackingExternalReferenceIntegrationResultApi {
 }
 
 /**
- * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ * Read-only shape of an external reference, shared by every response.
  */
-export type ErrorTrackingExternalReferenceResultApiConfig = { [key: string]: string }
-
 export interface ErrorTrackingExternalReferenceResultApi {
     /** Unique ID of the external reference. */
     readonly id: string
     /** The connected integration this reference was created through. */
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
-    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
-    integration_id: number
-    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
-    config: ErrorTrackingExternalReferenceResultApiConfig
-    /** ID of the error tracking issue to link the reference to. */
-    issue: string
     /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
 }
@@ -495,6 +487,29 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingExternalReferenceResultApi[]
+}
+
+/**
+ * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ */
+export type ErrorTrackingExternalReferenceCreateApiConfig = { [key: string]: string }
+
+/**
+ * Read-only shape of an external reference, shared by every response.
+ */
+export interface ErrorTrackingExternalReferenceCreateApi {
+    /** Unique ID of the external reference. */
+    readonly id: string
+    /** The connected integration this reference was created through. */
+    readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    /** URL of the linked external issue in the provider's system. */
+    readonly external_url: string
+    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
+    integration_id: number
+    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+    config: ErrorTrackingExternalReferenceCreateApiConfig
+    /** ID of the error tracking issue to link the reference to. */
+    issue: string
 }
 
 /**
@@ -696,7 +711,7 @@ export interface ErrorTrackingIssueReadApi {
     /** @nullable */
     first_seen: string | null
     assignee: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues: ErrorTrackingExternalReferenceResultApi[]
+    external_issues: ErrorTrackingExternalReferenceCreateApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
 }
 
@@ -780,7 +795,7 @@ export interface PatchedErrorTrackingIssueReadApi {
     /** @nullable */
     first_seen?: string | null
     assignee?: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
+    external_issues?: ErrorTrackingExternalReferenceCreateApi[]
     cohort?: ErrorTrackingIssueCohortReadApi | null
 }
 

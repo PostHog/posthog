@@ -10,7 +10,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.integration import github_rate_limited_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.api import (
@@ -45,11 +47,30 @@ class ExternalReferenceContextField(serializers.JSONField):
 
 
 @extend_schema_serializer(component_name="ErrorTrackingExternalReferenceResult")
-class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
+class ErrorTrackingExternalReferenceResultSerializer(serializers.Serializer):
+    """Read-only shape of an external reference, shared by every response."""
+
     id = serializers.UUIDField(read_only=True, help_text="Unique ID of the external reference.")
     integration = ErrorTrackingExternalReferenceIntegrationSerializer(
         read_only=True, help_text="The connected integration this reference was created through."
     )
+    external_url = serializers.SerializerMethodField(
+        help_text="URL of the linked external issue in the provider's system."
+    )
+
+    @extend_schema_field(serializers.CharField())
+    def get_external_url(self, reference: contracts.ErrorTrackingExternalReference) -> str:
+        if reference.external_url:
+            return reference.external_url
+
+        if is_supported_external_issue_provider(reference.integration.kind):
+            raise ValidationError("Missing required external context fields")
+
+        raise ValidationError("Provider not supported")
+
+
+@extend_schema_serializer(component_name="ErrorTrackingExternalReferenceCreate")
+class ErrorTrackingExternalReferenceSerializer(ErrorTrackingExternalReferenceResultSerializer):
     integration_id = serializers.IntegerField(
         write_only=True,
         help_text="ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira').",
@@ -66,19 +87,6 @@ class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
         ),
     )
     issue = serializers.UUIDField(write_only=True, help_text="ID of the error tracking issue to link the reference to.")
-    external_url = serializers.SerializerMethodField(
-        help_text="URL of the linked external issue in the provider's system."
-    )
-
-    @extend_schema_field(serializers.CharField())
-    def get_external_url(self, reference: contracts.ErrorTrackingExternalReference) -> str:
-        if reference.external_url:
-            return reference.external_url
-
-        if is_supported_external_issue_provider(reference.integration.kind):
-            raise ValidationError("Missing required external context fields")
-
-        raise ValidationError("Provider not supported")
 
 
 @extend_schema_serializer(component_name="ErrorTrackingExternalReferenceLink")
@@ -133,7 +141,14 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
     # rejected outright without these. search_issues declares its own scopes on the action.
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "link_issue"]
-    serializer_class = ErrorTrackingExternalReferenceSerializer
+    serializer_class = ErrorTrackingExternalReferenceResultSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # Provider searches hit GitHub directly; map its rate limits to the shared
+        # 429 + Retry-After response instead of a 500.
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
+        return super().handle_exception(exc)
 
     def list(self, request, *args, **kwargs):
         references = list_external_references(team_id=self.team.id)
@@ -159,8 +174,12 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
         serializer = self.get_serializer(reference)
         return Response(serializer.data)
 
+    @extend_schema(
+        request=ErrorTrackingExternalReferenceSerializer,
+        responses={201: ErrorTrackingExternalReferenceResultSerializer},
+    )
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = ErrorTrackingExternalReferenceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         issue_id = serializer.validated_data["issue"]
@@ -184,7 +203,7 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
 
     @extend_schema(
         request=ErrorTrackingExternalReferenceLinkSerializer,
-        responses={201: ErrorTrackingExternalReferenceSerializer},
+        responses={201: ErrorTrackingExternalReferenceResultSerializer},
     )
     @action(methods=["POST"], detail=False, url_path="link_issue")
     def link_issue(self, request: Request, *args, **kwargs) -> Response:
@@ -208,7 +227,7 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
             logger.warning("Failed to link external reference", exc_info=error)
             raise ValidationError(str(error)) from error
 
-        response_serializer = ErrorTrackingExternalReferenceSerializer(reference)
+        response_serializer = self.get_serializer(reference)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
