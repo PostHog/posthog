@@ -203,6 +203,51 @@ export interface errorTrackingIssueSceneLogicActions {
             integrationId: number
         }
     }
+    linkExternalReference: (
+        integrationId: IntegrationType['id'],
+        externalContext: Record<string, number | string>
+    ) => {
+        externalContext: Record<string, number | string>
+        integrationId: number
+    }
+    linkExternalReferenceFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    linkExternalReferenceSuccess: (
+        issue: {
+            assignee: ErrorTrackingIssueAssignee | null
+            cohort?: ErrorTrackingIssueCohort | undefined
+            description: string | null
+            external_issues: ErrorTrackingExternalReference[]
+            first_seen: string
+            id: string
+            name: string | null
+            status: ErrorTrackingIssueStatus
+        } | null,
+        payload?: {
+            externalContext: Record<string, number | string>
+            integrationId: number
+        }
+    ) => {
+        issue: {
+            assignee: ErrorTrackingIssueAssignee | null
+            cohort?: ErrorTrackingIssueCohort | undefined
+            description: string | null
+            external_issues: ErrorTrackingExternalReference[]
+            first_seen: string
+            id: string
+            name: string | null
+            status: ErrorTrackingIssueStatus
+        } | null
+        payload?: {
+            externalContext: Record<string, number | string>
+            integrationId: number
+        }
+    }
     loadInitialEvent: (timestamp: string) => {
         timestamp: string
     }
@@ -576,6 +621,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             integrationId,
             config,
         }),
+        linkExternalReference: (
+            integrationId: IntegrationType['id'],
+            externalContext: Record<string, number | string>
+        ) => ({
+            integrationId,
+            externalContext,
+        }),
         updateAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
@@ -642,6 +694,27 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         destination: response.integration.kind,
                     })
                     const externalIssues = values.issue.external_issues ?? []
+                    return { ...values.issue, external_issues: [...externalIssues, response] }
+                }
+                return null
+            },
+            linkExternalReference: async ({ integrationId, externalContext }) => {
+                if (values.issue) {
+                    const response = await api.errorTracking.linkExternalReference(
+                        props.id,
+                        integrationId,
+                        externalContext
+                    )
+                    posthog.capture('error_tracking_issue_pushed', {
+                        issue_id: props.id,
+                        destination: response.integration.kind,
+                        linked_existing: true,
+                    })
+                    // Linking is idempotent server-side: re-linking returns the existing
+                    // reference, which must not be appended twice.
+                    const externalIssues = (values.issue.external_issues ?? []).filter(
+                        (reference) => reference.id !== response.id
+                    )
                     return { ...values.issue, external_issues: [...externalIssues, response] }
                 }
                 return null
