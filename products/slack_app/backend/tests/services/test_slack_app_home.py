@@ -25,11 +25,9 @@ from posthog.models.team.team import Team
 from products.slack_app.backend.models import SlackSettings
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
-    ACTION_EDIT_WORKSPACE,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
-    EDIT_MODAL_WORKSPACE_CALLBACK_ID,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_REASONING_EFFORT,
     MODAL_ACTION_RUNTIME_ADAPTER,
@@ -93,15 +91,6 @@ def admin_user():
     with patch(
         "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
         return_value=True,
-    ):
-        yield
-
-
-@pytest.fixture
-def non_admin_user():
-    with patch(
-        "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
-        return_value=False,
     ):
         yield
 
@@ -344,35 +333,24 @@ def _view_submission_payload(
 
 
 class TestRenderHomeView:
-    def test_empty_state_renders_buttons_and_no_reset(self):
+    @pytest.mark.parametrize("is_admin", [False, True])
+    def test_empty_state_renders_buttons_and_no_reset(self, is_admin):
         view = render_home_view(
             effective=AIPreferences(),
             user_row=None,
-            workspace_row=None,
-            is_admin=False,
+            is_admin=is_admin,
         )
         assert view["type"] == "home"
         ids = _action_ids(view)
-        # Personal edit always present; reset hidden when no override; non-admin
-        # doesn't see the workspace edit button.
+        # Personal edit always present; reset hidden when no override. Admins get
+        # no extra model control — the model is purely a personal preference.
         assert ACTION_EDIT_PERSONAL in ids
         assert ACTION_RESET_PERSONAL not in ids
-        assert ACTION_EDIT_WORKSPACE not in ids
-
-    def test_admin_sees_workspace_edit_button(self):
-        view = render_home_view(
-            effective=AIPreferences(),
-            user_row=None,
-            workspace_row=None,
-            is_admin=True,
-        )
-        assert ACTION_EDIT_WORKSPACE in _action_ids(view)
 
     def test_personal_override_renders_reset_button(self):
         view = render_home_view(
             effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
             user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-            workspace_row=None,
             is_admin=False,
         )
         assert ACTION_RESET_PERSONAL in _action_ids(view)
@@ -380,29 +358,21 @@ class TestRenderHomeView:
     def test_active_model_summary_mentions_model_label(self):
         view = render_home_view(
             effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-            user_row=None,
-            workspace_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
+            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
             is_admin=True,
         )
         text_blob = " ".join(block["text"]["text"] for block in view["blocks"] if block.get("type") == "section")
         # Friendly label rather than raw model id; source attribution visible.
         assert "Claude Opus 4.7" in text_blob
-        assert "Workspace default" in _all_text(view)
+        assert "Your personal override" in _all_text(view)
 
     def test_source_resolution_is_atomic(self):
-        # User has only `reasoning_effort` set (no pair). Source should fall
-        # through to the workspace's complete pair.
+        # A user row missing half the pair isn't a real override.
+        assert resolve_source(_make_row(reasoning_effort="medium")) == PreferenceSource.unset()
+        assert resolve_source(None) == PreferenceSource.unset()
         assert (
-            resolve_source(
-                _make_row(reasoning_effort="medium"),
-                _make_row(runtime_adapter="claude", model="claude-opus-4-7"),
-            )
-            == PreferenceSource.workspace()
+            resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
         )
-
-    def test_source_unset_when_neither_row_has_pair(self):
-        assert resolve_source(None, None) == PreferenceSource.unset()
-        assert resolve_source(_make_row(reasoning_effort="high"), None) == PreferenceSource.unset()
 
 
 class TestTasksCard:
@@ -410,7 +380,6 @@ class TestTasksCard:
         base = {
             "effective": AIPreferences(),
             "user_row": None,
-            "workspace_row": None,
             "is_admin": False,
         }
         base.update(overrides)
@@ -630,33 +599,22 @@ class TestTasksCard:
 
 
 class TestRenderEditModal:
-    @pytest.mark.parametrize(
-        "scope,callback_id",
-        [
-            ("personal", EDIT_MODAL_PERSONAL_CALLBACK_ID),
-            ("workspace", EDIT_MODAL_WORKSPACE_CALLBACK_ID),
-        ],
-    )
-    def test_callback_id_matches_scope(self, scope, callback_id):
-        view = render_edit_modal(scope=scope, current=AIPreferences())
-        assert view["callback_id"] == callback_id
-
     def test_no_runtime_means_no_model_or_effort_blocks(self):
-        view = render_edit_modal(scope="personal", current=AIPreferences())
+        view = render_edit_modal(current=AIPreferences())
         ids = _block_ids(view)
         assert MODAL_BLOCK_RUNTIME_ADAPTER in ids
         assert MODAL_BLOCK_MODEL not in ids
         assert MODAL_BLOCK_REASONING_EFFORT not in ids
 
     def test_runtime_picked_unlocks_model_block(self):
-        view = render_edit_modal(scope="personal", current=AIPreferences(runtime_adapter="claude"))
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
         ids = _block_ids(view)
         assert MODAL_BLOCK_MODEL in ids
         # Effort block needs both the model and a non-empty supported list.
         assert MODAL_BLOCK_REASONING_EFFORT not in ids
 
     def test_model_options_match_runtime(self):
-        view = render_edit_modal(scope="personal", current=AIPreferences(runtime_adapter="codex"))
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
         model_block = next(b for b in view["blocks"] if b.get("block_id") == MODAL_BLOCK_MODEL)
         option_values = [o["value"] for o in model_block["element"]["options"]]
         # Codex models only — assert via prefix to stay resilient as the facade
@@ -666,7 +624,6 @@ class TestRenderEditModal:
 
     def test_effort_block_renders_only_when_supported_efforts_provided(self):
         view = render_edit_modal(
-            scope="personal",
             current=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
             supported_efforts=["low", "medium", "high"],
         )
@@ -677,7 +634,6 @@ class TestRenderEditModal:
 
     def test_initial_options_reflect_current_values(self):
         view = render_edit_modal(
-            scope="workspace",
             current=AIPreferences(
                 runtime_adapter="claude",
                 model="claude-opus-4-7",
@@ -693,7 +649,7 @@ class TestRenderEditModal:
         assert effort_block["element"]["initial_option"]["value"] == "high"
 
     def test_dispatch_action_set_on_runtime_and_model(self):
-        view = render_edit_modal(scope="personal", current=AIPreferences(runtime_adapter="claude"))
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
         runtime_block = next(b for b in view["blocks"] if b.get("block_id") == MODAL_BLOCK_RUNTIME_ADAPTER)
         model_block = next(b for b in view["blocks"] if b.get("block_id") == MODAL_BLOCK_MODEL)
         # dispatch_action triggers a block_actions payload so the modal can
@@ -722,18 +678,14 @@ class TestParseModalSubmission:
 
 class TestHandleAppHomeOpened:
     def test_publishes_view_for_known_user(self, slack_integration, mock_slack_client, flag_on, admin_user):
-        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID)
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert mock_slack_client.views_publish.called
         kwargs = mock_slack_client.views_publish.call_args.kwargs
         assert kwargs["user_id"] == "U001"
         assert kwargs["view"]["type"] == "home"
 
     def test_noop_when_user_missing(self, slack_integration, mock_slack_client, flag_on):
-        handle_app_home_opened({}, SLACK_WORKSPACE_ID)
-        assert not mock_slack_client.views_publish.called
-
-    def test_noop_when_integration_missing(self, db, mock_slack_client, flag_on):
-        handle_app_home_opened({"user": "U001"}, "T_UNKNOWN")
+        handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
 
 
@@ -753,29 +705,6 @@ class TestEditPersonalAction:
         assert mock_slack_client.views_open.called
         view = mock_slack_client.views_open.call_args.kwargs["view"]
         assert view["callback_id"] == EDIT_MODAL_PERSONAL_CALLBACK_ID
-
-
-class TestEditWorkspaceAdminGate:
-    def test_admin_opens_modal(self, slack_integration, mock_slack_client, flag_on, admin_user):
-        payload = _block_action_payload(
-            action_id=ACTION_EDIT_WORKSPACE,
-            slack_user_id="U001",
-            trigger_id="trig.2",
-        )
-        handle_ai_preferences_block_action(payload, payload["actions"][0])
-        assert mock_slack_client.views_open.called
-
-    def test_non_admin_blocked(self, slack_integration, mock_slack_client, flag_on, non_admin_user):
-        payload = _block_action_payload(
-            action_id=ACTION_EDIT_WORKSPACE,
-            slack_user_id="U001",
-            trigger_id="trig.3",
-            channel="C1",
-        )
-        handle_ai_preferences_block_action(payload, payload["actions"][0])
-        # Non-admin gets an ephemeral notice rather than the modal.
-        assert not mock_slack_client.views_open.called
-        assert mock_slack_client.chat_postEphemeral.called or mock_slack_client.chat_postMessage.called
 
 
 class TestResetPersonal:
@@ -895,16 +824,17 @@ class TestPersonalSubmit:
         assert not SlackSettings.objects.filter(slack_user_id="U001").exists()
 
 
-class TestWorkspaceSubmitAdminGate:
-    def test_non_admin_blocked(self, slack_integration, mock_slack_client, flag_on, non_admin_user):
+class TestRetiredWorkspaceModal:
+    def test_stale_workspace_submission_is_ignored(self, slack_integration, mock_slack_client, flag_on, admin_user):
+        # A workspace modal opened before this callback id was retired can still
+        # be submitted afterwards. It must not write a workspace-wide row.
         payload = _view_submission_payload(
-            callback_id=EDIT_MODAL_WORKSPACE_CALLBACK_ID,
-            slack_user_id="U_NONADMIN",
+            callback_id="slack_app_ai_prefs:workspace",
+            slack_user_id="U001",
             runtime_adapter="claude",
             model="claude-opus-4-7",
             effort="high",
         )
         response = handle_app_home_view_submission(payload)
-        body = json.loads(response.content)
-        assert body["response_action"] == "errors"
-        assert not SlackSettings.objects.filter(slack_user_id__isnull=True).exists()
+        assert response.status_code == 200
+        assert not SlackSettings.objects.exists()

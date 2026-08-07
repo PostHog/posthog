@@ -549,7 +549,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
-        // Thumbs feedback at the end of the report body. Analytics-only – nothing about the report changes.
+        // Thumbs feedback at the end of the report body. Recorded server-side as a report action
+        // (consumption evidence) – nothing about the report's state changes.
         rateReport: (sentiment: InboxReportFeedbackSentiment) => ({ sentiment }),
         // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
         openFeedbackNote: true,
@@ -1083,6 +1084,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 return
             }
             captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
+            // Best-effort server-side record of the bare rating: consumption evidence the scout
+            // inactivity sweep reads, so rating a report keeps its scout from being auto-paused.
+            // The analytics event above stays the durable record of the rating itself.
+            void signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), values.report.id, {
+                sentiment,
+            }).catch(() => {})
         },
         // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
         submitFeedbackNote: async ({ note }) => {
