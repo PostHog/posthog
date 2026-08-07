@@ -150,7 +150,6 @@ def _render(state: StatsState | None) -> dict:
     return render_home_view(
         effective=AIPreferences(),
         user_row=None,
-        workspace_row=None,
         is_admin=True,
         stats_state=state,
     )
