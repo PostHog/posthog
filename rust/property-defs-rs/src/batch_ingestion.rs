@@ -152,7 +152,6 @@ pub struct EventDefinitionsBatch {
     pub names: Vec<String>,
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
-    pub last_seen_ats: Vec<DateTime<Utc>>,
 
     pub cached: Vec<Update>,
 }
@@ -165,7 +164,6 @@ impl EventDefinitionsBatch {
             names: Vec::with_capacity(batch_size),
             team_ids: Vec::with_capacity(batch_size),
             project_ids: Vec::with_capacity(batch_size),
-            last_seen_ats: Vec::with_capacity(batch_size),
             cached: Vec::with_capacity(batch_size),
         }
     }
@@ -175,7 +173,6 @@ impl EventDefinitionsBatch {
         self.names.push(ed.name.clone());
         self.team_ids.push(ed.team_id);
         self.project_ids.push(ed.project_id);
-        self.last_seen_ats.push(ed.last_seen_at);
 
         self.cached.push(Update::Event(ed));
     }
@@ -222,7 +219,6 @@ impl EventDefinitionsBatch {
         retain_by_mask(&mut self.names, &keep);
         retain_by_mask(&mut self.team_ids, &keep);
         retain_by_mask(&mut self.project_ids, &keep);
-        retain_by_mask(&mut self.last_seen_ats, &keep);
         retain_by_mask(&mut self.cached, &keep);
         removed
     }
@@ -758,10 +754,10 @@ async fn write_event_definitions_batch(
     let mut fk_strips: u64 = 0;
 
     loop {
-        // last_seen_ats are manipulated on event defs for cache expiration
-        // at the moment; as in v1 writes, let's keep these fresh per-attempt
-        // to ensure the values in the UI are more accurate, and avoid PG 21000
-        // errors (constraint violations) when retrying writes w/o tx wrapper
+        // The floored last_seen_at on EventDefinition is a dedup-cache key, not the value we
+        // store. Generate a fresh timestamp per attempt so the value shown in the UI is accurate,
+        // and so a retry cannot replay a stale one and trip PG 21000 (constraint violation)
+        // without a transaction wrapper to roll it back.
         let mut per_attempt_last_seen_ats: Vec<DateTime<Utc>> = Vec::with_capacity(batch.len());
         let per_attempt_ts = Utc::now();
         for _ in 0..batch.len() {
@@ -891,9 +887,6 @@ mod tests {
             property_type: None,
             event_type: PropertyParentType::Group,
             group_type_index: Some(GroupType::Unresolved(group_name.to_string())),
-            property_type_format: None,
-            volume_30_day: None,
-            query_usage_30_day: None,
         }
     }
 

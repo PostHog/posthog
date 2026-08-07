@@ -94,9 +94,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)
-    // TODO: update this to conditionally point to new isolated propdefs & persons (grouptypemapping)
-    // DBs after those migrations are completed, prior to deployment
+    // Dedicated PG conn pool for serving propdefs API queries only. The API is mounted but
+    // receives no production traffic today.
     let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
     let api_pool = options.connect(&config.database_url).await?;
     let query_manager = QueryManager::new(api_pool).await?;
