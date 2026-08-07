@@ -212,23 +212,22 @@ def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
     return ctx.allowed_domains
 
 
-def _network_enforcement_layer(ctx: TaskProcessingContext) -> str:
+def _network_enforcement_observation(ctx: TaskProcessingContext) -> str:
     if ctx.allowed_domains is None:
         return "unrestricted"
     if ctx.use_modal_network_allowlist and ctx.use_modal_vm_sandbox:
-        return "modal_plus_agentsh"
+        return "modal_requested_sandbox_created_agentsh_ready"
     if ctx.use_modal_network_allowlist:
-        return "modal_only"
-    return "agentsh_only"
+        return "modal_requested_sandbox_created"
+    return "agentsh_ready"
 
 
-def _record_network_enforcement_ready(ctx: TaskProcessingContext) -> None:
+def _record_network_enforcement_observation(ctx: TaskProcessingContext) -> None:
     runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
-    layer = _network_enforcement_layer(ctx)
-    if layer == "modal_plus_agentsh":
+    observation = _network_enforcement_observation(ctx)
+    if ctx.allowed_domains is not None and ctx.use_modal_network_allowlist and ctx.use_modal_vm_sandbox:
         _agentsh_domains_for(ctx)
-    emit_agent_log(ctx.run_id, "debug", f"Network enforcement ready: {layer}")
-    record_network_enforcement("enforcement_ready", runtime, layer, "success")
+    record_network_enforcement("startup_observed", runtime, observation, "success")
 
 
 def _include_personal_mcp_for_task(task: Task) -> bool:
@@ -512,7 +511,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         ) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
-        _record_network_enforcement_ready(ctx)
+        _record_network_enforcement_observation(ctx)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
@@ -613,7 +612,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             _emit_agent_server_log_tail(ctx, sandbox)
             raise
 
-        _record_network_enforcement_ready(ctx)
+        _record_network_enforcement_observation(ctx)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")

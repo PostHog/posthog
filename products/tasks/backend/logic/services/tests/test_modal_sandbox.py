@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -21,6 +22,7 @@ from requests.exceptions import ConnectionError, Timeout
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
     SandboxExecutionError,
+    SandboxNetworkPolicyError,
     SandboxProvisionError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
@@ -1317,6 +1319,51 @@ class TestModalSandboxCreateImageFallback:
         assert len(attempts) == 3
         assert all(attempt["experimental_options"] == {"vm_runtime": True} for attempt in attempts)
         assert all(attempt["outbound_domain_allowlist"] == ["example.com", "*.posthog.com"] for attempt in attempts)
+
+    def test_network_policy_rejection_is_fatal_without_image_fallback(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            outbound_domain_allowlist=["example.com"],
+            network_policy_fingerprint="policy-hash",
+        )
+        bare_custom = MagicMock(name="bare_custom")
+        overlaid_custom = MagicMock(name="overlaid_custom")
+        attempts: list[dict[str, Any]] = []
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            attempts.append(kwargs)
+            raise ModalInvalidError("outbound_domain_allowlist is incompatible with vm_runtime")
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                return_value=overlaid_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create",
+                side_effect=sandbox_create,
+            ),
+            patch("products.tasks.backend.exceptions.capture_exception"),
+        ):
+            with pytest.raises(SandboxNetworkPolicyError) as error:
+                ModalSandbox.create(config)
+
+        assert error.value.non_retryable is True
+        assert len(attempts) == 1
+        assert attempts[0]["outbound_domain_allowlist"] == ["example.com"]
+        assert attempts[0]["experimental_options"] == {"vm_runtime": True}
 
     def _create_with_probe(
         self,

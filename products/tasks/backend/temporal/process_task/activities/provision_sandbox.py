@@ -244,32 +244,6 @@ def _apply_modal_network_policy(
     config.network_policy_fingerprint = ctx.network_policy_fingerprint
 
 
-def _assert_modal_network_policy_retained(
-    sandbox: SandboxBase,
-    config: SandboxConfig,
-    ctx: TaskProcessingContext,
-    *,
-    runtime: str,
-) -> None:
-    if config.outbound_domain_allowlist is None:
-        return
-    if (
-        sandbox.config.outbound_domain_allowlist == config.outbound_domain_allowlist
-        and sandbox.config.network_policy_fingerprint == config.network_policy_fingerprint
-    ):
-        return
-
-    record_network_enforcement("configuration_validation", runtime, "modal", "failure")
-    try:
-        sandbox.destroy()
-    finally:
-        raise SandboxNetworkPolicyError(
-            "The sandbox provider did not retain the requested network policy.",
-            {"run_id": ctx.run_id, "network_policy_fingerprint": config.network_policy_fingerprint},
-            cause=RuntimeError("sandbox network policy was not retained"),
-        )
-
-
 def _resolve_sandbox_github_token(
     ctx: TaskProcessingContext,
     *,
@@ -723,12 +697,13 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
         except Exception:
             if config.outbound_domain_allowlist is not None:
-                record_network_enforcement("modal_policy_accepted", runtime, "modal", "failure")
+                record_network_enforcement(
+                    "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
+                )
             raise
         if config.outbound_domain_allowlist is not None:
-            _assert_modal_network_policy_retained(sandbox, config, ctx, runtime=runtime)
-            emit_agent_log(ctx.run_id, "debug", "Modal accepted the sandbox network policy")
-            record_network_enforcement("modal_policy_accepted", runtime, "modal", "success")
+            emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
+            record_network_enforcement("sandbox_creation_with_policy_request", runtime, "modal_requested", "success")
         if sandbox.config.image_fallback:
             emit_agent_log(
                 ctx.run_id,

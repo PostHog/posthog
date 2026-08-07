@@ -28,6 +28,7 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -48,6 +49,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
+    SandboxNetworkPolicyError,
     SandboxNotFoundError,
     SandboxNotRunningError,
     SandboxProvisionError,
@@ -916,11 +918,13 @@ class ModalSandbox(SandboxBase):
 
             return sandbox
 
+        except SandboxNetworkPolicyError:
+            raise
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
-            )
+            ) from e
 
     @staticmethod
     def _create_from_image_candidates(
@@ -942,6 +946,16 @@ class ModalSandbox(SandboxBase):
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
+                if isinstance(e, ModalInvalidError) and config.outbound_domain_allowlist is not None:
+                    raise SandboxNetworkPolicyError(
+                        "Modal rejected the requested sandbox network policy.",
+                        {
+                            "config_name": config.name,
+                            "network_policy_fingerprint": config.network_policy_fingerprint,
+                            "error": str(e),
+                        },
+                        cause=e,
+                    ) from e
                 if index == len(candidates) - 1:
                     raise
                 logger.warning(

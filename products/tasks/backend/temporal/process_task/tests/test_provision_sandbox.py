@@ -14,7 +14,6 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CheckoutBranchInSandboxOutput,
     PrepareSandboxForRepositoryOutput,
     _apply_modal_network_policy,
-    _assert_modal_network_policy_retained,
     _build_environment_variables,
     _build_sandbox_tags,
     _to_modal_domain_allowlist,
@@ -223,25 +222,6 @@ def test_restricted_vm_applies_compiled_modal_policy() -> None:
 
     assert config.outbound_domain_allowlist == ["api.posthog.com"]
     assert config.network_policy_fingerprint == "policy-hash"
-
-
-def test_restricted_sandbox_is_destroyed_if_provider_drops_policy(mocker) -> None:
-    requested_config = SandboxConfig(
-        name="restricted-vm",
-        vm_runtime=True,
-        outbound_domain_allowlist=["api.posthog.com"],
-        network_policy_fingerprint="policy-hash",
-    )
-    sandbox = MagicMock()
-    sandbox.config = SandboxConfig(name="restricted-vm", vm_runtime=True)
-    record_enforcement = mocker.patch(f"{_PROVISION}.record_network_enforcement")
-
-    with pytest.raises(SandboxNetworkPolicyError) as error:
-        _assert_modal_network_policy_retained(sandbox, requested_config, _context(), runtime="vm")
-
-    assert error.value.non_retryable is True
-    sandbox.destroy.assert_called_once_with()
-    record_enforcement.assert_called_once_with("configuration_validation", "vm", "modal", "failure")
 
 
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})

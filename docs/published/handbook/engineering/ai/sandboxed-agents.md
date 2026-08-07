@@ -335,6 +335,10 @@ The network flag interlock runs before state overrides, image-builder routing, c
 and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
 Restricted VM runs use Modal's `outbound_domain_allowlist` and retain agentsh inside the VM.
 Restricted gVisor runs use Modal enforcement when the network flag is enabled and agentsh otherwise.
+Modal applies domain restrictions using the requested hostname or TLS SNI. Raw IP connections without
+an allowed SNI fail, while a connection to an IP with an allowed SNI can pass Modal's outer boundary.
+agentsh remains active on restricted VMs as a separate in-VM boundary.
+Test both boundaries independently because their hostname and port semantics can differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 

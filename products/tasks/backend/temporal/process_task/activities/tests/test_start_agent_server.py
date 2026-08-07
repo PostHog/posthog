@@ -9,7 +9,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _agentsh_domains_for,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
-    _network_enforcement_layer,
+    _network_enforcement_observation,
     _record_boot_total,
     _resolve_protected_base_branch,
     start_agent_server,
@@ -74,16 +74,16 @@ def _context(
 
 
 @pytest.mark.parametrize(
-    "context,expected_layer,expected_agentsh_domains",
+    "context,expected_observation,expected_agentsh_domains",
     [
         (_context(), "unrestricted", None),
-        (_context(allowed_domains=["example.com"]), "agentsh_only", ["example.com"]),
+        (_context(allowed_domains=["example.com"]), "agentsh_ready", ["example.com"]),
         (
             _context(
                 allowed_domains=["example.com"],
                 agentsh_domain_allowlist=["example.com", "api.posthog.com"],
             ),
-            "agentsh_only",
+            "agentsh_ready",
             ["example.com", "api.posthog.com"],
         ),
         (
@@ -92,7 +92,7 @@ def _context(
                 agentsh_domain_allowlist=["example.com", "api.posthog.com"],
                 use_modal_network_allowlist=True,
             ),
-            "modal_only",
+            "modal_requested_sandbox_created",
             None,
         ),
         (
@@ -103,17 +103,17 @@ def _context(
                 use_modal_network_allowlist=True,
                 network_policy_fingerprint="policy-hash",
             ),
-            "modal_plus_agentsh",
+            "modal_requested_sandbox_created_agentsh_ready",
             ["example.com", "api.posthog.com"],
         ),
     ],
 )
-def test_network_enforcement_layer_matches_started_policy(
+def test_network_enforcement_observation_matches_completed_checks(
     context: TaskProcessingContext,
-    expected_layer: str,
+    expected_observation: str,
     expected_agentsh_domains: list[str] | None,
 ) -> None:
-    assert _network_enforcement_layer(context) == expected_layer
+    assert _network_enforcement_observation(context) == expected_observation
     assert _agentsh_domains_for(context) == expected_agentsh_domains
 
 
@@ -134,7 +134,7 @@ def test_restricted_vm_rejects_missing_compiled_agentsh_policy(mocker) -> None:
     record_enforcement.assert_called_once_with("configuration_validation", "vm", "agentsh", "failure")
 
 
-async def test_start_failure_does_not_report_network_enforcement_ready(mocker) -> None:
+async def test_start_failure_does_not_report_network_enforcement_observation(mocker) -> None:
     context = _context(
         allowed_domains=["example.com"],
         agentsh_domain_allowlist=["example.com", "api.posthog.com"],
@@ -154,8 +154,8 @@ async def test_start_failure_does_not_report_network_enforcement_ready(mocker) -
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server",
         side_effect=RuntimeError("health check failed"),
     )
-    record_ready = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_ready"
+    record_observation = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
     )
 
     with pytest.raises(RuntimeError, match="health check failed"):
@@ -167,7 +167,7 @@ async def test_start_failure_does_not_report_network_enforcement_ready(mocker) -
             )
         )
 
-    record_ready.assert_not_called()
+    record_observation.assert_not_called()
 
 
 def _mock_github_integration(mocker, pr_base: str | None):
