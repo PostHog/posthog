@@ -340,11 +340,17 @@ export function buildSandboxDocument(
     // doesn't chase the cursor mid-drag. The settle callback re-reads the live
     // selection, which self-corrects clicks that didn't change the selection.
     const selectionSettleGate = ${installSelectionSettleGate.toString()};
+    // Dropping the pending report matters: a new drag started within the
+    // debounce window would otherwise publish the previous selection mid-drag.
+    const abortTextSelection = () => {
+      clearTimeout(selectionTimer);
+      clearTextSelection();
+    };
     selectionSettleGate(document, {
-      onGestureStart: clearTextSelection,
+      onGestureStart: abortTextSelection,
       onSelectionSettled: reportTextSelection,
       onIdleSelectionChange: reportTextSelection,
-      onGestureCancel: clearTextSelection,
+      onGestureCancel: abortTextSelection,
     });
     const clearNativeTextSelection = () => {
       window.getSelection()?.removeAllRanges();
