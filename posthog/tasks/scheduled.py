@@ -14,7 +14,6 @@ from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_toke
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
-    send_error_tracking_weekly_digest,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
@@ -305,10 +304,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # agent-server release), at most once per new digest.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/10"),
+        crontab(minute="*/2"),
         refresh_dev_stack_image_task.s(),
         name="refresh prebaked dev-stack VM image on base change",
-        expires_seconds=10 * 60,
+        expires_seconds=2 * 60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
@@ -547,13 +546,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="30"),
         send_hog_functions_daily_digest.s(),
         name="send HogFunctions daily digest",
-    )
-
-    # Send Error Tracking weekly digest at 8:30 AM UTC on Monday
-    sender.add_periodic_task(
-        crontab(hour="8", minute="30", day_of_week="mon"),
-        send_error_tracking_weekly_digest.s(),
-        name="send Error Tracking weekly digest",
     )
 
     # Send materialized view failure digest daily at morning local time per region
