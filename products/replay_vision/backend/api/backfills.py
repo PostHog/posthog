@@ -198,7 +198,12 @@ class ReplayScannerBackfillViewSet(
         window_end = min(data["window_end"], scanner.last_swept_at)
         window_start = data["window_start"]
         if window_start >= window_end:
-            raise ValidationError("All recordings in this range have already been scanned. Pick an earlier range.")
+            # Naming the boundary matters: the scanner owns everything after it whether or not it has
+            # scanned those recordings yet, so "already scanned" would be wrong when it is behind.
+            raise ValidationError(
+                f"This scanner already handles recordings from {scanner.last_swept_at:%b %-d, %Y at %H:%M} onward. "
+                "Pick a range that ends before then."
+            )
         return window_start, window_end
 
     def _enumerate(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
