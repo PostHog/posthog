@@ -28,7 +28,10 @@ from products.experiments.backend.hogql_queries.breakdown_injector import Breakd
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
-from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import FunnelQueryBuilder
+from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import (
+    FunnelQueryBuilder,
+    FunnelTemporalSetup,
+)
 from products.experiments.backend.hogql_queries.experiment_mean_query_builder import MeanQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_metric_values import (
     build_conversion_window_predicate,
@@ -532,10 +535,10 @@ class ExperimentQueryBuilder:
     def _extend_date_from_for_funnel_cuped(self, date_from: ast.Expr) -> ast.Expr:
         return self._cuped_query_builder().extend_date_from_for_funnel_cuped(date_from)
 
-    def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
+    def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> FunnelTemporalSetup:
         """
-        Returns (first_exposures_cte_str, temporal_join, having_clause) for the
-        optimized funnel query.
+        Returns the FunnelTemporalSetup (first exposures CTE, temporal join,
+        having clause) for the optimized funnel query.
 
         Three call sites collapse into one place:
 

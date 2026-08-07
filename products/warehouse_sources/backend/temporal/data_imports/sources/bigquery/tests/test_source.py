@@ -7,6 +7,7 @@ from unittest import mock
 from dateutil import parser
 from google.api_core.exceptions import (
     BadRequest,
+    DeadlineExceeded,
     Forbidden,
     InternalServerError,
     InvalidArgument,
@@ -18,6 +19,7 @@ from google.auth.exceptions import RefreshError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
@@ -1559,6 +1561,33 @@ def test_bigquery_read_rows_retry_reconnects_on_transient_stream_errors(exc):
 )
 def test_bigquery_read_rows_retry_does_not_reconnect_on_deterministic_errors(exc):
     assert BIGQUERY_READ_ROWS_RETRY._predicate(exc) is False
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # The observed production failure: `create_read_session` itself returning a transient
+        # gRPC INTERNAL before any stream exists. The library default only retries
+        # DeadlineExceeded/ServiceUnavailable, so this escaped and crashed the import activity.
+        InternalServerError("request failed: internal error"),
+        ServiceUnavailable("503 The service is currently unavailable."),
+        DeadlineExceeded("504 Deadline Exceeded"),
+    ],
+)
+def test_bigquery_create_read_session_retry_retries_transient_errors(exc):
+    assert BIGQUERY_CREATE_READ_SESSION_RETRY._predicate(exc) is True
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # Deterministic failures must surface rather than retry forever.
+        NotFound("404 Requested table was not found."),
+        BadRequest("400 request failed"),
+    ],
+)
+def test_bigquery_create_read_session_retry_does_not_retry_deterministic_errors(exc):
+    assert BIGQUERY_CREATE_READ_SESSION_RETRY._predicate(exc) is False
 
 
 def test_bigquery_get_primary_keys_for_table_passes_job_retry():
