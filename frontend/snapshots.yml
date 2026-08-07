@@ -7150,6 +7150,10 @@ snapshots:
         hash: v1.k794b7964.b2709895d612381724c2275aeaa291853ad3460c7a70f82f44f9b68b53d48da7.Jz5OoUecWaosBkoyKe1t79ypi05lM4inlLcCVqXXESo
     scenes-app-settings-organization--settings-organization-billing--light:
         hash: v1.k794b7964.d4b5e0030757796876fa680f389ca76201f098f3b1b65eb303ca73b5e1be6ae4.bisG2Rrhp6kgmqbOtUQGs_484Kn8TkyRsaRSBlNVVl4
+    scenes-app-settings-organization--settings-organization-cimd-verification-tokens--dark:
+        hash: v1.k794b7964.a0efb34409ff03a8a94d527a39101882a124357800b9ebce870c124ba665b643.H5ZBcbmWeVY9BgSRWeSYkjfOCmCRmGGsipKPFigGqUA
+    scenes-app-settings-organization--settings-organization-cimd-verification-tokens--light:
+        hash: v1.k794b7964.a170546647ece777290b1868dc4c9fb6b4c67d2f4d63c2aed321f3155220fb4b.H1Y1g89WwXye_1nxkBwTgMxkT6a0hqW7SV6cFKtFJtU
     scenes-app-settings-organization--settings-organization-danger-zone--dark:
         hash: v1.k794b7964.459d4562ee5b565df4810e3d27235dd302cf95293a62903e35bfef2ed1c21a77.9b4ajnjIa9Fmj4VPX98HECmrnRzyeHsjwUYdxIypN24
     scenes-app-settings-organization--settings-organization-danger-zone--light:
