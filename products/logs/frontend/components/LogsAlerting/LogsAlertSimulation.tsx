@@ -47,7 +47,7 @@ function BucketTooltipDetails({ bucket }: { bucket: LogsAlertSimulateBucketApi |
 function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): JSX.Element {
     const { labels, series } = useMemo(
         () => ({
-            labels: result.buckets.map((b: LogsAlertSimulateBucketApi) => dayjs(b.timestamp).format('MMM D, HH:mm')),
+            labels: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.timestamp),
             series: [
                 {
                     key: 'count',
@@ -71,10 +71,12 @@ function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): 
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             showCrosshair: false,
+            // Buckets are minutes apart, and the surrounding incident table renders in local time.
+            xAxis: { interval: 'minute', timezone: dayjs.tz.guess() },
             goalLines: [
                 {
                     value: result.threshold_count,
-                    label: `Threshold (${result.threshold_count})`,
+                    label: 'Threshold',
                     displayLabel: true,
                 },
             ],
@@ -91,7 +93,11 @@ function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): 
                 theme={theme}
                 config={config}
                 tooltip={(ctx) => (
-                    <DefaultTooltip {...ctx} footer={<BucketTooltipDetails bucket={result.buckets[ctx.dataIndex]} />} />
+                    <DefaultTooltip
+                        {...ctx}
+                        labelFormatter={(label) => dayjs(label).format('MMM D, HH:mm')}
+                        footer={<BucketTooltipDetails bucket={result.buckets[ctx.dataIndex]} />}
+                    />
                 )}
             />
         </div>
