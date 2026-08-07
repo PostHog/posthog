@@ -81,6 +81,7 @@ const MAX_RESOURCE_COMMENT_TARGETS = 20;
 // Each PR starts three GitHub-backed queries. Keep this cap at the source so a
 // task with generated output cannot fan out into an unbounded number of requests.
 const MAX_PR_COMMENT_SOURCES = 20;
+const MAX_CONCURRENT_PR_SOURCES = 4;
 
 type StateFilter = "open" | "resolved";
 
@@ -366,9 +367,41 @@ export function TaskCommentsList({
             .slice(0, MAX_PR_COMMENT_SOURCES),
     [rows, onlySource],
   );
-  const prConversation = usePrCommentsForUrls(prUrls);
-  const prReviews = usePrReviewThreadsForUrls(prUrls);
-  const prTitles = usePrTitles(prUrls);
+  const prUrlsKey = prUrls.join("\n");
+  const [prLoadProgress, setPrLoadProgress] = useState({
+    key: "",
+    count: MAX_CONCURRENT_PR_SOURCES,
+  });
+  const loadedPrSourceCount =
+    prLoadProgress.key === prUrlsKey
+      ? prLoadProgress.count
+      : MAX_CONCURRENT_PR_SOURCES;
+  const loadedPrUrls = prUrls.slice(0, loadedPrSourceCount);
+  const prConversation = usePrCommentsForUrls(loadedPrUrls);
+  const prReviews = usePrReviewThreadsForUrls(loadedPrUrls);
+  const prTitles = usePrTitles(loadedPrUrls);
+  useEffect(() => {
+    if (
+      prConversation.isLoading ||
+      prReviews.isLoading ||
+      loadedPrSourceCount >= prUrls.length
+    ) {
+      return;
+    }
+    setPrLoadProgress({
+      key: prUrlsKey,
+      count: Math.min(
+        loadedPrSourceCount + MAX_CONCURRENT_PR_SOURCES,
+        prUrls.length,
+      ),
+    });
+  }, [
+    loadedPrSourceCount,
+    prConversation.isLoading,
+    prReviews.isLoading,
+    prUrlsKey,
+    prUrls.length,
+  ]);
 
   const taskTarget = useMemo(() => taskCommentTarget(task.id), [task.id]);
   const composerTarget = onlySource?.target ?? taskTarget;
@@ -382,7 +415,7 @@ export function TaskCommentsList({
       commentsQuery.data ?? EMPTY_COMMENTS,
       sources,
     );
-    const prThreads = prUrls.flatMap((prUrl) =>
+    const prThreads = loadedPrUrls.flatMap((prUrl) =>
       prCommentThreads(
         prUrl,
         prTitles[prUrl] ?? `PR #${prUrl.split("/").at(-1)}`,
@@ -394,7 +427,7 @@ export function TaskCommentsList({
   }, [
     commentsQuery.data,
     sources,
-    prUrls,
+    loadedPrUrls,
     prTitles,
     prReviews.byUrl,
     prConversation.byUrl,

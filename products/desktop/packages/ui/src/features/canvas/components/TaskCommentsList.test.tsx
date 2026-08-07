@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   prCommentUrls: [] as string[],
   prReviewUrls: [] as string[],
   prTitleUrls: [] as string[],
+  prQueriesLoading: false,
 }));
 
 function openThread(body: string): void {
@@ -52,7 +53,7 @@ vi.mock("@posthog/ui/features/pr-review/usePrCommentsForUrls", () => ({
     mocks.prCommentUrls = urls;
     return {
       byUrl: new Map(urls.map((url) => [url, mocks.prConversation])),
-      isLoading: false,
+      isLoading: mocks.prQueriesLoading,
     };
   },
 }));
@@ -61,7 +62,7 @@ vi.mock("@posthog/ui/features/pr-review/usePrReviewThreadsForUrls", () => ({
     mocks.prReviewUrls = urls;
     return {
       byUrl: new Map(urls.map((url) => [url, mocks.prReviewThreads])),
-      isLoading: false,
+      isLoading: mocks.prQueriesLoading,
     };
   },
 }));
@@ -247,6 +248,7 @@ describe("TaskCommentsList", () => {
     mocks.prCommentUrls = [];
     mocks.prReviewUrls = [];
     mocks.prTitleUrls = [];
+    mocks.prQueriesLoading = false;
     useCommentNavigationStore.setState({
       focusByTask: {},
       resolutionsByTarget: {},
@@ -748,6 +750,19 @@ describe("TaskCommentsList", () => {
       scope: "task",
       itemId: "task-1",
     });
+  });
+
+  it("loads GitHub comments for at most four PRs at once", () => {
+    mocks.prQueriesLoading = true;
+    mocks.runs = Array.from({ length: 8 }, (_, index) =>
+      prRun(`https://github.com/acme/repo/pull/${index + 1}`),
+    );
+
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    expect(mocks.prCommentUrls).toHaveLength(4);
+    expect(mocks.prReviewUrls).toHaveLength(4);
+    expect(mocks.prTitleUrls).toHaveLength(4);
   });
 
   it("shows an empty state pointing at the artifact surfaces", () => {
