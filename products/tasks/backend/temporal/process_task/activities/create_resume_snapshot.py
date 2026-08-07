@@ -12,7 +12,11 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
-from products.tasks.backend.exceptions import SandboxNotRunningError, SnapshotTimeoutError
+from products.tasks.backend.exceptions import (
+    SandboxNotRunningError,
+    SnapshotFileLimitExceededError,
+    SnapshotTimeoutError,
+)
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import increment_snapshot_create, record_snapshot_create_latency_ms
@@ -88,6 +92,39 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             external_id = sandbox.create_directory_snapshot(snapshot_mount_path)
         else:
             external_id = sandbox.create_snapshot(timeout_seconds=RESUME_SNAPSHOT_TIMEOUT_SECONDS)
+    except SnapshotFileLimitExceededError as e:
+        # Modal caps snapshots at 1M files and a directory snapshot of the workspace can exceed
+        # it once install trees and caches pile up. Prune those reproducible directories and
+        # retry once — the resume sandbox reinstalls them, so this costs a reinstall, not the
+        # run's own work. Only the directory snapshot supports the targeted prune; a full
+        # filesystem snapshot has no mount path to shrink, so it just degrades to a fresh start.
+        if snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
+            outcome = "file_limit_exceeded"
+            logger.warning("create_resume_snapshot_file_limit_exceeded", sandbox_id=input.sandbox_id, error=str(e))
+            increment_snapshot_create(snapshot_kind, outcome)
+            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+            return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(e))
+
+        logger.warning(
+            "create_resume_snapshot_file_limit_exceeded_retrying_pruned",
+            sandbox_id=input.sandbox_id,
+            error=str(e),
+        )
+        try:
+            external_id = sandbox.create_directory_snapshot(snapshot_mount_path, prune_heavy_dirs=True)
+        except Exception as retry_error:
+            outcome = "file_limit_exceeded"
+            logger.warning(
+                "create_resume_snapshot_file_limit_exceeded_after_prune",
+                sandbox_id=input.sandbox_id,
+                error=str(retry_error),
+            )
+            increment_snapshot_create(snapshot_kind, outcome)
+            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+            return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(retry_error))
+        outcome = "created_after_prune"
+        increment_snapshot_create(snapshot_kind, outcome)
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
     except SnapshotTimeoutError as e:
         outcome = "transient_error"
         logger.warning("create_resume_snapshot_transient_error", sandbox_id=input.sandbox_id, error=str(e))

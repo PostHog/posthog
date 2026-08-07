@@ -1162,7 +1162,7 @@ class DockerSandbox(SandboxBase):
                 cause=e,
             )
 
-    def create_directory_snapshot(self, path: str) -> str:
+    def create_directory_snapshot(self, path: str, *, prune_heavy_dirs: bool = False) -> str:
         return self.create_snapshot()
 
     @staticmethod

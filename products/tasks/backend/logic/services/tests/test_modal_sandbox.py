@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
@@ -22,6 +23,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxProvisionError,
     SnapshotCreationError,
+    SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
@@ -833,6 +835,40 @@ class TestModalSandboxAgentServer:
 
         assert result == "snapshot-456"
         mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(timeout=240, ttl=None)
+
+    def test_directory_snapshot_over_file_cap_raises_classified_error(self, mock_sandbox: Any) -> None:
+        # Modal's 1M-file cap is permanent, not transient: it must surface as the classified,
+        # non-retryable error rather than a generic captured SnapshotCreationError.
+        mock_sandbox._sandbox.snapshot_directory.side_effect = ModalResourceExhaustedError(
+            "filesystem snapshot contains more than 1000000 files"
+        )
+
+        with pytest.raises(SnapshotFileLimitExceededError) as exc:
+            mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR)
+
+        assert exc.value.non_retryable is True
+        assert exc.value.context["path"] == DEFAULT_SANDBOX_WORKING_DIR
+
+    def test_filesystem_snapshot_over_file_cap_raises_classified_error(self, mock_sandbox: Any) -> None:
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = ModalResourceExhaustedError(
+            "filesystem snapshot contains more than 1000000 files"
+        )
+
+        with pytest.raises(SnapshotFileLimitExceededError) as exc:
+            mock_sandbox.create_snapshot()
+
+        assert exc.value.non_retryable is True
+
+    def test_directory_snapshot_prunes_heavy_dirs_before_snapshotting(self, mock_sandbox: Any) -> None:
+        mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-pruned")
+        with patch.object(ModalSandbox, "execute") as execute:
+            result = mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR, prune_heavy_dirs=True)
+
+        assert result == "im-pruned"
+        prune_command = execute.call_args_list[0].args[0]
+        assert "node_modules" in prune_command
+        assert ".venv" in prune_command
+        assert DEFAULT_SANDBOX_WORKING_DIR in prune_command
 
 
 class TestModalSandboxProvisionDiagnostics:

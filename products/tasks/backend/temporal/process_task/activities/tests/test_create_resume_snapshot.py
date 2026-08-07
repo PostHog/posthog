@@ -3,7 +3,7 @@ import pytest
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.constants import DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH, SNAPSHOT_KIND_DIRECTORY
-from products.tasks.backend.exceptions import SnapshotTimeoutError
+from products.tasks.backend.exceptions import SnapshotFileLimitExceededError, SnapshotTimeoutError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import (
     CreateResumeSnapshotInput,
@@ -76,4 +76,65 @@ def test_transient_snapshot_error_propagates_so_temporal_retries(activity_enviro
             CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id="run-1", use_directory_snapshot=True),
         )
 
+    update_state.assert_not_called()
+
+
+def _file_limit_error() -> SnapshotFileLimitExceededError:
+    return SnapshotFileLimitExceededError(
+        "Directory snapshot exceeds Modal's file-count cap",
+        {"sandbox_id": "sandbox-1", "path": DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH},
+        cause=RuntimeError("filesystem snapshot contains more than 1000000 files"),
+    )
+
+
+@pytest.mark.django_db
+def test_file_limit_prunes_and_retries_directory_snapshot(activity_environment, mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.is_running.return_value = True
+    # First (unpruned) snapshot hits the cap; the pruned retry succeeds.
+    sandbox.create_directory_snapshot.side_effect = [_file_limit_error(), "im-pruned"]
+    SandboxClass = mocker.Mock()
+    SandboxClass.get_by_id.return_value = sandbox
+
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.create_resume_snapshot.get_sandbox_class",
+        return_value=SandboxClass,
+    )
+    update_state = mocker.patch.object(TaskRun, "update_state_atomic")
+
+    output = async_to_sync(activity_environment.run)(
+        create_resume_snapshot,
+        CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id="run-1", use_directory_snapshot=True),
+    )
+
+    assert sandbox.create_directory_snapshot.call_args_list == [
+        mocker.call(DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH),
+        mocker.call(DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH, prune_heavy_dirs=True),
+    ]
+    assert output.external_id == "im-pruned"
+    update_state.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_file_limit_after_prune_degrades_to_fresh_start(activity_environment, mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.is_running.return_value = True
+    # Even after pruning the tree still exceeds the cap; the run must start fresh rather than crash.
+    sandbox.create_directory_snapshot.side_effect = _file_limit_error()
+    SandboxClass = mocker.Mock()
+    SandboxClass.get_by_id.return_value = sandbox
+
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.create_resume_snapshot.get_sandbox_class",
+        return_value=SandboxClass,
+    )
+    update_state = mocker.patch.object(TaskRun, "update_state_atomic")
+
+    output = async_to_sync(activity_environment.run)(
+        create_resume_snapshot,
+        CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id="run-1", use_directory_snapshot=True),
+    )
+
+    assert output.external_id is None
+    assert output.error is not None
     update_state.assert_not_called()

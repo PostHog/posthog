@@ -160,6 +160,18 @@ class SnapshotTimeoutError(ProcessTaskTransientError):
     pass
 
 
+class SnapshotFileLimitExceededError(ProcessTaskFatalError):
+    """Modal refuses to snapshot a directory/filesystem holding more than its hard file-count
+    cap (1,000,000 files). This is a permanent limit, not a transient blip, so retrying the same
+    snapshot cannot succeed — the caller must shrink the tree (prune node_modules, virtualenvs,
+    and package caches) before it can snapshot. Not captured to error tracking: it is a known,
+    classified condition the caller handles, so minting a fresh issue for it is pure noise.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None):
+        ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
+
+
 class RepositoryCloneError(ProcessTaskTransientError):
     """Failed to clone repository."""
 
