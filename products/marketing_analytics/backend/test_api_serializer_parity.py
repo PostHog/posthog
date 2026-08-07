@@ -1,17 +1,8 @@
 """Every field a service dataclass carries must survive its response serializer.
 
-A DRF `Serializer` emits only the fields it declares. A key present in the input dict but absent
-from the serializer is dropped silently — no error, no warning, no failing test. So a field added
-to a service dataclass reaches HTTP and MCP consumers only if someone remembers to add it here
-too, and forgetting looks exactly like the feature not existing.
-
-That is not hypothetical. `UtmIssue.suggested_actions` — the only place `fix_platform_urls`,
-`add_source_mapping` and `switch_to_id_match` are exposed at all — was declared on the dataclass
-and populated by the audit, and never reached a single consumer because `UtmIssueSerializer` did
-not list it. The service tests all passed: they assert on the dataclass, which was correct.
-
-These tests compare the two field sets directly, so the next omission fails here instead of
-shipping as a silently missing feature.
+A DRF `Serializer` drops an undeclared key silently — no error, no failing test, so a forgotten
+field looks exactly like the feature not existing. `UtmIssue.suggested_actions` reached no consumer
+for that reason while every service test passed, because they assert on the dataclass.
 """
 
 from dataclasses import fields as dataclass_fields
@@ -39,8 +30,7 @@ from products.marketing_analytics.backend.services.types import (
     UtmIssue,
 )
 
-# Deliberate omissions go here with a reason, so "not serialized" stays a decision rather than an
-# oversight. Empty today: everything these dataclasses carry is meant to be public.
+# Deliberate omissions go here with a reason, so "not serialized" stays a decision.
 _INTENTIONALLY_UNSERIALIZED: dict[str, set[str]] = {}
 
 
@@ -77,8 +67,7 @@ class TestSerializerFieldParity(BaseTest):
         ]
     )
     def test_serializer_declares_no_field_the_dataclass_lacks(self, name, dataclass_type, serializer_type):
-        # The mirror image: a serializer field with no source is either a typo or a leftover from a
-        # rename, and it surfaces as a required key the service can never supply.
+        # A serializer field with no source is a required key the service can never supply.
         declared = set(serializer_type().get_fields())
         available = {f.name for f in dataclass_fields(dataclass_type)}
 

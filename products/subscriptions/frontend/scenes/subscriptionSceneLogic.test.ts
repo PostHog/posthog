@@ -15,7 +15,7 @@ import {
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { subscriptionSceneLogic } from './subscriptionSceneLogic'
+import { NEGATIVE_FEEDBACK_SURVEY_ID, subscriptionSceneLogic } from './subscriptionSceneLogic'
 
 const MOCK_USER = {
     id: 1,
@@ -203,6 +203,7 @@ describe('subscriptionSceneLogic', () => {
         })
         initKeaTests()
         const captureSpy = jest.spyOn(posthog, 'capture')
+        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey')
 
         const logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
@@ -221,6 +222,10 @@ describe('subscriptionSceneLogic', () => {
             source,
             previous_feedback: null,
         })
+        // The "what was wrong?" survey opens only on a downvote, and this Slack/email flow must
+        // show it before the redirect strips the feedback params.
+        const expectedSurveyCalls = feedback === 'negative' ? [[NEGATIVE_FEEDBACK_SURVEY_ID]] : []
+        expect(displaySurveySpy.mock.calls).toEqual(expectedSurveyCalls)
         // A feedback landing is also a click-through on the delivered report.
         expect(captureSpy).toHaveBeenCalledWith('ai_report_clicked', {
             subscription_id: 2,
@@ -234,6 +239,7 @@ describe('subscriptionSceneLogic', () => {
 
         logic.unmount()
         captureSpy.mockRestore()
+        displaySurveySpy.mockRestore()
     })
 
     it('captures ai_report_clicked from the report CTA delivery param and strips it', async () => {
@@ -273,6 +279,7 @@ describe('subscriptionSceneLogic', () => {
         })
         initKeaTests()
         const captureSpy = jest.spyOn(posthog, 'capture')
+        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey')
 
         const logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
@@ -290,12 +297,15 @@ describe('subscriptionSceneLogic', () => {
         }).toFinishAllListeners()
 
         expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(0)
+        // The already-recorded delivery is skipped, so the survey isn't reshown on a re-click either.
+        expect(displaySurveySpy).not.toHaveBeenCalled()
         // Params are still stripped, and the originally recorded feedback wins.
         expect(router.values.searchParams).toEqual({})
         expect(logic.values.deliveryFeedback).toEqual({ 'd-123': 'positive' })
 
         logic.unmount()
         captureSpy.mockRestore()
+        displaySurveySpy.mockRestore()
     })
 
     it('persists recorded feedback across remounts', async () => {
@@ -330,6 +340,7 @@ describe('subscriptionSceneLogic', () => {
         })
         initKeaTests()
         const captureSpy = jest.spyOn(posthog, 'capture')
+        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey')
 
         const logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
@@ -344,6 +355,8 @@ describe('subscriptionSceneLogic', () => {
             source: 'in_app',
             previous_feedback: null,
         })
+        // Downvoting from the in-app thumbs opens the follow-up survey too.
+        expect(displaySurveySpy).toHaveBeenCalledWith(NEGATIVE_FEEDBACK_SURVEY_ID)
         expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
         // Thanks flashes first, then expiry settles the row into the recorded option.
         expect(logic.values.recentlyThankedDeliveries).toEqual({ 'd-9': true })
@@ -365,8 +378,11 @@ describe('subscriptionSceneLogic', () => {
             previous_feedback: 'negative',
         })
         expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'positive' })
+        // Switching to a positive vote must not reopen the survey.
+        expect(displaySurveySpy).toHaveBeenCalledTimes(1)
 
         logic.unmount()
         captureSpy.mockRestore()
+        displaySurveySpy.mockRestore()
     })
 })

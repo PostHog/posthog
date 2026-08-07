@@ -141,10 +141,8 @@ async def suggest_utm_mappings(
     reported window comes off the response so it can never disagree with the data
     the suggestions were actually derived from.
 
-    `campaign_proposals` does the same for `campaign_name_mappings`. Left out, this runs
-    `suggest_campaign_name_mappings` itself — two more ClickHouse reads, which is what filling
-    `campaign_suggestions` costs. The setup plan already holds both inputs, so it injects the
-    result rather than paying twice.
+    `campaign_proposals` does the same for `campaign_name_mappings`: left out, this derives them
+    itself at the cost of three more reads.
     """
     if attribution is None:
         attribution = await get_attribution_health(team, lookback_days=lookback_days)
@@ -259,9 +257,8 @@ async def suggest_utm_mappings(
 async def _derive_campaign_proposals(team: Team, lookback_days: int) -> CampaignMappingSuggestions:
     """Run the campaign mapping suggester over this team's own window.
 
-    Failure is contained: `campaign_suggestions` going back to empty is the behaviour every
-    consumer has today, so a broken campaign query must not take the source suggestions —
-    the part that already worked — down with it.
+    Contained: an empty `campaign_suggestions` is what every consumer sees today, so a broken
+    campaign query must not take the source suggestions down with it.
     """
     date_range = QueryDateRange(
         date_range=DateRange(date_from=f"-{lookback_days}d", date_to=None),
@@ -284,14 +281,10 @@ async def _derive_campaign_proposals(team: Team, lookback_days: int) -> Campaign
 def _to_campaign_suggestions(proposals: CampaignMappingSuggestions) -> list[CampaignMappingSuggestion]:
     """Fold the suggester's per-orphan proposals into this response's per-target shape.
 
-    One proposal is one raw `utm_campaign`; one `CampaignMappingSuggestion` is one clean name with
-    every raw value that should point at it, which is how `campaign_name_mappings` is stored. So
-    several proposals collapse into one entry.
-
-    Confidence is the *lowest* of the folded proposals, not the mean: the entry is applied as a
-    unit, so it is only as trustworthy as its weakest member. Deliberately excludes
-    `proposals.ambiguous` — those exist precisely because the suggester refused to guess, and this
-    field is a list of things to apply.
+    One proposal is one raw `utm_campaign`; one suggestion is one clean name with every raw value
+    pointing at it, which is how `campaign_name_mappings` is stored — so several collapse into one.
+    Confidence is the *lowest* of the folded proposals: the entry applies as a unit. Excludes
+    `ambiguous`, which exists because the suggester refused to guess.
     """
     grouped: dict[tuple[str, str], list] = defaultdict(list)
     for proposal in proposals.proposals:

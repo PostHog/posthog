@@ -252,9 +252,7 @@ class TestSharedMatchHelpers(BaseTest):
     )
 
     def test_the_lowercased_value_is_the_raw_one_folded(self):
-        # The two differ only by casing. A second implementation of the *field choice* is what
-        # drifts: proposing a name while the integration joins on id writes a mapping that
-        # silently never fires.
+        # They differ only by casing; a second copy of the *field choice* is what drifts.
         campaign = _campaign("Spring_Sale_2024", "PROMO_1234", "google")
 
         for mappings in (NO_MAPPINGS, self.PREFERS_ID):
@@ -268,8 +266,7 @@ class TestSharedMatchHelpers(BaseTest):
         assert get_match_value_raw(campaign, self.PREFERS_ID) == "PROMO_1234"
 
     def test_grouping_skips_campaigns_with_no_source(self):
-        # A blank source silently forming its own "" group is the bug only one of the two
-        # duplicated copies would ever have grown a guard for.
+        # A blank source would otherwise form its own "" group.
         campaigns = [
             _campaign("a", "1", "GOOGLE"),
             _campaign("b", "2", "  google  "),

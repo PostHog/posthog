@@ -149,6 +149,91 @@ export function countFlatRows(rows: TurnRow[]): number {
   return count;
 }
 
+/**
+ * Tolerance for calling the viewport "at the end". Generous because rows are estimated until they
+ * mount and streamed content keeps appending, so the reader who has just scrolled down as far as
+ * the wheel takes them is routinely tens of pixels short of the true bottom.
+ */
+export const THREAD_AT_END_THRESHOLD = 100;
+/** Slack for sub-pixel scroll positions when deciding the viewport is hard against the bottom. */
+export const THREAD_AT_EXACT_END_EPSILON = 1;
+/** Movement below this is measurement noise, not a direction the reader chose. */
+export const THREAD_SCROLL_DIRECTION_EPSILON = 1;
+/**
+ * A real upward drift, not a 1-frame measure transient: the DOM bottom sits this far below the
+ * viewport. Well above any single append's measure gap.
+ */
+export const THREAD_FAR_DRIFT_THRESHOLD = 400;
+
+/** Keys that move the viewport upward, so pressing them reads as leaving the end. */
+export const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
+
+/** Whether a thread body re-pins to the bottom as content arrives. */
+export interface ThreadFollowState {
+  following: boolean;
+  /**
+   * The reader deliberately moved off the end. Held until they move back down into the end
+   * tolerance, so streamed content that keeps growing under them never re-arms following on its
+   * own — the reader's own downward gesture is what asks for it back.
+   */
+  leftEnd: boolean;
+}
+
+/** The follow state a thread starts in, and the one an explicit scroll-to-bottom restores. */
+export const FOLLOWING_END: ThreadFollowState = {
+  following: true,
+  leftEnd: false,
+};
+
+/** A scroll event's geometry, as a thread body measures it. */
+export interface ThreadScrollSample {
+  /** Inside the at-end tolerance — a little above the bottom still counts, to absorb measure drift. */
+  atEnd: boolean;
+  /** Hard against the bottom, which always means following. */
+  atExactEnd: boolean;
+  /** The viewport moved upward since the previous sample. */
+  scrolledUp: boolean;
+  /** The viewport moved downward since the previous sample. */
+  scrolledDown: boolean;
+  /** Far enough below the fold that following is stuck mid-thread rather than measuring. */
+  farFromEnd: boolean;
+}
+
+/** Measure one scroll position against the previous one. */
+export function sampleThreadScroll(
+  el: { scrollTop: number; scrollHeight: number; clientHeight: number },
+  previousScrollTop: number,
+): ThreadScrollSample {
+  const distanceFromEnd = el.scrollHeight - el.clientHeight - el.scrollTop;
+  const delta = el.scrollTop - previousScrollTop;
+  return {
+    atEnd: distanceFromEnd <= THREAD_AT_END_THRESHOLD,
+    atExactEnd: distanceFromEnd <= THREAD_AT_EXACT_END_EPSILON,
+    scrolledUp: delta < -THREAD_SCROLL_DIRECTION_EPSILON,
+    scrolledDown: delta > THREAD_SCROLL_DIRECTION_EPSILON,
+    farFromEnd: distanceFromEnd > THREAD_FAR_DRIFT_THRESHOLD,
+  };
+}
+
+/** Fold one scroll sample into the follow state. */
+export function nextThreadFollowState(
+  state: ThreadFollowState,
+  sample: ThreadScrollSample,
+): ThreadFollowState {
+  if (sample.atExactEnd) return FOLLOWING_END;
+  // An upward move is intent even inside the tolerance, so a short gesture off the bottom isn't
+  // undone by the scroll event it produced.
+  if (sample.scrolledUp) return { following: false, leftEnd: state.leftEnd };
+  if (state.leftEnd) {
+    // Scrolling back down into the tolerance is the reader asking to follow again. Geometry alone
+    // must not do it: streamed appends push the bottom away without the reader moving.
+    return sample.atEnd && sample.scrolledDown ? FOLLOWING_END : state;
+  }
+  if (sample.atEnd) return FOLLOWING_END;
+  if (sample.farFromEnd) return { following: false, leftEnd: false };
+  return state;
+}
+
 /** A user-message row's measured extent in the scroll space, in row order. */
 export interface StickyAnchorEntry {
   id: string;

@@ -72,7 +72,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
 
-Your organization is the first part of your Gladly URL — for `myorg.gladly.com` enter `myorg`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Data comes from Gladly's scheduled export jobs, which retain files for 14 days — history older than that requires asking Gladly support to regenerate exports.""",
+Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
             releaseStatus=ReleaseStatus.ALPHA,

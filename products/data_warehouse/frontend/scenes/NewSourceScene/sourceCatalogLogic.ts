@@ -900,6 +900,7 @@ export interface sourceCatalogLogicMeta {
                       | 'MonteCarlo'
                       | 'Moodle'
                       | 'Motherduck'
+                      | 'Motion'
                       | 'Moxie'
                       | 'MSSQL'
                       | 'Mux'

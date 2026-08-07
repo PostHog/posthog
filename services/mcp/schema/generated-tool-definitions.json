@@ -2302,7 +2302,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-create": {
-        "description": "Create a canonical metric, or refine the one already holding this name (upsert on name; always lands 'proposed'). The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed metric. There is no list tool: discover existing metrics with execute-sql over system.information_schema.metrics.",
+        "description": "Create a canonical metric, or refine the one already holding this name (upsert on name; always lands 'proposed'). The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed metric. Keep 'description' to 1-3 sentences saying what the metric means and what it serves - never a walkthrough of the query or calculation steps (the definition carries those); put rationale for the chosen definition in 'reasoning'. There is no list tool: discover existing metrics with execute-sql over system.information_schema.metrics.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Create or refine a catalog metric",
@@ -2332,7 +2332,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-update": {
-        "description": "Update a metric's fields. Editing an approved metric's definition, description, or unit resets it to 'proposed' (it must be re-approved by a human).",
+        "description": "Update a metric's fields. Editing an approved metric's definition, description, or unit resets it to 'proposed' (it must be re-approved by a human). When editing 'description', keep it to 1-3 sentences of business meaning, not a narration of the query; rationale for the definition belongs in 'reasoning'.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Update a catalog metric",
@@ -4010,7 +4010,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source: pure direct-query connections (Postgres, MySQL, Snowflake, Redshift) plus synced warehouse sources that have live queries enabled (direct_query_enabled). Returns a lightweight id, prefix, engine, source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works. Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source: pure direct-query connections (Postgres, MySQL, Snowflake, Redshift) plus synced warehouse sources that have live queries enabled (direct_query_enabled). Returns a lightweight id, prefix, engine, source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works. Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried. Use this to discover valid connectionId values. To then see what a connection holds, run execute-sql with that connectionId and `SELECT table_name FROM system.information_schema.tables` (or `system.information_schema.columns` for one table's columns) — a connection's tables are absent from the default catalog, so this is the only way to list them.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
@@ -6270,6 +6270,21 @@
         },
         "feature_flag": "logs-alerting"
     },
+    "logs-anomalies-scan": {
+        "description": "Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus per-severity learning status. Requires a serviceName (use logs-services-list or the resource attribute values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours to a day. Per-bucket band evidence is omitted from the tool response to save tokens; the API endpoint returns it for charts.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Scan a service's logs for volume anomalies",
+        "title": "Scan a service's logs for volume anomalies",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-anomalies"
+    },
     "logs-attribute-values-list": {
         "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
         "category": "Logs",
@@ -6994,6 +7009,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "opt-outs-remove": {
+        "description": "Opt a recipient back in to the message category named by category_key, or to all marketing messages if omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Remove a recipient from the opt-out list",
+        "title": "Remove a recipient from the opt-out list",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "org-member-get-github-login": {
