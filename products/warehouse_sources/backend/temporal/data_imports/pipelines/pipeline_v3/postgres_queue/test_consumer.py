@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
     _is_dns_resolution_transient_error,
+    _is_server_not_ready_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
@@ -818,6 +819,122 @@ class TestQueueOperationTimeouts:
             await asyncio.wait_for(run_task, timeout=5.0)
 
         mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_poll_failure_does_not_report_queue_db_starting_up_error(self):
+        # Same self-healing "server not ready" refusal as above, but hit directly at
+        # connect/query time rather than wrapped by a cancelled poll timeout — the main
+        # poll loop's own OperationalError branch must apply the same classification.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        second_poll_started = asyncio.Event()
+        fetch_calls = 0
+
+        async def flaky_fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal fetch_calls
+            fetch_calls += 1
+            if fetch_calls == 1:
+                raise psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.5", port 5432 failed: '
+                    "FATAL:  the database system is in recovery mode"
+                )
+            second_poll_started.set()
+            return []
+
+        with (
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=flaky_fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            await asyncio.wait_for(second_poll_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recovery_loop_does_not_report_queue_db_starting_up_error(self):
+        # A queue-DB failover/restart can drop the recovery connection; reconnecting while the
+        # server is still coming back up raises this exact refusal. It self-heals within seconds
+        # (see `_is_server_not_ready_error`), so it must not be reported to error tracking.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            recovery_interval_seconds=0.01,
+            reconcile_interval_seconds=0,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+        consumer._recovery_conn = _make_healthy_conn()
+
+        second_reconcile_started = asyncio.Event()
+        call_count = 0
+
+        async def flaky_reconcile() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.5", port 5432 failed: '
+                    "FATAL:  the database system is in recovery mode"
+                )
+            second_reconcile_started.set()
+
+        with (
+            patch.object(consumer, "_recovery_sweep_with_timeout", new_callable=AsyncMock),
+            patch.object(consumer, "_reconcile_failed_runs", side_effect=flaky_reconcile),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(second_reconcile_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("the database system is starting up", True),
+        ("the database system is not yet accepting connections", True),
+        (
+            'connection failed: connection to server at "10.0.0.5", port 5432 failed: '
+            "FATAL:  the database system is in recovery mode",
+            True,
+        ),
+        ("the database system is shutting down", True),
+        ("THE DATABASE SYSTEM IS IN RECOVERY MODE", True),  # case-insensitive
+        ("connection to server was lost during table metadata discovery", False),
+        ("Hot standby mode is disabled", False),
+    ],
+)
+def test_is_server_not_ready_error_classifies_operational_errors(message, expected):
+    assert _is_server_not_ready_error(psycopg.OperationalError(message)) is expected
+
+
+def test_is_server_not_ready_error_ignores_non_operational_errors():
+    # A generic exception carrying the same phrase must not be misclassified — the
+    # SQLSTATE 57P03 refusal only ever surfaces as psycopg.OperationalError.
+    assert _is_server_not_ready_error(RuntimeError("the database system is in recovery mode")) is False
 
 
 class TestPollFailureLiveness:
