@@ -6,6 +6,8 @@ import {
 import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ArtifactHtmlFrame } from "./artifactHtmlFrame";
 import {
@@ -169,6 +171,11 @@ export function AnnotatedArtifactHtml({
     [onActivateThread, onResolutionsChange],
   );
 
+  const openExternal = useCallback((href: string) => {
+    const url = parseHttpsUrl(href);
+    if (url) openExternalUrl(url.href);
+  }, []);
+
   const dismiss = () => {
     setPendingAnchor(null);
     setSelection(null);
@@ -182,6 +189,7 @@ export function AnnotatedArtifactHtml({
         name={name}
         messages={messages}
         onMessage={receive}
+        onOpenExternal={openExternal}
       />
       <SelectionCommentOverlay
         selection={selection}

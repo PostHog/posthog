@@ -18,9 +18,11 @@ function IframeArtifactHtmlFrame({
   name,
   messages,
   onMessage,
+  onOpenExternal,
 }: ArtifactHtmlFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const onMessageRef = useRef(onMessage);
+  const onOpenExternalRef = useRef(onOpenExternal);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,7 +47,8 @@ function IframeArtifactHtmlFrame({
 
   useEffect(() => {
     onMessageRef.current = onMessage;
-  }, [onMessage]);
+    onOpenExternalRef.current = onOpenExternal;
+  }, [onMessage, onOpenExternal]);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -56,6 +59,10 @@ function IframeArtifactHtmlFrame({
         data.type === "ready"
       ) {
         sendMessagesRef.current();
+      }
+      if (data?.type === "open-external" && typeof data.href === "string") {
+        onOpenExternalRef.current(data.href);
+        return;
       }
       const frameRect = iframeRef.current?.getBoundingClientRect();
       if (!frameRect) return;

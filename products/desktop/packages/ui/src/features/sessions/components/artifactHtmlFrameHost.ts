@@ -18,6 +18,7 @@ export type ArtifactHtmlFrameProps = {
   name: string;
   messages: readonly Record<string, unknown>[];
   onMessage: (data: unknown, frameRect: ArtifactHtmlFrameRect) => void;
+  onOpenExternal: (href: string) => void;
 };
 
 export type ArtifactHtmlFrameComponent = ComponentType<ArtifactHtmlFrameProps>;

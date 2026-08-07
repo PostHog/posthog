@@ -7,6 +7,7 @@ export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";
 export const BRANCH_PREFIX = "posthog-code/";
 export const ARTIFACT_PREVIEW_ARG = "--posthog-artifact-preview";
+export const ARTIFACT_OPEN_EXTERNAL_CHANNEL = "posthog-artifact-open-external";
 export const DATA_DIR = ".posthog-code";
 export const WORKTREES_DIR = ".posthog-code/worktrees";
 export const LEGACY_DATA_DIRS = [

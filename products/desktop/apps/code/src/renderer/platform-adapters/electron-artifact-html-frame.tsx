@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ARTIFACT_OPEN_EXTERNAL_CHANNEL } from "../../shared/constants";
 
 const HOST_TO_ARTIFACT_CHANNEL = "posthog-artifact-host-message";
 const ARTIFACT_TO_HOST_CHANNEL = "posthog-artifact-message";
@@ -35,6 +36,7 @@ function RunningArtifactWebview({
   name,
   messages,
   onMessage,
+  onOpenExternal,
   onStateChange,
 }: RunningArtifactWebviewProps) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -50,6 +52,7 @@ function RunningArtifactWebview({
     }
   }, []);
   const reportState = useEffectEvent(onStateChange);
+  const openExternal = useEffectEvent(onOpenExternal);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -82,8 +85,14 @@ function RunningArtifactWebview({
     };
     const onIpcMessage = (event: Event) => {
       const ipcEvent = event as WebviewIpcMessageEvent;
+      if (ipcEvent.channel === ARTIFACT_OPEN_EXTERNAL_CHANNEL) {
+        const href = ipcEvent.args[0];
+        if (typeof href === "string") openExternal(href);
+        return;
+      }
       if (ipcEvent.channel !== ARTIFACT_TO_HOST_CHANNEL) return;
       const data = ipcEvent.args[0] as Record<string, unknown> | null;
+      if (data?.type === "open-external") return;
       if (
         data?.marker === ARTIFACT_HTML_BRIDGE_MARKER &&
         data.type === "ready"

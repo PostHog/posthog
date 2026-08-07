@@ -27,6 +27,7 @@ describe("ElectronArtifactHtmlFrame", () => {
         name="report.html"
         messages={[message]}
         onMessage={vi.fn()}
+        onOpenExternal={vi.fn()}
       />,
     );
 
@@ -46,5 +47,42 @@ describe("ElectronArtifactHtmlFrame", () => {
     await waitFor(() =>
       expect(container.querySelector("webview")).toBeTruthy(),
     );
+  });
+
+  it("opens links only through the trusted preload channel", async () => {
+    const onMessage = vi.fn();
+    const onOpenExternal = vi.fn();
+    const { container } = render(
+      <ElectronArtifactHtmlFrame
+        document="<a href='https://example.com'>Report</a>"
+        fallbackDocument=""
+        name="report.html"
+        messages={[]}
+        onMessage={onMessage}
+        onOpenExternal={onOpenExternal}
+      />,
+    );
+    const webview = await waitFor(() => {
+      const element = container.querySelector("webview");
+      if (!element) throw new Error("Expected the artifact webview to mount");
+      return element;
+    });
+
+    const spoofed = new Event("ipc-message");
+    Object.assign(spoofed, {
+      channel: "posthog-artifact-message",
+      args: [{ type: "open-external", href: "https://example.com/spoof" }],
+    });
+    act(() => webview.dispatchEvent(spoofed));
+    expect(onOpenExternal).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+
+    const trusted = new Event("ipc-message");
+    Object.assign(trusted, {
+      channel: "posthog-artifact-open-external",
+      args: ["https://example.com/report"],
+    });
+    act(() => webview.dispatchEvent(trusted));
+    expect(onOpenExternal).toHaveBeenCalledWith("https://example.com/report");
   });
 });

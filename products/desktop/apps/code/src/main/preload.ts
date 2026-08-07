@@ -1,7 +1,11 @@
 import { exposeElectronTRPC } from "@posthog/electron-trpc/main";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import "electron-log/preload";
-import { ARTIFACT_PREVIEW_ARG } from "../shared/constants";
+import {
+  ARTIFACT_OPEN_EXTERNAL_CHANNEL,
+  ARTIFACT_PREVIEW_ARG,
+} from "../shared/constants";
+import { trustedArtifactLink } from "./artifact-preview-link";
 import { parseSessionIdArg } from "./posthog-session-arg";
 
 const DEV_FLAGS_CLI_PREFIX = "--posthog-code-flags=";
@@ -10,6 +14,18 @@ const HOST_TO_ARTIFACT_CHANNEL = "posthog-artifact-host-message";
 const ARTIFACT_TO_HOST_CHANNEL = "posthog-artifact-message";
 
 function setupArtifactPreviewPreload(): void {
+  document.addEventListener(
+    "click",
+    (event) => {
+      const href = trustedArtifactLink(event);
+      if (!href) return;
+      event.preventDefault();
+      event.stopPropagation();
+      ipcRenderer.sendToHost(ARTIFACT_OPEN_EXTERNAL_CHANNEL, href);
+    },
+    true,
+  );
+
   window.addEventListener("message", (event) => {
     const data = event.data as Record<string, unknown> | null;
     if (data?.marker !== ARTIFACT_BRIDGE_MARKER) return;
