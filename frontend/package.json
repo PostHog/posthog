@@ -127,6 +127,7 @@
         "@posthog/products-review-hog": "workspace:*",
         "@posthog/products-session-replay": "workspace:*",
         "@posthog/products-session-summaries": "workspace:*",
+        "@posthog/products-signals": "workspace:*",
         "@posthog/products-skills": "workspace:*",
         "@posthog/products-stamphog": "workspace:*",
         "@posthog/products-streamlit-apps": "workspace:*",

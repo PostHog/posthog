@@ -3390,6 +3390,10 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
+        # See GitHubIntegrationBase.refresh_access_token for why permissions are persisted.
+        permissions = installation_access.installation_info.get("permissions")
+        if isinstance(permissions, dict):
+            config["permissions"] = permissions
 
         sensitive_config = {"access_token": installation_access.access_token}
 
