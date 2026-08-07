@@ -4113,6 +4113,22 @@
                 "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
+                "scan_replay_vision_sessions",
+                "retry_replay_vision_observation",
+                "get_replay_vision_quota",
+                "create_replay_vision_scanner",
+                "update_replay_vision_scanner",
+                "list_replay_vision_scanners",
+                "delete_replay_vision_scanner",
+                "estimate_replay_vision_scanner",
+                "label_replay_vision_observation",
+                "analyze_replay_vision_impact",
+                "suggest_replay_vision_tags",
+                "read_replay_vision_actions",
+                "update_replay_vision_action",
+                "delete_replay_vision_action",
+                "run_replay_vision_action",
+                "create_replay_vision_action",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -26974,7 +26990,7 @@
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
-                    "description": "Extra filters applied to query via {filters}"
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "globals": {
                     "description": "Extra globals for the query",
@@ -27118,7 +27134,8 @@
                     "type": "boolean"
                 },
                 "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "kind": {
                     "const": "HogQLQuery",
@@ -27218,6 +27235,10 @@
                 "materializedColumnsOptimizationMode": {
                     "enum": ["disabled", "optimized"],
                     "type": "string"
+                },
+                "mergeFederatedAggregateJoins": {
+                    "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "type": "boolean"
                 },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
@@ -28419,6 +28440,7 @@
                 "google-cloud-storage",
                 "google-ads",
                 "google-analytics",
+                "google-calendar",
                 "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
@@ -36942,6 +36964,7 @@
                 "experiment created",
                 "experiment analyzed",
                 "experiment view recordings",
+                "experiment replay vision scanner created",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
