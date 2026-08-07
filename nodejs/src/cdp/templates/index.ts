@@ -6,6 +6,7 @@ import { template as activecampaignTemplate } from './_destinations/activecampai
 import { template as airtableTemplate } from './_destinations/airtable/airtable.template'
 import { template as appcuesTemplate } from './_destinations/appcues/appcues.template'
 import { template as attioTemplate } from './_destinations/attio/attio.template'
+import { template as awsKinesisTemplate } from './_destinations/aws_kinesis/aws_kinesis.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
@@ -110,6 +111,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     activecampaignTemplate,
     airtableTemplate,
     attioTemplate,
+    awsKinesisTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

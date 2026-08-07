@@ -8,7 +8,6 @@ from .avo.template_avo import (
     TemplateAvoMigrator,
     template as avo,
 )
-from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .braze.template_braze import template as braze
 from .brevo.template_brevo import template as brevo
 from .clearbit.template_clearbit import template as clearbit
@@ -84,7 +83,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     avo,
-    aws_kinesis,
     braze,
     brevo,
     clearbit,
