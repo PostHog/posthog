@@ -19,6 +19,40 @@ export interface ProductEmptyStateProps {
 export const ACCENT_TEXT = 'text-[var(--empty-state-accent)] dark:text-[var(--empty-state-accent-dark)]'
 
 /**
+ * The example-data plate: accent wash, pulsing dot, label, and the product's signature preview.
+ * Exported because in-product surfaces that are deliberately not scene-level — the MCP analytics
+ * missing-capabilities tab — want this exact plate without the viewport height or the
+ * product-wide "Skip for now" that come with the full empty state. Requires
+ * `--empty-state-accent(-dark)` on an ancestor.
+ */
+export function ProductEmptyStatePreviewPanel({
+    label,
+    children,
+}: {
+    label: string
+    children: React.ReactNode
+}): JSX.Element {
+    return (
+        <div
+            className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary"
+            style={{
+                backgroundImage:
+                    'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',
+            }}
+        >
+            <div className="flex items-center gap-2 text-xs font-semibold text-secondary">
+                <span
+                    className="size-2 rounded-full bg-[var(--empty-state-accent)] dark:bg-[var(--empty-state-accent-dark)] animate-pulse motion-reduce:animate-none"
+                    aria-hidden="true"
+                />
+                {label}
+            </div>
+            {children}
+        </div>
+    )
+}
+
+/**
  * The product setup empty state: pitch + install command on the left, an animated
  * preview of the product filled with example data on the right. Shown before
  * a product has been set up — gate it with `ProductEmptyStateGate` (or declare
@@ -141,22 +175,9 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 </div>
             </div>
 
-            <div
-                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary"
-                style={{
-                    backgroundImage:
-                        'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',
-                }}
-            >
-                <div className="flex items-center gap-2 text-xs font-semibold text-secondary">
-                    <span
-                        className="size-2 rounded-full bg-[var(--empty-state-accent)] dark:bg-[var(--empty-state-accent-dark)] animate-pulse motion-reduce:animate-none"
-                        aria-hidden="true"
-                    />
-                    {config.previewLabel}
-                </div>
+            <ProductEmptyStatePreviewPanel label={config.previewLabel}>
                 <Preview mode={mode} />
-            </div>
+            </ProductEmptyStatePreviewPanel>
         </div>
     )
 }
