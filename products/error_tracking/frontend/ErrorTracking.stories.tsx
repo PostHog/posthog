@@ -30,9 +30,6 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/error_tracking/issue/:id': () => [200, errorTrackingTypeIssue],
-                // Exceptions have been ingested — the scene shows the issue list rather than the setup prompt
-                'api/environments/:team_id/error_tracking/issues/exists': () => [200, { exists: true }],
-                'api/environments/:team_id/error_tracking/spike_events': () => [200, { count: 0, results: [] }],
             },
             post: {
                 '/api/environments/:team_id/query/ErrorTrackingQuery': () => [200, errorTrackingQueryResponse],
@@ -44,7 +41,17 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const ListPage: Story = {}
+// Scoped to the list stories: GroupPage lacks the mocks its real content needs,
+// so unmasking it via the setup-prompt gate at meta level renders a blank page
+const listPageMocks = {
+    get: {
+        // Exceptions have been ingested — the scene shows the issue list rather than the setup prompt
+        'api/environments/:team_id/error_tracking/issues/exists': () => [200, { exists: true }],
+        'api/environments/:team_id/error_tracking/spike_events': () => [200, { count: 0, results: [] }],
+    },
+}
+
+export const ListPage: Story = { decorators: [mswDecorator(listPageMocks)] }
 // Autocapture must be on for the issue list to render instead of the full setup prompt,
 // and it comes from the bootstrap app context, so an msw override isn't enough
 function IngestionWarningStory(): JSX.Element | null {
@@ -65,6 +72,7 @@ export const ListPageWithIngestionWarning: Story = {
     decorators: [
         mswDecorator({
             get: {
+                ...listPageMocks.get,
                 'api/environments/:team_id/error_tracking/issues/exists': () => [200, { exists: false }],
             },
         }),
