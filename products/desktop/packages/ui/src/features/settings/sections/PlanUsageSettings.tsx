@@ -13,6 +13,7 @@ import {
   formatUsdAmount,
   isCodeUsageFreeTier,
 } from "@posthog/core/billing/usageDisplay";
+import type { UsageOutput } from "@posthog/core/usage/schemas";
 import {
   Empty,
   EmptyDescription,
@@ -32,8 +33,7 @@ import { useTrackUsageViewed } from "@posthog/ui/features/usage/useTrackUsageVie
 import { track } from "@posthog/ui/shell/analytics";
 import { getBillingUrl } from "@posthog/ui/utils/urls";
 import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
-import type { UsageOutput } from "@posthog/core/usage/schemas";
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 export function PlanUsageSettings() {
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
@@ -329,7 +329,7 @@ function PersonalSpendDisclosure({ children }: { children: ReactNode }) {
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-(--gray-a2) focus-visible:outline-2 focus-visible:outline-(--accent-8)"
+        className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-(--gray-a2) focus-visible:outline-(--accent-8) focus-visible:outline-2"
       >
         <Flex direction="column" gap="1">
           <Text className="font-medium text-sm">Your spend</Text>
