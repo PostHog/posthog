@@ -4,9 +4,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { checkIsPendingCalculation, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { urls } from 'scenes/urls'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
@@ -348,7 +349,12 @@ describe('cohortEditLogic', () => {
             expect(retryButtons.length).toBeGreaterThan(0)
             const retryButton = retryButtons[0]
 
-            // Verify contact support link is shown as secondary option
+            // The banner must not dead-end: it links to the calculation history so the user can
+            // see the actual failure, alongside contacting support.
+            const historyLink = screen.getByText('calculation history')
+            expect(historyLink.closest('a')?.getAttribute('href')).toContain(
+                urls.cohortCalculationHistory(cohortId)
+            )
             expect(screen.getByText('contact support')).toBeInTheDocument()
 
             // Get the logic instance and verify clicking retry triggers submitCohort
@@ -491,6 +497,40 @@ describe('cohortEditLogic', () => {
                 })
             }
         )
+
+        // A retry the user just queued bumps `pending_version` but leaves `errors_calculating`
+        // from the prior failure in place. Without the retry-aware branch the queued attempt reads
+        // as "failed", so the error banner reappears the instant a poll finds is_calculating=false
+        // — the dead-end this fixes. The branch must not resurrect the perpetual-pending bug for a
+        // cohort where every attempt failed (no retry queued, or the retry itself errored again).
+        it.each([
+            {
+                name: 'queued retry, not yet failed again: in progress',
+                cohort: { version: 1, pending_version: 2, errors_calculating: 1 },
+                retryState: { baselineErrors: 1 },
+                expected: true,
+            },
+            {
+                name: 'queued retry that failed again (errors climbed): failed',
+                cohort: { version: 1, pending_version: 2, errors_calculating: 2 },
+                retryState: { baselineErrors: 1 },
+                expected: false,
+            },
+            {
+                name: 'stuck failure with no retry queued: failed',
+                cohort: { version: 1, pending_version: 5, errors_calculating: 3 },
+                retryState: null,
+                expected: false,
+            },
+            {
+                name: 'retry queued but version caught up: not pending',
+                cohort: { version: 2, pending_version: 2, errors_calculating: 0 },
+                retryState: { baselineErrors: 1 },
+                expected: false,
+            },
+        ])('checkIsPendingCalculation — $name', ({ cohort, retryState, expected }) => {
+            expect(checkIsPendingCalculation({ ...mockCohort, ...cohort } as any, retryState)).toBe(expected)
+        })
     })
 
     describe('criteria row type switching', () => {

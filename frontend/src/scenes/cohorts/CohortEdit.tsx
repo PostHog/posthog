@@ -505,20 +505,26 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         action={{
                                                             onClick: () => submitCohort(),
                                                             children: 'Retry',
+                                                            loading: cohortLoading,
+                                                            'data-attr': 'cohort-retry-calculation',
                                                         }}
                                                     >
                                                         <strong>Calculation failed:</strong>{' '}
                                                         {cohort.last_error_message ||
                                                             'Unable to calculate this cohort. Please check your matching criteria and try again.'}{' '}
-                                                        If it fails again,{' '}
+                                                        See the{' '}
+                                                        <Link to={urls.cohortCalculationHistory(cohort.id)}>
+                                                            calculation history
+                                                        </Link>{' '}
+                                                        for details, or{' '}
                                                         <Link
                                                             onClick={() =>
                                                                 openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')
                                                             }
                                                         >
                                                             contact support
-                                                        </Link>
-                                                        .
+                                                        </Link>{' '}
+                                                        if it keeps failing.
                                                     </LemonBanner>
                                                 ) : null}
                                             </div>
