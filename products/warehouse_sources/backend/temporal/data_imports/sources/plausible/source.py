@@ -66,7 +66,9 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
             name=SchemaExternalDataSourceType.PLAUSIBLE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Plausible",
-            caption="""Connect Plausible Analytics to pull your web analytics into the PostHog Data warehouse.
+            caption="""Connect Plausible Analytics to import your daily web analytics aggregates into the PostHog data warehouse.
+
+This imports daily totals (visitors, pageviews, sources, locations, devices, browsers, and goal conversions) as warehouse tables you can query in SQL. This data does not show up in web analytics, insights, or on the persons page. To bring your full Plausible history into those areas, follow the [Plausible migration guide](https://posthog.com/docs/migrate/plausible).
 
 Works with Plausible Cloud and self-hosted instances. Create an API key under **Account settings → API keys** with the `stats read` scope, then enter your site's domain (e.g. `example.com`). Leave the host blank for Plausible Cloud, or set it to your instance URL for self-hosted (e.g. `https://plausible.example.com`).""",
             iconPath="/static/services/plausible.png",

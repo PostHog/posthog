@@ -212,9 +212,11 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             keywords=["ga4", "ga"],
             label="Google Analytics",
             caption=(
-                "Connect a Google Analytics 4 property to sync daily report data (users, sessions, page views, "
-                "devices, locations, traffic sources, and events). Requires a Google account with read access "
-                "to the GA4 property."
+                "Connect a Google Analytics 4 property to import daily report data (users, sessions, page views, "
+                "devices, locations, traffic sources, and events) into the PostHog data warehouse. This imports "
+                "daily aggregates as warehouse tables you can query in SQL. This data does not show up in web "
+                "analytics, insights, or on the persons page. Requires a Google account with read access to the "
+                "GA4 property."
             ),
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google_analytics.png",

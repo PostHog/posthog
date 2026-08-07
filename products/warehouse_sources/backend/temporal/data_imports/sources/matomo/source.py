@@ -70,7 +70,9 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
             name=SchemaExternalDataSourceType.MATOMO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Matomo",
-            caption="""Connect your Matomo instance to pull your web analytics data into the PostHog Data warehouse.
+            caption="""Connect your Matomo instance to import your daily web analytics aggregates into the PostHog data warehouse.
+
+This imports daily aggregates as warehouse tables you can query in SQL. This data does not show up in web analytics, insights, or on the persons page.
 
 Works with Matomo Cloud and self-hosted instances. Enter your instance URL (e.g. `https://myorg.matomo.cloud`), the numeric site ID, and an API token created under Administration > Personal > Security > Auth tokens.""",
             iconPath="/static/services/matomo.png",
