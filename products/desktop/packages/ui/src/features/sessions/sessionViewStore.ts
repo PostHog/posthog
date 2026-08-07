@@ -16,6 +16,12 @@ interface SessionViewState {
    * resets to expanded on app restart.
    */
   queueCollapsedByTaskId: Record<string, boolean>;
+  /**
+   * Ephemeral per-task collapse of the artifact "Files" box in the chat
+   * thread, keyed by taskId. `true` = collapsed; absent/`false` = expanded
+   * (the default — the box never collapses on its own). Not persisted.
+   */
+  artifactFilesCollapsedByTaskId: Record<string, boolean>;
 }
 
 interface SessionViewActions {
@@ -25,6 +31,7 @@ interface SessionViewActions {
   setGroupOverride: (id: string, expanded: boolean) => void;
   clearGroupOverrides: () => void;
   setQueueCollapsed: (taskId: string, collapsed: boolean) => void;
+  setArtifactFilesCollapsed: (taskId: string, collapsed: boolean) => void;
 }
 
 type SessionViewStore = SessionViewState & { actions: SessionViewActions };
@@ -35,6 +42,7 @@ const useStore = create<SessionViewStore>((set) => ({
   showSearch: false,
   groupOverrides: {},
   queueCollapsedByTaskId: {},
+  artifactFilesCollapsedByTaskId: {},
   actions: {
     setShowRawLogs: (show) => set({ showRawLogs: show }),
     setSearchQuery: (query) => set({ searchQuery: query }),
@@ -60,6 +68,13 @@ const useStore = create<SessionViewStore>((set) => ({
           [taskId]: collapsed,
         },
       })),
+    setArtifactFilesCollapsed: (taskId, collapsed) =>
+      set((state) => ({
+        artifactFilesCollapsedByTaskId: {
+          ...state.artifactFilesCollapsedByTaskId,
+          [taskId]: collapsed,
+        },
+      })),
   },
 }));
 
@@ -69,4 +84,10 @@ export const useShowSearch = () => useStore((s) => s.showSearch);
 export const useGroupOverrides = () => useStore((s) => s.groupOverrides);
 export const useQueueCollapsed = (taskId: string) =>
   useStore((s) => s.queueCollapsedByTaskId[taskId] ?? false);
+export const useArtifactFilesCollapsed = (taskId: string | undefined) =>
+  useStore((s) =>
+    taskId === undefined
+      ? false
+      : (s.artifactFilesCollapsedByTaskId[taskId] ?? false),
+  );
 export const useSessionViewActions = () => useStore((s) => s.actions);

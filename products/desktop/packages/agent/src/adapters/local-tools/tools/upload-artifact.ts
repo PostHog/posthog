@@ -74,6 +74,7 @@ export const uploadArtifactTool = defineLocalTool({
           {
             name,
             type: "output",
+            source: "agent_output",
             size: fileStat.size,
             content_type: contentType,
           },
@@ -111,6 +112,7 @@ export const uploadArtifactTool = defineLocalTool({
             id: upload.id,
             name,
             type: "output",
+            source: "agent_output",
             storage_path: upload.storage_path,
             content_type: contentType,
           },

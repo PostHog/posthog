@@ -146,7 +146,7 @@ capabilities:
         docker_profiles: []
 
     nodejs_realtime_cohorts:
-        description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
+        description: 'Node.js Realtime Cohorts - cohort membership persistence'
         requires: [event_ingestion]
         docker_profiles: []
 
@@ -229,6 +229,11 @@ capabilities:
         description: 'Duckgres query server (DuckDB with Postgres wire protocol)'
         requires: [core_infra]
         docker_profiles: [duckgres]
+
+    desktop_app:
+        description: 'PostHog Desktop app (Electron) and its package watchers'
+        requires: [core_infra]
+        docker_profiles: []
 
 # Intents map to products/features developers work on
 intents:
@@ -363,6 +368,10 @@ intents:
                 agent_proxy,
             ]
 
+    tasks:
+        description: 'Tasks: agent task runs and orchestration'
+        capabilities: [event_ingestion, llm_gateway, celery_workers, celery_scheduler, temporal_workflows, agent_proxy]
+
     logs:
         description: 'Log aggregation and viewing'
         capabilities:
@@ -417,6 +426,10 @@ intents:
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'
         capabilities: [dagster_pipelines]
+
+    desktop:
+        description: 'PostHog Desktop app (Electron) with local task runs'
+        capabilities: [desktop_app, temporal_workflows, agent_proxy, llm_gateway]
 
 # Always-required processes regardless of intent
 # This is the core stack needed for any development

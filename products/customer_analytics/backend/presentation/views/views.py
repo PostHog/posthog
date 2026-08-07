@@ -898,34 +898,11 @@ class AccountViewSet(
                 ),
             ),
             OpenApiParameter(
-                name="csm",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=("Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id."),
-            ),
-            OpenApiParameter(
-                name="account_executive",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter by account executive. Use 'unassigned' or an integer user id.",
-            ),
-            OpenApiParameter(
-                name="account_owner",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter by account owner. Use 'unassigned' or an integer user id.",
-            ),
-            OpenApiParameter(
                 name="all_roles_unassigned",
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description=(
-                    "When true, returns only accounts where CSM, account executive, and account owner are all unset."
-                ),
+                description="When true, returns only accounts where no user actively holds any relationship.",
             ),
             OpenApiParameter(
                 name="ordering",
@@ -950,9 +927,6 @@ class AccountViewSet(
                 limit=limit,
                 search=request.query_params.get("search", "").strip() or None,
                 tags=tags,
-                csm=request.query_params.get("csm"),
-                account_executive=request.query_params.get("account_executive"),
-                account_owner=request.query_params.get("account_owner"),
                 all_roles_unassigned=request.query_params.get("all_roles_unassigned", "").lower() == "true",
                 ordering=ordering,
             ),

@@ -140,6 +140,11 @@ class TestSafeExposeChError:
             DataWarehouseTable()._safe_expose_ch_error(err)
         assert exc_info.value is err
 
+    def test_cancelled_query_gets_a_timeout_message_instead_of_storage_bucket_blame(self) -> None:
+        # code 394 QUERY_WAS_CANCELLED here means our own client timed out reading, not bad files.
+        with pytest.raises(Exception, match="took too long"):
+            DataWarehouseTable()._safe_expose_ch_error(ServerException("DB::Exception: Query was cancelled.", code=394))
+
     def test_delta_kernel_permission_error_gets_actionable_message(self) -> None:
         # Delta-format tables (the default for every warehouse_sources synced table) read via
         # ClickHouse's DeltaLake kernel, whose object_store errors use different wording than

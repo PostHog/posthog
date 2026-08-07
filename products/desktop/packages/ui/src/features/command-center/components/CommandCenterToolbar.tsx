@@ -58,6 +58,7 @@ const LAYOUT_OPTIONS: {
 }[] = [
   { value: "1x1", label: "1x1", cols: 1, rows: 1 },
   { value: "2x1", label: "2x1", cols: 2, rows: 1 },
+  { value: "3x1", label: "3x1", cols: 3, rows: 1 },
   { value: "1x2", label: "1x2", cols: 1, rows: 2 },
   { value: "2x2", label: "2x2", cols: 2, rows: 2 },
   { value: "3x2", label: "3x2", cols: 3, rows: 2 },

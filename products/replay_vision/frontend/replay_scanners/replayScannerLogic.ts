@@ -17,8 +17,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -51,7 +53,13 @@ import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { observationClipboardText } from '../utils/observation'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
-import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
+import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
+import {
+    SCANNER_EDITOR_STEPS,
+    firstErroredScannerStep,
+    scannerEditorSceneLogic,
+    scannerStepUrl,
+} from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -658,14 +666,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
             submit: async (scanner: ReplayScanner) => {
                 // Advance to the next visible step instead of persisting, when the footer asked to (intent
-                // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step. The step
-                // order and self-driving visibility live in the editor scene, so read visibleSteps from there;
-                // findMounted keeps this usable in isolation (tests), falling back to the full order.
+                // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step.
                 const steps = scannerEditorSceneLogic.findMounted()?.values.visibleSteps ?? SCANNER_EDITOR_STEPS
-                const currentStep = steps.find((step) =>
-                    router.values.location.pathname.endsWith(scannerStepUrl(step, props.id))
-                )
-                const nextStep = currentStep ? steps[steps.indexOf(currentStep) + 1] : undefined
+                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
+                const nextStep = steps[steps.indexOf(currentStep) + 1]
                 if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
                     actions.setSubmitIntent('save')
                     router.actions.push(scannerStepUrl(nextStep, props.id))
@@ -1131,18 +1135,55 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservations(background)
             actions.loadObservationStats()
         }
+        const persistDraft = (): void => {
+            if (props.id !== 'new') {
+                return
+            }
+            const teamId = teamLogic.findMounted()?.values.currentTeamId
+            if (!teamId || !values.scanner || !values.originalScanner) {
+                return
+            }
+            if (objectsEqual(values.scanner, values.originalScanner)) {
+                return
+            }
+            writeScannerDraft(teamId, values.scanner)
+        }
         return {
+            // kea-forms' exact rejection for failed client-side validation. API failures toast in submit's catch.
+            submitScannerFailure: async ({ error }) => {
+                if (error?.message !== 'Validation Failed') {
+                    return
+                }
+                const erroredStep = firstErroredScannerStep(values.scannerValidationErrors)
+                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
+                if (erroredStep && erroredStep !== currentStep) {
+                    router.actions.push(scannerStepUrl(erroredStep, props.id))
+                }
+                // Yield so the step change renders before scrollToFormError looks for `.Field--error`.
+                await Promise.resolve()
+                scrollToFormError({
+                    fallbackErrorMessage: 'Some scanner settings are invalid. Check each step for errors.',
+                })
+            },
+
             loadScanner: async () => {
                 if (props.id === 'new') {
-                    const templateKey = currentTemplateKey()
-                    if (templateKey && !findScannerTemplate(templateKey)) {
-                        // Strip an unknown template key so the URL matches the from-scratch flow the user actually gets.
+                    const teamId = teamLogic.findMounted()?.values.currentTeamId
+                    const draft = teamId ? readScannerDraft(teamId) : null
+                    const urlTemplateKey = currentTemplateKey()
+                    // A draft outranks the template param (it carries its own type and config), and an
+                    // unknown template falls back to the from-scratch flow. Both present as custom, so
+                    // strip the param so the URL matches what the user actually gets.
+                    const templateKey =
+                        !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
+                    if (urlTemplateKey && !templateKey) {
                         const { template: _drop, ...rest } = router.values.searchParams
                         router.actions.replace(router.values.location.pathname, rest)
-                        actions.loadScannerSuccess(newScanner(null))
-                        return
                     }
                     actions.loadScannerSuccess(newScanner(templateKey))
+                    if (draft) {
+                        actions.setScannerValues(draft)
+                    }
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -1211,12 +1252,27 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // kea-forms fires setScannerValue(s) per field change — debounced so drags don't fire a request per tick.
-            setScannerValue: () => actions.requestScannerEstimate(),
-            setScannerValues: () => actions.requestScannerEstimate(),
+            setScannerValue: () => {
+                actions.requestScannerEstimate()
+                persistDraft()
+            },
+            setScannerValues: () => {
+                actions.requestScannerEstimate()
+                persistDraft()
+            },
+            // resetScanner is every "start fresh" moment: template pick, type switch, discard on leave.
+            resetScanner: () => {
+                if (props.id === 'new') {
+                    clearScannerDraft()
+                }
+            },
             scannerSaved: () => {
                 actions.requestScannerEstimate()
                 // Saving recomputes the persisted estimate, which shifts the org-wide fleet sum.
                 refreshVisionQuota()
+                if (props.id === 'new') {
+                    clearScannerDraft()
+                }
             },
 
             requestScannerEstimate: () => {
@@ -1574,12 +1630,13 @@ const TABLE_URL_PARAM_KEYS = [
 /** Observation-filter params the scanner page reads from the URL; links into the Observations tab build from these keys. */
 export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)[number], string>>
 
-/** The three step URLs of a scanner's editor wizard. */
+/** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
         urls.replayVisionScannerTemplate(scannerId),
         urls.replayVisionScannerConfigure(scannerId),
         urls.replayVisionScannerTriggers(scannerId),
+        urls.replayVisionScannerSelfDriving(scannerId),
     ]
 }
 
@@ -1600,11 +1657,13 @@ export function shouldGuardScannerNavigation(params: {
     if (!hasUnsavedChanges || isSubmitting) {
         return false
     }
+    // The router's stored pathname carries the `/project/:id` prefix, while `urls.*` never do,
+    // so both sides must be normalized before comparing or the guard never engages.
     const editorPaths = scannerEditorPaths(scannerId)
-    if (!editorPaths.includes(currentPathname)) {
+    if (!editorPaths.includes(removeProjectIdIfPresent(currentPathname))) {
         return false
     }
-    if (nextPathname && editorPaths.includes(nextPathname)) {
+    if (nextPathname && editorPaths.includes(removeProjectIdIfPresent(nextPathname))) {
         return false
     }
     return true

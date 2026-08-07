@@ -67,7 +67,13 @@ describe("uploadArtifactTool", () => {
 
     expect(result.isError).toBeUndefined();
     expect(prepareTaskArtifactUploads).toHaveBeenCalledWith("task-1", "run-1", [
-      { name: "report.csv", type: "output", size: 7, content_type: "text/csv" },
+      {
+        name: "report.csv",
+        type: "output",
+        source: "agent_output",
+        size: 7,
+        content_type: "text/csv",
+      },
     ]);
     expect(fetch).toHaveBeenCalledWith(
       "https://storage.example/upload",
@@ -80,6 +86,7 @@ describe("uploadArtifactTool", () => {
         expect.objectContaining({
           id: "artifact-1",
           type: "output",
+          source: "agent_output",
           storage_path: "tasks/artifacts/report.csv",
         }),
       ],

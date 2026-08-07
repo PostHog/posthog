@@ -99,7 +99,8 @@ export class HogWatcherService {
         results: CyclotronJobInvocationResult[]
         promise: Promise<void>
         timeout: NodeJS.Timeout
-        complete: () => void
+        resolve: () => void
+        reject: (error: unknown) => void
     } | null = null
 
     private redisReader: RedisV2
@@ -466,15 +467,27 @@ export class HogWatcherService {
 
         // Split reads (state/lock) to the reader and writes (token bucket) to the writer.
         // These can run concurrently since the reads don't depend on the write results.
-        // Uses mget to batch all state keys and lock keys into 2 commands instead of 2N individual gets.
         const stateKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE}/${fc.functionId}`)
         const lockKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE_LOCK}/${fc.functionId}`)
 
-        const readStates = (pool: RedisV2) =>
-            pool.useClient({ name: 'readStatesForObserve' }, async (client) => {
-                const [states, locks] = await Promise.all([client.mget(...stateKeys), client.mget(...lockKeys)])
-                return { states, locks }
+        const readStates = async (pool: RedisV2) => {
+            // Single-key pipeline commands avoid CROSSSLOT errors when function IDs map to different cluster slots.
+            const results = await pool.usePipeline({ name: 'readStatesForObserve' }, (pipeline) => {
+                stateKeys.forEach((key) => pipeline.get(key))
+                lockKeys.forEach((key) => pipeline.get(key))
             })
+            if (!results) {
+                return null
+            }
+            const commandError = results.find(([error]) => error)?.[0]
+            if (commandError) {
+                throw commandError
+            }
+            return {
+                states: stateKeys.map((_, index) => results[index]?.[1]),
+                locks: lockKeys.map((_, index) => results[stateKeys.length + index]?.[1]),
+            }
+        }
 
         const requests = functionCostEntries.map((fc) => ({ id: fc.functionId, cost: fc.cost }))
         const [stateRes, rateLimitRes] = await Promise.all([
@@ -525,36 +538,43 @@ export class HogWatcherService {
         // We need to make sure that we only process the results once
         if (!this.queuedResults) {
             let resolvePromise: () => void
-            const promise = new Promise<void>((resolve) => {
+            let rejectPromise: (error: unknown) => void
+            const promise = new Promise<void>((resolve, reject) => {
                 resolvePromise = resolve
+                rejectPromise = reject
             })
 
             this.queuedResults = {
                 results: [],
                 promise,
-                complete: resolvePromise!,
-                timeout: setTimeout(() => this.flushBufferedResults(), this.config.observeResultsBufferTimeMs),
+                resolve: resolvePromise!,
+                reject: rejectPromise!,
+                timeout: setTimeout(() => void this.flushBufferedResults(), this.config.observeResultsBufferTimeMs),
             }
         }
 
         this.queuedResults.results.push(result)
+        const bufferedPromise = this.queuedResults.promise
 
         if (this.queuedResults.results.length >= this.config.observeResultsBufferMaxResults) {
-            await this.flushBufferedResults()
-        } else {
-            await this.queuedResults.promise
+            void this.flushBufferedResults()
         }
+        await bufferedPromise
     }
 
-    private async flushBufferedResults() {
+    private async flushBufferedResults(): Promise<void> {
         if (!this.queuedResults) {
             return
         }
 
-        const { results, timeout, complete } = this.queuedResults
+        const { results, timeout, resolve, reject } = this.queuedResults
         clearTimeout(timeout)
         this.queuedResults = null
-        await this.observeResults(results)
-        complete()
+        try {
+            await this.observeResults(results)
+            resolve()
+        } catch (error) {
+            reject(error)
+        }
     }
 }

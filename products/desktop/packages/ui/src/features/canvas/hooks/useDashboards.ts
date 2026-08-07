@@ -1,10 +1,12 @@
+import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
+  CanvasSource,
+  CanvasVersion,
   DashboardRecord,
-  DashboardSummary,
 } from "@posthog/core/canvas/dashboardSchemas";
-import type { FreeformVersion } from "@posthog/core/canvas/freeformSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useDashboardEditStore } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
@@ -19,23 +21,19 @@ import {
 
 const log = logger.scope("dashboards");
 
-// Default name for a canvas created without one. Also the marker we use to
-// detect a still-unnamed canvas worth auto-naming from its generation prompt.
-export const UNTITLED_CANVAS_NAME = "Untitled canvas";
+// The naming helpers moved to @posthog/core (CanvasApplicationService uses them
+// for auto-naming); re-exported here for the UI surfaces that import them.
+export {
+  isPlaceholderCanvasName,
+  UNTITLED_CANVAS_NAME,
+} from "@posthog/core/canvas/canvasNaming";
 
-// True when a canvas name is a placeholder (never user-chosen), so auto-naming
-// from a generation prompt is safe and won't clobber a real title.
-export function isPlaceholderCanvasName(name: string): boolean {
-  const trimmed = name.trim();
-  return trimmed === UNTITLED_CANVAS_NAME || trimmed === "Untitled dashboard";
-}
-
-/** Saved canvases for a channel (file-backed freeform React apps). */
+/** Saved canvases for a channel. */
 export function useDashboards(
   channelId: string | undefined,
   options?: { poll?: boolean },
 ): {
-  dashboards: DashboardSummary[];
+  dashboards: DashboardRecord[];
   isLoading: boolean;
 } {
   const trpc = useHostTRPC();
@@ -83,7 +81,7 @@ export function usePrefetchDashboards(): (channelId: string) => void {
   );
 }
 
-/** A single saved canvas record (code + metadata). */
+/** A single saved canvas record (metadata + lifecycle pointers). */
 export function useDashboard(id: string | undefined): {
   dashboard: DashboardRecord | null | undefined;
   isLoading: boolean;
@@ -99,7 +97,40 @@ export function useDashboard(id: string | undefined): {
   return { dashboard: data, isLoading, isFetching };
 }
 
-/** Create + fork + save mutations, invalidating the list + record. */
+/** A canvas's source project — the head, or a historical version. */
+export function useCanvasSource(input: {
+  id: string | undefined;
+  versionId?: string;
+}): {
+  source: CanvasSource | undefined;
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.source.queryOptions(
+      { id: input.id ?? "", versionId: input.versionId },
+      { enabled: !!input.id },
+    ),
+  );
+  return { source: data, isLoading };
+}
+
+/** A canvas's source-version history, newest first (metadata only). */
+export function useCanvasVersions(id: string | undefined): {
+  versions: CanvasVersion[];
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.versions.queryOptions(
+      { id: id ?? "" },
+      { enabled: !!id, staleTime: 5_000 },
+    ),
+  );
+  return { versions: data ?? [], isLoading };
+}
+
+/** Create + delete + metadata mutations, invalidating the list + record. */
 export function useDashboardMutations() {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -115,8 +146,18 @@ export function useDashboardMutations() {
   const remove = useMutation(
     trpc.dashboards.delete.mutationOptions({ onSuccess: invalidate }),
   );
-  const saveFreeform = useMutation(
-    trpc.dashboards.saveFreeform.mutationOptions({ onSuccess: invalidate }),
+  const saveContext = useMutation(
+    trpc.dashboards.saveContext.mutationOptions({ onSuccess: invalidate }),
+  );
+  const revertToVersion = useMutation(
+    trpc.dashboards.revertToVersion.mutationOptions({
+      // A revert moves the head and queues a rebuild; refresh the reverted
+      // canvas's record, build lifecycle, version history, and source so
+      // viewers converge — scoped to that canvas, not every open one.
+      onSuccess: (_data, variables) => {
+        void invalidateCanvasLifecycle(queryClient, trpc, variables.id);
+      },
+    }),
   );
   const setGenerationTask = useMutation(
     trpc.dashboards.setGenerationTask.mutationOptions({
@@ -129,16 +170,6 @@ export function useDashboardMutations() {
   const setPinned = useMutation(
     trpc.dashboards.setPinned.mutationOptions({ onSuccess: invalidate }),
   );
-  const ensureHome = useMutation(
-    trpc.dashboards.ensureHomeCanvas.mutationOptions({
-      onSuccess: () => {
-        invalidate();
-        // The folder now carries homeCanvasId; refresh the channel list so the
-        // sidebar/name-click can route straight to it next time.
-        void queryClient.invalidateQueries({ queryKey: ["canvas-channels"] });
-      },
-    }),
-  );
 
   return {
     // Refresh the canvas queries after a mutation that didn't go through this
@@ -147,88 +178,33 @@ export function useDashboardMutations() {
     createDashboard: (channelId: string, name: string, templateId?: string) =>
       create.mutateAsync({ channelId, name, templateId }),
     deleteDashboard: (id: string) => remove.mutateAsync({ id }),
-    // Record (or clear) the task generating this canvas. Shared via the row's
-    // meta so every client polling the canvas sees the in-flight generation.
+    // Persist the author-written context (markdown) passed to generation tasks.
+    saveContext: (id: string, context: string) =>
+      saveContext.mutateAsync({ id, context }),
+    // Move the canvas's head back to an existing version (and rebuild it).
+    revertToVersion: (
+      id: string,
+      versionId: string,
+      expectedCurrentVersionId: string | null,
+    ) =>
+      revertToVersion.mutateAsync({ id, versionId, expectedCurrentVersionId }),
+    // Record (or clear) the task generating this canvas. Shared on the canvas
+    // row so every client polling the canvas sees the in-flight generation.
     setGenerationTask: (id: string, taskId: string | null) =>
       setGenerationTask.mutateAsync({ id, taskId }),
     // Rename a canvas (changes its display title). Used to auto-name a freshly
     // created canvas from its generation prompt.
     renameDashboard: (id: string, name: string) =>
       rename.mutateAsync({ id, name }),
-    // Pin (or unpin) a canvas to its channel. Shared via the row's meta so the
-    // pin shows in the channel's Pinned menu for every member.
+    // Pin (or unpin) a canvas to its channel (shared across users), so the pin
+    // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
-    // Ensure a channel has its home canvas (creating + seeding it if absent).
-    // Idempotent server-side; returns the home canvas record.
-    ensureHomeCanvas: (channelId: string) =>
-      ensureHome.mutateAsync({ channelId }),
-    // Explicitly persist a freeform canvas's current code + history (autosave
-    // already runs each turn; this is the manual Save affordance).
-    saveFreeformDashboard: (
-      id: string,
-      code: string,
-      versions: FreeformVersion[],
-      currentVersionId?: string,
-    ) => saveFreeform.mutateAsync({ id, code, versions, currentVersionId }),
-    // Fork a freeform canvas: create a fresh freeform record, then copy its
-    // source + version history onto it. Returns the new record (to navigate to).
-    forkFreeform: async (
-      channelId: string,
-      name: string,
-      code: string,
-      versions: FreeformVersion[],
-      currentVersionId?: string,
-    ): Promise<DashboardRecord> => {
-      const record = await create.mutateAsync({
-        channelId,
-        name,
-        templateId: "freeform",
-      });
-      await saveFreeform.mutateAsync({
-        id: record.id,
-        code,
-        versions,
-        currentVersionId,
-      });
-      return record;
-    },
-    isSavingFreeform: saveFreeform.isPending,
     isCreating: create.isPending,
     isDeleting: remove.isPending,
+    isSavingContext: saveContext.isPending,
+    isReverting: revertToVersion.isPending,
   };
-}
-
-/**
- * Open a channel's home canvas in the main content pane. Uses the channel's
- * known homeCanvasId when present; otherwise creates one on the fly (backfill
- * for channels made before home canvases existed) before navigating.
- */
-export function useOpenHomeCanvas(): (channel: {
-  id: string;
-  homeCanvasId?: string;
-}) => Promise<void> {
-  const navigate = useNavigate();
-  const { ensureHomeCanvas } = useDashboardMutations();
-
-  return useCallback(
-    async (channel) => {
-      try {
-        const dashboardId =
-          channel.homeCanvasId ?? (await ensureHomeCanvas(channel.id)).id;
-        await navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
-          params: { channelId: channel.id, dashboardId },
-        });
-      } catch (error) {
-        log.error("Failed to open home canvas", { error });
-        toast.error("Couldn't open channel home", {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      }
-    },
-    [navigate, ensureHomeCanvas],
-  );
 }
 
 /**

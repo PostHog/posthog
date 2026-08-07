@@ -12,7 +12,7 @@ import { forwardRef, useState } from "react";
 // user describes what they want and the agent builds + publishes the canvas. No
 // repo is picked up front — the agent attaches one lazily only if it needs it.
 // Used both for the first build (empty canvas) and for follow-up edits
-// (currentCode passed in).
+// (isEdit passed in).
 //
 // Shares the task composer's editor (PromptInput) so it matches it exactly — @
 // for files, / for skills, ↑↓ for history — but renders a blank toolbar for now:
@@ -27,7 +27,10 @@ export const FreeformGenerateBar = forwardRef<
     channelName: string;
     name: string;
     templateId?: string;
-    currentCode?: string;
+    /** Whether the canvas already has published source. The agent re-reads the
+     * live source through the canvas tools, so this is purely the edit signal
+     * (starter toggle hidden, generation prompted as a follow-up edit). */
+    isEdit?: boolean;
     // Keys the editor's draft/command state; distinct per canvas.
     sessionId: string;
     onStarted?: (taskId: string) => void;
@@ -39,7 +42,7 @@ export const FreeformGenerateBar = forwardRef<
     channelName,
     name,
     templateId,
-    currentCode,
+    isEdit = false,
     sessionId,
     onStarted,
   },
@@ -54,7 +57,6 @@ export const FreeformGenerateBar = forwardRef<
   // default (faster, more consistent than authoring from scratch). Uncheck to
   // opt out and have the agent build from a blank canvas. Only meaningful on an
   // empty canvas, so the toggle is hidden in edit mode.
-  const isEdit = !!currentCode?.trim();
   const [useStarter, setUseStarter] = useState(true);
 
   // Generation always runs in the cloud, except the dev-only picker below lets a
@@ -69,7 +71,7 @@ export const FreeformGenerateBar = forwardRef<
       name,
       templateId,
       instruction,
-      currentCode,
+      isEdit,
       useStarter: !isEdit && useStarter,
       workspaceMode,
     });

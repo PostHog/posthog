@@ -75,15 +75,36 @@ class TestSystemPromptFormat(SimpleTestCase):
         self.assertIn("get_top_outcome_reasons", formatted)
         self.assertIn("Inspect grouped reasons", formatted)
 
-    def test_trace_prompt_uses_only_trace_detail_workflow(self):
-        formatted = self._build_prompt(evaluation_target="trace")
+    # A prompt that names another target's detail tools sends the agent after IDs its
+    # allowlist will reject, so every target's prompt has to describe only its own workflow.
+    @parameterized.expand(
+        [
+            (
+                "trace",
+                ["sample_trace_details", "get_trace_detail", "add_citation(trace_id=trace_id"],
+                ["sample_generation_details", "sample_session_details"],
+            ),
+            (
+                "generation",
+                ["sample_generation_details", "get_generation_detail", "add_citation(generation_id=generation_id"],
+                ["sample_trace_details", "sample_session_details"],
+            ),
+            (
+                "session",
+                ["sample_session_details", "get_session_detail", "add_citation(session_id=session_id"],
+                ["sample_generation_details", "sample_trace_details"],
+            ),
+        ]
+    )
+    def test_prompt_describes_only_its_own_target_workflow(self, target, expected, unexpected):
+        formatted = self._build_prompt(evaluation_target=target)
 
-        self.assertIn("Evaluation target: trace", formatted)
-        self.assertIn("sample_trace_details", formatted)
-        self.assertIn("get_trace_detail", formatted)
-        self.assertIn('generation_id=""', formatted)
-        self.assertNotIn("sample_generation_details", formatted)
-        self.assertIn("trace satisfied the configured criteria", formatted)
+        self.assertIn(f"Evaluation target: {target}", formatted)
+        self.assertIn(f"{target} satisfied the configured criteria", formatted)
+        for fragment in expected:
+            self.assertIn(fragment, formatted)
+        for fragment in unexpected:
+            self.assertNotIn(fragment, formatted)
 
 
 class TestComputeMetrics(SimpleTestCase):

@@ -76,6 +76,8 @@ class LLMProvider(StrEnum):
 
 
 class ReasoningEffort(StrEnum):
+    OFF = "off"
+    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"

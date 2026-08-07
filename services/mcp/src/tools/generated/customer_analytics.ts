@@ -202,7 +202,7 @@ const accountRelationshipDefinitionsRetrieve = (): ToolBase<
 
 const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
-        'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
+        'Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
     ),
     tags: AccountsCreateBody.shape['tags'].describe(
         'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
@@ -315,10 +315,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
-                account_executive: params.account_executive,
-                account_owner: params.account_owner,
                 all_roles_unassigned: params.all_roles_unassigned,
-                csm: params.csm,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -418,7 +415,7 @@ const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_i
     .extend(AccountsPartialUpdateBody.shape)
     .extend({
         properties: AccountsPartialUpdateBody.shape['properties'].describe(
-            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner` (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).'
+            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems). To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.'
         ),
         tags: AccountsPartialUpdateBody.shape['tags'].describe(
             'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'

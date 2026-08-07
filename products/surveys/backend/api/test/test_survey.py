@@ -457,6 +457,33 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
 
+    @parameterized.expand(
+        [
+            ("running", {"start_date": datetime(2026, 1, 1, tzinfo=UTC)}, True),
+            ("draft", {}, False),
+            (
+                "stopped",
+                {"start_date": datetime(2026, 1, 1, tzinfo=UTC), "end_date": datetime(2026, 2, 1, tzinfo=UTC)},
+                False,
+            ),
+            ("archived", {"start_date": datetime(2026, 1, 1, tzinfo=UTC), "archived": True}, False),
+        ]
+    )
+    def test_sdk_payload_only_includes_running_surveys(
+        self, _name: str, lifecycle_fields: dict[str, Any], expected_in_payload: bool
+    ) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Lifecycle survey",
+            type="popover",
+            questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+            **lifecycle_fields,
+        )
+
+        payload_ids = {str(item["id"]) for item in get_surveys_response(self.team)["surveys"]}
+
+        assert (str(survey.id) in payload_ids) is expected_in_payload
+
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
         self.team.save(update_fields=["survey_config"])
@@ -465,6 +492,7 @@ class TestSurvey(APIBaseTest):
             name="Q-level legacy",
             type="popover",
             base_language="en",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
             questions=[
                 {
                     "id": "q1",

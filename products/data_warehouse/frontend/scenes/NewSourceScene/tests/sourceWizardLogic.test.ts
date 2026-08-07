@@ -11,6 +11,7 @@ import {
     getDatabaseSchemaPayload,
     getErrorsForFields,
     mergeRestoredSourceFormValues,
+    resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
 } from '../sourceWizardLogic'
@@ -45,6 +46,34 @@ describe('sourceWizardLogic', () => {
         }
     })
 
+    it('advances from the webhook step to the progress step without also completing the wizard', () => {
+        // Regression test: onSubmit used to read `values.currentStep` again after onNext()
+        // advanced it, so a single click on step 4 (webhook) fell through into the step-5
+        // completion branch in the same call, skipping the progress step entirely.
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const onComplete = jest.fn()
+        const logic = sourceWizardLogic({ availableSources: { Postgres: postgresSource }, onComplete })
+        const unmount = logic.mount()
+
+        try {
+            logic.actions.selectConnector(postgresSource)
+            logic.actions.setStep(4)
+            logic.actions.setWebhookResult({ success: true, webhook_url: 'https://example.com/webhook' })
+
+            logic.actions.onSubmit()
+
+            expect(logic.values.currentStep).toEqual(5)
+            expect(onComplete).not.toHaveBeenCalled()
+        } finally {
+            unmount()
+        }
+    })
+
     it('does not hydrate the same source URL again after the wizard has started', () => {
         const postgresSource = {
             name: 'Postgres',
@@ -56,6 +85,27 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
+    describe('resolveConnectErrorMessage', () => {
+        it('guides toward ad blockers when a request never reaches the server', () => {
+            // A thrown fetch has no HTTP status; without this branch the user only sees "Failed to fetch".
+            const message = resolveConnectErrorMessage({ message: 'Failed to fetch', status: undefined })
+            expect(message).toContain('ad blocker')
+            expect(message).not.toEqual('Failed to fetch')
+        })
+
+        it('prefers an API-provided message over the network hint', () => {
+            expect(resolveConnectErrorMessage({ data: { message: 'Invalid credentials' }, status: 400 })).toEqual(
+                'Invalid credentials'
+            )
+        })
+
+        it('never returns undefined for a 4xx with no message body', () => {
+            const message = resolveConnectErrorMessage({ status: 400 })
+            expect(message).toBeTruthy()
+            expect(message).not.toEqual('undefined')
+        })
     })
 
     describe('getDatabaseSchemaPayload', () => {

@@ -37,16 +37,16 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
     const showDaysOfWeekExclusions = supportsDaysOfWeek && !smoothingActive
 
-    // Enabling smoothing hides the control, so clear daysOfWeek on that transition (never on
-    // mount): the backend rejects the combination and there'd be no UI left to remove it
+    // Hiding the control for any reason (smoothing turned on, or the insight changed to an
+    // unsupported kind) must clear daysOfWeek too, or it lingers with no UI left to remove it
     const prevShowDaysOfWeekExclusions = useRef(showDaysOfWeekExclusions)
     useEffect(() => {
         const wasShown = prevShowDaysOfWeekExclusions.current
         prevShowDaysOfWeekExclusions.current = showDaysOfWeekExclusions
-        if (wasShown && !showDaysOfWeekExclusions && smoothingActive && dateRange?.daysOfWeek?.length) {
+        if (wasShown && !showDaysOfWeekExclusions && dateRange?.daysOfWeek?.length) {
             updateQuerySource(computeDaysOfWeekUpdate([], dateRange))
         }
-    }, [showDaysOfWeekExclusions, smoothingActive, dateRange, updateQuerySource])
+    }, [showDaysOfWeekExclusions, dateRange, updateQuerySource])
 
     const exclusions: DateFilterExclusions = {
         days: showDaysOfWeekExclusions ? excludedDaysOfWeek.map(String) : [],

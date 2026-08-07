@@ -13,6 +13,7 @@ import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-ge
 import { FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
+import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
@@ -24,6 +25,7 @@ type ExposureCriteriaModalProps = {
 
 export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
     const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
+    const { resolvedExposureEvent } = useValues(experimentLogic)
     const { closeExposureCriteriaModal, setExposureCriteria } = useActions(exposureCriteriaModalLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -69,7 +71,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     title="Default"
                     description={
                         <>
-                            When a <LemonTag>{EXPOSURE_DEFAULT_EVENT}</LemonTag> event is recorded, a user is considered{' '}
+                            When a <LemonTag>{resolvedExposureEvent}</LemonTag> event is recorded, a user is considered{' '}
                             <strong>exposed</strong> to the experiment and included in the analysis.
                         </>
                     }
@@ -85,7 +87,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     title="Custom"
                     description={
                         <>
-                            If you can't rely on the <LemonTag>{EXPOSURE_DEFAULT_EVENT}</LemonTag> event, you can select
+                            If you can't rely on the <LemonTag>{resolvedExposureEvent}</LemonTag> event, you can select
                             a custom event to signal that users reached the part of your app where the experiment runs.
                             You can also filter out users you would like to exclude from the analysis.
                         </>

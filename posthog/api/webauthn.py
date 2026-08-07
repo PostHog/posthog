@@ -21,6 +21,7 @@ from posthog.api.authentication import axes_locked_out, is_email_verified_for_lo
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -352,6 +353,13 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             # Check SSO enforcement against the verified user
             if sso_enforcement_response := self._check_sso_enforcement(verified_user):
                 return sso_enforcement_response
+
+            # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+            if not resolve_login_organization(verified_user):
+                return Response(
+                    {"error": VERIFIED_DOMAIN_REQUIRED_ERROR},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             if not is_email_verified_for_login(verified_user):
                 return Response(

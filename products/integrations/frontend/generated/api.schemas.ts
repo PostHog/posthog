@@ -25,6 +25,7 @@ export const OrganizationIntegrationKindEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -37,6 +38,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -151,6 +153,7 @@ export interface RoleLookupResponseApi {
 /**
  * * `anthropic` - Anthropic
  * * `apns` - Apple Push
+ * * `aws-redshift` - Aws Redshift
  * * `aws-s3` - Aws S3
  * * `azure-blob` - Azure Blob
  * * `bing-ads` - Bing Ads
@@ -198,6 +201,7 @@ export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeo
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
@@ -458,6 +462,7 @@ export interface IntegrationAccessRequestApi {
      *
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
@@ -512,6 +517,53 @@ export interface IntegrationAccessRequestResponseApi {
     success: boolean
 }
 
+/**
+ * Query parameters to send to the target.
+ */
+export type PostHogConnectionForwardApiQuery = { [key: string]: string }
+
+/**
+ * * `GET` - GET
+ * * `POST` - POST
+ * * `PUT` - PUT
+ * * `PATCH` - PATCH
+ * * `DELETE` - DELETE
+ */
+export type PostHogConnectionForwardMethodEnumApi =
+    (typeof PostHogConnectionForwardMethodEnumApi)[keyof typeof PostHogConnectionForwardMethodEnumApi]
+
+export const PostHogConnectionForwardMethodEnumApi = {
+    Get: 'GET',
+    Post: 'POST',
+    Put: 'PUT',
+    Patch: 'PATCH',
+    Delete: 'DELETE',
+} as const
+
+export interface PostHogConnectionForwardApi {
+    /** HTTP method to use against the target project's API.
+     *
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE */
+    method: PostHogConnectionForwardMethodEnumApi
+    /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+    path: string
+    /** Query parameters to send to the target. */
+    query?: PostHogConnectionForwardApiQuery
+    /** JSON request body for write methods. */
+    data?: unknown
+}
+
+export interface PostHogConnectionForwardResponseApi {
+    /** HTTP status the target project returned. */
+    status: number
+    /** The target project's response body, passed through. */
+    data: unknown
+}
+
 export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -550,6 +602,7 @@ export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
@@ -608,6 +661,7 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',

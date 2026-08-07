@@ -5248,6 +5248,44 @@ Tail paragraph`),
         expect(window.getSelection()?.toString()).not.toContain('Tail paragraph')
     })
 
+    it('leaves Cmd+A alone inside a component code editor', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                // Stands in for the Monaco editor of an SQLV2 or PythonV2 cell. With EditContext on,
+                // Monaco takes focus on a plain div rather than a hidden textarea, so the notebook can
+                // only tell it apart by the `monaco-editor` container.
+                ViewComponent: () =>
+                    createElement(
+                        'div',
+                        { className: 'monaco-editor' },
+                        createElement('div', { className: 'native-edit-context', tabIndex: 0 })
+                    ),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Before component
+
+<Embed />
+
+After component`),
+                registry,
+            })
+        )
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+        const editorInputHost = container.querySelector('.native-edit-context') as HTMLElement
+        window.getSelection()?.removeAllRanges()
+
+        editorInputHost.focus()
+        fireSelectAllShortcut(editorInputHost)
+
+        expect(window.getSelection()?.toString()).toEqual('')
+        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(false)
+    })
+
     it('selects text and components with Cmd+A from a focused component', () => {
         const onChange = jest.fn()
         const registry = createMarkdownNotebookRegistry([

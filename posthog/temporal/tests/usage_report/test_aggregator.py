@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_sandbox_compute_patch_defaults,
     batched,
     build_manifest,
     filter_org_reports,
@@ -152,6 +153,23 @@ def test_load_all_data_multi_output_missing_source_key_yields_empty() -> None:
 
     assert all_data["teams_with_web_events_count_in_period"] == {1: 1}
     assert all_data["teams_with_ruby_events_count_in_period"] == {}
+
+
+def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_sandbox_compute_patch_defaults(all_data, [])
+
+    assert all_data["teams_with_sandbox_compute_credits_used_in_period"] == {}
+    assert all_data["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"] == {}
+    assert all_data["teams_with_sandbox_compute_memory_mib_seconds_in_period"] == {}
+
+
+def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    results = [RunQueryToS3Result(query_name="sandbox_compute_usage", s3_key="unused", duration_ms=1)]
+    add_pre_sandbox_compute_patch_defaults(all_data, results)
+
+    assert all_data == {}
 
 
 # ---- iter_chunk_lines ----------------------------------------------------

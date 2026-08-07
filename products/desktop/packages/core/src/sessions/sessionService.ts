@@ -9,6 +9,10 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import type {
+  CreateResourceCommentRequest,
+  ResourceComment,
+} from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
   type Adapter,
@@ -49,6 +53,7 @@ import {
   isTerminalStatus,
   type Task,
 } from "@posthog/shared/domain-types";
+import type { CommentTarget } from "../comments/anchors";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -87,6 +92,7 @@ import {
   formatPermissionAnswerPrompt,
   type PermissionSelectionPlan,
   planPermissionResponse,
+  resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
 import {
   convertStoredEntriesToEvents,
@@ -6504,7 +6510,11 @@ export class SessionService {
     };
   }
 
-  async handoffToLocal(taskId: string, repoPath: string): Promise<void> {
+  async handoffToLocal(
+    taskId: string,
+    repoPath: string,
+    repositoryPaths?: Record<string, string>,
+  ): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) {
       this.d.log.warn("No session found for handoff", { taskId });
@@ -6518,20 +6528,31 @@ export class SessionService {
     this.d.store.updateSession(runId, { handoffInProgress: true });
 
     try {
-      const preflight = await this.runHandoffPreflight(
-        taskId,
-        runId,
-        repoPath,
-        auth,
-      );
+      const paths = [...new Set(Object.values(repositoryPaths ?? {}))];
+      if (!paths.includes(repoPath)) paths.unshift(repoPath);
+      let localGitState:
+        | Awaited<
+            ReturnType<typeof this.d.trpc.handoff.preflight.query>
+          >["localGitState"]
+        | undefined;
+      for (const path of paths) {
+        const preflight = await this.runHandoffPreflight(
+          taskId,
+          runId,
+          path,
+          auth,
+        );
+        if (path === repoPath) localGitState = preflight.localGitState;
+      }
       this.stopCloudTaskWatch(taskId);
       this.d.store.updateSession(runId, { status: "connecting" });
       await this.executeHandoff(
         taskId,
         runId,
         repoPath,
+        repositoryPaths,
         auth,
-        preflight.localGitState,
+        localGitState,
       );
       this.transitionToLocalSession(runId);
       this.subscribeToChannel(runId);
@@ -6721,6 +6742,7 @@ export class SessionService {
     taskId: string,
     runId: string,
     repoPath: string,
+    repositoryPaths: Record<string, string> | undefined,
     auth: { apiHost: string; projectId: number },
     localGitState?: Awaited<
       ReturnType<typeof this.d.trpc.handoff.preflight.query>
@@ -6730,6 +6752,7 @@ export class SessionService {
       taskId,
       runId,
       repoPath,
+      repositoryPaths,
       apiHost: auth.apiHost,
       teamId: auth.projectId,
       localGitState,
@@ -7118,23 +7141,11 @@ export class SessionService {
     });
   }
 
-  public resolveAllowAlwaysUpgradeMode(
-    modeOption: SessionConfigOption | undefined,
-  ): string | undefined {
-    if (modeOption?.type !== "select") return undefined;
-    const availableIds = new Set(
-      flattenSelectOptions(modeOption.options).map((opt) => opt.value),
-    );
-    if (availableIds.has("acceptEdits")) return "acceptEdits";
-    if (availableIds.has("auto")) return "auto";
-    return undefined;
-  }
-
   public applyAllowAlwaysUpgrade(
     taskId: string,
     modeOption: SessionConfigOption | undefined,
   ): void {
-    const upgradeMode = this.resolveAllowAlwaysUpgradeMode(modeOption);
+    const upgradeMode = resolveAllowAlwaysUpgradeMode(modeOption);
     if (!upgradeMode) return;
     this.setSessionConfigOptionByCategory(taskId, "mode", upgradeMode);
   }
@@ -7487,6 +7498,69 @@ export class SessionService {
       });
       return null;
     }
+  }
+
+  async getResourceComments(
+    target: CommentTarget,
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") return [];
+    return authStatus.auth.client.getResourceComments(
+      target.scope,
+      target.itemId,
+      taskId,
+    );
+  }
+
+  /**
+   * Comments for several resources at once, for surfaces that centralize threads
+   * across a task's artifacts and canvases. Returns one flat list — every row
+   * already carries `scope` and `item_id`, so callers group without bookkeeping.
+   * Fanning out here (rather than in a hook) keeps the multi-source read in a
+   * service and lets the caller hold a single query.
+   */
+  async getResourceCommentsForTargets(
+    targets: CommentTarget[],
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready" || targets.length === 0) return [];
+    const client = authStatus.auth.client;
+    const pages: ResourceComment[][] = Array.from(
+      { length: targets.length },
+      () => [],
+    );
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < targets.length) {
+        const index = nextIndex++;
+        const target = targets[index];
+        try {
+          pages[index] = await client.getResourceComments(
+            target.scope,
+            target.itemId,
+            taskId,
+          );
+        } catch {
+          pages[index] = [];
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, targets.length) }, worker),
+    );
+    return pages.flat();
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Sign in to comment");
+    }
+    return authStatus.auth.client.createResourceComment(request);
   }
 
   async getCloudRunArtifacts(

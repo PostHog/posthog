@@ -43,8 +43,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _raise_meta_api_error,
     _strip_access_token,
     get_integration,
+    get_schemas as get_meta_ads_schemas,
     list_ad_accounts,
     meta_ads_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
+    BREAKDOWN_STATS_ENDPOINTS,
+    ENDPOINTS,
+    RESOURCE_SCHEMAS,
+    MetaAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -1621,3 +1628,142 @@ class TestListAdAccounts:
         assert session.get.call_count == 2
         for call in session.get.call_args_list:
             assert call.kwargs["timeout"] == AD_ACCOUNT_LISTING_TIMEOUT_SECONDS
+
+
+def _source_config() -> mock.MagicMock:
+    config = mock.MagicMock()
+    config.account_id = "act_123"
+    config.meta_ads_integration_id = 1
+    config.sync_lookback_days = None
+    return config
+
+
+class TestEndpointCatalog:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_every_advertised_endpoint_has_a_resource_schema(self, endpoint: str) -> None:
+        # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
+        # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
+        assert endpoint in get_meta_ads_schemas()
+
+    def test_source_advertises_the_whole_catalog(self) -> None:
+        advertised = {schema.name for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
+        assert advertised == set(RESOURCE_SCHEMAS)
+
+
+class TestBreakdownStatsSchemas:
+    """Insights breakdown tables fan a campaign/day pair out into one row per dimension combination."""
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_dimensions_are_part_of_the_primary_key(self, endpoint: str) -> None:
+        schema = get_meta_ads_schemas()[endpoint]
+        breakdowns = schema.extra_params["breakdowns"].split(",")
+
+        # Without the dimensions in the key, every combination for a campaign/day collapses onto
+        # one key: duplicate rows seed the Delta table and each later merge multi-matches them.
+        assert set(breakdowns) <= set(schema.primary_keys)
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_dimensions_are_not_requested_as_fields(self, endpoint: str) -> None:
+        schema = get_meta_ads_schemas()[endpoint]
+        breakdowns = schema.extra_params["breakdowns"].split(",")
+
+        # Meta returns breakdowns as columns automatically and rejects the request outright when
+        # they are also listed in `fields`, so the table would 400 on every sync.
+        assert set(breakdowns).isdisjoint(schema.field_names)
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_tables_are_off_by_default(self, endpoint: str) -> None:
+        schemas = {schema.name: schema for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
+
+        # Each breakdown multiplies the daily row count, so a new connection must not pick them
+        # up unless the user asks for them.
+        assert schemas[endpoint].should_sync_default is False
+
+    def test_hourly_table_omits_metrics_meta_cannot_report_hourly(self) -> None:
+        # "Hourly breakdowns do not support unique fields, which are any fields prepended with
+        # `unique_*`, `reach` or `frequency`" — requesting them stores columns Meta zeroes out.
+        unique_metrics = {"reach", "frequency", "cpp", "cost_per_unique_click", "unique_clicks", "unique_ctr"}
+        schemas = get_meta_ads_schemas()
+
+        assert unique_metrics.isdisjoint(schemas[MetaAdsResource.CampaignStatsHourly].field_names)
+        assert unique_metrics <= set(schemas[MetaAdsResource.CampaignStatsByCountry].field_names)
+
+
+class TestBreakdownStatsRequests:
+    def _capture_request(self, monkeypatch, resource_name: str) -> dict[str, Any]:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, Any] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured.update(url=url, params=params, time_range=time_range)
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        response = meta_ads_source(
+            resource_name=resource_name,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+        )
+        list(cast(Any, response.items()))
+        return captured
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_request_is_windowed_and_carries_its_breakdowns(self, monkeypatch, endpoint: str) -> None:
+        captured = self._capture_request(monkeypatch, endpoint)
+
+        # A breakdown table that loses `is_stats` would drop the time window and ask Meta for the
+        # whole account history on every sync.
+        assert captured["time_range"] is not None
+        assert captured["params"]["breakdowns"] == get_meta_ads_schemas()[endpoint].extra_params["breakdowns"]
+        assert captured["params"]["level"] == "campaign"
+
+    def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
+        captured = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)
+
+        assert captured["time_range"] is None
+        assert captured["url"].endswith("/act_123/adcreatives")
+
+
+class TestSingleObjectEndpoint:
+    """`GET /act_<id>` returns the account node itself, not a paged `data` list."""
+
+    def _rows(self, monkeypatch, response: mock.MagicMock) -> list[list[dict]]:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+        monkeypatch.setattr(meta_ads_module, "_get_initial_request", lambda url, params: response)
+
+        source = meta_ads_source(
+            resource_name=MetaAdsResource.AdAccount,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+        )
+        return list(cast(Any, source.items()))
+
+    def test_account_node_is_yielded_as_a_single_row(self, monkeypatch) -> None:
+        body = {"id": "act_123", "account_id": "123", "currency": "GBP"}
+
+        # Routing this through the list paginator would read a `data` key that is not there and
+        # sync the table empty.
+        assert self._rows(monkeypatch, _mock_response(200, body)) == [[body]]
+
+    def test_permanent_auth_failure_surfaces_the_actionable_message(self, monkeypatch) -> None:
+        response = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth access token"}})
+
+        with pytest.raises(Exception, match=META_AUTH_ERROR_MESSAGE):
+            self._rows(monkeypatch, response)
+
+    def test_field_list_omits_business_field_requiring_ungranted_scope(self) -> None:
+        # `business` needs the `business_management` scope, which the Meta OAuth consent never
+        # requests (`ads_read` only), so Meta 400s the whole request whenever it's asked for —
+        # failing every sync of this table. `business_name` and `business_country_code` are plain
+        # fields with no such requirement and must stay.
+        field_names = get_meta_ads_schemas()[MetaAdsResource.AdAccount].field_names
+        assert "business" not in field_names
+        assert {"business_name", "business_country_code"} <= set(field_names)

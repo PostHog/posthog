@@ -1,24 +1,36 @@
+import { PI_SESSION_CONTROLLER } from "@posthog/core/pi-runtime/identifiers";
+import type { PiSessionController } from "@posthog/core/pi-runtime/piSessionController";
+import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
+import { useService } from "@posthog/di/react";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys, useHotkeysContext } from "react-hotkeys-hook";
+import { useStore } from "zustand";
 import { useBlurOnEscape } from "../../../hooks/useBlurOnEscape";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
+import { toast } from "../../../primitives/toast";
 import { logger } from "../../../shell/logger";
+import { useArchiveTask } from "../../archive/useArchiveTask";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
+import { useMarkTaskActivityRead } from "../../canvas/hooks/useMarkTaskActivityRead";
 import {
   LazyCloudReviewPage as CloudReviewPage,
   LazyReviewPage as ReviewPage,
 } from "../../code-review/components/LazyReviewPages";
 import { useReviewNavigationStore } from "../../code-review/reviewNavigationStore";
 import { useFileSearchStore } from "../../command/fileSearchStore";
+import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
 import { PanelLayout } from "../../panels/components/PanelLayout";
 import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
+import { useArchivingTasksStore } from "../../sidebar/archivingTasksStore";
+import { ArchiveRunningTaskDialog } from "../../sidebar/components/ArchiveRunningTaskDialog";
 import { useCwd } from "../../sidebar/useCwd";
+import { useSidebarSessionMap } from "../../sidebar/useSidebarSessionMap";
 import { useRenameTask } from "../../tasks/useTaskMutations";
 import { useWorkspace } from "../../workspace/useWorkspace";
 import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
@@ -49,6 +61,14 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const taskId = initialTask.id;
   const { task } = useTaskData({ taskId, initialTask });
+  const taskSession = useSidebarSessionMap().get(taskId);
+  const piSessionController = useService<PiSessionController>(
+    PI_SESSION_CONTROLLER,
+  );
+  const isPiGenerating = useStore(
+    piSessionController.store,
+    (state) => state.sessions[taskId]?.status?.isStreaming ?? false,
+  );
   const runtime = task.runtime === "pi" ? "pi" : "acp";
   const selectedTaskRunId = task.latest_run?.id;
 
@@ -57,6 +77,51 @@ export function TaskDetail({
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
 
   const { enableScope, disableScope } = useHotkeysContext();
+  const { archiveTask } = useArchiveTask({
+    navigateSpace: channelId ? "website" : "code",
+  });
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+
+  const runArchive = useCallback(async () => {
+    const store = useArchivingTasksStore.getState();
+    if (store.isArchiving(taskId)) return;
+
+    store.startArchiving(taskId);
+    try {
+      await archiveTask({ taskId });
+    } catch (error) {
+      log.error("Failed to archive task", error);
+      toast.error("Failed to archive task");
+      throw error;
+    } finally {
+      useArchivingTasksStore.getState().stopArchiving(taskId);
+    }
+  }, [archiveTask, taskId]);
+
+  useHotkeys(
+    SHORTCUTS.ARCHIVE_TASK,
+    (event) => {
+      event.preventDefault();
+      if (useArchivingTasksStore.getState().isArchiving(taskId)) return;
+      if (
+        isTaskActivelyRunning({
+          isGenerating:
+            runtime === "pi"
+              ? isPiGenerating
+              : (taskSession?.isPromptPending ?? false),
+          taskRunEnvironment: task.latest_run?.environment,
+          taskRunStatus:
+            taskSession?.cloudStatus ?? task.latest_run?.status ?? undefined,
+        })
+      ) {
+        setShowArchiveConfirm(true);
+        return;
+      }
+      void runArchive().catch(() => undefined);
+    },
+    { scopes: ["taskDetail"] },
+    [task, taskId, taskSession, runtime, isPiGenerating, runArchive],
+  );
 
   useEffect(() => {
     enableScope("taskDetail");
@@ -64,6 +129,19 @@ export function TaskDetail({
       disableScope("taskDetail");
     };
   }, [enableScope, disableScope]);
+
+  // Mounting TaskDetail means the task was actually rendered in front of the
+  // user — that, not any API fetch of the task, is what clears the unread
+  // activity flag ("the agent is waiting for your reply"). Now-based rather
+  // than row-versioned since everything up to mount has been seen; a waiting
+  // flag landing after mount re-flags unread. Marking client-side rather than
+  // in the retrieve endpoint: a task fetch (list refresh, poll, prefetch)
+  // isn't a view.
+
+  const { mutate: markTasksRead } = useMarkTaskActivityRead();
+  useEffect(() => {
+    markTasksRead([{ task_id: taskId, seen_before: new Date().toISOString() }]);
+  }, [markTasksRead, taskId]);
 
   useHotkeys("mod+p", () => openFilePicker(), {
     enableOnContentEditable: true,
@@ -245,6 +323,7 @@ export function TaskDetail({
         <Box className={`min-w-0 flex-1 ${isExpanded ? "hidden" : ""}`}>
           {runtime === "pi" && (
             <PiSessionView
+              key={taskId}
               taskId={taskId}
               taskRunId={selectedTaskRunId}
               isCloud={isCloud}
@@ -281,6 +360,19 @@ export function TaskDetail({
           </Box>
         )}
       </Flex>
+      <ArchiveRunningTaskDialog
+        open={showArchiveConfirm}
+        taskTitle={task.title}
+        stopsCloudSandbox={task.latest_run?.environment === "cloud"}
+        onConfirm={async () => {
+          try {
+            await runArchive();
+          } finally {
+            setShowArchiveConfirm(false);
+          }
+        }}
+        onCancel={() => setShowArchiveConfirm(false)}
+      />
     </Box>
   );
 }

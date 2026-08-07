@@ -1,0 +1,158 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Canvas
+feature: canvas
+url_prefix: /
+ui_apps: {}
+tools:
+    canvas-builds-retrieve:
+        operation: canvases_builds_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas build status
+        description: >
+            Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most
+            recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues
+            a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed`
+            (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task
+            while its build is still queued or building.
+        param_overrides:
+            id:
+                description: ID of the canvas whose builds to read.
+    canvas-create:
+        operation: canvases_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create canvas
+        description: >
+            Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it
+            source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the
+            intended target — list them with canvas-list first.
+        param_overrides:
+            channel_id:
+                description: Id of the channel to create the canvas in (resolve it with channel-list).
+    canvas-edit-create:
+        operation: canvases_edit_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit canvas source files
+        description: >
+            Publish per-file edits against a canvas's current source, without resending the whole project. Each
+            operation sets a file's complete content, or deletes it when `content` is null.
+            `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published
+            canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again.
+            The edited project is validated first; error diagnostics reject the whole edit atomically.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to edit.
+    canvas-list:
+        operation: canvases_list
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvases
+        description: >
+            List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to
+            resolve which canvas a request refers to before reading or publishing source.
+        param_overrides:
+            channel:
+                description: Only return canvases in this channel (channel id).
+    canvas-publish-create:
+        operation: canvases_publish_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish canvas source project
+        description: >
+            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. The
+            project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
+            `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
+            version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
+            against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare
+            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The
+            canvas lives in PostHog, not on disk — this tool is what saves it.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to publish.
+    canvas-source-retrieve:
+        operation: canvases_source_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas source project
+        description: >
+            Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit
+            the returned files, then publish the complete project with canvas-publish-create, passing the
+            `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten.
+            Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds
+            the React component.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to read.
+    canvas-validate-create:
+        operation: canvases_validate_create
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate canvas source project
+        description: >
+            Validate a candidate canvas source project without publishing it. Returns structured diagnostics (severity,
+            code, message, file, line); `valid: false` means a publish would be rejected. Side-effect free — call it as
+            often as needed while iterating, and fix every error-severity diagnostic (including undeclared-capability
+            errors) before publishing.
+        param_overrides:
+            id:
+                description: ID of the canvas the project is for.
+    canvases-build-action-create:
+        operation: canvases_build_action_create
+        enabled: false
+    canvases-destroy:
+        operation: canvases_destroy
+        enabled: false
+    canvases-partial-update:
+        operation: canvases_partial_update
+        enabled: false
+    canvases-retrieve:
+        operation: canvases_retrieve
+        enabled: false
+    canvases-revert-create:
+        operation: canvases_revert_create
+        enabled: false
+    canvases-versions-retrieve:
+        operation: canvases_versions_retrieve
+        enabled: false

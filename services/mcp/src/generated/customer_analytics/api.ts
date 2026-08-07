@@ -114,19 +114,10 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
-    account_executive: zod
-        .string()
-        .optional()
-        .describe("Filter by account executive. Use 'unassigned' or an integer user id."),
-    account_owner: zod.string().optional().describe("Filter by account owner. Use 'unassigned' or an integer user id."),
     all_roles_unassigned: zod
         .boolean()
         .optional()
-        .describe('When true, returns only accounts where CSM, account executive, and account owner are all unset.'),
-    csm: zod
-        .string()
-        .optional()
-        .describe("Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id."),
+        .describe('When true, returns only accounts where no user actively holds any relationship.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
@@ -163,24 +154,6 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -188,10 +161,11 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
@@ -375,24 +349,6 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -400,10 +356,11 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())

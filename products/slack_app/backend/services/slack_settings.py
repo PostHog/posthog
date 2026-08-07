@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Q
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled
+from products.slack_app.backend.services.model_catalogue import filter_unsupported_effort
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -105,23 +106,13 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
     model = chosen.get("model") or None
     reasoning_effort = chosen.get("reasoning_effort") or None
     if runtime_adapter and model and reasoning_effort:
-        reasoning_effort = _filter_unsupported_effort(runtime_adapter, model, reasoning_effort)
+        reasoning_effort = filter_unsupported_effort(runtime_adapter, model, reasoning_effort)
 
     return AIPreferences(
         runtime_adapter=runtime_adapter,
         model=model,
         reasoning_effort=reasoning_effort,
     )
-
-
-def _filter_unsupported_effort(runtime_adapter: str, model: str, effort: str) -> str | None:
-    """Drop a stored effort the resolved model no longer supports (e.g. user
-    saved `high` on a thinking model and then picked a non-thinking one)."""
-
-    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
-
-    supported = {e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)}
-    return effort if effort in supported else None
 
 
 def build_ai_preferences_payload(

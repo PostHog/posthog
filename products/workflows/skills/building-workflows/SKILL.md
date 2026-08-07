@@ -32,7 +32,11 @@ Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](refer
 
 After **any** patch, re-test the path you changed (step 3). A patch that validates structurally can still route the wrong way.
 
-Email templates follow the same rule: edit a template's design with **`workflows-patch-email-template`** (surgical, id-addressed ops over the Unlayer blocks), not `workflows-update-email-template`, which resends the entire design JSON. Compose and edit templates with the **`designing-email-templates`** skill.
+Email content follows the same rule.
+The email inside a `function_email` step is edited with **`workflows-patch-action-email`**: the same id-addressed design ops as the template patch, plus an `email_patch` merge for subject/preheader/text/recipients, with the HTML re-rendered server-side so it always matches the design.
+Prefer it over `workflows-patch-graph` `update_action` for email content - an `update_action` that changes `design` leaves the stored `html` stale.
+Library templates are edited with **`workflows-patch-email-template`**, not `workflows-update-email-template` (which resends the entire design JSON).
+Compose and edit email designs with the **`designing-email-templates`** skill.
 
 ## Changing a live workflow
 
@@ -52,8 +56,6 @@ Timing edits apply to parked runs gradually, not instantly. Publishing a shorten
 Every live-content change appends a snapshot to the workflow's revision history. `workflows-list-revisions` lists versions (newest first); `workflows-get-revision` returns one version's full content. To roll back (or forward), `workflows-restore-revision` copies that version's content into the draft — it never touches the live config — then the normal publish cycle applies: test with `use_draft=true`, preview, confirm. The preview shows exactly what the rollback does to people in-flight, same as any publish.
 
 A restore returns 409 when a draft is already open; publish or discard it, or pass `overwrite=true` to replace it. Two things a rollback cannot undo: runs that already moved or exited while the newer version was live keep their positions (their side effects happened), and a publish that shortened a delay may have pulled parked wake times earlier — rolling back doesn't push them later again.
-
-If an edit is rejected with "editing an active workflow isn't supported", draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft (`workflows-create`), testing it, and enabling it as a replacement.
 
 ## What the server owns, never send it
 

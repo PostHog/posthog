@@ -3,7 +3,7 @@ import type {
   TaskRunStatus,
   UserBasic,
 } from "@posthog/shared/domain-types";
-import type { DashboardSummary } from "./dashboardSchemas";
+import type { DashboardRecord } from "./dashboardSchemas";
 
 export interface ChannelItemModel {
   key: string;
@@ -51,7 +51,7 @@ export function buildChannelItems({
   pinnedTaskIds,
   ownedBy,
 }: {
-  dashboards: readonly DashboardSummary[];
+  dashboards: readonly DashboardRecord[];
   feedTasks: readonly Task[];
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;

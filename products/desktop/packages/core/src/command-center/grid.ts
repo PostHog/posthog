@@ -1,4 +1,11 @@
-export type LayoutPreset = "1x1" | "2x1" | "1x2" | "2x2" | "3x2" | "3x3";
+export type LayoutPreset =
+  | "1x1"
+  | "2x1"
+  | "3x1"
+  | "1x2"
+  | "2x2"
+  | "3x2"
+  | "3x3";
 
 export interface GridDimensions {
   cols: number;

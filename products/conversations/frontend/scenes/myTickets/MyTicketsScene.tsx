@@ -24,14 +24,13 @@ const PANE_MIN_HEIGHT = 'min(400px, calc(100svh - 16rem))'
 const PANE_MAX_HEIGHT = 'calc(100svh - 16rem)'
 
 export function MyTicketsScene(): JSX.Element {
-    const { view, currentTicket, newTicketDraftRevision, isEnabled, isBillingResolved } =
-        useValues(sidepanelTicketsLogic)
+    const { view, currentTicket, newTicketDraftRevision, isBillingResolved } = useValues(sidepanelTicketsLogic)
     const { preflight } = useValues(preflightLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
 
-    if (!isEnabled || !isCloudOrDev) {
+    if (!isCloudOrDev) {
         return (
             <SceneContent>
                 <SceneTitleSection

@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -15,9 +16,15 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
+import { readScannerDraft } from './scannerDraft'
+import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
+
+jest.mock('lib/forms/scrollToFormError', () => ({
+    scrollToFormError: jest.fn(),
+}))
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
@@ -48,13 +55,19 @@ describe('replayScannerLogic', () => {
                 '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
             },
         })
+        // The draft layer persists form edits to localStorage; without a reset, one test's edits
+        // restore into the next test's freshly mounted wizard.
+        localStorage.clear()
         initKeaTests()
         logic = replayScannerLogic({ id: 'new' })
         logic.mount()
+        // The submit handler reads the wizard step from scannerEditorSceneLogic, so mount it too.
+        scannerEditorSceneLogic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        scannerEditorSceneLogic.unmount()
     })
 
     describe('form defaults', () => {
@@ -246,6 +259,51 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+
+        it('advances from the step the editor scene reports, even when the URL matches no step', async () => {
+            router.actions.push('/replay-vision/new/not-a-step')
+            scannerEditorSceneLogic.actions.setStep('configure')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+
+        it('routes a rejected submit to the step that renders the errored fields', async () => {
+            // Defaults leave name and prompt empty, both configure-owned.
+            router.actions.push('/replay-vision/new/triggers')
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+    })
+
+    describe('new scanner draft', () => {
+        beforeEach(() => {
+            teamLogic.mount()
+        })
+
+        it('restores drafted values when the wizard remounts, keeping the unsaved-changes guard armed', async () => {
+            logic.actions.setScannerValues({ name: 'Half done', scanner_config: { prompt: 'Find rage clicks' } })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.scanner?.name).toBe('Half done')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it.each([
+            ['scannerSaved', () => logic.actions.scannerSaved(logic.values.scanner!)],
+            ['resetScanner', () => logic.actions.resetScanner()],
+        ])('clears the draft on %s', async (_label, act) => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.name).toBe('Drafted')
+            act()
+            expect(readScannerDraft(teamId)).toBeNull()
         })
     })
 
@@ -610,6 +668,7 @@ describe('replayScannerLogic', () => {
         const configure = urls.replayVisionScannerConfigure(scannerId)
         const triggers = urls.replayVisionScannerTriggers(scannerId)
         const template = urls.replayVisionScannerTemplate(scannerId)
+        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
         const base = { hasUnsavedChanges: true, isSubmitting: false, scannerId, currentPathname: configure }
 
@@ -630,6 +689,18 @@ describe('replayScannerLogic', () => {
                 'over to a different scanner’s editor',
                 { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
                 true,
+            ],
+            ['out from the self-driving step', { ...base, currentPathname: selfDriving, nextPathname: detail }, true],
+            // The router stores pathnames with the `/project/:id` prefix; `urls.*` are unprefixed.
+            [
+                'out to settings from a project-prefixed URL',
+                { ...base, currentPathname: `/project/123${triggers}`, nextPathname: '/settings/environment' },
+                true,
+            ],
+            [
+                'between steps with project-prefixed URLs',
+                { ...base, currentPathname: `/project/123${configure}`, nextPathname: `/project/123${triggers}` },
+                false,
             ],
         ])('%s', (_label, params, expected) => {
             expect(shouldGuardScannerNavigation(params)).toBe(expected)

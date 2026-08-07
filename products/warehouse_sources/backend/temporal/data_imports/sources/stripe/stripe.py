@@ -887,11 +887,24 @@ class StripeAuthenticationError(Exception):
         super().__init__(stripe_message)
 
 
+class StripeTransientError(Exception):
+    """Raised when a credential probe fails because Stripe itself was unavailable (a 5xx APIError,
+    a connection failure, or a rate limit) rather than because the credentials are wrong. The key
+    may be perfectly valid, so callers surface a retry hint instead of Stripe's internal error text
+    (e.g. "Error while communicating with one of our backends")."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
 class StripeValidationError(Exception):
-    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
-    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
-    decide whether to surface the verbose underlying message — permission errors are
-    self-explanatory from the resource name, but unknown errors need the raw detail."""
+    """Raised when one or more resources failed with a non-403, non-transient exception (e.g. an
+    unexpected response or schema error) during credential validation. Transient Stripe-side
+    failures (5xx, connection, rate limit) raise StripeTransientError instead. Distinct from
+    StripePermissionError so callers can decide whether to surface the verbose underlying message —
+    permission errors are self-explanatory from the resource name, but unknown errors need the raw
+    detail."""
 
     def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
         self.errors = errors
@@ -927,6 +940,11 @@ def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
     except stripe_lib.PermissionError as e:
         raw = getattr(e, "user_message", None) or str(e)
         return _clean_stripe_error_message(raw), None
+    except (stripe_lib.APIError, stripe_lib.APIConnectionError, stripe_lib.RateLimitError) as e:
+        # Stripe was unreachable or returned a 5xx/rate-limit — transient and unrelated to the
+        # credentials. Fail fast with a distinct error so the caller can tell the user to retry
+        # rather than reporting Stripe's internal text as a validation failure.
+        raise StripeTransientError(_clean_stripe_error_message(str(e))) from e
     except Exception as e:
         return None, _clean_stripe_error_message(str(e))
 
@@ -1015,7 +1033,13 @@ def check_endpoint_permissions(
             continue
 
         _, probe_resource = _resolve_to_flat(name, all_resources)
-        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        try:
+            permission_msg, error_msg = _probe_endpoint(probe_resource)
+        except StripeTransientError as e:
+            # A transient Stripe outage isn't a per-endpoint verdict, but this function must return
+            # the full picture rather than raise (401 aside), so record it as this endpoint's reason.
+            results[name] = e.stripe_message
+            continue
         results[name] = permission_msg or error_msg
 
     return results
@@ -1051,7 +1075,12 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     filtered_events = _all_known_webhook_events()
@@ -1106,6 +1135,11 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            if auth_method == "oauth":
+                return WebhookCreationResult(
+                    success=False,
+                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                )
             return WebhookCreationResult(
                 success=False,
                 error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",

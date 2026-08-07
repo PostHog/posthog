@@ -4,6 +4,7 @@ import { LemonCollapse, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,7 +13,12 @@ import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } f
 import type { Experiment, FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
-import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
+import {
+    EXPERIMENT_EXPOSURE_EVENT,
+    EXPOSURE_DEFAULT_EVENT,
+    exposureEventLabel,
+    resolvedExposureEvent,
+} from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
@@ -62,10 +68,12 @@ function ExposureCriteriaFields({
     experiment,
     onChange,
     hasFilters,
+    defaultExposureEvent,
 }: {
     experiment: Experiment
     onChange: ExposureCriteriaPanelProps['onChange']
     hasFilters: boolean
+    defaultExposureEvent: string
 }): JSX.Element {
     const isCustom = !!experiment.exposure_criteria?.exposure_config
 
@@ -78,7 +86,7 @@ function ExposureCriteriaFields({
                     title="Default"
                     description={
                         <>
-                            When a <LemonTag>{EXPOSURE_DEFAULT_EVENT}</LemonTag> event is recorded, a user is considered{' '}
+                            When a <LemonTag>{defaultExposureEvent}</LemonTag> event is recorded, a user is considered{' '}
                             <strong>exposed</strong> to the experiment.
                         </>
                     }
@@ -158,6 +166,12 @@ function ExposureCriteriaFields({
 
 export function ExposureCriteriaPanel({ experiment, onChange, compact }: ExposureCriteriaPanelProps): JSX.Element {
     const isCustom = !!experiment.exposure_criteria?.exposure_config
+    const experimentExposureEventEnabled = useFeatureFlag('EXPERIMENT_EXPOSURE_EVENT')
+    const defaultExposureEvent = resolvedExposureEvent(
+        experiment,
+        experimentExposureEventEnabled ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
+    )
+    const defaultExposureLabel = exposureEventLabel(defaultExposureEvent)
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -185,12 +199,12 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             options={[
                                 {
                                     value: 'default' as const,
-                                    label: 'Feature flag is called',
+                                    label: defaultExposureLabel,
                                     labelInMenu: (
                                         <div>
-                                            <div>Feature flag is called</div>
+                                            <div>{defaultExposureLabel}</div>
                                             <div className="text-xs text-muted font-normal">
-                                                When {EXPOSURE_DEFAULT_EVENT} is recorded
+                                                When {defaultExposureEvent} is recorded
                                             </div>
                                         </div>
                                     ),
@@ -292,6 +306,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                     experiment={experiment}
                                     onChange={onChange}
                                     hasFilters={hasFilters}
+                                    defaultExposureEvent={defaultExposureEvent}
                                 />
                             </div>
                         ),

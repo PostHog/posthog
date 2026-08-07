@@ -107,7 +107,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="localhost",
+                        placeholder="db.example.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -179,6 +185,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
             "Access denied for user": "Invalid user or password",
+            # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
+            # the server — it was renamed or dropped after the source was set up, or the connection
+            # was reconfigured to point at a different server. `validate_credentials` already
+            # catches this at create time via `_VALIDATE_CONNECTION_HINTS`, but that hint only fires
+            # on the create-time probe; a database dropped later only surfaces here, mid-sync. Every
+            # retry connects with the same database name and fails identically. Match the
+            # locale-independent error code (the database name is volatile and the message text is
+            # translated on non-English servers).
+            "(1049,": "The database configured for this source no longer exists (MySQL error 1049). It may have been renamed or dropped. Update the database name in your source settings, or restore it, then resync.",
             "sqlstate 42S02": None,  # Table not found error
             # MySQL/MariaDB error 1146 (ER_NO_SUCH_TABLE): a table the sync reads no longer exists
             # in the source — it was renamed or dropped after the schema was set up. The streaming
@@ -215,6 +230,18 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # retries forever. `connect` re-raises it as `_SSH_HANDSHAKE_EOF_ERROR` — same
             # gateway-configuration class as "Could not establish session to SSH gateway" above.
             _SSH_HANDSHAKE_EOF_ERROR: "Could not connect to your SSH tunnel — the gateway accepted the connection but closed it during the SSH handshake. Check that the SSH host and port point to an SSH server (not the database port), that the bastion is running and reachable, and that PostHog's IP addresses are allowed through its firewall, then re-enable the sync.",
+            # `_pinned_ssh_host` (common/mixins.py) re-checks the SSH tunnel host on every connect,
+            # since a host that resolved to a public address at setup can drift (DNS change, or a
+            # short-TTL record). It rejects the host if it doesn't resolve or resolves to a
+            # private/internal address, which is a config problem only the customer can fix, so
+            # retrying just re-hits the same rejection. Match the stable prefix and exclude the
+            # volatile host/IP details that follow it in `resolution.error`.
+            "SSH tunnel host not allowed": (
+                "PostHog rejected the SSH tunnel host for this source because it either couldn't "
+                "be resolved, or resolves to a private/internal address. Check that the SSH tunnel "
+                "host is spelled correctly and reachable from the public internet, then re-enable "
+                "the sync."
+            ),
             # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
             # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
             # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
@@ -244,11 +271,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # longer exists in the source table — almost always the configured incremental field
             # after the column was renamed or dropped (schema drift). The streaming query reissues
             # the same WHERE/ORDER BY on every attempt, so it fails identically forever; the COUNT(*)
-            # probe already swallows this same error expecting it to be classified here. Match on the
-            # locale-independent error code (the column name and clause are volatile, and the message
-            # text is translated on non-English servers) so it catches both the raw pymysql string and
-            # the Temporal-wrapped `OperationalError: (1054, ...)` form.
-            '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
+            # probe already swallows this same error expecting it to be classified here. Match on
+            # "Unknown column" alone (not anchored to a `(1054, "` prefix) so it also catches Vitess/
+            # PlanetScale's vtgate, which re-wraps the same 1054 error with its own gRPC preamble —
+            # e.g. `(1054, 'unknown: target: ...: vttablet: rpc error: code = NotFound desc = Unknown
+            # column ... (errno 1054) ...')` — where the message text sits well after `(1054, ` and
+            # behind a single quote rather than the double quote pymysql itself uses.
+            "Unknown column": "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
             # MySQL/MariaDB error 1130 (ER_HOST_NOT_PRIVILEGED): the server has no grant permitting
             # PostHog's connecting host, so the handshake is rejected before any credentials are
             # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
@@ -293,6 +322,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # the sync path classifies and in the " ".join(e.args) form validate_credentials builds
             # (the formatted "codec can't encode character" text is reconstructed in neither).
             "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
+            # Vitess/PlanetScale vtgate error 1105 (ER_UNKNOWN_ERROR) raised when the target
+            # keyspace ("branch" in PlanetScale) has been deleted or put to sleep. Unlike the other
+            # transient 1105 payloads mysql.py already retries in-process (`code = Unavailable`,
+            # `reparent operation in progress`), a sleeping branch never wakes on its own — PlanetScale
+            # only wakes it from the dashboard or once a billing issue is resolved — and a deleted
+            # branch never comes back, so every retry fails identically. Match the stable phrase,
+            # excluding the volatile branch id that follows it.
+            "branch is missing or sleeping": "The PlanetScale (or Vitess) branch this source connects to has been deleted or put to sleep. Wake it from the PlanetScale dashboard (or resolve any billing issue), or point this source at a database that exists, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -301,7 +338,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # exhausted; the streaming path's FORCE INDEX fallback does the same for a mid-query drop
         # (see `_is_bad_plan_error`). Either way, Temporal retries the whole activity next and the
         # failure is transient and self-recovering, so don't surface it as tracked exception noise.
-        return {"Lost connection to MySQL server during query"}
+        #
+        # "Too many connections" (MySQL error 1040) shares the same contract: `_connect_with_transient_retry`
+        # retries it in-process too (see `_is_transient_too_many_connections`) — a slot frees the moment
+        # another connection closes, mirroring the Postgres source's connection-limit handling.
+        return {"Lost connection to MySQL server during query", "Too many connections"}
 
     def reconcile_schema_metadata(
         self,

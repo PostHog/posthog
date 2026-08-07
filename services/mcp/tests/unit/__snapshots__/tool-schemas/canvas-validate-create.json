@@ -1,0 +1,135 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the canvas the project is for.",
+            "type": "string"
+        },
+        "project": {
+            "description": "The candidate source project to validate.",
+            "properties": {
+                "assets": {
+                    "additionalProperties": {
+                        "properties": {
+                            "content": {
+                                "maxLength": 2796204,
+                                "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                                "type": "string"
+                            },
+                            "contentType": {
+                                "description": "* `image/png` - image/png\n* `image/jpeg` - image/jpeg\n* `image/gif` - image/gif\n* `image/webp` - image/webp\n* `image/svg+xml` - image/svg+xml\n* `font/woff` - font/woff\n* `font/woff2` - font/woff2\n* `application/wasm` - application/wasm\n* `application/octet-stream` - application/octet-stream",
+                                "enum": [
+                                    "image/png",
+                                    "image/jpeg",
+                                    "image/gif",
+                                    "image/webp",
+                                    "image/svg+xml",
+                                    "font/woff",
+                                    "font/woff2",
+                                    "application/wasm",
+                                    "application/octet-stream"
+                                ],
+                                "type": "string"
+                            },
+                            "encoding": {
+                                "description": "* `base64` - base64",
+                                "enum": ["base64"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["encoding", "contentType", "content"],
+                        "type": "object"
+                    },
+                    "description": "Optional base64-encoded binary assets keyed by safe project-relative paths.",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "canvasSdkVersion": {
+                    "description": "Version of the host-injected `ph` canvas SDK the project targets.",
+                    "type": "string"
+                },
+                "capabilities": {
+                    "description": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.",
+                    "properties": {
+                        "network": {
+                            "properties": {
+                                "origins": {
+                                    "items": {
+                                        "format": "uri",
+                                        "maxLength": 2048,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 20,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["origins"],
+                            "type": "object"
+                        },
+                        "posthog": {
+                            "properties": {
+                                "captureEvents": {
+                                    "items": {
+                                        "maxLength": 200,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 100,
+                                    "type": "array"
+                                },
+                                "inlineQueries": {
+                                    "type": "boolean"
+                                },
+                                "insights": {
+                                    "items": {
+                                        "maxLength": 128,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 100,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["insights", "inlineQueries", "captureEvents"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["posthog", "network"],
+                    "type": "object"
+                },
+                "dependencies": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "entryHtml": {
+                    "description": "The project's entry HTML file. Currently always \"index.html\".",
+                    "type": "string"
+                },
+                "files": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Project files keyed by relative path (forward slashes, no '..').",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "schemaVersion": {
+                    "description": "Source-project schema version. Currently always 1.",
+                    "type": "number"
+                }
+            },
+            "required": ["schemaVersion", "files", "entryHtml"],
+            "type": "object"
+        }
+    },
+    "required": ["id", "project"],
+    "type": "object"
+}
