@@ -23,13 +23,15 @@ export async function probeMcpInitialize(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort(new Error("MCP initialize probe timed out."));
-  }, timeoutMs);
   const transport = new StreamableHTTPClientTransport(new URL(url), {
     requestInit: { headers },
   });
   const client = new Client(CLIENT_INFO, { capabilities: {} });
+  const timeout = setTimeout(() => {
+    controller.abort(new Error("MCP initialize probe timed out."));
+    void client.close().catch(() => undefined);
+    void transport.close().catch(() => undefined);
+  }, timeoutMs);
 
   try {
     await client.connect(transport, {
@@ -44,11 +46,14 @@ export async function probeMcpInitialize(
     }
     return false;
   } finally {
-    clearTimeout(timeout);
-    if (transport.sessionId) {
-      await transport.terminateSession().catch(() => undefined);
+    try {
+      if (transport.sessionId) {
+        await transport.terminateSession().catch(() => undefined);
+      }
+    } finally {
+      await client.close().catch(() => undefined);
+      await transport.close().catch(() => undefined);
+      clearTimeout(timeout);
     }
-    await client.close().catch(() => undefined);
-    await transport.close().catch(() => undefined);
   }
 }

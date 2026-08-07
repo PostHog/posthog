@@ -44,6 +44,7 @@ function mcpFetch(
 
 describe("Agent Plugin MCP initialize probe", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -69,6 +70,54 @@ describe("Agent Plugin MCP initialize probe", () => {
           requestPayload(call[1]).method === "notifications/initialized",
       ),
     ).toBe(true);
+  });
+
+  it("aborts session termination when it reaches the probe deadline", async () => {
+    vi.useFakeTimers();
+    let markDeleteStarted: (() => void) | undefined;
+    const deleteStarted = new Promise<void>((resolve) => {
+      markDeleteStarted = resolve;
+    });
+    let deleteSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "DELETE") {
+          deleteSignal = init.signal ?? undefined;
+          markDeleteStarted?.();
+          return new Promise<Response>((_resolve, reject) => {
+            deleteSignal?.addEventListener(
+              "abort",
+              () => reject(deleteSignal?.reason),
+              { once: true },
+            );
+          });
+        }
+        const payload = requestPayload(init);
+        if (payload.method === "notifications/initialized") {
+          return new Response(null, { status: 202 });
+        }
+        if (payload.method === "initialize") {
+          return Response.json(initializeResult(payload.id), {
+            headers: { "mcp-session-id": "probe-session" },
+          });
+        }
+        return new Response(null, { status: 404 });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const probe = probeMcpInitialize(
+      "https://example.com/mcp",
+      [],
+      MARKER,
+      PROBE,
+      10,
+    );
+    await deleteStarted;
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(probe).resolves.toBe(true);
+    expect(deleteSignal?.aborted).toBe(true);
   });
 
   it("accepts a valid initialize event without waiting for SSE EOF", async () => {

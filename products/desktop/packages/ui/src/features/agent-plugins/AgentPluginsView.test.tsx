@@ -114,7 +114,7 @@ describe("AgentPluginsView", () => {
     const firstArgument = "argument one";
     const secondArgument = "--flag=two words";
     const cwd = "./working directory";
-    const environmentName = "CONFIG\u2066NAME";
+    const environmentName = "CONFIG\u061cNAME\u2066";
     mockPluginList(
       installedPlugin({
         stdioApprovalRequired: true,
@@ -137,6 +137,9 @@ describe("AgentPluginsView", () => {
     render(<AgentPluginsView />);
 
     expect(escapeApprovalToken(command)).toBe('"node tool\\n\\u202etail"');
+    expect(escapeApprovalToken(environmentName)).toBe(
+      '"CONFIG\\u061cNAME\\u2066"',
+    );
     for (const token of [
       command,
       firstArgument,

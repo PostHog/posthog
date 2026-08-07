@@ -43,7 +43,8 @@ function diagnosticText(item: { message: string; path?: string }): string {
   return item.path ? `${item.path}: ${item.message}` : item.message;
 }
 
-const DIRECTIONAL_CONTROL_PATTERN = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const DIRECTIONAL_CONTROL_PATTERN =
+  /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 export function escapeApprovalToken(value: string): string {
   return JSON.stringify(value).replace(
