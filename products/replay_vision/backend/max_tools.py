@@ -7,7 +7,6 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
-from asgiref.sync import sync_to_async
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
@@ -23,7 +22,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
@@ -1851,9 +1850,9 @@ class ReadReplayVisionActionsTool(ReplayVisionGatesMixin, MaxTool):
                 # The report is model-written over recording content, so it stays fenced.
                 "report": as_untrusted_data("report", [r.synthesized_markdown]) if r.synthesized_markdown else None,
             }
-            for r in VisionActionRun.objects.filter(team_id=self._team.id, vision_action_id=action.id).order_by(
-                "-scheduled_at"
-            )[:_MAX_ACTION_RUNS]
+            for r in VisionActionRun.objects.for_team(self._team.id)
+            .filter(vision_action_id=action.id)
+            .order_by("-scheduled_at")[:_MAX_ACTION_RUNS]
             if self._may_read_run(r)
         ]
         if not runs:
@@ -2303,9 +2302,10 @@ class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         if scanner.scanner_type != ScannerType.CLASSIFIER:
             return "Only classifier scanners have a tag vocabulary.", {"error": "not_a_classifier"}
-        # Deliberately outside `database_sync_to_async`: the model call carries a 90s timeout, and the
-        # thread-sensitive executor would queue every other database operation behind it.
-        return await sync_to_async(self._suggest, thread_sensitive=False)(scanner)
+        # Pooled rather than thread-sensitive: the model call carries a 90s timeout, and the shared
+        # executor would queue every other database operation behind it. Still connection-managed,
+        # because the suggestion path reads observations and event definitions.
+        return await database_sync_to_async_pool(self._suggest)(scanner)
 
     @database_sync_to_async
     def _resolve(self, scanner_id: str) -> "ReplayScanner | None":

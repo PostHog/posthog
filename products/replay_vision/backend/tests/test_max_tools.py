@@ -40,7 +40,12 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
-from products.replay_vision.backend.models.vision_action import ActionMode, VisionAction
+from products.replay_vision.backend.models.vision_action import (
+    ActionMode,
+    VisionAction,
+    VisionActionRun,
+    VisionActionRunStatus,
+)
 from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
@@ -1353,3 +1358,25 @@ class TestReplayVisionActionScannerAccess(BaseTest):
             _, artifact = await self._tool(AnalyzeReplayVisionImpactTool)._arun_impl(scanner_id=str(scanner.id))
 
         assert artifact["error"] == "invalid_filters"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_reading_one_actions_runs_returns_its_reports(self):
+        # The runs branch was unexercised, which is how a fail-closed manager call that raises rather
+        # than returning empty reached a reviewer instead of a test.
+        action = await sync_to_async(self._action_on_unreadable_scanner)()
+        await sync_to_async(VisionActionRun.all_teams.create)(
+            team=self.team,
+            vision_action=action,
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at=timezone.now(),
+            synthesized_markdown="Checkout dropped off at payment.",
+            observation_count=3,
+        )
+
+        with patch(_FLAG_PATH, return_value=True), patch(_ACTIONS_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(ReadReplayVisionActionsTool)._arun_impl(action_id=str(action.id))
+
+        assert "error" not in artifact, artifact
+        assert len(artifact["runs"]) == 1
+        assert "Checkout dropped off" in artifact["runs"][0]["report"]
