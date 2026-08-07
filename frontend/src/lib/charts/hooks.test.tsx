@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 
-import { CUSTOM_THEME_STYLES_ID } from 'lib/constants'
+import { CUSTOM_THEME_STYLES_ID } from 'lib/hooks/useAppliedThemeValue'
 
 import { useChartCssVarTheme } from './hooks'
 

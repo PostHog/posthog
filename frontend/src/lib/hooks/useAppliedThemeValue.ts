@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { CUSTOM_THEME_STYLES_ID } from 'lib/constants'
+/** `<style>` element holding the active custom CSS theme, written by `useThemedHtml`. */
+export const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
 
 /** `theme` is what this app sets on `<body>`; `class`/`data-theme` cover the conventions the quill
  *  packages watch, so a value read here stays correct if a host switches to one of those. */

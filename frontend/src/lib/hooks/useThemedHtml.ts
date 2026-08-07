@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { CUSTOM_THEME_STYLES_ID } from 'lib/constants'
+import { CUSTOM_THEME_STYLES_ID } from 'lib/hooks/useAppliedThemeValue'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
