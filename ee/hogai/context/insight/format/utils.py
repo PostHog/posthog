@@ -2,6 +2,7 @@ import datetime
 from math import floor
 from typing import Any, Optional, Union
 
+# Shared with subscription summaries, which cannot import through this package's Django-bound __init__.
 from posthog.bucket_completeness import parse_bucket_start
 
 
@@ -105,8 +106,6 @@ def strip_datetime_seconds(date: str) -> str:
     return datetime.datetime.fromisoformat(date).strftime("%Y-%m-%d %H:%M" if ":" in date else "%Y-%m-%d")
 
 
-# Re-exported so this module stays the import site for Max's formatters; the logic is shared with
-# subscription summaries, which cannot import through this package's Django-bound __init__.
 # Appended to a bucket's date cell when that bucket is still collecting data.
 PARTIAL_BUCKET_MARKER = " (partial)"
 

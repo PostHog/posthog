@@ -47,10 +47,10 @@ def build_results_summary(
 
     if query_kind in _TREND_SUMMARY_KINDS:
         text = _summarize_trend_kind(results, value_format, query_ran_at=query_ran_at, timezone=timezone)
-        return _truncate(text, len(results), noun="series", ordered=False)
+        return _truncate(text, len(results), noun="series")
     if summarizer := _SUMMARIZERS.get(query_kind):
-        return _truncate(summarizer(results), len(results), noun="rows", ordered=False)
-    return _truncate(_summarize_generic(results, columns), len(results), noun="rows", ordered=False)
+        return _truncate(summarizer(results), len(results), noun="rows")
+    return _truncate(_summarize_generic(results, columns), len(results), noun="rows")
 
 
 def _summarize_trend_kind(
@@ -69,18 +69,17 @@ def _summarize_trend_kind(
     return f"{coverage.note()}\n{_summarize_trends(results, value_fmt, coverage)}"
 
 
-def _sample_notice(shown: int, total: int, *, noun: str, ordered: bool) -> str:
+def _sample_notice(shown: int, total: int, *, noun: str) -> str:
     # Directive, like the exclusion note: a model given only the count still wrote "all series".
-    which = f"{shown} largest" if ordered else f"first {shown}"
-    return f"(These are the {which} of {total} {noun} — describe them as those {shown}, never as all {noun}.)"
+    return f"(These are the first {shown} of {total} {noun} — describe them as those {shown}, never as all {noun}.)"
 
 
-def _truncate(text: str, total: int, *, noun: str, ordered: bool) -> str:
+def _truncate(text: str, total: int, *, noun: str) -> str:
     """Cut on line boundaries: a fragment would read as a series with no data."""
     if len(text) <= MAX_SUMMARY_LENGTH:
         return text
     # Widest the notice can get, so prepending it afterwards cannot breach the budget.
-    budget = MAX_SUMMARY_LENGTH - len(_sample_notice(total, total, noun=noun, ordered=ordered)) - 1
+    budget = MAX_SUMMARY_LENGTH - len(_sample_notice(total, total, noun=noun)) - 1
     kept: list[str] = []
     used = 0
     for line in text.split("\n"):
@@ -89,7 +88,7 @@ def _truncate(text: str, total: int, *, noun: str, ordered: bool) -> str:
         kept.append(line)
         used += len(line) + 1
     shown = sum(1 for line in kept if line.startswith("- "))
-    return f"{_sample_notice(shown, total, noun=noun, ordered=ordered)}\n" + "\n".join(kept)
+    return f"{_sample_notice(shown, total, noun=noun)}\n" + "\n".join(kept)
 
 
 def _summarize_trends(
@@ -119,7 +118,8 @@ def _summarize_trends(
                     f"min={_fmt_value(min(numeric), value_format)}, max={_fmt_value(max(numeric), value_format)}, "
                     f"trend={trend} ({len(numeric)} {span})"
                 )
-                if isinstance(partial, (int, float)) and math.isfinite(partial):
+                is_previous = series.get("compare_label") == "previous"
+                if not is_previous and isinstance(partial, (int, float)) and math.isfinite(partial):
                     line += f", in_progress={_fmt_value(partial, value_format)}"
                 lines.append(line)
                 continue
@@ -181,9 +181,17 @@ def _coverage(results: list[Any], *, query_ran_at: object, timezone: object) -> 
         return None
 
     complete = incomplete_from_index(starts, reference=reference, period=period)
-    # Nothing complete means the timestamps disagree with each other rather than the data being
-    # missing, and trimming everything would leave nothing to describe.
-    if not complete:
+    if complete is None:
+        return None
+    if complete == 0:
+        # Timestamps disagreeing with each other, not missing data. Trimming everything would leave
+        # nothing to describe, so the summary silently reverts to the behavior this fix replaced.
+        LOGGER.warning(
+            "subscription_summary.coverage_all_incomplete",
+            total_buckets=len(starts),
+            reference=reference.isoformat(),
+            first_bucket=starts[0].isoformat(),
+        )
         return None
 
     coverage = _Coverage(

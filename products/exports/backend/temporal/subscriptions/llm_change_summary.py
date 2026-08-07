@@ -85,11 +85,11 @@ _INCOMPLETE_PERIOD_GUIDANCE = (
     f'Where a trend section carries a line starting with "{INCOMPLETE_PERIOD_NOTE_PREFIX}", the per-period figures '
     "below it cover complete periods only, and in_progress= is how far the current unfinished period has got. Report "
     "the in-progress figure when describing the current period, but never compare it to latest= and never call it a "
-    "rise or a fall. Where a section says it is showing only the largest of N series, say so — do not describe the "
-    "pattern as applying to all series. A count in brackets such as (6 days) is how many periods the figures cover, "
-    "never an amount by which something changed. Where no exclusion line appears, the most recent data point may "
-    "still cover an incomplete period, so do not read a low final point as a decline unless earlier complete periods "
-    "decline too."
+    "rise or a fall. Where a section says it is showing only the first N of something, describe the pattern as "
+    "applying to those N, never to the whole set. A count in brackets such as (6 days) is how many periods the "
+    "figures cover, never an amount by which something changed. Where no exclusion line appears, the most recent "
+    "data point may still cover an incomplete period, so do not read a low final point as a decline unless earlier "
+    "complete periods decline too."
 )
 
 INITIAL_USER_PROMPT_TEMPLATE = (

@@ -391,6 +391,57 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         # The in-progress figure is the bucket containing the run time, never an all-zero future one.
         assert "in_progress=1" in summary
 
+    # The elapsed figure is what lets a model read in_progress= as on-pace rather than as a drop.
+    @pytest.mark.parametrize(
+        "hour,expected",
+        [(0, "0% elapsed"), (6, "25% elapsed"), (12, "50% elapsed"), (23, "96% elapsed")],
+    )
+    def test_the_note_states_how_far_into_the_period_the_query_ran(self, hour, expected):
+        summary = build_results_summary(
+            "TrendsQuery", self.daily_results(), query_ran_at=f"2026-08-06T{hour:02d}:00:00+00:00", timezone="UTC"
+        )
+        assert expected in summary
+
+    def test_elapsed_follows_the_interval_not_the_calendar_day(self):
+        results = [
+            {
+                "label": "Signups",
+                "days": [f"2026-08-06 0{hour}:00:00" for hour in range(3)],
+                "data": [8, 9, 4],
+                "filter": {"interval": "hour"},
+            }
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-06T02:45:00+00:00", timezone="UTC"
+        )
+        assert "75% elapsed" in summary
+        assert "unfinished hour" in summary
+
+    # The previous-period series covers an entirely past window, so its final bucket is finished.
+    def test_compare_previous_series_is_trimmed_but_not_called_in_progress(self):
+        current = {
+            "label": "Signups",
+            "days": self.DAILY_DAYS,
+            "data": [10, 12, 11, 13, 15, 1],
+            "filter": self.DAILY_FILTER,
+            "compare_label": "current",
+        }
+        previous = {
+            "label": "Signups",
+            "days": ["2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31"],
+            "data": [20, 21, 22, 23, 24, 25],
+            "filter": self.DAILY_FILTER,
+            "compare_label": "previous",
+        }
+        summary = build_results_summary(
+            "TrendsQuery", [current, previous], query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
+        )
+        current_line, previous_line = [line for line in summary.splitlines() if line.startswith("- ")]
+        # Both windows stay the same width, so the comparison remains like for like.
+        assert "(5 days)" in current_line and "(5 days)" in previous_line
+        assert "in_progress=1" in current_line
+        assert "in_progress" not in previous_line
+
     def test_bucket_completeness_uses_the_team_timezone(self):
         # 2026-08-06 is complete in UTC by 02:00 on the 7th, but not in US/Pacific until 07:00 UTC.
         summary = build_results_summary(
