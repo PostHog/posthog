@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import { notebookLogic } from '../Notebook/notebookLogic'
 import { notebookPanelLogic } from './notebookPanelLogic'
 
 describe('notebookPanelLogic', () => {
@@ -36,5 +38,25 @@ describe('notebookPanelLogic', () => {
             sidePanelOpen: true,
             selectedTab: SidePanelTab.Notebooks,
         })
+    })
+
+    it('falls back to the scratchpad when the selected notebook 404s', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:project_id/notebooks/missing-notebook/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+
+        notebookPanelLogic.actions.selectNotebook('missing-notebook', { silent: true })
+        await expectLogic(notebookPanelLogic).toMatchValues({ selectedNotebook: 'missing-notebook' })
+
+        const logic = notebookLogic({ shortId: 'missing-notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess'])
+        await expectLogic(notebookPanelLogic).toMatchValues({ selectedNotebook: 'scratchpad' })
+
+        logic.unmount()
     })
 })

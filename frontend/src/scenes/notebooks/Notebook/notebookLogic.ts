@@ -87,6 +87,7 @@ import type {
     SqlV2NodeSummary,
 } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
+import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
 import type { NotebookListItemType } from '../types'
 import { updateContentHeading } from '../utils'
@@ -1452,7 +1453,7 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
         connectMarkdownUpdateStream: () => {
             if (!values.markdownRealtimeEnabled) {
                 return
@@ -1868,6 +1869,16 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.processPendingMarkdownStreamEvents()
         },
         loadNotebookSuccess: ({ notebook }) => {
+            // Fail soft in the side panel: a stale persisted selection (a notebook from another
+            // project, or one that was deleted) 404s to a null notebook and would otherwise
+            // park the panel on a permanent "Notebook not found" screen. Fall back to the
+            // scratchpad so the panel stays usable.
+            if (!notebook && props.shortId !== SCRATCHPAD_NOTEBOOK.short_id) {
+                const panelLogic = notebookPanelLogic.findMounted()
+                if (panelLogic && panelLogic.values.selectedNotebook === props.shortId) {
+                    panelLogic.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id, { silent: true })
+                }
+            }
             if (
                 notebook &&
                 isMarkdownNotebookContent(notebook.content) &&
