@@ -107,6 +107,39 @@ describe('the primary event properties model', () => {
         expect(updateAttempted).toBe(false)
     })
 
+    it('drops a stale in-flight load when a newer load supersedes it', async () => {
+        // Without the breakpoint() after the await, the transiently-mounted model can also let a
+        // slow first load overwrite a newer one. Gate the first response so it is still pending
+        // when the second dispatch supersedes it.
+        let releaseFirst: () => void = () => {}
+        const firstGate = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        let call = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/primary_properties/': async () => {
+                    call += 1
+                    if (call === 1) {
+                        await firstGate
+                        return [200, { primary_properties: { my_event: 'stale' } }]
+                    }
+                    return [200, { primary_properties: { my_event: 'fresh' } }]
+                },
+            },
+        })
+
+        logic.actions.loadPrimaryProperties({ names: ['my_event'] })
+        await expectLogic(logic, () => {
+            logic.actions.loadPrimaryProperties({ names: ['my_event'] })
+        }).toDispatchActions(['loadPrimaryPropertiesSuccess'])
+
+        releaseFirst()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(logic.values.primaryProperties).toEqual({ my_event: 'fresh' })
+    })
+
     it('does not mark events as loaded when the load request fails, so they can be retried', async () => {
         // Deliberate loader failure — kea-loaders would log it
         silenceKeaLoadersErrors()
