@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInput,
@@ -274,7 +275,12 @@ function DetailsSection({
                     )}
                 </div>
                 <div className="flex items-center justify-between">
-                    <span className="text-muted">Rows synced</span>
+                    <span className="text-muted flex items-center gap-1">
+                        Rows stored
+                        <Tooltip title="Rows currently stored in this table. This is not the number you're billed for. Billing counts every row imported on each sync, so a table that fully refreshes on a schedule is billed for its rows on each run.">
+                            <IconInfo className="text-muted-alt text-base" />
+                        </Tooltip>
+                    </span>
                     <span>{schema.table?.row_count?.toLocaleString() ?? '—'}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -924,6 +930,12 @@ function ScheduleSection({
                         onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
                         options={frequencyOptions}
                     />
+                    {schema.sync_type === 'full_refresh' && (
+                        <LemonBanner type="info" className="mt-1">
+                            This table replicates in full on every sync, so each run is billed for all of its rows. A
+                            shorter interval increases how many rows you're billed for.
+                        </LemonBanner>
+                    )}
                 </div>
                 <AnchorTimeField
                     schema={schema}

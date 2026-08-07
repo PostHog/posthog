@@ -6270,6 +6270,7 @@ export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
+    created_at?: string
     status: ExternalDataJobStatus
     source_type: ExternalDataSourceType
     prefix: string | null

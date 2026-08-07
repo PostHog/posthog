@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCollapse,
     LemonDialog,
@@ -57,6 +58,7 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
+import { sourceBillingUsageLogic } from './sourceBillingUsageLogic'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
@@ -258,6 +260,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     </SourceEditorAction>
                 </div>
             </div>
+            <SourceBillingUsageSummary sourceId={id} source={source} />
             {groupedFilteredSchemas.length > 1 ? (
                 <div className="border rounded bg-bg-light">
                     <LemonCollapse
@@ -322,6 +325,49 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 />
             )}
         </>
+    )
+}
+
+// New sources get a 7-day free window; billing keys it on the source's creation date (see
+// get_teams_with_free_historical_rows_synced_in_period in posthog/tasks/usage_report.py).
+const FREE_WINDOW_DAYS = 7
+
+function SourceBillingUsageSummary({
+    sourceId,
+    source,
+}: {
+    sourceId: string
+    source: ExternalDataSource | null
+}): JSX.Element | null {
+    const { rowsSyncedThisPeriod, rowsSyncedThisPeriodLoading } = useValues(sourceBillingUsageLogic({ sourceId }))
+
+    const createdAt = source?.created_at ? dayjs(source.created_at) : null
+    const freeWindowEnd = createdAt ? createdAt.add(FREE_WINDOW_DAYS, 'day') : null
+    const inFreeWindow = freeWindowEnd ? dayjs().isBefore(freeWindowEnd) : false
+
+    return (
+        <div className="flex flex-col gap-2 mb-3">
+            {inFreeWindow && freeWindowEnd && (
+                <LemonBanner type="info">
+                    This source is in its {FREE_WINDOW_DAYS}-day free window. Syncs aren't billed until{' '}
+                    <TZLabel time={freeWindowEnd} formatDate="MMM DD, YYYY" formatTime="HH:mm" />. The free window is
+                    per source, so tables you add later are billed from their first sync.
+                </LemonBanner>
+            )}
+            <div className="flex items-center gap-1 text-sm text-secondary">
+                <span>Rows synced this billing period:</span>
+                {rowsSyncedThisPeriodLoading ? (
+                    <Spinner className="text-sm" />
+                ) : rowsSyncedThisPeriod !== null ? (
+                    <span className="font-semibold text-default">{rowsSyncedThisPeriod.toLocaleString()}</span>
+                ) : (
+                    <span className="text-muted">—</span>
+                )}
+                <Tooltip title="Total rows imported across every sync in the current billing period. This is the rows-synced figure that drives usage-based billing, unlike the rows stored in each table below.">
+                    <IconInfo className="text-muted-alt text-base" />
+                </Tooltip>
+            </div>
+        </div>
     )
 }
 
@@ -480,7 +526,14 @@ function ManagedSchemaTable({
                         ),
                 },
                 {
-                    title: 'Rows synced',
+                    title: (
+                        <span className="flex items-center justify-end gap-1">
+                            Rows stored
+                            <Tooltip title="Rows currently stored in this table. This is not the number you're billed for. See rows synced this billing period above.">
+                                <IconInfo className="text-muted-alt text-base" />
+                            </Tooltip>
+                        </span>
+                    ),
                     key: 'rows_synced',
                     align: 'right',
                     sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),
