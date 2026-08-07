@@ -206,8 +206,18 @@ const TRIPWIRE_RULES = [
     ['pyproject.toml', UNIVERSAL],
     ['requirements.txt', UNIVERSAL],
     ['requirements-dev.txt', UNIVERSAL],
-    ['rust/Cargo.lock', UNIVERSAL],
-    ['rust/Cargo.toml', UNIVERSAL],
+    // The cargo workspace's own lockfile and manifest are the exception in this
+    // group: nothing outside the workspace resolves against them. What kept
+    // them universal was the three crates that are also pnpm packages, and the
+    // `rust` domain now names the lanes consuming those, so the radius is
+    // covered without claiming every lane in the repo. ci-rust.yml already
+    // narrows a lockfile touch further, by diffing the resolved graph rather
+    // than rebuilding everything, which is a step this script cannot take
+    // without a cargo toolchain in the compute job.
+    ['rust/Cargo.lock', RUST],
+    ['rust/Cargo.toml', RUST],
+    // Left universal deliberately. sqlx offline data is rust-only, but it moves
+    // a handful of times a year, too rarely to be worth the narrower rule.
     ['rust/.sqlx/**', UNIVERSAL],
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
@@ -853,7 +863,10 @@ function discoverRustCrates(repoRoot) {
                 const text = fs.readFileSync(full, 'utf8')
                 const name = parseCrateName(text)
                 if (name) {
-                    crates.push({ dir: relative, name, text })
+                    // A package.json beside the Cargo.toml means the crate also
+                    // builds an npm package, so its lane extends past rust/.
+                    const publishesNpmPackage = fs.existsSync(path.join(dir, 'package.json'))
+                    crates.push({ dir: relative, name, text, publishesNpmPackage })
                 }
             }
         }
@@ -948,6 +961,23 @@ function parseCrateDependencies(tomlText, crateNames) {
     return [...deps]
 }
 
+// Dependencies no Cargo.toml declares, because they are not compile-time edges:
+// the key crate spawns the listed ones as binaries at run time. The cargo graph
+// cannot see that, so the reverse closure would stop short of the spawner and
+// leave it free to merge in parallel with a change to a service it executes.
+//
+// Mirrors the [[package-rule]] on-affected block in
+// rust/affected-services/determinator-rules.toml, which exists for this same
+// blind spot on the CI side. The two lists have to be changed together, which a
+// test asserts, and loadRustGraph gives up the whole graph rather than dropping
+// an edge if a crate named here stops existing.
+const RUNTIME_SPAWN_EDGES = new Map([
+    [
+        'personhog-test-harness',
+        ['personhog-replica', 'personhog-router', 'personhog-leader', 'personhog-writer', 'personhog-identity'],
+    ],
+])
+
 // Returns null when the crate graph can't be built. Callers must treat null as
 // "unknown dependents" and report every rust target, never as "no dependents".
 function loadRustGraph(repoRoot) {
@@ -961,12 +991,29 @@ function loadRustGraph(repoRoot) {
         for (const crate of crates) {
             dependsOn.set(crate.name, parseCrateDependencies(crate.text, crateNames))
         }
+        // A crate renamed out from under the runtime map would otherwise drop
+        // its edge silently, which is the under-reporting direction, so an
+        // unresolvable entry gives up the whole graph instead.
+        for (const [spawner, spawned] of RUNTIME_SPAWN_EDGES) {
+            const unknown = [spawner, ...spawned].filter((crate) => !crateNames.has(crate))
+            if (unknown.length > 0) {
+                console.error(
+                    `Runtime spawn edges name crates that no longer exist (${unknown.join(', ')}); ` +
+                        'reporting every rust target until RUNTIME_SPAWN_EDGES is updated'
+                )
+                return null
+            }
+            dependsOn.set(spawner, [...new Set([...dependsOn.get(spawner), ...spawned])])
+        }
+        const nativeBindings = new Set(
+            crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name)
+        )
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
             .map((crate) => ({ dir: crate.dir, name: crate.name }))
             .sort((a, b) => b.dir.length - a.dir.length)
-        return { dependsOn, byDir }
+        return { dependsOn, byDir, nativeBindings }
     } catch (error) {
         console.error(`Rust crate graph unavailable (${error.message}); reporting every rust target`)
         return null
@@ -1003,6 +1050,13 @@ function reverseClosure(seeds, dependsOn) {
 const pyProduct = (product) => `py:product:${product}`
 const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
+
+// The lanes that import a native module built from the cargo workspace.
+// nodejs/package.json is the only dependent of the three binding packages
+// (@posthog/cyclotron, @posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// and the test suite re-derives that from pnpm-workspace.yaml so a second
+// dependent fails there rather than silently going unclaimed here.
+const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
 
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged
@@ -1389,8 +1443,19 @@ function computeTargets(changedFiles, context) {
         const seeds = [...targets]
             .filter((target) => target.startsWith('rust:crate:'))
             .map((target) => target.slice('rust:crate:'.length))
-        for (const crate of reverseClosure(seeds, rustGraph.dependsOn)) {
+        const affectedCrates = reverseClosure(seeds, rustGraph.dependsOn)
+        for (const crate of affectedCrates) {
             targets.add(rustCrate(crate))
+        }
+        // A crate that also builds an npm package compiles into a native module
+        // the JS workspace imports, so the closure does not end at rust/. The
+        // dependents are found through package.json rather than Cargo.toml,
+        // which is why the crate graph alone stops one edge short.
+        const bindings = rustGraph.nativeBindings || new Set()
+        if (affectedCrates.some((crate) => bindings.has(crate))) {
+            for (const target of NATIVE_BINDING_CONSUMER_LANES) {
+                targets.add(target)
+            }
         }
     }
 
@@ -1506,8 +1571,10 @@ module.exports = {
     tripwireDomain,
     ALL,
     JAVASCRIPT,
+    NATIVE_BINDING_CONSUMER_LANES,
     PYTHON,
     REPO_ROOT,
+    RUNTIME_SPAWN_EDGES,
     RUST,
     UNIVERSAL,
 }

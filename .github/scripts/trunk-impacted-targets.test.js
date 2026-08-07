@@ -9,6 +9,8 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 
 const {
     computeTargets,
@@ -27,7 +29,10 @@ const {
     tripwireDomain,
     ALL,
     JAVASCRIPT,
+    NATIVE_BINDING_CONSUMER_LANES,
     PYTHON,
+    REPO_ROOT,
+    RUNTIME_SPAWN_EDGES,
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
@@ -105,7 +110,7 @@ test('a universal tripwire claims every known target', () => {
     const tripwireFiles = [
         'pnpm-lock.yaml',
         'uv.lock',
-        'rust/Cargo.lock',
+        'rust/.sqlx/query-0a1b.json',
         'tach.toml',
         'proto/events.proto',
         'frontend/src/queries/schema.json',
@@ -437,6 +442,136 @@ test('an unresolvable rust crate graph reports every crate instead of narrowing'
 
 test('a rust path outside every known crate widens', () => {
     assert.deepEqual(computeTargets(['rust/not-a-crate/file.rs'], CONTEXT), EVERYTHING)
+})
+
+// A binding crate compiles into a native module the JS workspace imports, so
+// the lane cannot stop at rust/. A PR changing the binding and a PR changing
+// its caller in nodejs/ must not come out disjoint.
+test('a crate that builds an npm package claims the lanes importing it', () => {
+    const bindingContext = {
+        ...CONTEXT,
+        rustGraph: { ...CONTEXT.rustGraph, nativeBindings: new Set(['consumer']) },
+    }
+    // Reached through the closure rather than directly: `shared` is not itself a
+    // binding, but what it compiles into ships inside one.
+    const viaDependency = computeTargets(['rust/shared/src/lib.rs'], bindingContext)
+    assert.equal(viaDependency.includes('node:ingestion'), true)
+
+    const direct = computeTargets(['rust/consumer/src/lib.rs'], bindingContext)
+    assert.equal(direct.includes('node:ingestion'), true)
+
+    // A crate no binding depends on keeps its own lane.
+    const unrelated = computeTargets(['rust/unrelated/src/main.rs'], bindingContext)
+    assert.deepEqual(unrelated, ['rust:crate:unrelated'])
+})
+
+// The cargo lockfile and manifest resolve nothing outside the cargo workspace,
+// so the lanes they can break are the rust ones plus whatever reaches them
+// through a native module, rather than every lane in the repo.
+test('the cargo lockfile claims the rust lanes rather than every lane', () => {
+    const bindingContext = {
+        ...CONTEXT,
+        rustGraph: { ...CONTEXT.rustGraph, nativeBindings: new Set(['consumer']) },
+    }
+    for (const file of ['rust/Cargo.lock', 'rust/Cargo.toml']) {
+        const targets = computeTargets([file], bindingContext)
+        assert.equal(isTripwire(file), true, `${file} should still be a tripwire`)
+        assert.deepEqual(
+            targets.filter((target) => target.startsWith('rust:crate:')),
+            ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated'],
+            `${file} should claim every crate`
+        )
+        assert.equal(targets.includes('node:ingestion'), true, `${file} reaches the native module consumers`)
+        assert.equal(targets.includes('py:core'), false, `${file} should not claim the python lanes`)
+        assert.equal(targets.includes('fe:core'), false, `${file} should not claim the frontend lanes`)
+    }
+})
+
+// The two lists below are the same rule written twice, once for the merge queue
+// and once for CI's selective builds. Nothing but this test stops them drifting,
+// and the failure is silent in both directions: an edge the queue drops lets two
+// conflicting PRs merge in parallel.
+test('the runtime spawn edges match the determinator package rules', () => {
+    const rulesToml = fs.readFileSync(
+        path.join(REPO_ROOT, 'rust/affected-services/determinator-rules.toml'),
+        'utf8'
+    )
+    const names = (block, key) => {
+        const match = block.match(new RegExp(`${key}\\s*=\\s*\\[([^\\]]*)\\]`))
+        return match ? [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort() : []
+    }
+    const packageRules = rulesToml
+        .split(/^\s*\[\[package-rule\]\]\s*$/m)
+        .slice(1)
+        .map((block) => ({ onAffected: names(block, 'on-affected'), markChanged: names(block, 'mark-changed') }))
+
+    const fromScript = [...RUNTIME_SPAWN_EDGES]
+        .map(([spawner, spawned]) => ({ onAffected: [...spawned].sort(), markChanged: [spawner] }))
+        .sort((a, b) => a.markChanged[0].localeCompare(b.markChanged[0]))
+    const fromRules = packageRules.sort((a, b) => a.markChanged[0].localeCompare(b.markChanged[0]))
+
+    assert.deepEqual(fromScript, fromRules)
+})
+
+// The consumer lanes are declared rather than derived, so a second dependent
+// appearing anywhere in the pnpm workspace has to fail here. Reads the real
+// workspace for that reason: a synthetic one cannot notice the new dependent.
+test('nodejs is still the only workspace package importing a rust binding', () => {
+    const workspaceGlobs = parseWorkspacePackageGlobs(
+        fs.readFileSync(path.join(REPO_ROOT, 'pnpm-workspace.yaml'), 'utf8')
+    )
+    // pnpm's package globs are one level deep, so a trailing /* expands by
+    // listing the directory. Negations exclude a package rather than add one.
+    const expand = (glob) => {
+        if (glob.startsWith('!')) {
+            return []
+        }
+        if (!glob.endsWith('/*')) {
+            return [glob]
+        }
+        const parent = path.join(REPO_ROOT, glob.slice(0, -2))
+        if (!fs.existsSync(parent)) {
+            return []
+        }
+        return fs
+            .readdirSync(parent, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => path.posix.join(glob.slice(0, -2), entry.name))
+    }
+    const packageDirs = workspaceGlobs.flatMap(expand)
+
+    const bindingPackages = new Set()
+    for (const dir of packageDirs) {
+        if (!dir.startsWith('rust/')) {
+            continue
+        }
+        const manifest = path.join(REPO_ROOT, dir, 'package.json')
+        if (fs.existsSync(manifest)) {
+            bindingPackages.add(JSON.parse(fs.readFileSync(manifest, 'utf8')).name)
+        }
+    }
+    assert.ok(bindingPackages.size > 0, 'expected the rust workspace to publish npm packages')
+
+    const dependentDirs = []
+    for (const dir of packageDirs) {
+        if (dir.startsWith('rust/')) {
+            continue
+        }
+        const manifest = path.join(REPO_ROOT, dir, 'package.json')
+        if (!fs.existsSync(manifest)) {
+            continue
+        }
+        const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'))
+        const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies }
+        if (Object.keys(deps).some((name) => bindingPackages.has(name))) {
+            dependentDirs.push(dir)
+        }
+    }
+    assert.deepEqual(
+        dependentDirs.sort(),
+        ['nodejs'],
+        `NATIVE_BINDING_CONSUMER_LANES (${NATIVE_BINDING_CONSUMER_LANES.join(', ')}) must cover every dependent`
+    )
 })
 
 test('reverseClosure walks transitively and excludes unrelated nodes', () => {
