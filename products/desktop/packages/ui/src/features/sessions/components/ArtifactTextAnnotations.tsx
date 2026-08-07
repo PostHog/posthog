@@ -338,7 +338,7 @@ export function ArtifactTextAnnotations({
         toLine: offsets.end + 1,
         anchor: {
           top: endRect.top,
-          left: endRect.right,
+          endX: endRect.right,
           bottom: endRect.bottom,
         },
       });
@@ -353,12 +353,12 @@ export function ArtifactTextAnnotations({
       onIdleSelectionChange: scheduleUpdate,
       onGestureCancel: clearOverlay,
     });
-    // Scrolling moves the selection but not the fixed-position action, so
-    // re-anchor it to the live selection instead of leaving it behind.
-    container.addEventListener("scroll", scheduleUpdate, { passive: true });
+    // Hide on scroll because the HTML and canvas surfaces cannot keep a
+    // fixed-position host action anchored during an iframe scroll.
+    container.addEventListener("scroll", clearOverlay, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
-      container.removeEventListener("scroll", scheduleUpdate);
+      container.removeEventListener("scroll", clearOverlay);
       removeGate();
     };
   }, [clearOverlay, containerRef, rootRef]);

@@ -34,9 +34,9 @@ const runtime = `(()=>{const channel="posthog-canvas",pending=new Map;let sequen
 
 // Which box the comment action anchors to. A Range spanning block elements also
 // reports the wrapper boxes (paragraph, blockquote, list), so neither the
-// bounding box nor the last entry marks where the user stopped selecting. Keep
-// the leaf boxes — those enclosing no other box — and take the lowest, then
-// right-most one: the end of the last selected line.
+// bounding box nor the last entry marks where the user stopped selecting.
+// Check boxes from visually last to first and take the first leaf box, which
+// avoids scanning every pair for normal selections.
 function commentActionAnchorRect(rects, fallback) {
     const boxes = []
     for (let index = 0; index < rects.length; index++) {
@@ -52,15 +52,16 @@ function commentActionAnchorRect(rects, fallback) {
         outer.right >= inner.right - EPSILON &&
         outer.top <= inner.top + EPSILON &&
         outer.bottom >= inner.bottom - EPSILON
-    const leaves = boxes.filter((box) => !boxes.some((other) => other !== box && encloses(box, other)))
-    const pool = leaves.length > 0 ? leaves : boxes
-    let best = pool[0]
-    for (const box of pool) {
-        const lower = box.bottom > best.bottom + EPSILON
-        const sameLine = Math.abs(box.bottom - best.bottom) <= EPSILON
-        if (lower || (sameLine && box.right > best.right)) best = box
+    const candidates = boxes.slice().sort((left, right) => {
+        const verticalDistance = right.bottom - left.bottom
+        return Math.abs(verticalDistance) > EPSILON ? verticalDistance : right.right - left.right
+    })
+    for (const box of candidates) {
+        if (!boxes.some((other) => other !== box && encloses(box, other))) {
+            return box
+        }
     }
-    return best
+    return candidates[0]
 }
 
 // While the user selects, the range keeps moving, so an action anchored to the
@@ -76,6 +77,7 @@ function commentActionAnchorRect(rects, fallback) {
 function installSelectionSettleGate(doc, callbacks) {
     const view = doc.defaultView
     let selecting = false
+    let keyGesture = false
     let frame = 0
 
     // Keys that move or extend a selection. "a" only counts with a modifier, so
@@ -114,6 +116,7 @@ function installSelectionSettleGate(doc, callbacks) {
     }
     const inActionUi = (target) => target instanceof Element && !!target.closest('[data-selection-comment-overlay]')
     const startGesture = () => {
+        if (selecting) return
         selecting = true
         cancelFrame()
         callbacks.onGestureStart?.()
@@ -121,6 +124,7 @@ function installSelectionSettleGate(doc, callbacks) {
     const cancelGesture = () => {
         if (!selecting) return
         selecting = false
+        keyGesture = false
         cancelFrame()
         callbacks.onGestureCancel?.()
     }
@@ -140,14 +144,18 @@ function installSelectionSettleGate(doc, callbacks) {
         if (event instanceof MouseEvent && event.button > 0) return
         if (!selecting) return
         selecting = false
+        keyGesture = false
         settle()
     }
     const onKeyDown = (event) => {
-        if (isSelectionKey(event)) startGesture()
+        if (!isSelectionKey(event)) return
+        keyGesture = true
+        startGesture()
     }
-    const onKeyUp = (event) => {
-        if (!selecting || !isSelectionKey(event)) return
+    const onKeyUp = () => {
+        if (!selecting || !keyGesture) return
         selecting = false
+        keyGesture = false
         settle()
     }
     const onSelectionChange = () => {
@@ -163,9 +171,20 @@ function installSelectionSettleGate(doc, callbacks) {
     doc.addEventListener('keyup', onKeyUp, true)
     doc.addEventListener('selectionchange', onSelectionChange)
     view?.addEventListener('blur', cancelGesture)
+    return () => {
+        cancelFrame()
+        doc.removeEventListener('pointerdown', onPointerDown, true)
+        doc.removeEventListener('selectstart', onSelectStart, true)
+        doc.removeEventListener('pointerup', onPointerUp, true)
+        doc.removeEventListener('pointercancel', cancelGesture, true)
+        doc.removeEventListener('keydown', onKeyDown, true)
+        doc.removeEventListener('keyup', onKeyUp, true)
+        doc.removeEventListener('selectionchange', onSelectionChange)
+        view?.removeEventListener('blur', cancelGesture)
+    }
 }
 
-const selectionRuntime = `(()=>{const channel="posthog-canvas";let port,timer=0;const anchorRect=${commentActionAnchorRect.toString()};const settleGate=${installSelectionSettleGate.toString()};const post=message=>port?.postMessage({channel,...message}),clear=()=>post({type:"text-selection-cleared"}),clearNative=()=>{getSelection()?.removeAllRanges();clear()},report=()=>{clearTimeout(timer);timer=setTimeout(()=>{const selection=getSelection();if(!selection||selection.isCollapsed||selection.rangeCount===0){clear();return}const range=selection.getRangeAt(0);if(!document.body.contains(range.startContainer)||!document.body.contains(range.endContainer)){clear();return}const before=document.createRange();before.selectNodeContents(document.body);before.setEnd(range.startContainer,range.startOffset);const through=document.createRange();through.selectNodeContents(document.body);through.setEnd(range.endContainer,range.endOffset);const whole=document.createRange();whole.selectNodeContents(document.body);const text=whole.toString(),start=before.toString().length,end=through.toString().length,quote=text.slice(start,end);if(!quote.trim()||quote.length>10000){clear();return}const rect=anchorRect(range.getClientRects?range.getClientRects():[],range.getBoundingClientRect());post({type:"text-selection",selection:{quote,prefix:text.slice(Math.max(0,start-32),start),suffix:text.slice(end,end+32),start,end,rect:{top:rect.top,right:rect.right,bottom:rect.bottom,left:rect.left}}})},80)};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="clear-text-selection")clearNative()});port.start()});const abort=()=>{clearTimeout(timer);clear()};settleGate(document,{onGestureStart:abort,onSelectionSettled:report,onIdleSelectionChange:report,onGestureCancel:abort})})();`
+const selectionRuntime = `(()=>{const channel="posthog-canvas";let port,timer=0,published=false;const anchorRect=${commentActionAnchorRect.toString()};const settleGate=${installSelectionSettleGate.toString()};const post=message=>port?.postMessage({channel,...message}),clear=()=>{if(!published)return;published=false;post({type:"text-selection-cleared"})},clearNative=()=>{getSelection()?.removeAllRanges();clear()},report=()=>{clearTimeout(timer);timer=setTimeout(()=>{const selection=getSelection();if(!selection||selection.isCollapsed||selection.rangeCount===0){clear();return}const range=selection.getRangeAt(0);if(!document.body.contains(range.startContainer)||!document.body.contains(range.endContainer)){clear();return}const before=document.createRange();before.selectNodeContents(document.body);before.setEnd(range.startContainer,range.startOffset);const through=document.createRange();through.selectNodeContents(document.body);through.setEnd(range.endContainer,range.endOffset);const whole=document.createRange();whole.selectNodeContents(document.body);const text=whole.toString(),start=before.toString().length,end=through.toString().length,quote=text.slice(start,end);if(!quote.trim()||quote.length>10000){clear();return}const rect=anchorRect(range.getClientRects?range.getClientRects():[],range.getBoundingClientRect());published=true;post({type:"text-selection",selection:{quote,prefix:text.slice(Math.max(0,start-32),start),suffix:text.slice(end,end+32),start,end,rect:{top:rect.top,right:rect.right,bottom:rect.bottom,left:rect.left}}})},80)};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="clear-text-selection")clearNative()});port.start()});const abort=()=>{clearTimeout(timer);clear()};settleGate(document,{onGestureStart:abort,onSelectionSettled:report,onIdleSelectionChange:report,onGestureCancel:abort});document.addEventListener("scroll",abort,true)})();`
 const highlightRuntime = `(()=>{const channel="posthog-canvas",style=document.createElement("style");style.textContent="::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";document.head.appendChild(style);let items=[],ranges=[],port,timer=0;const indexText=()=>{const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),entries=[];let text="";for(let node=walker.nextNode();node;node=walker.nextNode()){const start=text.length;text+=node.data;entries.push({node,start,end:text.length})}return{text,entries}},rangeAt=(index,start,end)=>{const find=offset=>{let low=0,high=index.entries.length-1,match=null;while(low<=high){const middle=low+high>>1,entry=index.entries[middle];if(offset<entry.start)high=middle-1;else if(offset>entry.end)low=middle+1;else{match=entry;high=middle-1}}return match},startEntry=find(start),endEntry=find(end);if(!startEntry||!endEntry)return null;const range=document.createRange();range.setStart(startEntry.node,start-startEntry.start);range.setEnd(endEntry.node,end-endEntry.start);return range},resolve=(text,anchor)=>{if(text.slice(anchor.start,anchor.end)===anchor.quote)return{start:anchor.start,end:anchor.end};const matches=[];for(let start=text.indexOf(anchor.quote);start>=0;start=text.indexOf(anchor.quote,start+Math.max(anchor.quote.length,1))){const end=start+anchor.quote.length,prefix=text.slice(Math.max(0,start-anchor.prefix.length),start),suffix=text.slice(end,end+anchor.suffix.length);matches.push({start,end,score:(anchor.prefix&&prefix===anchor.prefix?2:0)+(anchor.suffix&&suffix===anchor.suffix?2:0)})}if(matches.length===1)return matches[0];matches.sort((a,b)=>b.score-a.score);return matches[0]?.score&&matches[0].score!==matches[1]?.score?matches[0]:null},render=next=>{items=next||[];ranges=[];if(!window.Highlight||!window.CSS||!CSS.highlights)return;const normal=new Highlight,active=new Highlight,index=indexText();for(const item of items){const hit=resolve(index.text,item.anchor),range=hit&&rangeAt(index,hit.start,hit.end);if(range){ranges.push({id:item.id,range});(item.active?active:normal).add(range)}}CSS.highlights.set("posthog-canvas-comment",normal);CSS.highlights.set("posthog-canvas-comment-active",active)};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="set-comment-highlights")render(event.data.highlights)});port.start()});document.addEventListener("click",event=>{const selection=getSelection();if(selection&&!selection.isCollapsed)return;for(const item of ranges)for(const rect of item.range.getClientRects())if(event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom){event.preventDefault();event.stopPropagation();port?.postMessage({channel,type:"comment-activate",id:item.id});return}},true);new MutationObserver(()=>{if(!items.length||timer)return;timer=setTimeout(()=>{timer=0;render(items)},500)}).observe(document.body,{childList:true,characterData:true,subtree:true})})();`
 // Selection and highlight runtimes extend the shared canvas bridge.
 const platformStylesheet = `

@@ -291,7 +291,12 @@ export function buildSandboxDocument(
     );
 
     const selectionAnchorRect = ${commentActionAnchorRect.toString()};
-    const clearTextSelection = () => post({ type: "text-selection-cleared" });
+    let textSelectionPublished = false;
+    const clearTextSelection = () => {
+      if (!textSelectionPublished) return;
+      textSelectionPublished = false;
+      post({ type: "text-selection-cleared" });
+    };
     let selectionTimer = 0;
     const reportTextSelection = () => {
       clearTimeout(selectionTimer);
@@ -323,6 +328,7 @@ export function buildSandboxDocument(
       // The END line's rect, so the host anchors the comment action where the
       // pointer was released rather than at the whole-range bounding box.
       const rect = selectionAnchorRect(range.getClientRects(), range.getBoundingClientRect());
+      textSelectionPublished = true;
       post({
         type: "text-selection",
         selection: {
@@ -352,6 +358,7 @@ export function buildSandboxDocument(
       onIdleSelectionChange: reportTextSelection,
       onGestureCancel: abortTextSelection,
     });
+    document.addEventListener("scroll", abortTextSelection, true);
     const clearNativeTextSelection = () => {
       window.getSelection()?.removeAllRanges();
       clearTextSelection();

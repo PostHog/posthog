@@ -177,7 +177,7 @@ export function AnnotatedArtifactHtml({
         toLine: parsed.data.end + 1,
         anchor: {
           top: frameBox.top + data.triggerRect.top,
-          left: frameBox.left + data.triggerRect.left,
+          endX: frameBox.left + data.triggerRect.left,
           bottom: frameBox.top + data.triggerRect.bottom,
         },
       });

@@ -66,11 +66,17 @@ style();send("ready");
 
 export function injectArtifactHtmlCommentBridge(
   html: string,
-  channel: string,
-  theme: CommentSurfaceTheme,
-  nonce?: string,
+  options: {
+    channel: string;
+    theme: CommentSurfaceTheme;
+    nonce?: string;
+  },
 ): string {
-  const bridge = artifactHtmlCommentBridge(channel, theme, nonce);
+  const bridge = artifactHtmlCommentBridge(
+    options.channel,
+    options.theme,
+    options.nonce,
+  );
   const bodyEnd = html.toLowerCase().lastIndexOf("</body>");
   if (bodyEnd >= 0) {
     return `${html.slice(0, bodyEnd)}${bridge}${html.slice(bodyEnd)}`;

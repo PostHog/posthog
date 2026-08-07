@@ -34,7 +34,7 @@ function renderCollapsed(
         text: "selected",
         fromLine: 1,
         toLine: 1,
-        anchor: { top: 20, left: 20, bottom: 38 },
+        anchor: { top: 20, endX: 20, bottom: 38 },
       }}
       open
       filePath="report.md"
@@ -53,7 +53,7 @@ describe("SelectionCommentOverlay", () => {
           text: "selected",
           fromLine: 1,
           toLine: 1,
-          anchor: { top: 20, left: 20, bottom: 38 },
+          anchor: { top: 20, endX: 20, bottom: 38 },
         }}
         open
         filePath="report.md"
@@ -95,7 +95,7 @@ describe("SelectionCommentOverlay", () => {
           text: "selected",
           fromLine: 1,
           toLine: 1,
-          anchor: { top: 20, left: 20, bottom: 38 },
+          anchor: { top: 20, endX: 20, bottom: 38 },
         }}
         open
         filePath="report.md"
@@ -130,7 +130,7 @@ describe("SelectionCommentOverlay", () => {
           text: "selected",
           fromLine: 1,
           toLine: 1,
-          anchor: { top: 20, left: 20, bottom: 38 },
+          anchor: { top: 20, endX: 20, bottom: 38 },
         }}
         open
         filePath="report.md"

@@ -89,7 +89,7 @@ function SelectionComposerCard({
   initiallyExpanded,
   members,
 }: {
-  anchor: { top: number; left: number; bottom: number };
+  anchor: { top: number; endX: number; bottom: number };
   fromLine: number;
   toLine: number;
   filePath: string;
@@ -114,9 +114,10 @@ function SelectionComposerCard({
     ? { width: Math.min(420, window.innerWidth * 0.8), height: 180 }
     : { width: showActionText ? 104 : 28, height: 28 };
   const style = computeCommentActionPlacement(
-    { top: anchor.top, right: anchor.left, bottom: anchor.bottom },
+    { top: anchor.top, right: anchor.endX, bottom: anchor.bottom },
     { width: window.innerWidth, height: window.innerHeight },
     actionSize,
+    expanded ? "below" : "center",
   );
 
   useEffect(() => {

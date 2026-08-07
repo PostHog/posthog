@@ -29,12 +29,11 @@ export function artifactHtmlDocument(
   }
   const nonce = crypto.randomUUID();
   return applyCspToHtml(
-    injectArtifactHtmlCommentBridge(
-      safeHtml,
-      commentBridgeChannel,
-      commentSurfaceTheme,
+    injectArtifactHtmlCommentBridge(safeHtml, {
+      channel: commentBridgeChannel,
+      theme: commentSurfaceTheme,
       nonce,
-    ),
+    }),
     undefined,
     nonce,
   );
@@ -48,11 +47,10 @@ export function scriptedArtifactHtmlDocument(
   const safeHtml = removeAutomaticRedirects(html);
   if (!commentBridgeChannel) return applyCspToHtml(safeHtml);
   return applyCspToHtml(
-    injectArtifactHtmlCommentBridge(
-      safeHtml,
-      commentBridgeChannel,
-      commentSurfaceTheme,
-    ),
+    injectArtifactHtmlCommentBridge(safeHtml, {
+      channel: commentBridgeChannel,
+      theme: commentSurfaceTheme,
+    }),
   );
 }
 export async function artifactPreviewBlob(

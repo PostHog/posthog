@@ -162,8 +162,18 @@ const selectionRange = {
 globalThis.window = globalThis;
 globalThis.parent = {};
 globalThis.location = { hash: "" };
-globalThis.Element = class Element {};
-globalThis.MouseEvent = class MouseEvent {};
+globalThis.Element = class Element {
+    constructor(inOverlay = false) { this.inOverlay = inOverlay; }
+    closest(selector) {
+        return this.inOverlay && selector === "[data-selection-comment-overlay]" ? this : null;
+    }
+};
+globalThis.MouseEvent = class MouseEvent {
+    constructor(button, target) {
+        this.button = button;
+        this.target = target;
+    }
+};
 globalThis.MutationObserver = class {
     observe() {}
 };
@@ -206,18 +216,34 @@ const fire = (type, event = {}) => {
 };
 const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const selections = () => received.filter((message) => message.type === "text-selection");
+const clears = () => received.filter((message) => message.type === "text-selection-cleared");
+const outside = new Element();
+const overlay = new Element(true);
+
+// Secondary presses must not open the gesture gate, so the following idle
+// selection change still publishes normally.
+fire("pointerdown", new MouseEvent(2, outside));
+fire("selectionchange", {});
+await settle(120);
+assert.equal(selections().length, 1, "right-click left the selection gate open");
+
+// The published action stays visible when its own UI receives pointerdown.
+fire("pointerdown", new MouseEvent(0, overlay));
+await settle(20);
+assert.equal(clears().length, 0, "pressing the comment action cleared its selection");
+received.length = 0;
 
 // A drag: press, several selection updates, release. The gaps are longer than
 // the runtime's own 80ms debounce, so a runtime reporting on raw
 // selectionchange would have published a mid-drag selection by now.
-fire("pointerdown", { target: null, button: 0 });
+fire("pointerdown", new MouseEvent(0, outside));
 for (let step = 0; step < 3; step++) {
     fire("selectionchange", {});
     await settle(120);
 }
 assert.deepEqual(selections(), [], "the runtime reported a selection while the drag was still in progress");
 
-fire("pointerup", { target: null, button: 0 });
+fire("pointerup", new MouseEvent(0, outside));
 await settle(200);
 
 const reports = selections();
@@ -228,6 +254,13 @@ assert.deepEqual(
     { top: LAST_LINE.top, right: LAST_LINE.right, bottom: LAST_LINE.bottom, left: LAST_LINE.left },
     "the runtime anchored the action to the whole-range box instead of the last selected line"
 );
+
+fire("scroll", {});
+await settle(20);
+assert.equal(clears().length, 2, "scrolling did not clear the published selection");
+fire("scroll", {});
+await settle(20);
+assert.equal(clears().length, 2, "repeated scroll sent a duplicate clear message");
 bridge.port1.close();
 """
         self._run_runtime_harness(runtime, harness)

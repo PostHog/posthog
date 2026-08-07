@@ -47,7 +47,7 @@ export function CanvasSelectionCommentAction({
               toLine: selection.end + 1,
               anchor: {
                 top: selection.rect.top,
-                left: selection.rect.right,
+                endX: selection.rect.right,
                 bottom: selection.rect.bottom,
               },
             }

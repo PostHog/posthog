@@ -164,9 +164,12 @@ describe("selectionCommentAction", () => {
     } satisfies SelectionSettleGateCallbacks;
     const remove = installSelectionSettleGate(document, callbacks);
 
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    );
+    for (let repeat = 0; repeat < 3; repeat++) {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    }
+    expect(callbacks.onGestureStart).toHaveBeenCalledTimes(1);
     changeSelection();
     expect(callbacks.onIdleSelectionChange).not.toHaveBeenCalled();
 
@@ -178,8 +181,11 @@ describe("selectionCommentAction", () => {
     remove();
   });
 
-  it("treats a plain letter as typing, not as select-all", () => {
-    const callbacks = { onGestureStart: vi.fn() };
+  it("distinguishes typing from select-all and settles after the modifier is released", async () => {
+    const callbacks = {
+      onGestureStart: vi.fn(),
+      onSelectionSettled: vi.fn(),
+    } satisfies SelectionSettleGateCallbacks;
     const remove = installSelectionSettleGate(document, callbacks);
 
     document.dispatchEvent(
@@ -191,6 +197,12 @@ describe("selectionCommentAction", () => {
       new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true }),
     );
     expect(callbacks.onGestureStart).toHaveBeenCalledTimes(1);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "a", metaKey: false, bubbles: true }),
+    );
+    await settleFrames();
+    expect(callbacks.onSelectionSettled).toHaveBeenCalledTimes(1);
     remove();
   });
 
@@ -296,6 +308,17 @@ describe("computeCommentActionPlacement", () => {
         action,
       ),
     ).toEqual({ top: 64, left: 830 });
+  });
+
+  it("places the expanded composer below the selection", () => {
+    expect(
+      computeCommentActionPlacement(
+        { top: 100, right: 400, bottom: 120 },
+        bounds,
+        { width: 420, height: 180 },
+        "below",
+      ),
+    ).toEqual({ top: 126, left: 408 });
   });
 
   it("clamps to the viewport margins for selections hugging the edges", () => {

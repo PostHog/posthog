@@ -88,8 +88,8 @@ type CommentActionBox = {
 // Which box the action anchors to. A Range spanning block elements reports the
 // wrapper boxes (paragraph, blockquote, list) alongside the text line boxes, so
 // neither the bounding box nor the last entry marks where the user stopped
-// selecting. Keep the leaf boxes — those that enclose no other box — and take
-// the visually lowest, then right-most one: the end of the last selected line.
+// selecting. Check boxes from visually last to first and take the first leaf
+// box, which avoids scanning every pair for normal selections.
 export function commentActionAnchorRect<T extends CommentActionBox>(
   rects: ArrayLike<T>,
   fallback: T,
@@ -108,40 +108,45 @@ export function commentActionAnchorRect<T extends CommentActionBox>(
     outer.right >= inner.right - EPSILON &&
     outer.top <= inner.top + EPSILON &&
     outer.bottom >= inner.bottom - EPSILON;
-  const leaves = boxes.filter(
-    (box) => !boxes.some((other) => other !== box && encloses(box, other)),
-  );
-  const pool = leaves.length > 0 ? leaves : boxes;
-  let best = pool[0];
-  for (const box of pool) {
-    const lower = box.bottom > best.bottom + EPSILON;
-    const sameLine = Math.abs(box.bottom - best.bottom) <= EPSILON;
-    if (lower || (sameLine && box.right > best.right)) best = box;
+  const candidates = boxes.slice().sort((left, right) => {
+    const verticalDistance = right.bottom - left.bottom;
+    return Math.abs(verticalDistance) > EPSILON
+      ? verticalDistance
+      : right.right - left.right;
+  });
+  for (const box of candidates) {
+    if (!boxes.some((other) => other !== box && encloses(box, other))) {
+      return box;
+    }
   }
-  return best;
+  return candidates[0];
 }
 
-// Where the action sits relative to the selection's end line (Google Docs
-// style): just right of the caret, vertically centered on the line. When the
-// right edge has no room it drops below the end line instead, keeping its
-// right edge at the caret; near the viewport bottom it flips above the line.
-// `rect` is the selection's end line, `bounds` the viewport/container, `action`
-// the action element's measured size.
+// Where the floating action or composer sits relative to the selection's end
+// line. Actions center on the caret line; composers sit below it. When the
+// right edge has no room, the element stays aligned to the caret; near the
+// viewport bottom it flips above the line.
 export function computeCommentActionPlacement(
   rect: { top: number; right: number; bottom: number },
   bounds: { width: number; height: number },
   action: { width: number; height: number },
+  alignment: "center" | "below" = "center",
 ): { top: number; left: number } {
   const MARGIN = 8;
   const lineMiddle = rect.top + (rect.bottom - rect.top) / 2;
   let left = rect.right + MARGIN;
-  let top = lineMiddle - action.height / 2;
-  if (left + action.width > bounds.width - MARGIN) {
+  let top =
+    alignment === "below" ? rect.bottom + 6 : lineMiddle - action.height / 2;
+  const shouldDropBelow = left + action.width > bounds.width - MARGIN;
+  if (shouldDropBelow) {
     left = Math.max(rect.right - action.width, MARGIN);
-    top = rect.bottom + 6;
-    if (top + action.height > bounds.height - MARGIN) {
-      top = rect.top - action.height - 6;
-    }
+    if (alignment === "center") top = rect.bottom + 6;
+  }
+  if (
+    (alignment === "below" || shouldDropBelow) &&
+    top + action.height > bounds.height - MARGIN
+  ) {
+    top = rect.top - action.height - 6;
   }
   const maxLeft = Math.max(bounds.width - action.width - MARGIN, MARGIN);
   const maxTop = Math.max(bounds.height - action.height - MARGIN, MARGIN);
@@ -184,6 +189,7 @@ export function installSelectionSettleGate(
 ): () => void {
   const view = doc.defaultView;
   let selecting = false;
+  let keyGesture = false;
   let frame = 0;
 
   // Keys that move or extend a selection. "a" only counts with a modifier, so
@@ -224,6 +230,7 @@ export function installSelectionSettleGate(
     target instanceof Element &&
     !!target.closest("[data-selection-comment-overlay]");
   const startGesture = () => {
+    if (selecting) return;
     selecting = true;
     cancelFrame();
     callbacks.onGestureStart?.();
@@ -231,6 +238,7 @@ export function installSelectionSettleGate(
   const cancelGesture = () => {
     if (!selecting) return;
     selecting = false;
+    keyGesture = false;
     cancelFrame();
     callbacks.onGestureCancel?.();
   };
@@ -250,14 +258,18 @@ export function installSelectionSettleGate(
     if (event instanceof MouseEvent && event.button > 0) return;
     if (!selecting) return;
     selecting = false;
+    keyGesture = false;
     settle();
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (isSelectionKey(event)) startGesture();
+    if (!isSelectionKey(event)) return;
+    keyGesture = true;
+    startGesture();
   };
-  const onKeyUp = (event: KeyboardEvent) => {
-    if (!selecting || !isSelectionKey(event)) return;
+  const onKeyUp = () => {
+    if (!selecting || !keyGesture) return;
     selecting = false;
+    keyGesture = false;
     settle();
   };
   const onSelectionChange = () => {

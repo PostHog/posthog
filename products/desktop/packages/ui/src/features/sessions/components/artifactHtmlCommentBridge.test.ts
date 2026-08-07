@@ -11,10 +11,13 @@ function loadBridgeDocument(
   html: string,
   theme: "light" | "dark" = "light",
 ): JSDOM {
-  const dom = new JSDOM(injectArtifactHtmlCommentBridge(html, CHANNEL, theme), {
-    runScripts: "dangerously",
-    url: "https://localhost/",
-  });
+  const dom = new JSDOM(
+    injectArtifactHtmlCommentBridge(html, { channel: CHANNEL, theme }),
+    {
+      runScripts: "dangerously",
+      url: "https://localhost/",
+    },
+  );
   // jsdom collapses layout boxes to zero; the bridge hides the action for
   // zero-size ranges, which real documents never produce for text selections.
   dom.window.Range.prototype.getBoundingClientRect = () =>
@@ -100,15 +103,13 @@ describe("artifactHtmlCommentBridge", () => {
   });
 
   it("bakes the requested theme into the bridge styles", () => {
-    const dark = injectArtifactHtmlCommentBridge(
-      "<html><body></body></html>",
-      CHANNEL,
-      "dark",
-    );
+    const dark = injectArtifactHtmlCommentBridge("<html><body></body></html>", {
+      channel: CHANNEL,
+      theme: "dark",
+    });
     const light = injectArtifactHtmlCommentBridge(
       "<html><body></body></html>",
-      CHANNEL,
-      "light",
+      { channel: CHANNEL, theme: "light" },
     );
     expect(dark).toContain(
       `--ph-comment-action-bg:${COMMENT_ACTION_BUTTON_THEMES.dark.background}`,

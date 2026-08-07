@@ -65,7 +65,7 @@ function ImageCommentCreationLayer({
             fromLine: 1,
             toLine: 1,
             // Point anchor at the click: the composer opens next to it.
-            anchor: { top: clientY, left: clientX, bottom: clientY },
+            anchor: { top: clientY, endX: clientX, bottom: clientY },
           });
         }}
       />
