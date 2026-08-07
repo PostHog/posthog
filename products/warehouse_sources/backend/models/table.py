@@ -44,12 +44,14 @@ from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
+    BUCKET_WILDCARD_ERROR_MESSAGE,
     CLICKHOUSE_HOGQL_MAPPING,
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
     remove_named_tuples,
+    s3_url_pattern_has_bucket_wildcard,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 
@@ -91,6 +93,7 @@ ExtractErrors = {
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
+    "Expression can not have wildcards inside bucket name": BUCKET_WILDCARD_ERROR_MESSAGE,
 }
 
 type DataWarehouseTableColumn = str | dict[str, Any]
@@ -436,6 +439,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableIntrospectedColumns:
+        # A wildcard in the bucket name can never resolve, and ClickHouse only reports it after the
+        # 30s chdb timeout and five retries below. Fail fast with a message pointing at the typo.
+        if s3_url_pattern_has_bucket_wildcard(self.url_pattern):
+            raise Exception(BUCKET_WILDCARD_ERROR_MESSAGE)
+
         result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(

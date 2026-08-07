@@ -7,7 +7,13 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name, reconstruct_ordered_columns
+from products.warehouse_sources.backend.models.util import (
+    BUCKET_WILDCARD_ERROR_MESSAGE,
+    get_view_or_table_by_name,
+    reconstruct_ordered_columns,
+    s3_url_pattern_has_bucket_wildcard,
+    validate_warehouse_table_url_pattern,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -33,6 +39,34 @@ class TestReconstructOrderedColumns(SimpleTestCase):
         assert [name for name, _value in result] == expected_order
         # values stay paired with their names
         assert dict(result) == columns
+
+
+class TestS3BucketWildcard(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Path-style: bucket is the first path segment, so a glob there is the misconfiguration.
+            ("path_style_wildcard_bucket", "https://s3.us-east-1.amazonaws.com/my-*-bucket/data/*.csv", True),
+            ("path_style_brace_bucket", "https://s3.amazonaws.com/{a,b}/data.csv", True),
+            # Path-style but the glob is in the key, not the bucket: legitimate.
+            ("path_style_wildcard_key", "https://s3.us-east-1.amazonaws.com/real-bucket/data/*.csv", False),
+            # Virtual-hosted style: bucket lives in the hostname, so the path glob is a valid key match.
+            ("virtual_hosted_wildcard_key", "https://my-bucket.s3.us-east-1.amazonaws.com/data/*.csv", False),
+            ("virtual_hosted_dotted_bucket", "https://my.bucket.s3.amazonaws.com/data/*.parquet", False),
+            # No glob anywhere.
+            ("no_wildcard", "https://s3.amazonaws.com/real-bucket/data.csv", False),
+            ("empty", "", False),
+        ]
+    )
+    def test_s3_url_pattern_has_bucket_wildcard(self, _name, url_pattern, expected):
+        assert s3_url_pattern_has_bucket_wildcard(url_pattern) is expected
+
+    def test_validator_rejects_bucket_wildcard_before_dns(self):
+        # Runs before hostname resolution, so a bucket typo fails fast with a fixable message.
+        is_valid, message = validate_warehouse_table_url_pattern(
+            "https://s3.us-east-1.amazonaws.com/my-*-bucket/data/*.csv"
+        )
+        assert is_valid is False
+        assert message == BUCKET_WILDCARD_ERROR_MESSAGE
 
 
 class TestGetViewOrTableByName(BaseTest):

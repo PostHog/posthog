@@ -578,6 +578,49 @@ def clickhouse_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> d
     }
 
 
+# ClickHouse rejects a glob in the bucket name with "Expression can not have wildcards inside
+# bucket name". Wildcards only ever match object keys, so this points the user at the fix instead
+# of blaming their credentials.
+BUCKET_WILDCARD_ERROR_MESSAGE = (
+    "Wildcards (*) are only allowed in the file path, not the bucket name. "
+    "Remove the wildcard from the bucket part of the URL pattern."
+)
+
+# Glob metacharacters ClickHouse expands in an S3 path. `?` is omitted: a URL parser reads it as
+# the query-string delimiter, so it never survives into the parsed bucket segment.
+_S3_WILDCARD_CHARS = ("*", "{")
+
+# Mirrors ClickHouse's S3 URI parser (src/IO/S3/URI.cpp): a host in virtual-hosted style carries
+# the bucket as the label before the storage service (s3, oss, cos, ...), leaving the whole path as
+# the object key. Any other host is path-style, where the bucket is the first path segment — the
+# only place a stray wildcard can land in the bucket name.
+_S3_VIRTUAL_HOSTED_STYLE_HOST = re.compile(
+    r"^[a-z0-9\-.]+\.(s3express[\-a-z0-9]+|s3|cos|obs|oss|eos)[.\-][a-z0-9\-.:]+$",
+    re.IGNORECASE,
+)
+
+
+def s3_url_pattern_has_bucket_wildcard(url_pattern: str | None) -> bool:
+    if not url_pattern:
+        return False
+
+    parsed = urlparse(url_pattern)
+    host = parsed.hostname or ""
+
+    # Virtual-hosted style keeps the bucket in the hostname, so any wildcard in the path is a
+    # legitimate key glob. (A wildcard in a virtual-hosted bucket would sit in the hostname and be
+    # caught by the hostname checks instead.)
+    if _S3_VIRTUAL_HOSTED_STYLE_HOST.match(host):
+        return False
+
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if not segments:
+        return False
+
+    bucket = segments[0]
+    return any(char in bucket for char in _S3_WILDCARD_CHARS)
+
+
 def _is_safe_public_ip(host: str) -> bool:
     ip = ip_address(host)
 
@@ -607,6 +650,9 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
     normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
     if normalized_hostname in {"localhost"}:
         return False, "URL pattern hostname is not allowed."
+
+    if s3_url_pattern_has_bucket_wildcard(url_pattern):
+        return False, BUCKET_WILDCARD_ERROR_MESSAGE
 
     # Block direct internal IP literals.
     try:
