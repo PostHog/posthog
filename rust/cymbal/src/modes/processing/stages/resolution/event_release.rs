@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     error::UnhandledError,
     frames::releases::{mobile_release_hash_id, ReleaseRecord},
-    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLVER_OPERATOR},
+    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLUTION, EVENT_RELEASE_RESOLVER_OPERATOR},
     stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         exception_event::{ExceptionEvent, Parsed},
@@ -158,15 +158,19 @@ async fn select_release(
         .and_then(Value::as_str)
         .and_then(|id| Uuid::parse_str(id).ok());
 
-    let record = if let Some(release_id) = release_id {
-        cache.for_id(pool, release_id, team_id).await?
+    let (record, source) = if let Some(release_id) = release_id {
+        (cache.for_id(pool, release_id, team_id).await?, "release_id")
     } else if let Some(hash_id) = mobile_release_hash_from_props(props) {
-        cache.for_hash(pool, &hash_id, team_id).await?
+        (
+            cache.for_hash(pool, &hash_id, team_id).await?,
+            "mobile_hash",
+        )
     } else {
-        None
+        (None, "none")
     };
 
     if let Some(record) = record {
+        record_release_source(source);
         return Ok(Some(record));
     }
 
@@ -176,7 +180,17 @@ async fn select_release(
     for id in symbol_set_release_ids {
         candidates.extend(cache.for_id(pool, *id, team_id).await?);
     }
-    Ok(ReleaseRecord::latest(candidates))
+    let record = ReleaseRecord::latest(candidates);
+    record_release_source(if record.is_some() {
+        "symbol_set"
+    } else {
+        "none"
+    });
+    Ok(record)
+}
+
+fn record_release_source(source: &'static str) {
+    metrics::counter!(EVENT_RELEASE_RESOLUTION, "source" => source).increment(1);
 }
 
 /// Rebuild the release `hash_id` from a mobile event's app metadata. Returns `None` for events that
