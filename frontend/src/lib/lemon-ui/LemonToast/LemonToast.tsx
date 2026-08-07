@@ -218,11 +218,11 @@ export const lemonToast = {
         })
         return id
     },
-    /** `button` rides all three frames; pass `hideErrorButton` when it only makes sense once the operation succeeded. */
+    /** `button` rides all three frames, so only pass one that also makes sense while pending and on failure. */
     promise(
         promise: Promise<any>,
         messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
-        { button, hideErrorButton, ...toastOptions }: ToastOptionsWithButton & { hideErrorButton?: boolean } = {}
+        { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
         // Promise toasts always get random IDs (unless explicitly provided) because
         // different operations often share identical pending text like "Saving..."
@@ -251,7 +251,7 @@ export const lemonToast = {
                             <ToastContent
                                 type="error"
                                 message={withIncidentNote(data?.message || messages.error)}
-                                button={hideErrorButton ? undefined : button}
+                                button={button}
                                 id={id}
                             />
                         )

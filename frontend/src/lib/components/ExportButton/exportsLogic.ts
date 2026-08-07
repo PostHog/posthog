@@ -148,7 +148,7 @@ const foldNudgeIntoToast = async (
     nudge: ExportNudge,
     toastId: string,
     headline: string,
-    secondaryAction: ToastButton
+    secondaryAction?: ToastButton
 ): Promise<void> => {
     const renderer = nudge.claim(await nudge.settled)
     if (renderer) {
@@ -526,11 +526,14 @@ export const exportsLogic = kea<exportsLogicType>([
             {
                 createExport: ({ exportData }) => {
                     const exportToastId = 'export-' + uuid()
-                    // Every export lands in the exports panel, so every toast state points there.
-                    const viewExportsButton = {
-                        label: 'View exports',
-                        action: () => actions.openSidePanel(SidePanelTab.Exports),
-                    }
+                    // Video renders finish minutes later in the exports panel, so the kickoff toast
+                    // must point somewhere instead of dead-ending. A synchronous export gets no such
+                    // link: while it is pending its row does not exist client-side yet.
+                    const viewExportsButton: ToastButton | undefined = isLongRunningExportFormat(
+                        exportData.export_format
+                    )
+                        ? { label: 'View exports', action: () => actions.openSidePanel(SidePanelTab.Exports) }
+                        : undefined
                     // Started at kickoff so its round trip overlaps the export itself, but never
                     // awaited by the export's own path.
                     const nudge = startExportNudge(exportData.dashboard, exportToastId)
@@ -622,9 +625,7 @@ export const exportsLogic = kea<exportsLogicType>([
                                     success: EXPORT_COMPLETE_MESSAGE,
                                     error: 'Export failed',
                                 },
-                                // A failed export has nothing waiting in the panel, so the button
-                                // rides only the pending and success frames.
-                                { toastId: exportToastId, button: viewExportsButton, hideErrorButton: true }
+                                { toastId: exportToastId, button: viewExportsButton }
                             )
                             await foldNudgeIntoToast(nudge, exportToastId, settledMessage, viewExportsButton)
                         } catch (error) {

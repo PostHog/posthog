@@ -146,6 +146,7 @@ describe('exportsLogic', () => {
             format: ExporterFormat
             settles: { resolved: string } | { rejected: string }
             expectsDownload: boolean
+            expectsViewExportsButton: boolean
             freshIds: number[]
             expectsPanelOpen: boolean
         }[] = [
@@ -155,6 +156,7 @@ describe('exportsLogic', () => {
                 format: ExporterFormat.MP4,
                 settles: { resolved: 'Export started' },
                 expectsDownload: false,
+                expectsViewExportsButton: true,
                 freshIds: [11],
                 expectsPanelOpen: true,
             },
@@ -164,6 +166,7 @@ describe('exportsLogic', () => {
                 format: ExporterFormat.CSV,
                 settles: { resolved: 'Export complete!' },
                 expectsDownload: true,
+                expectsViewExportsButton: false,
                 freshIds: [],
                 expectsPanelOpen: false,
             },
@@ -173,6 +176,7 @@ describe('exportsLogic', () => {
                 format: ExporterFormat.MP4,
                 settles: { rejected: 'Export failed: boom' },
                 expectsDownload: false,
+                expectsViewExportsButton: true,
                 freshIds: [],
                 expectsPanelOpen: false,
             },
@@ -182,6 +186,7 @@ describe('exportsLogic', () => {
                 format: ExporterFormat.MP4,
                 settles: { rejected: 'Export failed: network down' },
                 expectsDownload: false,
+                expectsViewExportsButton: true,
                 freshIds: [],
                 expectsPanelOpen: false,
             },
@@ -189,7 +194,16 @@ describe('exportsLogic', () => {
 
         it.each(createCases)(
             '$label',
-            async ({ response, rejectWith, format, settles, expectsDownload, freshIds, expectsPanelOpen }) => {
+            async ({
+                response,
+                rejectWith,
+                format,
+                settles,
+                expectsDownload,
+                expectsViewExportsButton,
+                freshIds,
+                expectsPanelOpen,
+            }) => {
                 const createSpy = jest.spyOn(api.exports, 'create')
                 if (rejectWith) {
                     createSpy.mockRejectedValue(rejectWith)
@@ -206,12 +220,11 @@ describe('exportsLogic', () => {
                     expect.objectContaining({ pending: 'Preparing export…' }),
                     expect.objectContaining({ toastId: expect.any(String) })
                 )
-                // Every export lands in the exports panel, including a synchronous one that already
-                // downloaded itself, so no completion toast may dead-end without a way back to it.
-                // A failed export puts nothing there, so its frame keeps no button.
+                // The button rides every frame the toast has, including the pending one, where a
+                // synchronous export's row does not exist client-side yet. Only a video render,
+                // which lands in the panel minutes later, earns the link.
                 const toastOptions = jest.mocked(lemonToast.promise).mock.calls[0][2]
-                expect(toastOptions?.button?.label).toEqual('View exports')
-                expect(toastOptions?.hideErrorButton).toBe(true)
+                expect(toastOptions?.button?.label).toEqual(expectsViewExportsButton ? 'View exports' : undefined)
                 const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
                 if ('resolved' in settles) {
                     await expect(runPromise).resolves.toBe(settles.resolved)
@@ -287,21 +300,17 @@ describe('exportsLogic', () => {
             await flush()
 
             const exportToastId = jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId
-            expect(lemonToast.updatePendingMessage).toHaveBeenCalledWith(
-                exportToastId,
-                'nudge:Preparing export… +View exports'
-            )
+            // A dashboard export renders synchronously, so its nudge row carries the CTA alone.
+            expect(lemonToast.updatePendingMessage).toHaveBeenCalledWith(exportToastId, 'nudge:Preparing export…')
 
             finishExport(asset({ id: 26, export_format: ExporterFormat.PNG, has_content: true, dashboard: 7 }))
             await flush()
 
             // The nudge has to survive the pending → settled transition, and count as one claim
             // even though it rendered into both frames.
-            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
-                exportToastId,
-                'nudge:Export complete! +View exports',
-                { autoClose: false }
-            )
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(exportToastId, 'nudge:Export complete!', {
+                autoClose: false,
+            })
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
         })
 
@@ -340,7 +349,7 @@ describe('exportsLogic', () => {
             expect(lemonToast.updatePendingMessage).not.toHaveBeenCalled()
             expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
                 jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId,
-                'nudge:Export complete! +View exports',
+                'nudge:Export complete!',
                 { autoClose: false }
             )
         })

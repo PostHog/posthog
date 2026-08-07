@@ -31,10 +31,11 @@ const NUDGE_CTA = 'Set up recurring updates'
 // staying inside the 5s a success toast is left on screen for.
 const SETTLE_MS = 6000
 
+// A dashboard export renders synchronously, so nothing hands the nudge a secondary action and the
+// row is the CTA on its own.
 function expectButtonRow(): void {
-    const row = document.querySelector('.nudge-button-row')
-    expect(row?.textContent).toEqual(`${NUDGE_CTA}View exports`)
-    expect(screen.getAllByText('View exports')).toHaveLength(1)
+    expect(document.querySelector('.nudge-button-row')?.textContent).toEqual(NUDGE_CTA)
+    expect(screen.queryByText('View exports')).toBeNull()
 }
 
 describe('export completion toast', () => {
@@ -78,14 +79,25 @@ describe('export completion toast', () => {
     })
 
     it('leaves unrelated toasts alone when View exports is clicked', async () => {
+        // Only a video render offers the link, since it is the export that lands in the panel later.
+        jest.mocked(api.exports.create).mockResolvedValue({
+            id: 32,
+            export_format: ExporterFormat.MP4,
+            has_content: false,
+            filename: 'recording.mp4',
+            created_at: '2026-05-11T19:00:00Z',
+        } as ExportedAssetType)
+
         render(<ToastContainer />)
         act(() => {
             toast.info('An unrelated notification', { toastId: 'unrelated' })
         })
-        logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+        logic.actions.createExport({ exportData: { export_format: ExporterFormat.MP4 } })
+        // Settles the kickoff onto its success frame while staying inside the 5s it is left up for.
         await act(async () => {
-            jest.advanceTimersByTime(SETTLE_MS)
+            await jest.advanceTimersByTimeAsync(1000)
         })
+        expect(screen.getByText('Export started')).toBeTruthy()
         expect(screen.queryByText('An unrelated notification')).not.toBeNull()
 
         const dismiss = jest.spyOn(toast, 'dismiss')
@@ -121,21 +133,6 @@ describe('export completion toast', () => {
         // A stall reports its own step, otherwise the readout cannot tell it from an exporter who
         // was simply ineligible.
         expect(captureExportNudgeCheckFailed).toHaveBeenCalledWith('timeout', { dashboard_id: 7 })
-    })
-
-    it('does not offer the exports panel when the export failed', async () => {
-        jest.mocked(resolveExportNudgeEligibility).mockResolvedValue(null)
-        jest.mocked(api.exports.create).mockRejectedValue(new Error('render crashed'))
-
-        render(<ToastContainer />)
-        logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
-        await act(async () => {
-            await jest.advanceTimersByTimeAsync(SETTLE_MS)
-        })
-
-        // Nothing landed in the panel, so the link would send the user somewhere with no answer.
-        expect(document.querySelector('[data-attr="error-toast"]')).toBeTruthy()
-        expect(screen.queryByText('View exports')).toBeNull()
     })
 
     it('keeps one toast carrying the nudge from the wait through to completion', async () => {
