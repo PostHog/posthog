@@ -17866,6 +17866,45 @@ export namespace Schemas {
     }
 
     /**
+     * * `never` - never
+     * * `live` - live
+     * * `stale` - stale
+     */
+    export type FreshnessEnum = typeof FreshnessEnum[keyof typeof FreshnessEnum];
+
+
+    export const FreshnessEnum = {
+      Never: 'never',
+      Live: 'live',
+      Stale: 'stale',
+    } as const;
+
+    export interface DataFreshnessSource {
+      /** The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). Not an enum: products declare their own data sources, so the set grows without an API change. */
+      data_source: string;
+      /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+      last_data_at: string;
+    }
+
+    export interface DataFreshnessProject {
+      /** ID of the project this freshness verdict is for. */
+      team_id: number;
+      /** `live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, `never` if the project has never ingested anything at all.
+       *
+       * * `never` - never
+       * * `live` - live
+       * * `stale` - stale */
+      freshness: FreshnessEnum;
+      /**
+         * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+         * @nullable
+         */
+      last_data_at: string | null;
+      /** Per-source breakdown, most recently active first. */
+      sources: DataFreshnessSource[];
+    }
+
+    /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed
      * * `Failed` - Failed
@@ -45117,6 +45156,15 @@ export namespace Schemas {
       is_pending_deletion?: boolean | null;
     }
 
+    export interface OrganizationDataFreshness {
+      /** One entry per project the requesting user can see. */
+      results: DataFreshnessProject[];
+      /** How many days back the check looks. Data older than this is not visible to the check. */
+      lookback_days: number;
+      /** How many days without data make a project or source count as quiet. */
+      quiet_after_days: number;
+    }
+
     export interface OrganizationDomain {
       readonly id: string;
       /** @maxLength 128 */
@@ -49815,6 +49863,8 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
+      /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
+      dismissed_at?: string;
       /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
       url?: string;
     }
@@ -64606,12 +64656,12 @@ export namespace Schemas {
     }
 
     /**
-     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.
+     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is.
      */
     export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
 
     export interface QuotaLimitsResponse {
-      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
+      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
       limited: QuotaLimitsResponseLimited;
       /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
       code_usage_billing_active: boolean;
@@ -73959,6 +74009,22 @@ export namespace Schemas {
       content_type?: string;
       /** Optional structured metadata for special artifact types, such as skill bundles. */
       metadata?: TaskRunArtifactMetadata;
+    }
+
+    export interface TaskRunArtifactsDismissRequest {
+      /**
+         * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      artifact_ids: string[];
+      /** True to hide the artifacts from clients, false to show them again. */
+      dismissed?: boolean;
+    }
+
+    export interface TaskRunArtifactsDismissResponse {
+      /** Updated list of artifacts on the run */
+      artifacts: TaskRunArtifactResponse[];
     }
 
     export interface TaskRunArtifactsFinalizeUploadRequest {
