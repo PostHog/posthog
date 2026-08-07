@@ -808,7 +808,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     }
 
     const outputContent = biMode ? (
-        <div className="relative flex flex-1 min-h-0 bg-dark">
+        <div className="relative flex flex-1 min-h-0 bg-surface-primary">
             {showToolbar ? (
                 <LemonButton
                     className="absolute right-2 top-2 z-10"
@@ -824,10 +824,10 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
         </div>
     ) : splitView ? (
-        <div className="flex flex-1 min-h-0 bg-dark">
+        <div className="flex flex-1 min-h-0 bg-surface-primary">
             <div
                 ref={splitPaneRef}
-                className="relative flex min-w-64 flex-col bg-white dark:bg-black"
+                className="relative flex min-w-64 flex-col bg-surface-primary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
             >
@@ -842,12 +842,12 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                         </div>
                     </div>
                 ) : null}
-                <div className="flex flex-1 min-h-0 relative bg-dark border-r">
+                <div className="flex flex-1 min-h-0 relative bg-surface-primary border-r">
                     <Content activeTab={OutputTab.Results} {...sharedContentProps} />
                 </div>
                 <Resizer {...splitResizerProps} />
             </div>
-            <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black">
+            <div className="flex min-w-0 flex-1 flex-col bg-surface-primary">
                 {showToolbar ? (
                     <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                         <div className="flex min-h-[41px] gap-2 ml-4">
@@ -858,7 +858,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                         </div>
                     </div>
                 ) : null}
-                <div className="flex flex-1 min-h-0 relative bg-dark">
+                <div className="flex flex-1 min-h-0 relative bg-surface-primary">
                     <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
                 </div>
             </div>
@@ -883,14 +883,14 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                     </div>
                 </div>
             ) : null}
-            <div className="flex flex-1 min-h-0 relative bg-dark">
+            <div className="flex flex-1 min-h-0 relative bg-surface-primary">
                 <Content activeTab={activeTab} {...sharedContentProps} />
             </div>
         </>
     )
 
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+        <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-surface-primary">
             {outputContent}
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
@@ -1211,7 +1211,7 @@ const Content = ({
 
     if (responseLoading || insightLoading) {
         return (
-            <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
+            <div className="flex flex-1 p-2 w-full justify-center items-center border-t bg-surface-primary">
                 <StatelessInsightLoadingState
                     queryId={queryId}
                     pollResponse={pollResponse}
