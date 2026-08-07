@@ -24,7 +24,7 @@ _INPUTS = SignupEnrichmentInputs(organization_id="org-1", distinct_id="d1", doma
 def _patches(*, enrich_return, deterministic=None):
     pha_client = MagicMock()
     return pha_client, (
-        patch(f"{_MODULE}.get_client", return_value=pha_client),
+        patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
         patch(f"{_MODULE}.enrich_organization", AsyncMock(**enrich_return)),
         patch(f"{_MODULE}._deterministic_company_type", return_value=deterministic),
         patch(f"{_MODULE}.capture_signup_enrichment_snapshot"),
