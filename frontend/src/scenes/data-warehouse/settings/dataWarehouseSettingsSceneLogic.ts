@@ -406,11 +406,10 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
         ],
     }),
     listeners(({ actions, values }) => ({
-        deleteDataWarehouseSavedQuery: async (tableId) => {
-            await api.dataWarehouseSavedQueries.delete(tableId)
+        deleteDataWarehouseSavedQuery: () => {
+            // dataWarehouseViewsLogic owns the delete request and its success toast. Here we only
+            // clear the selected row; the schema refresh happens in that logic's success handler.
             actions.selectRow(null)
-            actions.refreshDatabaseSchema()
-            lemonToast.success('View successfully deleted')
         },
         selectRow: () => {
             actions.setIsEditingSavedQuery(false)
