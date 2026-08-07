@@ -1,5 +1,6 @@
 import type { TaskRunArtifact } from "@posthog/shared";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -31,16 +32,27 @@ vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
     selector({ openArtifactTab }),
 }));
 
+// Agent replies render through two markdown surfaces — the app-wide renderer and
+// the chat thread's own. A link has to become a chip in both.
+const SURFACES = [
+  ["MarkdownRenderer", MarkdownRenderer],
+  ["ChatMarkdown", ChatMarkdown],
+] as const;
+
+let renderSurface: (typeof SURFACES)[number][1] = MarkdownRenderer;
+
 function renderMessage(content: string, taskId: string | undefined = TASK_ID) {
+  const Surface = renderSurface;
   return render(
     <SessionTaskIdProvider taskId={taskId}>
-      <MarkdownRenderer content={content} />
+      <Surface content={content} />
     </SessionTaskIdProvider>,
   );
 }
 
-describe("artifact links in messages", () => {
+describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
   beforeEach(() => {
+    renderSurface = Surface;
     vi.clearAllMocks();
     manifest.isLoading = false;
     manifest.data = [
