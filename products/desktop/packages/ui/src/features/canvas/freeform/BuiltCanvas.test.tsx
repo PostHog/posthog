@@ -157,22 +157,23 @@ describe("BuiltCanvas", () => {
       Transferable[],
     ][];
     const canvasPort = calls.at(-1)?.[2]?.[0] as MessagePort;
-    const frames: unknown[] = [];
-    canvasPort.addEventListener("message", (event) =>
-      frames.push((event as MessageEvent).data),
-    );
+    const themeFrames: unknown[] = [];
+    canvasPort.addEventListener("message", (event) => {
+      const frame = (event as MessageEvent).data as { type?: string };
+      if (frame.type === "set-theme") themeFrames.push(frame);
+    });
     canvasPort.start();
 
-    await waitFor(() => expect(frames).toHaveLength(1));
-    expect(frames[0]).toEqual({
+    await waitFor(() => expect(themeFrames).toHaveLength(1));
+    expect(themeFrames[0]).toEqual({
       channel: "posthog-canvas",
       type: "set-theme",
       theme: "dark",
     });
 
     act(() => useThemeStore.setState({ isDarkMode: false }));
-    await waitFor(() => expect(frames).toHaveLength(2));
-    expect(frames[1]).toEqual({
+    await waitFor(() => expect(themeFrames).toHaveLength(2));
+    expect(themeFrames[1]).toEqual({
       channel: "posthog-canvas",
       type: "set-theme",
       theme: "light",
