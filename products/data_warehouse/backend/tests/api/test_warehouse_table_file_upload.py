@@ -1,4 +1,5 @@
 import io
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -349,10 +350,8 @@ class TestCreateTableFromUpload(APIBaseTest):
         # A client-caused 4xx (a bad key) is the caller's problem and must stay out of error tracking;
         # a genuine storage fault must still be captured.
         upload_id = self._upload()
-        cause = ClientError(
-            {"Error": {"Code": str(http_status)}, "ResponseMetadata": {"HTTPStatusCode": http_status}},
-            "HeadObject",
-        )
+        error_response: Any = {"Error": {"Code": str(http_status)}, "ResponseMetadata": {"HTTPStatusCode": http_status}}
+        cause = ClientError(error_response, "HeadObject")
         wrapped = OSError(22, "Bad Request")
         wrapped.__cause__ = cause
         with (
