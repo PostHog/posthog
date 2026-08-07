@@ -164,6 +164,8 @@ mod tests {
     }
 
     /// The composed serializer produces exactly format-then-envelope bytes.
+    /// The lz4 half decodes the output independently rather than calling
+    /// `wrap` again, so a composition bug cannot cancel itself out.
     #[test]
     fn serializer_composes_format_then_envelope() {
         let event = json!({"event": "test", "distinct_id": "user-1"});
@@ -171,6 +173,9 @@ mod tests {
         assert_eq!(plain, serde_json::to_vec(&event).unwrap());
 
         let wrapped = Serializer::JSON_LZ4.serialize(&event).unwrap();
-        assert_eq!(wrapped, Envelope::Lz4.wrap(plain).unwrap());
+        let prefix = u32::from_le_bytes(wrapped[..4].try_into().unwrap());
+        assert_eq!(prefix as usize, plain.len());
+        let unwrapped = lz4::block::decompress(&wrapped[4..], Some(prefix as i32)).unwrap();
+        assert_eq!(unwrapped, plain);
     }
 }
