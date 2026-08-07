@@ -165,7 +165,7 @@ describe('signupLogic — name handling', () => {
                 // 400 rather than 201 so that the submit handler never assigns `location.href`,
                 // which jsdom does not implement. The request body is captured before the response.
                 '/api/signup/': async (info) => {
-                    signupRequestBody = await info.request.clone().json()
+                    signupRequestBody = (await info.request.clone().json()) as Record<string, any>
                     return [400, { type: 'validation_error', code: 'error', detail: 'Mocked failure', attr: null }]
                 },
             },
