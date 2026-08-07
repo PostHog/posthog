@@ -500,7 +500,7 @@ export interface errorTrackingIssueSceneLogicMeta {
         firstSeen: (issue: ErrorTrackingRelationalIssue | null) => Dayjs | null
         aggregations: (summary: ErrorTrackingIssueSummary | null) => ErrorTrackingIssueAggregations | undefined
         eventsQuery: (
-            issueFingerprints: ErrorTrackingFingerprint[],
+            issueId: string,
             filterTestAccounts: boolean,
             searchQuery: string,
             filterGroup: UniversalFiltersGroup,
@@ -800,24 +800,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
 
         eventsQuery: [
-            (s) => [s.issueFingerprints, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
+            (s) => [s.issueId, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
             (
-                issueFingerprints: ErrorTrackingFingerprint[],
+                issueId: string,
                 filterTestAccounts: boolean,
                 searchQuery: string,
                 filterGroup: UniversalFiltersGroup,
                 dateRange: DateRange
             ) =>
                 errorTrackingIssueEventsQuery({
-                    fingerprints: issueFingerprints.map((f: ErrorTrackingFingerprint) => f.fingerprint),
+                    issueId,
                     filterTestAccounts,
                     filterGroup,
                     searchQuery,
                     dateRange,
                     columns: ['*', 'timestamp', 'person'],
                 }),
-            // Deep-equal recomputes (e.g. a fingerprints refetch returning the same list) must not
-            // produce a new query identity, or the key below remounts the whole events table.
+            // Preserve the query identity when selector inputs are deep-equal to avoid remounting the events table.
             { resultEqualityCheck: objectsEqual },
         ],
 

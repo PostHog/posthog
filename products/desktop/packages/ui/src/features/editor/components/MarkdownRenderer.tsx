@@ -107,7 +107,10 @@ export const baseComponents: Components = {
           height="10"
           viewBox="0 0 12 12"
           fill="none"
-          stroke="var(--accent-11)"
+          // Radix accent vars don't reach portalled surfaces (quill dialogs);
+          // without the fallback the glyph draws invisibly, leaving a blank
+          // icon-sized gap after the link.
+          stroke="var(--accent-11, currentColor)"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
