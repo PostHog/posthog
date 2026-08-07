@@ -27224,6 +27224,10 @@
                     "enum": ["disabled", "optimized"],
                     "type": "string"
                 },
+                "mergeFederatedAggregateJoins": {
+                    "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "type": "boolean"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -36947,6 +36951,7 @@
                 "experiment created",
                 "experiment analyzed",
                 "experiment view recordings",
+                "experiment replay vision scanner created",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
