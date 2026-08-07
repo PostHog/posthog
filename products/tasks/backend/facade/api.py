@@ -32,6 +32,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Func, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
+from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
@@ -2862,8 +2863,9 @@ def finalize_task_run_artifact_uploads(
 
     # Attach a download URL per response entry so the caller (e.g. the upload_artifact
     # tool) can surface a link to the file. The app URL redirects to a fresh presigned
-    # URL on each request, so unlike a raw presigned URL it stays short and never
-    # expires; it is attached to the response only and never written back to the manifest.
+    # URL on each request, so unlike a raw presigned URL it stays short and works for
+    # the artifact's full retention window rather than one presign TTL; it is attached
+    # to the response only and never written back to the manifest.
     response_entries: list[dict] = []
     for entry in finalized_entries:
         entry_id = entry.get("id")
@@ -3057,11 +3059,11 @@ def presign_task_run_artifact_download(
     if entry is None:
         return None, "not_found"
 
-    filename = str(entry.get("name") or "artifact").replace('"', "")
+    filename = str(entry.get("name") or "artifact")
     url = object_storage.get_presigned_url(
         entry["storage_path"],
         content_type=str(entry.get("content_type") or "") or None,
-        content_disposition=f'attachment; filename="{filename}"',
+        content_disposition=content_disposition_header(as_attachment=True, filename=filename) or "attachment",
     )
     if not url:
         return None, "unavailable"
