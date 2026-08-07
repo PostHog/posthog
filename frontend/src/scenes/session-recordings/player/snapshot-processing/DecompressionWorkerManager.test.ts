@@ -88,9 +88,11 @@ describe('DecompressionWorkerManager', () => {
 
             postMessage(message: any, options?: { transfer?: Transferable[] }): void {
                 // Reproduce real transfer semantics: transferring a buffer detaches it on the caller's side.
+                // ArrayBuffer.prototype.transfer (ES2024) does the detaching at runtime; cast since the app's
+                // TS lib target predates it.
                 for (const transferable of options?.transfer ?? []) {
                     if (transferable instanceof ArrayBuffer) {
-                        transferable.transfer()
+                        ;(transferable as unknown as { transfer: () => void }).transfer()
                     }
                 }
                 setTimeout(() => this.emit('message', { data: { id: message.id, error: 'worker decode failed' } }), 0)
