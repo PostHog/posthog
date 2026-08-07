@@ -1,6 +1,7 @@
 import type { HostRouter } from "@posthog/host-router/router";
 import { additionalDirectoriesRouter } from "@posthog/host-router/routers/additional-directories.router";
 import { agentRouter } from "@posthog/host-router/routers/agent.router";
+import { agentPluginsRouter } from "@posthog/host-router/routers/agent-plugins.router";
 import { analyticsRouter } from "@posthog/host-router/routers/analytics.router";
 import { archiveRouter } from "@posthog/host-router/routers/archive.router";
 import { authRouter } from "@posthog/host-router/routers/auth.router";
@@ -60,6 +61,7 @@ import { router } from "./trpc";
 
 export const trpcRouter = router({
   additionalDirectories: additionalDirectoriesRouter,
+  agentPlugins: agentPluginsRouter,
   agent: agentRouter,
   analytics: analyticsRouter,
   archive: archiveRouter,

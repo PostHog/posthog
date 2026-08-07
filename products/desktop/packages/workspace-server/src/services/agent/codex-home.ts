@@ -39,9 +39,9 @@ export async function cleanupCodexHome(
 }
 
 /**
- * Builds a private CODEX_HOME for PostHog's own Codex sessions, so they
- * load the bundled PostHog catalog and the user's `~/.claude/skills` — without
- * ever writing into the shared cross-agent `~/.agents/skills`.
+ * Builds a private CODEX_HOME for PostHog's own Codex sessions, so they load
+ * the bundled catalog, user skills, and validated portable plugin skills without
+ * writing into the shared cross-agent `~/.agents/skills`.
  *
  * codex scans `$CODEX_HOME/skills` plus `$HOME/.agents/skills`. By pointing
  * CODEX_HOME at this app-private dir we feed our skills through the former while
@@ -55,6 +55,7 @@ export async function prepareCodexHome(options: {
   appDataPath: string;
   taskRunId: string;
   bundledSkillsDir: string;
+  additionalSkillsDirs?: string[];
   log: AgentScopedLogger;
 }): Promise<string> {
   const codexHome = getCodexHomeDir(options.appDataPath, options.taskRunId);
@@ -64,9 +65,13 @@ export async function prepareCodexHome(options: {
   await fs.promises.rm(skillsDir, { recursive: true, force: true });
   await fs.promises.mkdir(skillsDir, { recursive: true });
 
-  // Bundled catalog first, then the user's Claude skills. Bundled wins on a
-  // name collision so the curated catalog is never shadowed.
-  const sources = [options.bundledSkillsDir, getUserSkillsDir()];
+  // Earlier sources win collisions, keeping curated and user-owned skills from
+  // being shadowed by portable plugins.
+  const sources = [
+    options.bundledSkillsDir,
+    getUserSkillsDir(),
+    ...(options.additionalSkillsDirs ?? []),
+  ];
   const linked = new Set<string>();
   for (const sourceDir of sources) {
     const names = (await findSkillDirs(sourceDir)).filter(

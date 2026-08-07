@@ -143,6 +143,8 @@ import type {
   AGENT_SERVICE,
   AGENT_SLEEP_COORDINATOR,
 } from "@posthog/workspace-server/services/agent/identifiers";
+import type { AgentPluginsService } from "@posthog/workspace-server/services/agent-plugins/agent-plugins";
+import type { AGENT_PLUGINS_SERVICE } from "@posthog/workspace-server/services/agent-plugins/identifiers";
 import type {
   ARCHIVE_FILE_WATCHER,
   ARCHIVE_SESSION_CANCELLER,
@@ -515,6 +517,7 @@ export interface MainBindings {
   [FS_SERVICE]: FsCapability;
 
   // Typed container.get-only tokens (bound via loaded modules)
+  [AGENT_PLUGINS_SERVICE]: AgentPluginsService;
   [AGENT_SERVICE]: AgentService;
   [OAUTH_SERVICE]: OAuthService;
   [GITHUB_INTEGRATION_SERVICE]: GitHubIntegrationService;

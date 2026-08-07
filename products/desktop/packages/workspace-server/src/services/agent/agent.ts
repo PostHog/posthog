@@ -77,11 +77,14 @@ import {
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
+import type { AgentPluginsService } from "../agent-plugins/agent-plugins";
+import { AGENT_PLUGINS_SERVICE } from "../agent-plugins/identifiers";
 import { POSTHOG_PLUGIN_SERVICE } from "../posthog-plugin/identifiers";
 import type { PosthogPluginService } from "../posthog-plugin/posthog-plugin";
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
 import type { ProcessTrackingService } from "../process-tracking/process-tracking";
 import { loadSessionEnvOverrides } from "../session-env/loader";
+import { findSkillDirs } from "../skills/skill-discovery";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
@@ -400,6 +403,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private sleepService: AgentSleepCoordinator;
   private fsService: AgentRepoFiles;
   private posthogPluginService: PosthogPluginService;
+  private agentPluginsService: AgentPluginsService;
   private agentAuthAdapter: AgentAuthAdapter;
   private mcpAppsService: AgentMcpApps;
   private readonly log: AgentScopedLogger;
@@ -414,6 +418,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     fsService: AgentRepoFiles,
     @inject(POSTHOG_PLUGIN_SERVICE)
     posthogPluginService: PosthogPluginService,
+    @inject(AGENT_PLUGINS_SERVICE)
+    agentPluginsService: AgentPluginsService,
     @inject(AGENT_AUTH_ADAPTER)
     agentAuthAdapter: AgentAuthAdapter,
     @inject(AGENT_MCP_APPS)
@@ -438,6 +444,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     this.sleepService = sleepService;
     this.fsService = fsService;
     this.posthogPluginService = posthogPluginService;
+    this.agentPluginsService = agentPluginsService;
     this.agentAuthAdapter = agentAuthAdapter;
     this.mcpAppsService = mcpAppsService;
     this.log = loggerFactory.scope("agent-service");
@@ -847,6 +854,47 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         "skills",
       );
 
+      let externalPlugins: Awaited<ReturnType<typeof discoverExternalPlugins>> =
+        [];
+      try {
+        externalPlugins = await discoverExternalPlugins(
+          {
+            userDataDir: this.storagePaths.appDataPath,
+            repoPath,
+            bundledSkillsDir,
+          },
+          this.log,
+        );
+      } catch (err) {
+        this.log.warn("Failed to discover external plugins", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      const reservedSkillNames = new Set(await findSkillDirs(bundledSkillsDir));
+      for (const plugin of externalPlugins) {
+        for (const skillName of await findSkillDirs(
+          join(plugin.path, "skills"),
+        )) {
+          reservedSkillNames.add(skillName);
+        }
+      }
+
+      let runtimeAgentPlugins: Awaited<
+        ReturnType<AgentPluginsService["prepareRuntimePlugins"]>
+      > = [];
+      try {
+        runtimeAgentPlugins =
+          await this.agentPluginsService.prepareRuntimePlugins(
+            taskRunId,
+            reservedSkillNames,
+          );
+      } catch (err) {
+        this.log.warn("Failed to prepare Agent Plugins", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
       let codexHome: string | undefined;
       if (adapter === "codex") {
         try {
@@ -854,6 +902,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             appDataPath: this.storagePaths.appDataPath,
             taskRunId,
             bundledSkillsDir,
+            additionalSkillsDirs: runtimeAgentPlugins.map(
+              (plugin) => plugin.skillsPath,
+            ),
             log: this.log,
           });
         } catch (err) {
@@ -961,28 +1012,16 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           ? await this.filterReachableMcpServers(mcpServers, taskRunId)
           : mcpServers;
 
-      let externalPlugins: Awaited<ReturnType<typeof discoverExternalPlugins>> =
-        [];
-      try {
-        externalPlugins = await discoverExternalPlugins(
-          {
-            userDataDir: this.storagePaths.appDataPath,
-            repoPath,
-            bundledSkillsDir,
-          },
-          this.log,
-        );
-      } catch (err) {
-        this.log.warn("Failed to discover external plugins", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
       const plugins = [
         {
           type: "local" as const,
           path: this.posthogPluginService.getPluginPath(),
         },
         ...externalPlugins,
+        ...runtimeAgentPlugins.map((plugin) => ({
+          type: "local" as const,
+          path: plugin.pluginPath,
+        })),
       ];
       const claudeCodeOptions = buildClaudeCodeOptions({
         additionalDirectories,
@@ -1753,6 +1792,11 @@ For git operations while detached:
       await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
         () => this.log.debug("Codex home cleanup failed", { taskRunId }),
       );
+      await this.agentPluginsService
+        .cleanupRuntimePlugins(taskRunId)
+        .catch(() =>
+          this.log.debug("Agent Plugin cleanup failed", { taskRunId }),
+        );
 
       this.sessions.delete(taskRunId);
 

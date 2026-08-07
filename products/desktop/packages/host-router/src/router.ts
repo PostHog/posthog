@@ -1,6 +1,7 @@
 import { router } from "@posthog/host-trpc/trpc";
 import { additionalDirectoriesRouter } from "./routers/additional-directories.router";
 import { agentRouter } from "./routers/agent.router";
+import { agentPluginsRouter } from "./routers/agent-plugins.router";
 import { analyticsRouter } from "./routers/analytics.router";
 import { archiveRouter } from "./routers/archive.router";
 import { authRouter } from "./routers/auth.router";
@@ -54,6 +55,7 @@ import { workspaceRouter } from "./routers/workspace.router";
 
 export const hostRouter = router({
   additionalDirectories: additionalDirectoriesRouter,
+  agentPlugins: agentPluginsRouter,
   agent: agentRouter,
   analytics: analyticsRouter,
   archive: archiveRouter,

@@ -187,6 +187,10 @@ function createMockDependencies() {
     posthogPluginService: {
       getPluginPath: vi.fn(() => "/mock/plugin"),
     },
+    agentPluginsService: {
+      prepareRuntimePlugins: vi.fn().mockResolvedValue([]),
+      cleanupRuntimePlugins: vi.fn().mockResolvedValue(undefined),
+    },
     agentAuthAdapter: {
       getCurrentCredentials: vi.fn().mockResolvedValue(null),
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
@@ -281,6 +285,7 @@ describe("AgentService", () => {
       deps.sleepService as never,
       deps.fsService as never,
       deps.posthogPluginService as never,
+      deps.agentPluginsService as never,
       deps.agentAuthAdapter as never,
       deps.mcpAppsService as never,
       deps.powerManager as never,

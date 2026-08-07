@@ -12,6 +12,8 @@ import {
 } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ResizableSidebar } from "../../primitives/ResizableSidebar";
+import { useHostCapabilities } from "../../shell/useHostCapabilities";
+import { AgentPluginsView } from "../agent-plugins/AgentPluginsView";
 import { MarketplaceBrowse } from "./MarketplaceBrowse";
 import { NewSkillDialog } from "./NewSkillDialog";
 import { SkillSection, SOURCE_CONFIG } from "./SkillCard";
@@ -36,10 +38,11 @@ const SOURCE_ORDER: SkillSource[] = [
 
 // Installed = on disk, usable by agents right now. Team and Marketplace are
 // remote catalogs; installing materializes a skill into Installed.
-type SkillsTab = "installed" | "team" | "marketplace";
+type SkillsTab = "installed" | "team" | "marketplace" | "plugins";
 
 export function SkillsView() {
   const { data: skills = [], isLoading } = useSkills();
+  const { localWorkspaces } = useHostCapabilities();
   useSkillsWatcher();
 
   const [tab, setTab] = useState<SkillsTab>("installed");
@@ -52,7 +55,10 @@ export function SkillsView() {
   const teamAvailable = teamListing?.available ?? false;
   // Team access revoked mid-session: fall back to Installed.
   const activeTab: SkillsTab =
-    tab === "team" && !teamAvailable ? "installed" : tab;
+    (tab === "team" && !teamAvailable) ||
+    (tab === "plugins" && !localWorkspaces)
+      ? "installed"
+      : tab;
 
   const {
     width: sidebarWidth,
@@ -133,6 +139,11 @@ export function SkillsView() {
             <TabsTrigger value="marketplace" className="gap-1.5 px-2.5 py-2">
               <span className="font-medium text-[13px]">Marketplace</span>
             </TabsTrigger>
+            {localWorkspaces && (
+              <TabsTrigger value="plugins" className="gap-1.5 px-2.5 py-2">
+                <span className="font-medium text-[13px]">Plugins</span>
+              </TabsTrigger>
+            )}
           </TabsList>
         </Tabs>
       </Box>
@@ -141,6 +152,8 @@ export function SkillsView() {
         <MarketplaceBrowse />
       ) : activeTab === "team" ? (
         <TeamSkillsTab skills={teamListing?.skills ?? []} />
+      ) : activeTab === "plugins" ? (
+        <AgentPluginsView />
       ) : (
         <Flex className="min-h-0 flex-1">
           <Box flexGrow="1" className="min-w-0">

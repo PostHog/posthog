@@ -43,6 +43,7 @@
     "reflect-metadata": "catalog:",
     "smol-toml": "^1.6.0",
     "superjson": "catalog:",
+    "yaml": "^2.9.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {

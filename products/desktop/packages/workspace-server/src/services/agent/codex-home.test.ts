@@ -84,6 +84,31 @@ describe("prepareCodexHome", () => {
     );
   });
 
+  it("loads portable plugin skills after bundled and user skills", async () => {
+    const pluginSkillsDir = path.join(root, "portable", "skills");
+    await createSkill(bundledSkillsDir, "bundled");
+    await createSkill(userSkillsDir, "shared", "user body");
+    await createSkill(pluginSkillsDir, "shared", "plugin body");
+    await createSkill(pluginSkillsDir, "plugin-only");
+
+    const codexHome = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      bundledSkillsDir,
+      additionalSkillsDirs: [pluginSkillsDir],
+      log: noopLog,
+    });
+
+    const skillsDir = path.join(codexHome, "skills");
+    expect(existsSync(path.join(skillsDir, "plugin-only", "SKILL.md"))).toBe(
+      true,
+    );
+    const sharedLink = await readlink(path.join(skillsDir, "shared"));
+    expect(readFileSync(path.join(sharedLink, "SKILL.md"), "utf-8")).toBe(
+      "user body",
+    );
+  });
+
   it("symlinks the user's ~/.codex/config.toml when present", async () => {
     const codexConfigDir = path.join(testHome.dir, ".codex");
     await mkdir(codexConfigDir, { recursive: true });

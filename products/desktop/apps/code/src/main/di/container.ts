@@ -148,6 +148,7 @@ import {
   AGENT_SLEEP_COORDINATOR,
 } from "@posthog/workspace-server/services/agent/identifiers";
 import { AgentServiceEvent } from "@posthog/workspace-server/services/agent/schemas";
+import { agentPluginsModule } from "@posthog/workspace-server/services/agent-plugins/agent-plugins.module";
 import { archiveModule } from "@posthog/workspace-server/services/archive/archive.module";
 import {
   ARCHIVE_FILE_WATCHER,
@@ -381,6 +382,7 @@ container.bind(MAIN_SUSPENSION_REPOSITORY).toService(SUSPENSION_REPOSITORY);
 container
   .bind(MAIN_DEFAULT_ADDITIONAL_DIRECTORY_REPOSITORY)
   .toService(DEFAULT_ADDITIONAL_DIRECTORY_REPOSITORY);
+container.load(agentPluginsModule);
 container.load(agentModule);
 container.bind(PI_RUNTIME_FACTORY).to(DesktopPiRuntimeFactory);
 container.load(piSessionModule);
