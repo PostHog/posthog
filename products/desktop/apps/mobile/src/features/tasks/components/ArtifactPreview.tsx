@@ -158,8 +158,11 @@ export function ArtifactPreview({
           ) : (
             // Untrusted agent scripts run in the WebView's isolated web-content
             // process; keep it sealed. Do not add onMessage or injectedJavaScript
-            // (a bridge back into the app). The rest of the props deny file,
-            // network, and device access, and only a genuine tap opens externally.
+            // (a bridge back into the app). The rest of the props deny file and
+            // device access, and the CSP applied above denies the network.
+            // onFileDownload is an iOS-only prop — Android keeps the library's
+            // own DownloadListener, so downloads there are suppressed by the
+            // navigation gate rejecting the http(s) request before it starts.
             <WebView
               originWhitelist={["*"]}
               source={{ html }}
@@ -173,14 +176,22 @@ export function ArtifactPreview({
               mediaCapturePermissionGrantType="deny"
               onFileDownload={() => {}}
               onShouldStartLoadWithRequest={(req) => {
+                // Allowlist, so the boundary fails closed: with scripts enabled
+                // an artifact can set location.href to any scheme without a
+                // gesture, and tel:/sms:/mailto:/deep links hand off to another
+                // app. source={{ html }} loads against the about:blank base URL,
+                // which is the only navigation allowed to happen in place.
+                if (req.url === "about:blank") return true;
+                // A link activation leaves the preview and opens in the system
+                // browser instead; everything else is dropped.
                 if (
-                  req.url.startsWith("http://") ||
-                  req.url.startsWith("https://")
+                  req.navigationType === "click" &&
+                  (req.url.startsWith("http://") ||
+                    req.url.startsWith("https://"))
                 ) {
-                  if (req.navigationType === "click") openExternalUrl(req.url);
-                  return false;
+                  openExternalUrl(req.url);
                 }
-                return true;
+                return false;
               }}
               style={{ flex: 1, backgroundColor: "#fff" }}
             />

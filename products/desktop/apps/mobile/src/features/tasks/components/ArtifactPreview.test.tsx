@@ -2,11 +2,12 @@ import type { TaskRunArtifact } from "@posthog/shared";
 import { createElement } from "react";
 import WebView from "react-native-webview";
 import { act, create } from "react-test-renderer";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ArtifactPreview } from "./ArtifactPreview";
 
 const mockPreview = vi.fn();
 const mockQuery = vi.fn();
+const mockOpenExternalUrl = vi.hoisted(() => vi.fn());
 
 vi.mock("../hooks/useCloudAttachmentPreview", () => ({
   useCloudAttachmentPreview: () => mockPreview(),
@@ -29,7 +30,9 @@ vi.mock("@/features/chat", () => ({
     createElement("MarkdownText", props),
 }));
 
-vi.mock("@/lib/openExternalUrl", () => ({ openExternalUrl: vi.fn() }));
+vi.mock("@/lib/openExternalUrl", () => ({
+  openExternalUrl: mockOpenExternalUrl,
+}));
 
 vi.mock("@/lib/theme", () => ({
   useThemeColors: () => ({
@@ -89,6 +92,10 @@ function webViews(renderer: ReturnType<typeof create>) {
 }
 
 describe("ArtifactPreview", () => {
+  beforeEach(() => {
+    mockOpenExternalUrl.mockClear();
+  });
+
   it("runs HTML artifacts with scripts enabled and the CSP applied", () => {
     const renderer = mount();
     const rendered = webViews(renderer);
@@ -96,6 +103,65 @@ describe("ArtifactPreview", () => {
     expect(rendered[0].props.javaScriptEnabled).toBe(true);
     expect(rendered[0].props.setSupportMultipleWindows).toBe(false);
     expect(rendered[0].props.source).toEqual({ html: "csp:<h1>hello</h1>" });
+  });
+
+  it("keeps the sandbox sealed around the enabled scripts", () => {
+    const webView = webViews(mount())[0].props;
+    expect(webView.allowFileAccess).toBe(false);
+    expect(webView.allowFileAccessFromFileURLs).toBe(false);
+    expect(webView.allowUniversalAccessFromFileURLs).toBe(false);
+    expect(webView.geolocationEnabled).toBe(false);
+    expect(webView.mediaCapturePermissionGrantType).toBe("deny");
+    // No bridge back into the app.
+    expect(webView.onMessage).toBeUndefined();
+    expect(webView.injectedJavaScript).toBeUndefined();
+  });
+
+  it("only lets the artifact's own document load in place", () => {
+    const webView = webViews(mount())[0].props;
+    expect(
+      webView.onShouldStartLoadWithRequest({
+        url: "about:blank",
+        navigationType: "other",
+      }),
+    ).toBe(true);
+  });
+
+  it("denies navigation that is not a tapped web link", () => {
+    const webView = webViews(mount())[0].props;
+    for (const url of [
+      "tel:+15550100",
+      "sms:+15550100",
+      "mailto:a@b.c",
+      "itms-apps://apps.apple.com/app/id1",
+      "myapp://do-thing",
+      "data:text/html,<script></script>",
+      "file:///etc/passwd",
+      "https://evil.example",
+    ]) {
+      expect(
+        webView.onShouldStartLoadWithRequest({ url, navigationType: "other" }),
+      ).toBe(false);
+    }
+    // A non-web scheme is dropped even when it comes from a tap.
+    expect(
+      webView.onShouldStartLoadWithRequest({
+        url: "myapp://do-thing",
+        navigationType: "click",
+      }),
+    ).toBe(false);
+    expect(mockOpenExternalUrl).not.toHaveBeenCalled();
+  });
+
+  it("opens a tapped web link externally instead of navigating", () => {
+    const webView = webViews(mount())[0].props;
+    expect(
+      webView.onShouldStartLoadWithRequest({
+        url: "https://posthog.com",
+        navigationType: "click",
+      }),
+    ).toBe(false);
+    expect(mockOpenExternalUrl).toHaveBeenCalledWith("https://posthog.com");
   });
 
   it("stops the preview by unmounting the web content and restarts it", () => {
