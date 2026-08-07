@@ -24,7 +24,6 @@ TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionTyp
 
 # Templates to include in test mode
 TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
-    "template-slack",
     "template-warehouse-source-stripe",
     "template-warehouse-source-customer-io",
     "template-warehouse-source-slack",
@@ -33,6 +32,7 @@ TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
 ]
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
     "template-webhook",
+    "template-slack",
     "template-geoip",
     "plugin-posthog-plugin-geoip",
     "plugin-taxonomy-plugin",

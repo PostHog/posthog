@@ -217,6 +217,19 @@ cd nodejs && npx jest src/cdp/templates/_destinations/<vendor>
    successful fetch. Most of these templates `throw Error(...)` on `res.status >= 400` and that branch has never
    been tested. Follow `webhook.template.test.ts` and `tiktok.template.test.ts` for the idiom.
 
+   Two harness traps to expect:
+
+   - **Schema defaults containing single quotes do not render.** `compileInputs` in `test/test-helpers.ts`
+     compiles each input as `` compileHog(`return f'${value}'`) ``, and an embedded `'` terminates that f-string
+     early. Production compiles inputs through `parse_string_template` instead, so the default is fine in
+     production and only misrenders under test. Pass the input explicitly rather than snapshotting the broken
+     value. `template-slack`'s default `text` hits this.
+   - **The Node harness applies `inputs_schema` defaults; the Python one did not.** Bodies will contain fields
+     the Python assertions showed as `None`. That is the Node harness being closer to production, not a
+     regression — but it means assertions rarely transfer verbatim.
+   - `toMatchInlineSnapshot()` cannot be used inside `it.each` (one call site, many snapshots). Assert the value
+     directly, which reads better for short strings like error messages anyway.
+
 4. **Delete the Python side**: the `template_*.py`, its `test_*.py`, and the entries in
    `posthog/cdp/templates/__init__.py`. Remove the vendor directory when it is empty.
 

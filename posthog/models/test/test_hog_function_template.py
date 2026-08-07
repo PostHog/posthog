@@ -1,7 +1,6 @@
 from django.test import TestCase
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as slack_template
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
@@ -11,36 +10,37 @@ class TestHogFunctionTemplate(TestCase):
         # Clean the database before every test
         HogFunctionTemplate.objects.all().delete()
 
-    def test_import_slack_template(self):
-        """Test importing the real Slack template"""
-        # Create a database template from the Slack template
-        db_template = sync_template_to_db(slack_template)
+    def test_sync_template_to_db_round_trips_fields(self):
+        dto = HogFunctionTemplateDC(
+            id="template-sync-test",
+            name="Sync Test",
+            description="Round trips through the serializer",
+            code="return event",
+            inputs_schema=[{"key": "url", "type": "string"}],
+            status="stable",
+            type="destination",
+            free=True,
+            category=["Testing"],
+            code_language="hog",
+        )
 
-        # Verify core fields
-        self.assertEqual(db_template.template_id, "template-slack")
-        self.assertEqual(db_template.name, "Slack")
-        self.assertEqual(db_template.description, "Sends a message to a Slack channel")
+        db_template = sync_template_to_db(dto)
+
+        self.assertEqual(db_template.template_id, "template-sync-test")
+        self.assertEqual(db_template.name, "Sync Test")
+        self.assertEqual(db_template.description, "Round trips through the serializer")
         self.assertEqual(db_template.type, "destination")
         self.assertEqual(db_template.status, "stable")
-        self.assertEqual(db_template.category, ["Customer Success"])
+        self.assertEqual(db_template.category, ["Testing"])
         self.assertEqual(db_template.free, True)
-
-        # Verify sha is generated correctly
-        self.assertIsNotNone(db_template.sha)
-        self.assertEqual(len(db_template.sha), 8)  # SHA hash truncated to 8 chars
+        self.assertEqual(len(db_template.sha), 8)
+        self.assertIsNotNone(db_template.bytecode)
 
         HogFunctionTemplate.objects.all().delete()
 
-        # Verify the sha is deterministic by creating another instance
-        db_template2 = sync_template_to_db(slack_template)
-        self.assertEqual(db_template.sha, db_template2.sha)
-
-        # Verify bytecode was compiled
-        self.assertIsNotNone(db_template.bytecode)
-
-        # Convert back to dataclass and verify structure is preserved
-        self.assertEqual(db_template.template_id, "template-slack")
-        self.assertEqual(db_template.name, "Slack")
+        # A fresh sync of unchanged content must land on the same sha, or every deploy
+        # would write a new row and pin existing functions to a stale one.
+        self.assertEqual(sync_template_to_db(dto).sha, db_template.sha)
 
     def test_get_template_by_id_and_sha(self):
         """Test retrieving templates by ID and sha"""
