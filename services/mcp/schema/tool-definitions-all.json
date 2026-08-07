@@ -7537,6 +7537,20 @@
             "readOnlyHint": true
         }
     },
+    "opt-outs-remove": {
+        "description": "Opt a recipient back in to the message category named by category_key, or to all marketing messages if omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Remove a recipient from the opt-out list",
+        "title": "Remove a recipient from the opt-out list",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "org-member-get-github-login": {
         "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
         "category": "Platform Features",
