@@ -104,4 +104,5 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
         investors=_investor_names(funding.get("investors")),
         is_yc_company=_is_yc_funded(funding.get("investors")),
         is_ai_native=_is_ai_native(tags_v2),
+        ownership_status=company.get("ownershipStatus"),
     )
