@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { toast, type ToastOptions } from 'react-toastify'
+import { toast, type ToastOptions, type UpdateOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
@@ -255,6 +255,33 @@ export const lemonToast = {
             },
             options
         )
+    },
+    /**
+     * Rewrites a toast that is already on screen into its success state.
+     *
+     * Always restates the whole success frame, because react-toastify defers every update by 100ms
+     * and, given no `render`, re-dispatches whatever content the toast held when `update` was
+     * called. Just after `promise()` settles that is still the pending spinner, so a bare update
+     * lands after the library's own success update and pins the toast at "pending" forever.
+     */
+    updateToSuccess(
+        id: number | string,
+        message: string | JSX.Element,
+        { button, ...toastOptions }: ToastOptionsWithButton = {}
+    ): void {
+        toast.update(id, {
+            render: <ToastContent type="success" message={message} button={button} id={id} />,
+            type: 'success',
+            icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+            // react-toastify drops null props so the container's defaults apply again. This is the
+            // same reset its own promise() resolver does when leaving the loading state.
+            isLoading: null,
+            autoClose: null,
+            closeOnClick: null,
+            closeButton: null,
+            draggable: null,
+            ...toastOptions,
+        } as UpdateOptions)
     },
     dismiss(id?: number | string): void {
         // If a toast was created in this tick but hasn't been registered yet (due to

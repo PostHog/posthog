@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { toast } from 'react-toastify'
 
 import api from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
@@ -37,6 +36,10 @@ const POLL_DELAY_MS = 10000
 // so polling every 10s produces unhelpful timeout noise. Back off when the
 // pending queue is dominated by long-running formats.
 const LONG_RUNNING_POLL_DELAY_MS = 30000
+// How long the completion toast waits on the subscribe nudge's eligibility check before giving up
+// on it. The check starts when the export starts, so by the time an export lands it has normally
+// long since answered.
+const NUDGE_RESOLUTION_TIMEOUT_MS = 5000
 
 // An export is still rendering while it has neither produced content nor failed.
 const isRendering = (asset: ExportedAssetType): boolean => !asset.has_content && !asset.exception
@@ -78,6 +81,21 @@ class ExportAwaitingDownload extends Error {
 // click anyway.
 const isUserActivationLive = (): boolean => navigator.userActivation?.isActive ?? true
 
+// Waits for the nudge check without ever letting it hold up the export's own feedback: a check that
+// stalls or throws resolves to "no nudge", so the toast falls back to the plain completion message
+// instead of sitting on its spinner.
+const settleNudgeCandidate = async (
+    candidate: Promise<ExportNudgeCandidate | null> | null
+): Promise<ExportNudgeCandidate | null> => {
+    if (!candidate) {
+        return null
+    }
+    return await Promise.race([
+        candidate.catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), NUDGE_RESOLUTION_TIMEOUT_MS)),
+    ])
+}
+
 // One toast per finished export: the download hand-off, plus the subscribe nudge folded into the
 // same body when this dashboard's exporter is eligible for it. The nudge asks for a decision rather
 // than just acknowledging the export, so it stays up until dismissed.
@@ -86,7 +104,7 @@ const showExportCompleteToast = async (
     onDownload: () => void
 ): Promise<void> => {
     const toastId = 'export-complete-' + uuid()
-    const nudge = exportCompleteNudgeMessage(await nudgeCandidate, toastId)
+    const nudge = exportCompleteNudgeMessage(await settleNudgeCandidate(nudgeCandidate), toastId)
     lemonToast.success(nudge ?? 'Export complete!', {
         button: { label: 'Download', action: onDownload },
         ...(nudge ? { toastId, autoClose: false as const } : {}),
@@ -461,7 +479,14 @@ export const exportsLogic = kea<exportsLogicType>([
                     const nudgeCandidate = exportData.dashboard
                         ? resolveExportNudgeEligibility(exportData.dashboard)
                         : null
-                    let nudged = false
+                    // Every export lands in the exports panel: a video render minutes later, a
+                    // synchronous download that is easy to miss in the browser's own download UI.
+                    // So the toast always points there, in whichever state it ends up.
+                    const viewExportsButton = {
+                        label: 'View exports',
+                        action: () => actions.openSidePanel(SidePanelTab.Exports),
+                    }
+                    let nudgeMessage: JSX.Element | null = null
 
                     // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
                     // request can block for a while. lemonToast.promise shows a spinner immediately
@@ -498,9 +523,11 @@ export const exportsLogic = kea<exportsLogicType>([
                             if (isUserActivationLive()) {
                                 downloadExportedAsset(response)
                                 // Whatever this resolves to becomes the toast's success message.
-                                const nudge = exportCompleteNudgeMessage(await nudgeCandidate, exportToastId)
-                                nudged = !!nudge
-                                return nudge ?? 'Export complete!'
+                                nudgeMessage = exportCompleteNudgeMessage(
+                                    await settleNudgeCandidate(nudgeCandidate),
+                                    exportToastId
+                                )
+                                return nudgeMessage ?? 'Export complete!'
                             }
                             actions.addFresh(response)
                             throw new ExportAwaitingDownload(response)
@@ -524,21 +551,16 @@ export const exportsLogic = kea<exportsLogicType>([
                                     success: 'Export complete!',
                                     error: 'Export failed',
                                 },
-                                {
-                                    toastId: exportToastId,
-                                    // Every export lands in the exports panel: a video render minutes
-                                    // later, a synchronous download that is easy to miss in the
-                                    // browser's own download UI. So the toast always points there.
-                                    button: {
-                                        label: 'View exports',
-                                        action: () => actions.openSidePanel(SidePanelTab.Exports),
-                                    },
-                                }
+                                { toastId: exportToastId, button: viewExportsButton }
                             )
-                            if (nudged) {
+                            if (nudgeMessage) {
                                 // autoClose belongs to the options above, which are fixed before the
-                                // export (and so the nudge) resolves — hence updating the settled toast.
-                                toast.update(exportToastId, { autoClose: false })
+                                // export (and so the nudge) resolves, so the settled toast has to be
+                                // rewritten to keep a nudge on screen until the user answers it.
+                                lemonToast.updateToSuccess(exportToastId, nudgeMessage, {
+                                    autoClose: false,
+                                    button: viewExportsButton,
+                                })
                             }
                         } catch (error) {
                             if (error instanceof ExportAwaitingDownload) {

@@ -1,5 +1,3 @@
-import { toast } from 'react-toastify'
-
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { resolveExportNudgeEligibility } from 'scenes/dashboard/dashboardExportNudgeLogic'
@@ -20,9 +18,9 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
         error: jest.fn(),
         dismiss: jest.fn(),
         promise: jest.fn((p) => p),
+        updateToSuccess: jest.fn(),
     },
 }))
-jest.mock('react-toastify', () => ({ toast: { update: jest.fn() } }))
 jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
     downloadExportedAsset: jest.fn(),
@@ -249,7 +247,14 @@ describe('exportsLogic', () => {
             expect(lemonToast.info).not.toHaveBeenCalled()
             // A nudge asks for a decision, so it must outlive the usual few-second success toast.
             const exportToastId = jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId
-            expect(toast.update).toHaveBeenCalledWith(exportToastId, { autoClose: false })
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
+                exportToastId,
+                NUDGE_MESSAGE,
+                expect.objectContaining({
+                    autoClose: false,
+                    button: expect.objectContaining({ label: 'View exports' }),
+                })
+            )
         })
 
         it('folds an eligible nudge into the toast a polled dashboard export completes with', async () => {
