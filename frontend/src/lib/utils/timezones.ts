@@ -9,6 +9,10 @@ import { dayjs } from 'lib/dayjs'
  */
 export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     const date = atDate ? new Date(atDate) : new Date()
+    if (isNaN(date.getTime())) {
+        // An invalid date stringifies to "Invalid Date", whose last token would leak as "Date".
+        return null
+    }
     try {
         const localeTimeStringParts = date
             .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })

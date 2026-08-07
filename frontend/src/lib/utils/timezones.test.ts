@@ -8,4 +8,8 @@ describe('timezones utils', () => {
         expect(shortTimeZone('Europe/Moscow')).toEqual('UTC+3')
         expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
     })
+
+    test('shortTimezone returns null for an invalid date instead of leaking "Date"', () => {
+        expect(shortTimeZone(undefined, new Date(NaN))).toBeNull()
+    })
 })

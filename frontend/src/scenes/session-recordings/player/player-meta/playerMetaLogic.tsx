@@ -547,7 +547,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.pinnedProperties],
             (
                 sessionPlayerMetaData: SessionRecordingType | null,
-                startTime: string | null,
+                startTime: Dayjs | null,
                 recordingPropertiesById: Record<string, Record<string, any>>,
                 pinnedProperties: string[]
             ) => {

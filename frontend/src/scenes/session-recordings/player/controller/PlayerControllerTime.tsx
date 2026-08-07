@@ -31,10 +31,13 @@ const TIMESTAMP_FORMAT_LABELS: Record<TimestampFormat, string> = {
 }
 
 function formatTimestampForTooltip(timestamp: number | undefined, format: TimestampFormat): string {
-    if (timestamp === undefined) {
+    if (timestamp === undefined || Number.isNaN(timestamp)) {
         return '--:--:--'
     }
     const d = format === TimestampFormat.UTC ? dayjs(timestamp).tz('UTC') : dayjs(timestamp)
+    if (!d.isValid()) {
+        return '--:--:--'
+    }
     const formatted = d.format(`${formatLocalizedDate()}, HH:mm:ss`)
     const timezone = format === TimestampFormat.UTC ? 'UTC' : shortTimeZone(undefined, d.toDate())
     return `${formatted} ${timezone}`

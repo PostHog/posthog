@@ -16,6 +16,9 @@ function formattedReplayTime(
     }
 
     let d = dayjs(time)
+    if (!d.isValid()) {
+        return timeOnly ? '00:00:00' : '--/--/----, 00:00:00'
+    }
     const isUTC = timestampFormat === TimestampFormat.UTC
     if (isUTC) {
         d = d.tz('UTC')
