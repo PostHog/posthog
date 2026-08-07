@@ -181,6 +181,7 @@ export function DataTable({
         response,
         responseLoading,
         responseError,
+        responseErrorObject,
         queryCancelled,
         nextDataLoading,
         newDataLoading,
@@ -188,6 +189,13 @@ export function DataTable({
         backToSourceQuery,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
+
+    // A table-access denial here is almost always transient: the query resolves on its own once the
+    // request regains its identity (e.g. shared-link async recalculation), and the data loads behind
+    // the banner. Treat it as an empty/loading state rather than screaming the raw internal message
+    // ("You don't have access to table `events`.") — matched on the backend's `table_access_denied`
+    // code, not the message string. See posthog/hogql/errors.py:TableAccessDeniedError.
+    const isTransientTableAccessError = responseErrorObject?.code === 'table_access_denied'
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
@@ -1038,7 +1046,7 @@ export function DataTable({
                                 sorting={null}
                                 useURLForSorting={false}
                                 emptyState={
-                                    responseError ? (
+                                    responseError && !isTransientTableAccessError ? (
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}

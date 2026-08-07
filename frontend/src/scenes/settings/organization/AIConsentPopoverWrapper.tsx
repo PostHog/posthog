@@ -105,7 +105,13 @@ export function AIConsentPopoverWrapper({
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted, dataProcessingDismissed } =
         useValues(aiConsentLogic)
     const { dismissDataProcessing } = useActions(aiConsentLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
+    const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
+
+    // Only offer the "request access" variant once the organization has loaded and the member truly
+    // lacks admin rights. While it's still loading, isAdminOrOwner is false — without this gate an
+    // admin or owner would be told AI "has not been enabled" and handed a request button the backend
+    // rejects outright (see request_ai_access in posthog/api/organization.py).
+    const showAccessRequest = !!currentOrganization && !isAdminOrOwner
 
     const handleDismiss = (): void => {
         if (!ignoreDismissal) {
@@ -117,7 +123,9 @@ export function AIConsentPopoverWrapper({
     return (
         <Popover
             overlay={
-                isAdminOrOwner ? (
+                showAccessRequest ? (
+                    <AIAccessRequestPopoverContent />
+                ) : (
                     <AIConsentPopoverContent
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
                         hideTrainingDisclaimer={hideTrainingDisclaimer}
@@ -128,8 +136,6 @@ export function AIConsentPopoverWrapper({
                         }
                         onDismiss={handleDismiss}
                     />
-                ) : (
-                    <AIAccessRequestPopoverContent />
                 )
             }
             style={{ zIndex: 'var(--z-modal)' }} // Don't show above the re-authentication modal
