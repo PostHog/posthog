@@ -38,6 +38,7 @@ from products.slack_app.backend.services.model_catalogue import (
     available_model_choices,
     describe_run_model,
     format_model_id,
+    group_by_runtime,
     label_for,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
@@ -115,6 +116,11 @@ MODAL_ACTION_MODEL = "ai_prefs:model"
 MODAL_ACTION_REASONING_EFFORT = "ai_prefs:reasoning_effort"
 
 MODAL_BLOCK_RUNTIME_ADAPTER = "block_runtime_adapter"
+# Prefixes, not literal block ids: Slack carries a block's state across `views.update`
+# whenever the `block_id` is unchanged, which is how a model picked under the previous
+# runtime used to survive a runtime switch and get submitted. Suffixing each dependent
+# block with what it depends on makes the re-rendered block a new one to Slack, so the
+# stale pick is dropped instead of hiding behind the fresh options. See `_scoped_block_id`.
 MODAL_BLOCK_MODEL = "block_model"
 MODAL_BLOCK_REASONING_EFFORT = "block_reasoning_effort"
 
@@ -140,24 +146,25 @@ class PickerAdapter:
 
 
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Group the model catalogue into the runtime → model → effort tree the modal's
-    linked dropdowns render. Adapters with no available models are omitted entirely."""
-    by_adapter: dict[str, list[PickerModel]] = {}
-    for choice in available_model_choices():
-        efforts = tuple(
-            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
-        )
-        by_adapter.setdefault(choice.runtime_adapter, []).append(
-            PickerModel(value=choice.model, label=choice.label, supported_efforts=efforts)
-        )
-
+    """Dress the catalogue's runtime → model tree in the effort labels the modal's linked
+    dropdowns render. Adapters with no available models are omitted entirely."""
     return tuple(
         PickerAdapter(
-            value=adapter_value,
-            label=label_for(adapter_value, RUNTIME_ADAPTER_DISPLAY_NAMES),
-            models=tuple(models),
+            value=group.runtime_adapter,
+            label=group.label,
+            models=tuple(
+                PickerModel(
+                    value=choice.model,
+                    label=choice.label,
+                    supported_efforts=tuple(
+                        PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
+                        for e in choice.supported_efforts
+                    ),
+                )
+                for choice in group.choices
+            ),
         )
-        for adapter_value, models in by_adapter.items()
+        for group in group_by_runtime(available_model_choices())
     )
 
 
@@ -1136,7 +1143,7 @@ def render_edit_modal(
                 model_element["initial_option"] = next(o for o in model_options if o["value"] == current.model)
             model_block = {
                 "type": "input",
-                "block_id": MODAL_BLOCK_MODEL,
+                "block_id": _scoped_block_id(MODAL_BLOCK_MODEL, current.runtime_adapter),
                 "label": {"type": "plain_text", "text": "Model"},
                 "dispatch_action": True,
                 "element": model_element,
@@ -1161,7 +1168,7 @@ def render_edit_modal(
             effort_element["initial_option"] = next(o for o in effort_options if o["value"] == current.reasoning_effort)
         effort_block = {
             "type": "input",
-            "block_id": MODAL_BLOCK_REASONING_EFFORT,
+            "block_id": _scoped_block_id(MODAL_BLOCK_REASONING_EFFORT, current.model),
             "label": {"type": "plain_text", "text": "Reasoning effort"},
             "optional": True,
             "element": effort_element,
@@ -1196,6 +1203,11 @@ def render_edit_modal(
     }
 
 
+def _scoped_block_id(prefix: str, depends_on: str | None) -> str:
+    """Block id for an input whose options are derived from another input's value."""
+    return f"{prefix}:{depends_on}" if depends_on else prefix
+
+
 def parse_modal_submission(view: dict) -> tuple[str | None, str | None, str | None]:
     """Pull `(runtime_adapter, model, reasoning_effort)` out of a Slack view_submission payload.
 
@@ -1211,12 +1223,14 @@ def parse_modal_submission(view: dict) -> tuple[str | None, str | None, str | No
     return runtime_adapter, model, reasoning_effort
 
 
-def _selected_value(state: dict, block_id: str, action_id: str) -> str | None:
-    block = state.get(block_id, {})
-    action = block.get(action_id, {})
-    selected = action.get("selected_option")
-    if isinstance(selected, dict):
-        return selected.get("value")
+def _selected_value(state: dict, block_prefix: str, action_id: str) -> str | None:
+    """Read a select's value out of view state, matching the scoped block id it was rendered under."""
+    for block_id, actions in state.items():
+        if block_id != block_prefix and not block_id.startswith(f"{block_prefix}:"):
+            continue
+        selected = (actions.get(action_id) or {}).get("selected_option")
+        if isinstance(selected, dict):
+            return selected.get("value")
     return None
 
 
@@ -1510,19 +1524,18 @@ def _render_unavailable_modal() -> dict:
 def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     """Re-render the modal in response to a runtime_adapter or model change.
 
-    Reads the in-flight state from `payload["view"]`, derives the new supported
-    efforts (changes when the model changes), and pushes the updated view via
-    `views.update`. Nothing is persisted here — the user still has to Save to
-    commit.
+    Reads the in-flight state from `payload["view"]`, drops whatever the change
+    invalidated, derives the efforts the surviving model supports, and pushes the
+    updated view via `views.update`. Nothing is persisted here — the user still has
+    to Save to commit.
     """
 
     view = payload.get("view", {})
     if view.get("callback_id") != EDIT_MODAL_PERSONAL_CALLBACK_ID:
         return HttpResponse(status=200)
 
-    runtime_adapter, model, reasoning_effort = parse_modal_submission(view)
-    current = AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
-    supported = _supported_efforts(runtime_adapter, model)
+    current = _drop_invalidated_selections(*parse_modal_submission(view))
+    supported = _supported_efforts(current.runtime_adapter, current.model)
 
     updated_view = render_edit_modal(current=current, supported_efforts=supported)
 
@@ -1537,6 +1550,24 @@ def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     except Exception:
         logger.exception("slack_app_home_modal_update_failed")
     return HttpResponse(status=200)
+
+
+def _drop_invalidated_selections(
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+) -> AIPreferences:
+    """Keep only the parts of an in-flight selection the current runtime still allows.
+
+    Switching runtime orphans the model picked under the old one, and that orphans the
+    effort. The scoped block ids stop Slack handing those back on the next interaction;
+    this stops the view we render from the same payload showing them in the meantime.
+    """
+    if model and model not in {value for value, _ in _models_for(runtime_adapter or "")}:
+        model = None
+    if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
+        reasoning_effort = None
+    return AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
 
 
 def _supported_efforts(runtime_adapter: str | None, model: str | None) -> list[str] | None:
