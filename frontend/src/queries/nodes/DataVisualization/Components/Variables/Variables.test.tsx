@@ -40,7 +40,9 @@ describe('VariableComponent', () => {
         )
 
         // A LemonSelect shows the value in a button; a LemonInputSelect combobox would render a text <input>
+        const control = container.querySelector('[data-attr="dashboard-list-variable-select"]')
+        expect(control).toBeInTheDocument()
         expect(screen.getByText('Germany')).toBeInTheDocument()
-        expect(container.querySelector('input')).not.toBeInTheDocument()
+        expect(control?.querySelector('input')).not.toBeInTheDocument()
     })
 })

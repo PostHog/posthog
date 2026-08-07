@@ -415,6 +415,7 @@ export const VariableComponent = ({
                 ) : (
                     // Static single-select: a dropdown button, not an editable combobox
                     <LemonSelect
+                        data-attr="dashboard-list-variable-select"
                         disabledReason={disabledReason || undefined}
                         value={variable.isNull ? null : (getListVariableSelectedValues(variable)[0] ?? null)}
                         onChange={(value) => onChange(variable.id, value, !value)}
