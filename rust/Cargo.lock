@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "arrow",
  "arrow-array",

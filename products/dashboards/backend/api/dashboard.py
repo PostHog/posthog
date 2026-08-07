@@ -321,6 +321,29 @@ def _compact_tile_layouts(tiles: list[DashboardTile]) -> set[int]:
     return changed
 
 
+def tile_insight_prefetches() -> list[Prefetch]:
+    """Prefetches every tile-serializing path needs on its tiles queryset. InsightSerializer reads
+    `prefetched_tags` and `_prefetched_alerts` off each insight — a path that skips the alerts
+    prefetch silently serializes `alerts: []` for every tile, hiding alert threshold lines on
+    dashboards."""
+    return [
+        Prefetch(
+            "insight__tagged_items",
+            queryset=TaggedItem.objects.select_related("tag"),
+            to_attr="prefetched_tags",
+        ),
+        Prefetch(
+            "insight__alertconfiguration_set",
+            # AlertSerializer emits threshold and subscribed_users per alert; without these,
+            # every alert on the dashboard costs two extra queries
+            queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
+                "subscribed_users"
+            ),
+            to_attr="_prefetched_alerts",
+        ),
+    ]
+
+
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
     """
     Serialize a single tile with error handling. Returns (order, tile_data) tuple.
@@ -2078,22 +2101,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         serialized_tiles: list[ReturnDict] = []
 
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
-            Prefetch(
-                "insight__tagged_items",
-                queryset=TaggedItem.objects.select_related("tag"),
-                to_attr="prefetched_tags",
-            ),
-            Prefetch(
-                "insight__alertconfiguration_set",
-                # AlertSerializer emits threshold and subscribed_users per alert; without these,
-                # every alert on the dashboard costs two extra queries
-                queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
-                    "subscribed_users"
-                ),
-                to_attr="_prefetched_alerts",
-            ),
-        )
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(*tile_insight_prefetches())
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
         team = self.context["get_team"]()
@@ -2469,13 +2477,7 @@ class DashboardsViewSet(
         )
 
         # Get tiles with proper prefetch
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
-            Prefetch(
-                "insight__tagged_items",
-                queryset=TaggedItem.objects.select_related("tag"),
-                to_attr="prefetched_tags",
-            )
-        )
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(*tile_insight_prefetches())
 
         layout_size = self._get_layout_size_from_request(request)
 
