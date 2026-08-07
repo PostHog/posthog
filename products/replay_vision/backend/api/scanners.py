@@ -968,8 +968,9 @@ class ScannerImpactSerializer(serializers.Serializer):
     affected_users = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Distinct users behind the affected sessions, by distinct ID. May include anonymous "
-            "device IDs when the recorded sessions were not identified."
+            "Distinct persons behind the affected sessions that could be saved to a cohort. Counts only "
+            "distinct IDs that resolve to a person profile, so anonymous device IDs from unidentified "
+            "recordings are excluded and this matches the size of the cohort you would get."
         ),
     )
     sessions_without_user = serializers.IntegerField(
@@ -1463,6 +1464,22 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 max_score=body.validated_data["max_score"],
             )
         except ValueError as exc:
+            # Fires only on failure, mirroring the success event below, so the save failure rate is
+            # visible in analytics instead of only in session recordings. No tag value is sent: a
+            # freeform tag can carry recording-derived text.
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_affected_cohort_failed",
+                {
+                    "scanner_id": str(scanner.id),
+                    "scanner_type": scanner.scanner_type,
+                    "window_days": window_days,
+                    "has_tag": body.validated_data["tag"] is not None,
+                    "reason": str(exc),
+                },
+                team=self.team,
+                request=request,
+            )
             raise ValidationError(str(exc)) from exc
         report_user_action(
             cast(User, request.user),

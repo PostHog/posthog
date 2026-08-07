@@ -6,6 +6,7 @@ summary+histogram via raw SQL (`jsonb_array_elements_text`, `PERCENTILE_CONT`).
 
 import json
 import math
+from collections import defaultdict
 from datetime import timedelta
 from typing import Any, Literal, get_args
 
@@ -15,9 +16,16 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+import structlog
+
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
+
+from products.replay_vision.backend.impact import cohort_team_id
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
+
+logger = structlog.get_logger(__name__)
 
 _DEFAULT_RECENT_DAYS = 14
 _MAX_RECENT_DAYS = 365
@@ -47,7 +55,7 @@ def compute_observation_stats(
     if scanner.scanner_type == ScannerType.MONITOR:
         payload["monitor"] = _monitor_stats(queryset)
     elif scanner.scanner_type == ScannerType.CLASSIFIER:
-        classifier, available_tags = _classifier_stats(queryset)
+        classifier, available_tags = _classifier_stats(scanner, queryset)
         payload["classifier"] = classifier
         payload["available_tags"] = available_tags
     elif scanner.scanner_type == ScannerType.SCORER:
@@ -205,7 +213,9 @@ def _monitor_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     }
 
 
-def _classifier_stats(queryset: QuerySet[ReplayObservation]) -> tuple[dict[str, Any], list[str]]:
+def _classifier_stats(
+    scanner: ReplayScanner, queryset: QuerySet[ReplayObservation]
+) -> tuple[dict[str, Any], list[str]]:
     # `.order_by()` skips a wasted sort inside the CTE; the outer aggregate doesn't need ordering.
     succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED).order_by()
     inner_sql, inner_params = succeeded.values("scanner_result").query.sql_with_params()
@@ -245,13 +255,90 @@ def _classifier_stats(queryset: QuerySet[ReplayObservation]) -> tuple[dict[str, 
             target[tag] = target.get(tag, 0) + count
 
     available_tags = sorted(set(fixed_counts.keys()) | set(freeform_counts.keys()))
+    fixed_ranked = _rank_counts(fixed_counts)
+    freeform_ranked = _rank_counts(freeform_counts)
+    # `users` counts the person-backed users per tag — the number a "save as cohort" would actually
+    # create — so the tag rows can gate that button. Only the ranked tags need it (those are all the UI
+    # shows), which bounds the person resolution.
+    _attach_tag_users(scanner, succeeded, fixed_ranked, freeform_ranked)
     return (
         {
-            "fixed_ranked": _rank_counts(fixed_counts),
-            "freeform_ranked": _rank_counts(freeform_counts),
+            "fixed_ranked": fixed_ranked,
+            "freeform_ranked": freeform_ranked,
             "total_with_tags": total_with_tags,
         },
         available_tags,
+    )
+
+
+def _attach_tag_users(
+    scanner: ReplayScanner,
+    succeeded: QuerySet[ReplayObservation],
+    fixed_ranked: list[dict[str, Any]],
+    freeform_ranked: list[dict[str, Any]],
+) -> None:
+    """Set `users` (person-backed distinct users) on each ranked tag entry, in place.
+
+    Leaves `users` absent when person resolution is unavailable so the client falls back to an enabled
+    button rather than blocking a save it can't prove would fail."""
+    fixed_tags = [entry["tag"] for entry in fixed_ranked]
+    freeform_tags = [entry["tag"] for entry in freeform_ranked]
+    if not fixed_tags and not freeform_tags:
+        return
+    try:
+        fixed_users, freeform_users = _tag_user_counts(scanner, succeeded, fixed_tags, freeform_tags)
+    except Exception:
+        logger.exception("replay_vision_tag_user_counts_failed", scanner_id=str(scanner.id))
+        return
+    for entry in fixed_ranked:
+        entry["users"] = fixed_users.get(entry["tag"], 0)
+    for entry in freeform_ranked:
+        entry["users"] = freeform_users.get(entry["tag"], 0)
+
+
+def _tag_user_counts(
+    scanner: ReplayScanner,
+    succeeded: QuerySet[ReplayObservation],
+    fixed_tags: list[str],
+    freeform_tags: list[str],
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Distinct person-backed users per ranked tag, split by bucket. One personhog resolution for all of them."""
+    inner_sql, inner_params = succeeded.values("distinct_id", "scanner_result").query.sql_with_params()
+    # Expand each observation's tag arrays and keep only the ranked tags with a non-empty distinct id;
+    # DISTINCT collapses repeated (bucket, tag, distinct_id) so a chatty distinct id isn't over-counted.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            WITH succeeded AS ({inner_sql})
+            SELECT DISTINCT 'fixed' AS bucket, tag, s.distinct_id
+            FROM succeeded s, jsonb_array_elements_text(
+                COALESCE(s.scanner_result -> 'model_output' -> 'tags', '[]'::jsonb)
+            ) AS tag
+            WHERE s.distinct_id <> '' AND tag = ANY(%s)
+            UNION
+            SELECT DISTINCT 'freeform' AS bucket, tag, s.distinct_id
+            FROM succeeded s, jsonb_array_elements_text(
+                COALESCE(s.scanner_result -> 'model_output' -> 'tags_freeform', '[]'::jsonb)
+            ) AS tag
+            WHERE s.distinct_id <> '' AND tag = ANY(%s)
+            """,
+            (*inner_params, fixed_tags, freeform_tags),
+        )
+        rows = cursor.fetchall()
+
+    distinct_ids = {distinct_id for _, _, distinct_id in rows}
+    if not distinct_ids:
+        return {}, {}
+    person_by_distinct_id = get_persons_mapped_by_distinct_id(cohort_team_id(scanner), list(distinct_ids))
+
+    persons_per_tag: dict[str, dict[str, set[str]]] = {"fixed": defaultdict(set), "freeform": defaultdict(set)}
+    for bucket, tag, distinct_id in rows:
+        person = person_by_distinct_id.get(distinct_id)
+        if person is not None:
+            persons_per_tag[bucket][tag].add(str(person.uuid))
+    return (
+        {tag: len(uuids) for tag, uuids in persons_per_tag["fixed"].items()},
+        {tag: len(uuids) for tag, uuids in persons_per_tag["freeform"].items()},
     )
 
 

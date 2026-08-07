@@ -273,6 +273,14 @@ class MonitorStatsSerializer(serializers.Serializer):
 class TagCountSerializer(serializers.Serializer):
     tag = serializers.CharField(help_text="The tag value.")
     count = serializers.IntegerField(help_text="Number of succeeded observations carrying this tag.")
+    users = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Person-backed users carrying this tag — the number that saving these sessions as a cohort would "
+            "add. Absent when person resolution was unavailable. Lower than `count`, which also counts "
+            "observations from unidentified recordings that have no person to add."
+        ),
+    )
 
 
 class ClassifierStatsSerializer(serializers.Serializer):

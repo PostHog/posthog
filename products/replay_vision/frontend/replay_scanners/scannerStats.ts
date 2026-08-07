@@ -25,6 +25,11 @@ export interface MonitorStats {
 export interface ClassifierTagStats {
     fixedRanked: [string, number][]
     freeformRanked: [string, number][]
+    // Person-backed users per tag — the number a "save as cohort" would actually add — keyed by tag.
+    // A tag maps to `undefined` when the backend couldn't resolve persons, so callers leave the save
+    // button enabled rather than block a save they can't prove would fail.
+    fixedTagUsers: Record<string, number | undefined>
+    freeformTagUsers: Record<string, number | undefined>
     totalWithTags: number
 }
 
@@ -71,10 +76,26 @@ export function deriveMonitorStats(stats: ObservationStatsApi | null): MonitorSt
     }
 }
 
+// The stats endpoint carries a per-tag person-backed `users` count. The generated type can lag a
+// regeneration, so read it through this widened shape rather than handwriting a fresh API type.
+type RankedTagWithUsers = { tag: string; count: number; users?: number }
+
+function tagUsersMap(entries: RankedTagWithUsers[]): Record<string, number | undefined> {
+    const map: Record<string, number | undefined> = {}
+    for (const entry of entries) {
+        map[entry.tag] = entry.users
+    }
+    return map
+}
+
 export function deriveClassifierTagStats(stats: ObservationStatsApi | null): ClassifierTagStats {
+    const fixed = (stats?.classifier?.fixed_ranked ?? []) as RankedTagWithUsers[]
+    const freeform = (stats?.classifier?.freeform_ranked ?? []) as RankedTagWithUsers[]
     return {
-        fixedRanked: (stats?.classifier?.fixed_ranked ?? []).map((t) => [t.tag, t.count] as [string, number]),
-        freeformRanked: (stats?.classifier?.freeform_ranked ?? []).map((t) => [t.tag, t.count] as [string, number]),
+        fixedRanked: fixed.map((t) => [t.tag, t.count] as [string, number]),
+        freeformRanked: freeform.map((t) => [t.tag, t.count] as [string, number]),
+        fixedTagUsers: tagUsersMap(fixed),
+        freeformTagUsers: tagUsersMap(freeform),
         totalWithTags: stats?.classifier?.total_with_tags ?? 0,
     }
 }

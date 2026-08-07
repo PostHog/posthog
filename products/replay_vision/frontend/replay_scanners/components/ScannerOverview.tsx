@@ -247,7 +247,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     // Cohort creation is a scanner-level action, independent of the overview's filter set.
     const { affectedCohortLoading, savingCohortTag } = useValues(replayScannerLogic({ id: scannerId }))
     const { saveAffectedCohort } = useActions(replayScannerLogic({ id: scannerId }))
-    const { fixedRanked, freeformRanked } = classifierTagStats
+    const { fixedRanked, freeformRanked, fixedTagUsers, freeformTagUsers } = classifierTagStats
     // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
     // "disabled" copy while the config is still loading.
     if (!scanner || scanner.scanner_type !== 'classifier') {
@@ -261,19 +261,36 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
         ? 'No freeform tags match the current filter.'
         : 'No freeform tags emitted yet.'
 
-    const cohortAction = (tag: string): JSX.Element => (
-        <LemonButton
-            size="xsmall"
-            icon={<IconPeople />}
-            tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
-            onClick={() => saveAffectedCohort(tag)}
-            loading={affectedCohortLoading && savingCohortTag === tag}
-            disabledReason={
-                affectedCohortLoading && savingCohortTag !== tag ? 'Another cohort is being created' : undefined
+    // Only person-backed users can enter a cohort, so gate the button on that count rather than the tag's
+    // observation count — otherwise the button looks savable and the request dead-ends. `undefined` means
+    // the count is unknown (person resolution unavailable), so we leave the button enabled and let the save
+    // report why if it can't build a cohort.
+    const cohortAction =
+        (usersByTag: Record<string, number | undefined>) =>
+        (tag: string): JSX.Element => {
+            const users = usersByTag[tag]
+            const tooltip =
+                users === undefined
+                    ? `Save users tagged "${tag}" in the last 30 days as a cohort`
+                    : `Save ${users.toLocaleString()} ${users === 1 ? 'person' : 'people'} tagged "${tag}" as a cohort`
+            let disabledReason: string | undefined
+            if (users === 0) {
+                disabledReason = 'No identified users carry this tag, so there is no one to add to a cohort'
+            } else if (affectedCohortLoading && savingCohortTag !== tag) {
+                disabledReason = 'Another cohort is being created'
             }
-            data-attr="vision-save-tag-cohort"
-        />
-    )
+            return (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconPeople />}
+                    tooltip={tooltip}
+                    onClick={() => saveAffectedCohort(tag)}
+                    loading={affectedCohortLoading && savingCohortTag === tag}
+                    disabledReason={disabledReason}
+                    data-attr="vision-save-tag-cohort"
+                />
+            )
+        }
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -283,7 +300,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     loading={overviewStatsApiLoading}
                     emptyMessage={fixedEmpty}
                     variant="tag"
-                    renderAction={cohortAction}
+                    renderAction={cohortAction(fixedTagUsers)}
                 />
             </OverviewPanel>
 
@@ -299,7 +316,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                         loading={overviewStatsApiLoading}
                         emptyMessage={freeformEmpty}
                         variant="tag"
-                        renderAction={cohortAction}
+                        renderAction={cohortAction(freeformTagUsers)}
                     />
                 ) : (
                     <div className="text-muted text-sm">

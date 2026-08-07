@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.test.persons import create_person
+
 from products.cohorts.backend.models.cohort import Cohort
 from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
 from products.replay_vision.backend.models.replay_observation import (
@@ -77,6 +79,7 @@ class _ImpactTestCase(APIBaseTest):
 class TestComputeScannerImpact(_ImpactTestCase):
     def test_monitor_counts_only_verdict_yes(self) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
+        create_person(team=self.team, distinct_ids=["u1"])
         self._make_observation(scanner, session_id="s-yes", distinct_id="u1", verdict="yes")
         self._make_observation(scanner, session_id="s-no", distinct_id="u2", verdict="no")
         self._make_observation(scanner, session_id="s-inc", distinct_id="u3", verdict="inconclusive")
@@ -84,6 +87,32 @@ class TestComputeScannerImpact(_ImpactTestCase):
         impact = compute_scanner_impact(scanner)
 
         assert impact.affected_sessions == 1
+        assert impact.affected_users == 1
+
+    def test_affected_users_excludes_distinct_ids_without_a_person(self) -> None:
+        # The bug behind the dead-end save: a distinct id with no person profile was counted as an
+        # affected user, so the count promised cohort members that the insert then dropped.
+        scanner = self._make_scanner(ScannerType.MONITOR)
+        create_person(team=self.team, distinct_ids=["identified"])
+        self._make_observation(scanner, session_id="s-known", distinct_id="identified")
+        self._make_observation(scanner, session_id="s-anon", distinct_id="anon-device")
+
+        impact = compute_scanner_impact(scanner)
+
+        assert impact.affected_sessions == 2
+        # anon-device carries a distinct id but no person, so it isn't cohort-eligible.
+        assert impact.affected_users == 1
+
+    def test_affected_users_counts_distinct_persons_across_distinct_ids(self) -> None:
+        scanner = self._make_scanner(ScannerType.MONITOR)
+        # Two distinct ids that merged into one person must count as a single user, matching the cohort.
+        create_person(team=self.team, distinct_ids=["alias-1", "alias-2"])
+        self._make_observation(scanner, session_id="s1", distinct_id="alias-1")
+        self._make_observation(scanner, session_id="s2", distinct_id="alias-2")
+
+        impact = compute_scanner_impact(scanner)
+
+        assert impact.affected_sessions == 2
         assert impact.affected_users == 1
 
     def test_classifier_counts_only_sessions_with_the_tag(self) -> None:
@@ -120,19 +149,10 @@ class TestComputeScannerImpact(_ImpactTestCase):
         with pytest.raises(ValueError):
             compute_scanner_impact(scanner, **kwargs)
 
-    def test_deduplicates_users_across_sessions(self) -> None:
-        scanner = self._make_scanner(ScannerType.MONITOR)
-        self._make_observation(scanner, session_id="s1", distinct_id="u1")
-        self._make_observation(scanner, session_id="s2", distinct_id="u1")
-
-        impact = compute_scanner_impact(scanner)
-
-        assert impact.affected_sessions == 2
-        assert impact.affected_users == 1
-
     @parameterized.expand([("null", None), ("empty", "")])
     def test_splits_sessions_without_user(self, _name: str, anonymous_value: str | None) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
+        create_person(team=self.team, distinct_ids=["u1"])
         self._make_observation(scanner, session_id="s-anon", distinct_id=anonymous_value)
         self._make_observation(scanner, session_id="s-known", distinct_id="u1")
 
@@ -225,6 +245,7 @@ class TestCreateAffectedCohort(_ImpactTestCase):
 class TestImpactEndpoints(_ImpactTestCase):
     def test_impact_returns_counts(self) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
+        create_person(team=self.team, distinct_ids=["u1"])
         self._make_observation(scanner, session_id="s1", distinct_id="u1")
 
         resp = self.client.get(f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/impact/")
@@ -252,6 +273,23 @@ class TestImpactEndpoints(_ImpactTestCase):
         assert body["users_in_cohort"] == 1
         assert body["window_days"] == 7
         assert Cohort.objects.filter(pk=body["cohort_id"], is_static=True).exists()
+
+    def test_affected_cohort_reports_failure_when_no_person_backed_users(self) -> None:
+        scanner = self._make_scanner(ScannerType.MONITOR)
+        # A distinct id with no person: the cohort insert drops it, so the save fails.
+        self._make_observation(scanner, session_id="s1", distinct_id="anon-device")
+
+        with patch.object(Cohort, "insert_users_by_list", autospec=True, side_effect=_fake_insert(0)):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as mock_report:
+                resp = self.client.post(
+                    f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/affected_cohort/", {}
+                )
+
+        assert resp.status_code == 400
+        assert "person profile" in resp.content.decode()
+        # The failure fires an event so the save failure rate is visible without watching recordings.
+        assert mock_report.call_args.args[1] == "replay_vision_affected_cohort_failed"
+        assert Cohort.objects.filter(team=self.team).count() == 0
 
     def test_affected_cohort_400_when_no_users(self) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)

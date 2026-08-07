@@ -14,6 +14,7 @@ from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.persons import create_person
 
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -1292,17 +1293,22 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "p", "tags": ["onboarding", "support"], "multi_label": True},
         )
-        for idx, (tags, freeform) in enumerate(
+        # did-a and did-b resolve to persons; anon-1 has no person profile, so its tags emit a `count`
+        # but contribute no cohort-eligible `users`.
+        create_person(team=self.team, distinct_ids=["did-a"])
+        create_person(team=self.team, distinct_ids=["did-b"])
+        for idx, (tags, freeform, distinct_id) in enumerate(
             [
-                (["onboarding"], []),
-                (["onboarding", "support"], ["surprise"]),
-                (["support"], ["surprise"]),
-                ([], []),
+                (["onboarding"], [], "did-a"),
+                (["onboarding", "support"], ["surprise"], "did-b"),
+                (["support"], ["surprise"], "anon-1"),
+                ([], [], None),
             ]
         ):
             ReplayObservation.objects.create(
                 scanner=classifier,
                 session_id=f"sess-{idx}",
+                distinct_id=distinct_id,
                 scanner_snapshot=_snapshot_for(classifier),
                 triggered_by=ObservationTrigger.SCHEDULE,
                 status=ObservationStatus.SUCCEEDED,
@@ -1322,11 +1328,12 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["classifier"]["total_with_tags"], 3)
+        # `users` counts distinct persons, so `support` (did-b + person-less anon-1) is below its `count`.
         self.assertEqual(
             body["classifier"]["fixed_ranked"],
-            [{"tag": "onboarding", "count": 2}, {"tag": "support", "count": 2}],
+            [{"tag": "onboarding", "count": 2, "users": 2}, {"tag": "support", "count": 2, "users": 1}],
         )
-        self.assertEqual(body["classifier"]["freeform_ranked"], [{"tag": "surprise", "count": 2}])
+        self.assertEqual(body["classifier"]["freeform_ranked"], [{"tag": "surprise", "count": 2, "users": 1}])
         self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])

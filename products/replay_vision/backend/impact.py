@@ -8,6 +8,7 @@ from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
+from posthog.models.person.util import get_person_uuids_by_distinct_ids
 from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -30,6 +31,23 @@ class ScannerImpact:
     affected_users: int
     sessions_without_user: int
     window_days: int
+
+
+def cohort_team_id(scanner: ReplayScanner) -> int:
+    """Team a cohort for this scanner lands on. ``Cohort`` inherits ``RootTeamMixin``, so on save its
+    team is rewritten to the project's root team. Persons must be resolved and counted against that
+    same team; resolving against the scanner's (possibly child) environment would count a different
+    person set than the cohort insert writes to, and the count would read back as zero."""
+    return scanner.team.parent_team_id or scanner.team_id
+
+
+def person_backed_user_count(team_id: int, distinct_ids: list[str]) -> int:
+    """Distinct persons behind these distinct IDs — the count that can actually enter a cohort.
+    Anonymous device IDs from recordings captured without a person profile resolve to nothing and
+    drop out, so this is lower than the raw distinct-id count whenever recordings went unidentified."""
+    if not distinct_ids:
+        return 0
+    return len(set(get_person_uuids_by_distinct_ids(team_id, distinct_ids)))
 
 
 def affected_observations(
@@ -103,14 +121,28 @@ def compute_scanner_impact(
     min_score: float | None = None,
     max_score: float | None = None,
 ) -> ScannerImpact:
-    aggregates = affected_observations(
-        scanner, window_days, tag=tag, min_score=min_score, max_score=max_score
-    ).aggregate(
+    observations = affected_observations(scanner, window_days, tag=tag, min_score=min_score, max_score=max_score)
+    aggregates = observations.aggregate(
         affected_sessions=Count("session_id", distinct=True),
-        affected_users=Count("distinct_id", filter=_HAS_USER, distinct=True),
         sessions_without_user=Count("session_id", filter=~_HAS_USER, distinct=True),
     )
-    return ScannerImpact(window_days=window_days, **aggregates)
+    # Resolve persons so the user count matches what the cohort insert can actually save, rather than
+    # trusting the raw distinct_id (which may be an anonymous device id with no person profile). Bounded
+    # to the same cap the cohort insert enforces so a huge scanner can't pull an unbounded id list.
+    distinct_ids = [
+        distinct_id
+        for distinct_id in observations.filter(_HAS_USER)
+        .order_by()
+        .values_list("distinct_id", flat=True)
+        .distinct()[:MAX_COHORT_DISTINCT_IDS]
+        if distinct_id
+    ]
+    return ScannerImpact(
+        window_days=window_days,
+        affected_sessions=aggregates["affected_sessions"],
+        sessions_without_user=aggregates["sessions_without_user"],
+        affected_users=person_backed_user_count(cohort_team_id(scanner), distinct_ids),
+    )
 
 
 def _qualifier_label(tag: str | None, min_score: float | None, max_score: float | None) -> str:
@@ -156,8 +188,11 @@ def create_affected_cohort(
         is_static=True,
         created_by=user,
     )
+    # `Cohort.objects.create` may have rewritten the team to the project's root (RootTeamMixin), so
+    # insert and count members against the cohort's own team. Passing the scanner's team here would
+    # write members under one team while the post-insert count reads another, reporting zero members.
     try:
-        cohort.insert_users_by_list(distinct_ids, team_id=scanner.team_id, raise_on_error=True)
+        cohort.insert_users_by_list(distinct_ids, team_id=cohort.team_id, raise_on_error=True)
     except Exception:
         # Don't leave a partial cohort behind.
         cohort.delete()
@@ -167,5 +202,9 @@ def create_affected_cohort(
     inserted = cohort.count or 0
     if inserted == 0:
         cohort.delete()
-        raise ValueError("None of the matched users have a person profile to add to a cohort.")
+        raise ValueError(
+            "None of the matched sessions are linked to a person profile, so there's no one to add to a cohort. "
+            "This happens when recordings are captured before users are identified. Identify users during "
+            "capture, then run the scanner again."
+        )
     return cohort, inserted

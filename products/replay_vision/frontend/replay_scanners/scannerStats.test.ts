@@ -1,5 +1,5 @@
 import type { ObservationStatsApi } from '../generated/api.schemas'
-import { deriveSummarizerFacetStats } from './scannerStats'
+import { deriveClassifierTagStats, deriveSummarizerFacetStats } from './scannerStats'
 
 // Partial on purpose: only the fields deriveSummarizerFacetStats reads.
 const stats = {
@@ -29,5 +29,31 @@ describe('deriveSummarizerFacetStats', () => {
             totalSucceeded: 0,
             totalWithFriction: 0,
         })
+    })
+})
+
+describe('deriveClassifierTagStats', () => {
+    it('maps per-tag person-backed users so the cohort button can gate on them', () => {
+        const stats = {
+            classifier: {
+                // `bug` has a person-backed user; `ux` was seen only on unidentified recordings.
+                fixed_ranked: [
+                    { tag: 'bug', count: 4, users: 2 },
+                    { tag: 'ux', count: 3, users: 0 },
+                ],
+                // Older responses (pre-regeneration) omit `users`; it must surface as undefined, not 0.
+                freeform_ranked: [{ tag: 'surprise', count: 1 }],
+                total_with_tags: 8,
+            },
+        } as unknown as ObservationStatsApi
+
+        const derived = deriveClassifierTagStats(stats)
+
+        expect(derived.fixedRanked).toEqual([
+            ['bug', 4],
+            ['ux', 3],
+        ])
+        expect(derived.fixedTagUsers).toEqual({ bug: 2, ux: 0 })
+        expect(derived.freeformTagUsers).toEqual({ surprise: undefined })
     })
 })
