@@ -1670,6 +1670,11 @@ class TestIsConnectionDroppedError:
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
             # passing health check or once its ban expires — so the reconnect must catch it.
             psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
+            # psycopg's own message when `PQconnectStart` reports the connection BAD before the
+            # handshake begins and libpq has no server-reported error text to attach — a purely
+            # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
+            # server-side rejection. Transient; the reconnect must catch it.
+            psycopg.OperationalError("connection is bad: no error details available"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -1702,6 +1707,10 @@ class TestIsConnectionDroppedError:
             # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain
             # "refused" substring would wrongly retry it.
             psycopg.OperationalError('connection to server at "10.0.0.1", port 5432 failed: Connection refused'),
+            # A "connection is bad" failure that *does* carry a server-reported detail is a genuine,
+            # permanent rejection — only the "no error details available" variant (a purely local,
+            # pre-handshake failure) is transient, so the match must not broaden to the bare prefix.
+            psycopg.OperationalError("connection is bad: FATAL: password authentication failed"),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
