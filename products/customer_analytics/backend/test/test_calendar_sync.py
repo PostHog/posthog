@@ -109,6 +109,13 @@ class TestCalendarSync(BaseTest):
         assert Meeting.objects.for_team(self.team.id).count() == 0
         assert counts.skipped == 2
 
+    def test_event_made_private_after_storage_is_deleted(self):
+        self._sync([_pages_response([_event()])])
+        assert Meeting.objects.for_team(self.team.id).count() == 1
+
+        self._sync([_pages_response([_event(visibility="private")])])
+        assert Meeting.objects.for_team(self.team.id).count() == 0
+
     def test_cancelled_event_keeps_row_flagged_cancelled(self):
         self._sync([_pages_response([_event()])])
         counts = self._sync([_pages_response([{"iCalUID": "uid-1@google.com", "status": "cancelled"}])])
