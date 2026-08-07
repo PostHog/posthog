@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconCopy, IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
@@ -151,7 +152,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Status',
             key: 'status',
             render: (_, obs) => (
-                <div className="flex items-center gap-1">
+                // Stop the row's navigation click so retrying doesn't also open the detail page.
+                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
                     <ObservationRetryButton
                         status={obs.status}
@@ -338,6 +340,10 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 dataSource={observations}
                 loading={triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
+                onRow={(obs) => ({
+                    onClick: () => router.actions.push(observationDetailUrl(obs.id, observationDetailLinkParams)),
+                    className: 'cursor-pointer',
+                })}
                 pagination={{
                     controlled: true,
                     pageSize: OBSERVATIONS_PAGE_SIZE,

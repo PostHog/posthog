@@ -361,8 +361,13 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
 }
 
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    if (observation.status === 'ineligible' || observation.status === 'failed') {
-        return <span className="text-muted text-sm">—</span>
+    if (observation.status === 'failed') {
+        const parsed = observation.error_reason ? parseFailureReason(observation.error_reason) : null
+        return <span className="text-danger text-sm">{parsed?.label ?? 'Scan failed'}</span>
+    }
+    if (observation.status === 'ineligible') {
+        const parsed = observation.error_reason ? parseIneligibleReason(observation.error_reason) : null
+        return <span className="text-muted text-sm">{parsed?.label ?? 'Skipped'}</span>
     }
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)

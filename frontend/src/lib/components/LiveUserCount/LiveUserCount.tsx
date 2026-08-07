@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconPerson, IconVideoCamera } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { cn } from 'lib/utils/css-classes'
@@ -118,7 +118,10 @@ export function LiveUserCount({
     )
 }
 
-export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps): JSX.Element | null {
+export function LiveRecordingsCount({
+    pollIntervalMs = 30000,
+    to,
+}: LiveCountProps & { to?: string }): JSX.Element | null {
     const { activeRecordings } = useValues(liveUserCountLogic({ pollIntervalMs }))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs }))
 
@@ -137,30 +140,43 @@ export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps):
         return null
     }
 
+    const pill = (
+        <div
+            className={cn(
+                'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
+                hasRecordings ? 'bg-success-highlight' : 'bg-border-light',
+                to && 'hover:brightness-95'
+            )}
+        >
+            <div className={cn('live-user-indicator', hasRecordings ? 'online' : 'offline')} />
+            <IconVideoCamera className="size-4 shrink-0 min-[660px]:hidden" />
+            <span className="text-xs font-medium whitespace-nowrap" data-attr="live-recordings-count">
+                <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
+            </span>
+            <span className="hidden min-[660px]:inline">
+                recently active {pluralize(activeRecordings, 'recording', undefined, false)}
+            </span>
+        </div>
+    )
+
     return (
         <Tooltip
             title={
                 activeRecordings == null
                     ? 'Unable to retrieve active recordings count.'
-                    : 'Session recordings currently in progress.'
+                    : to
+                      ? 'See sessions currently in progress in the live activity view.'
+                      : 'Session recordings currently in progress.'
             }
             placement="right"
         >
-            <div
-                className={cn(
-                    'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
-                    hasRecordings ? 'bg-success-highlight' : 'bg-border-light'
-                )}
-            >
-                <div className={cn('live-user-indicator', hasRecordings ? 'online' : 'offline')} />
-                <IconVideoCamera className="size-4 shrink-0 min-[660px]:hidden" />
-                <span className="text-xs font-medium whitespace-nowrap" data-attr="live-recordings-count">
-                    <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
-                </span>
-                <span className="hidden min-[660px]:inline">
-                    recently active {pluralize(activeRecordings, 'recording', undefined, false)}
-                </span>
-            </div>
+            {to ? (
+                <Link to={to} className="text-current hover:text-current" data-attr="live-recordings-count-link">
+                    {pill}
+                </Link>
+            ) : (
+                pill
+            )}
         </Tooltip>
     )
 }

@@ -165,7 +165,8 @@ export function ReplayScannersScene(): JSX.Element {
             title: 'Status',
             key: 'enabled',
             render: (_, scanner) => (
-                <div className="flex items-center gap-2">
+                // Stop the row's navigation click so toggling enabled doesn't also open the scanner.
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                     <LemonSwitch
                         checked={scanner.enabled}
                         onChange={() => toggleScannerEnabled(scanner.id)}
@@ -228,7 +229,8 @@ export function ReplayScannersScene(): JSX.Element {
             title: 'Actions',
             key: 'actions',
             render: (_, scanner) => (
-                <div className="flex gap-1">
+                // Stop the row's navigation click so the delete dialog and edit button keep their own behavior.
+                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                     <LemonButton
                         size="small"
                         type="secondary"
@@ -380,6 +382,10 @@ export function ReplayScannersScene(): JSX.Element {
                             dataSource={scanners}
                             loading={scannersLoading}
                             rowKey="id"
+                            onRow={(scanner) => ({
+                                onClick: () => push(urls.replayVision(scanner.id)),
+                                className: 'cursor-pointer',
+                            })}
                             pagination={{
                                 controlled: true,
                                 pageSize: SCANNERS_PAGE_SIZE,
