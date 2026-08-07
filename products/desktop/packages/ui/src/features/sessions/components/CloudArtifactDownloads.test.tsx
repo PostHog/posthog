@@ -144,7 +144,9 @@ describe("CloudArtifactDownloads", () => {
   });
 
   it("disables every download while a shared request is in progress", async () => {
-    fetchedArtifacts.push({
+    if (!fetchedArtifacts) throw new Error("artifact fixture must be loaded");
+    const artifacts = fetchedArtifacts;
+    artifacts.push({
       id: "output-2",
       name: "summary.txt",
       type: "output",
@@ -178,7 +180,7 @@ describe("CloudArtifactDownloads", () => {
         expect(downloadButtons[1]).toHaveAttribute("aria-disabled", "false"),
       );
     } finally {
-      fetchedArtifacts.pop();
+      artifacts.pop();
     }
   });
 
