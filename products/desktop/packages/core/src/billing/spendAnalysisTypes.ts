@@ -22,37 +22,31 @@ export interface SpendAnalysisToolRow {
   avg_input_tokens: number;
 }
 
-export interface SpendAnalysisModelRow {
-  model: string | null;
-  generation_count: number;
+export interface SpendAnalysisTokenRow {
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
 }
 
-export interface SpendAnalysisDayRow {
+export interface SpendAnalysisGenerationRow extends SpendAnalysisTokenRow {
+  generation_count: number;
+}
+
+export interface SpendAnalysisModelRow extends SpendAnalysisGenerationRow {
+  model: string | null;
+}
+
+export interface SpendAnalysisDayRow extends SpendAnalysisTokenRow {
   day: string;
   event_count: number;
-  cost_usd: number;
-  input_tokens: number;
-  output_tokens: number;
 }
 
-export interface SpendAnalysisDayModelRow {
+export interface SpendAnalysisDayModelRow extends SpendAnalysisGenerationRow {
   day: string;
   model: string;
-  cost_usd: number;
-  input_tokens: number;
-  output_tokens: number;
-  generation_count: number;
 }
 
-export interface SpendAnalysisFilledDay {
-  day: string;
-  event_count: number;
-  cost_usd: number;
-  input_tokens: number;
-  output_tokens: number;
+export interface SpendAnalysisFilledDay extends SpendAnalysisDayRow {
   models: SpendAnalysisDayModelRow[];
 }
 
