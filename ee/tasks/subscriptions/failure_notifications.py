@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from django.utils.formats import date_format
 
 from posthog.email import EmailMessage
+from posthog.models import User
 
 from products.exports.backend.models.subscription import Subscription
 from products.notifications.backend.facade.api import (
@@ -17,15 +18,18 @@ from products.notifications.backend.facade.api import (
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 
 
-def _can_notify_creator(subscription: Subscription) -> bool:
-    return (
-        subscription.created_by is not None
-        and subscription.team.all_users_with_access().filter(id=subscription.created_by_id).exists()
-    )
+def _get_notification_creator(subscription: Subscription) -> User | None:
+    creator = subscription.created_by
+    if creator is None:
+        return None
+    if not subscription.team.all_users_with_access().filter(id=creator.id).exists():
+        return None
+    return creator
 
 
 def send_subscription_delivery_failure_email(subscription: Subscription, failure_id: str | None = None) -> None:
-    if not _can_notify_creator(subscription) or not subscription.created_by.email:
+    creator = _get_notification_creator(subscription)
+    if creator is None or not creator.email:
         return
 
     title = subscription.title or "your subscription"
@@ -44,14 +48,15 @@ def send_subscription_delivery_failure_email(subscription: Subscription, failure
             "subscription_url": subscription.url,
         },
     )
-    message.add_recipient(email=subscription.created_by.email)
+    message.add_recipient(email=creator.email)
     message.send()
 
 
 def create_subscription_delivery_failure_notification(
     subscription: Subscription, failure_id: str | None = None
 ) -> None:
-    if not _can_notify_creator(subscription):
+    creator = _get_notification_creator(subscription)
+    if creator is None:
         return
 
     source_id = failure_id or str(uuid.uuid4())
@@ -66,7 +71,11 @@ def create_subscription_delivery_failure_notification(
 
     title = subscription.title or "Subscription"
     notification_title = f"{title[:75]} could not be delivered"
-    scheduled_at = date_format(subscription.next_delivery_date, "F j, Y, P T")
+    scheduled_at = (
+        date_format(subscription.next_delivery_date, "F j, Y, P T")
+        if subscription.next_delivery_date is not None
+        else "an upcoming time"
+    )
     source_url = urlparse(subscription.url).path if subscription.url else ""
     create_notification(
         NotificationData(
@@ -79,7 +88,7 @@ def create_subscription_delivery_failure_notification(
                 "We will try again at its next scheduled delivery."
             ),
             target_type=TargetType.USER,
-            target_id=str(subscription.created_by.id),
+            target_id=str(creator.id),
             resource_type=NotificationOnlyResourceType.PIPELINE,
             resource_id=str(subscription.id),
             source_url=source_url,

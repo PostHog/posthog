@@ -483,8 +483,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 try:
                     await temporalio.workflow.execute_activity(
                         notify_subscription_delivery_failure,
-                        inputs.subscription_id,
-                        str(delivery_id),
+                        args=[inputs.subscription_id, str(delivery_id)],
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
@@ -688,8 +687,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 try:
                     await temporalio.workflow.execute_activity(
                         notify_subscription_delivery_failure,
-                        inputs.subscription_id,
-                        str(delivery_id),
+                        args=[inputs.subscription_id, str(delivery_id)],
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
