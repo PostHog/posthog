@@ -771,6 +771,8 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("💬 Comment");
     expect(document).toContain('var CHANNEL="test-channel"');
     expect(document).toContain('d.type==="locate"');
+    expect(document).toContain('send("open-external",{href:link.href})');
+    expect(document).toContain('target.closest("a[href]")');
     expect(document).toContain("scrollIntoView");
     expect(document).toContain("new MutationObserver");
     expect(document).toContain("state.renderTimer");

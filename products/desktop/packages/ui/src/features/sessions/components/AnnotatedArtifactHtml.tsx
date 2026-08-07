@@ -6,6 +6,8 @@ import {
 import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { artifactHtmlDocument } from "./artifactPreviewDocument";
 import {
@@ -157,6 +159,11 @@ export function AnnotatedArtifactHtml({
       if (data.type === "ready") {
         sendCommentsRef.current();
         sendLocateRef.current();
+        return;
+      }
+      if (data.type === "open-external" && typeof data.href === "string") {
+        const url = parseHttpsUrl(data.href);
+        if (url) openExternalUrl(url.href);
         return;
       }
       if (data.type === "activate" && typeof data.id === "string") {
