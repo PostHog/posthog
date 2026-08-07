@@ -158,7 +158,7 @@ export interface dashboardsModelActions {
             show: boolean
         }
     }
-    loadDashboards: () => void
+    loadDashboards: () => any
     loadDashboardsFailure: (
         error: string,
         errorObject?: any
@@ -167,38 +167,21 @@ export interface dashboardsModelActions {
         errorObject?: any
     }
     loadDashboardsSuccess: (
-        pagedDashboards:
-            | {
-                  count: number
-                  next: null
-                  previous: null
-                  results: DashboardBasicType[]
-              }
-            | {
-                  count?: undefined
-                  next?: string | null | undefined
-                  previous?: string | null | undefined
-                  results: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>[]
-              },
-        payload?: string
+        pagedDashboards: {
+            count: number
+            next: null
+            previous: null
+            results: DashboardBasicType[]
+        },
+        payload?: any
     ) => {
-        pagedDashboards:
-            | {
-                  count: number
-                  next: null
-                  previous: null
-                  results: DashboardBasicType[]
-              }
-            | {
-                  count?: undefined
-                  next?: string | null | undefined
-                  previous?: string | null | undefined
-                  results: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>[]
-              }
-        payload?: string
-    }
-    pruneDashboards: (ids: number[]) => {
-        ids: number[]
+        pagedDashboards: {
+            count: number
+            next: null
+            previous: null
+            results: DashboardBasicType[]
+        }
+        payload?: any
     }
     pinDashboard: (
         id: number,
@@ -226,6 +209,9 @@ export interface dashboardsModelActions {
             id: number
             source: DashboardEventSource
         }
+    }
+    pruneDashboards: (ids: number[]) => {
+        ids: number[]
     }
     restoreDashboard: ({ id }: any) => any
     restoreDashboardFailure: (
