@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import build_service
@@ -483,3 +484,80 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         act("cancel")
         with patch.object(build_service, "MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM", 0):
             assert act("retry").status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+class TestCanvasActivityLog(CanvasAPIBaseTest):
+    def _activity(self, activity: str) -> list[ActivityLog]:
+        return list(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="Canvas", activity=activity).order_by("created_at")
+        )
+
+    def test_publish_snapshots_capabilities_and_logs_the_diff(self):
+        canvas_id = self._create_canvas()
+        first = self._publish(canvas_id, expected_current_version_id=None)
+        assert first.status_code == status.HTTP_200_OK, first.json()
+
+        default_capabilities = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "network": {"origins": []},
+        }
+        widened_capabilities = {
+            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": []},
+            "network": {"origins": []},
+        }
+        widened = self._project("export default function C() { return 2 }")
+        widened["capabilities"] = widened_capabilities
+        second = self._publish(canvas_id, widened, expected_current_version_id=first.json()["current_version_id"])
+        assert second.status_code == status.HTTP_200_OK, second.json()
+
+        versions = CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id).order_by("created_at")
+        assert [version.capabilities for version in versions] == [default_capabilities, widened_capabilities]
+
+        entries = self._activity("published")
+        assert len(entries) == 2
+        assert entries[0].user == self.user
+        changes = entries[1].detail["changes"]
+        assert len(changes) == 1
+        assert changes[0]["field"] == "capabilities"
+        assert changes[0]["before"] == default_capabilities
+        assert changes[0]["after"] == widened_capabilities
+
+    def test_revert_logs_the_head_move(self):
+        canvas_id = self._create_canvas()
+        first = self._publish(canvas_id, expected_current_version_id=None)
+        v1 = first.json()["current_version_id"]
+        second = self._publish(
+            canvas_id,
+            self._project("export default function C() { return 2 }"),
+            expected_current_version_id=v1,
+        )
+        v2 = second.json()["current_version_id"]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/revert/",
+            {"version_id": v1, "expected_current_version_id": v2},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        entries = self._activity("reverted")
+        assert len(entries) == 1
+        changes = entries[0].detail["changes"]
+        assert changes[0]["field"] == "current_source_version"
+        assert changes[0]["before"] == v2
+        assert changes[0]["after"] == v1
+
+    def test_rename_logs_a_change_but_a_no_op_update_does_not(self):
+        canvas_id = self._create_canvas()
+        base = f"/api/projects/{self.team.id}/canvases/{canvas_id}"
+
+        response = self.client.patch(f"{base}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        entries = self._activity("updated")
+        assert len(entries) == 1
+        assert entries[0].detail["changes"] == [
+            {"type": "Canvas", "action": "changed", "field": "name", "before": "My canvas", "after": "Renamed"}
+        ]
+
+        response = self.client.patch(f"{base}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(self._activity("updated")) == 1

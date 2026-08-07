@@ -31,6 +31,7 @@ import {
   EmptyTitle,
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
@@ -60,6 +61,7 @@ import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
   Flex,
@@ -422,15 +424,49 @@ export function FreeformCanvasView({
     [queryClient],
   );
 
+  // Dedupes the runtime-error capture without a store dependency: reading
+  // runtimeError in the callbacks would change their identity on every
+  // error set/clear, and the warm-frame pool assumes stable callbacks.
+  const lastRuntimeErrorRef = useRef<string | null>(null);
   const onError = useCallback(
-    (message: string) => setRuntimeError(threadId, message),
-    [threadId, setRuntimeError],
+    (message: string) => {
+      if (message !== lastRuntimeErrorRef.current) {
+        lastRuntimeErrorRef.current = message;
+        track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
+          channel_id: channelId || undefined,
+          dashboard_id: dashboardId,
+          build_id: pinnedArtifact?.buildId,
+          error_message: message.slice(0, 512),
+        });
+      }
+      setRuntimeError(threadId, message);
+    },
+    [
+      threadId,
+      setRuntimeError,
+      channelId,
+      dashboardId,
+      pinnedArtifact?.buildId,
+    ],
   );
   const onRendered = useCallback(() => {
     // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
     onArtifactReady();
+    lastRuntimeErrorRef.current = null;
     setRuntimeError(threadId, null);
-  }, [threadId, setRuntimeError, onArtifactReady]);
+    track(ANALYTICS_EVENTS.CANVAS_RENDERED, {
+      channel_id: channelId || undefined,
+      dashboard_id: dashboardId,
+      build_id: pinnedArtifact?.buildId,
+    });
+  }, [
+    threadId,
+    setRuntimeError,
+    onArtifactReady,
+    channelId,
+    dashboardId,
+    pinnedArtifact?.buildId,
+  ]);
   const clearHistoricalArtifactError = useCallback(() => {
     onHistoricalArtifactReady();
     setRuntimeError(threadId, null);

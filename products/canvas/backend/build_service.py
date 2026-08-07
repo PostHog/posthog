@@ -35,7 +35,9 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.event_usage import groups
 from posthog.models.scoping import team_scope
+from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
@@ -460,6 +462,7 @@ def publish_source_project(
             task_id=task_id,
             prompt=prompt or None,
             created_by_id=created_by_id,
+            capabilities=project.get("capabilities") or {},
         )
         build = _queue_build(version)
 
@@ -672,6 +675,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         max(0, ((build.finished_at or timezone.now()) - build.created_at).total_seconds())
     )
     CANVAS_BUILD_ARTIFACT_BYTES.observe(sum(asset["sizeBytes"] for asset in manifest["assets"]))
+    _capture_build_completed(build, outcome="ready")
 
 
 def _finalize_ready(
@@ -779,6 +783,40 @@ def _finish_failed(stale_build: CanvasBuild, diagnostics: list[dict[str, Any]]) 
     CANVAS_BUILD_DURATION_SECONDS.labels(outcome="failed").observe(
         max(0, (build.finished_at - build.created_at).total_seconds())
     )
+    _capture_build_completed(build, outcome="failed")
+
+
+def _capture_build_completed(build: CanvasBuild, *, outcome: str) -> None:
+    """Product-analytics record of a terminal build, attributed to the version's
+    publisher when there is one. Diagnostics contribute codes only — messages can
+    quote source. Telemetry must never fail a build, so errors are swallowed.
+    """
+    try:
+        team = build.team
+        user = build.source_version.created_by
+        duration_seconds = max(0, ((build.finished_at or timezone.now()) - build.created_at).total_seconds())
+        error_codes = [
+            str(item.get("code"))
+            for item in (build.diagnostics or [])
+            if isinstance(item, dict) and item.get("severity") == "error"
+        ][:10]
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=user.distinct_id if user else str(team.uuid),
+                event="canvas build completed",
+                properties={
+                    "canvas_id": str(build.canvas_id),
+                    "build_id": str(build.id),
+                    "source_version_id": str(build.source_version_id),
+                    "outcome": outcome,
+                    "attempt_count": build.attempt_count,
+                    "duration_seconds": round(duration_seconds, 2),
+                    "error_codes": error_codes,
+                },
+                groups=groups(team.organization, team),
+            )
+    except Exception:
+        logger.warning("canvas_build_capture_failed", build_id=str(build.id), exc_info=True)
 
 
 def sweep_canvas_builds() -> dict[str, int]:

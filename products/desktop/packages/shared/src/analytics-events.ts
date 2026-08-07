@@ -1047,6 +1047,22 @@ export interface CanvasPromptSentProperties {
   prompt_length_chars: number;
 }
 
+export interface CanvasRenderedProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact rendered; absent for head-source renders. */
+  build_id?: string;
+}
+
+export interface CanvasRuntimeErrorProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact threw; absent for head-source renders. */
+  build_id?: string;
+  /** Truncated to keep the payload bounded. */
+  error_message: string;
+}
+
 export type ContextActionType = "save_version" | "generate_started" | "discard";
 
 export interface ContextActionProperties {
@@ -1449,6 +1465,8 @@ export const ANALYTICS_EVENTS = {
   CHANNEL_ACTION: "Channel action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_RENDERED: "Canvas rendered",
+  CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
 
   // Autoresearch events
@@ -1628,6 +1646,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
+  [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
 
   // Autoresearch events
