@@ -1049,6 +1049,14 @@ class DatetimeDay(RootModel[AwareDatetime]):
     root: AwareDatetime
 
 
+class DynamicCohortReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: int
+    name: str
+
+
 class ElementType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4517,6 +4525,13 @@ class DeepResearchNotebook(BaseModel):
     title: str
 
 
+class DynamicCohortExposureRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cohorts: list[DynamicCohortReference]
+
+
 class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4795,6 +4810,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    dynamic_cohort_risk: DynamicCohortExposureRisk | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -6140,6 +6156,7 @@ class QueryResponseAlternative19(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    dynamic_cohort_risk: DynamicCohortExposureRisk | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -10859,6 +10876,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    dynamic_cohort_risk: DynamicCohortExposureRisk | None = None
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime
