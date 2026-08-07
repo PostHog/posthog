@@ -19,6 +19,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import Backfi
 from products.replay_vision.backend.quota import compute_quota_snapshot, sum_active_backfill_remaining_credits
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
+    find_backfill_candidates_activity,
     prepare_backfill_tick_activity,
 )
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
@@ -26,6 +27,7 @@ from products.replay_vision.backend.temporal.backfill_types import (
     AdvanceBackfillCursorInputs,
     BackfillTickAction,
     BackfillTickInputs,
+    FindBackfillCandidatesInputs,
 )
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
@@ -300,6 +302,22 @@ class TestBackfillTickActivities:
         backfill.refresh_from_db()
         assert backfill.status == BackfillStatus.COMPLETED
         assert backfill.finished_at is not None
+
+    def test_drained_window_finishes_instead_of_crashing_the_tick(self) -> None:
+        # An empty batch used to index candidates[-1]. The activity runs with maximum_attempts=1, so the
+        # tick died, the minute schedule refired forever, and the backfill sat RUNNING until cancelled.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls:
+            query_cls.return_value.run.return_value = []
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+            )
+        assert result.candidates == []
+        # A short batch is what completes the backfill, and the cursor must not move on an empty one.
+        assert not result.more_work_below_cursor
+        assert result.next_cursor_end_time is None
+        assert result.skipped_delta == 0
 
     def test_advance_loses_to_concurrent_cancel(self) -> None:
         scanner = _make_scanner()

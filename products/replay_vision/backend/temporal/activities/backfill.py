@@ -187,7 +187,9 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     if truncated_by_caps:
         walked_to = dispatchable[admitted - 1] if admitted else None
     else:
-        walked_to = candidates[-1]
+        # An empty batch means the walk drained the window: leave the cursor alone and let the
+        # short batch below complete the backfill.
+        walked_to = candidates[-1] if candidates else None
 
     # Everything the cursor passes is accounted for, dispatched or not. Without counting the skipped ones
     # `dispatched_count` could never reach `total_count` on a window this scanner has already partly tried,
