@@ -814,6 +814,8 @@ export interface ChangeRequestRejectApi {
 export interface CommentSlackThreadRefApi {
     /** Slack channel ID this discussion is mirrored to. */
     channel_id: string
+    /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+    channel_name: string
     /** Deep link that opens the mirrored Slack thread. */
     url: string
 }
@@ -862,6 +864,13 @@ export interface PaginatedCommentListApi {
     results: CommentApi[]
 }
 
+export interface CommentErrorApi {
+    /** Human-readable explanation of what went wrong. */
+    detail: string
+    /** Stable machine-readable identifier for the failure. */
+    error_type?: string
+}
+
 export interface PatchedCommentApi {
     readonly id?: string
     readonly created_by?: UserBasicApi | null
@@ -902,7 +911,7 @@ export interface SendCommentToSlackApi {
     /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
     integration_id: number
     /**
-     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
      * @maxLength 255
      */
     channel_id: string
@@ -923,6 +932,8 @@ export interface CommentSlackThreadApi {
     readonly integration: number
     /** Slack channel the mirrored thread lives in. */
     readonly slack_channel_id: string
+    /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+    readonly slack_channel_name: string
     /** Slack thread timestamp anchoring the mirrored thread. */
     readonly slack_thread_ts: string
     /**
@@ -1101,6 +1112,7 @@ export type ActivityLogListParams = {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -1193,6 +1205,7 @@ export const ActivityLogListScope = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
@@ -1272,6 +1285,7 @@ export const ActivityLogListScope = {
  * * `Team` - Team
  * * `Project` - Project
  * * `ErrorTrackingIssue` - ErrorTrackingIssue
+ * * `DataWarehouseExpression` - DataWarehouseExpression
  * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
@@ -1352,6 +1366,7 @@ export const ActivityLogListScopesItem = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',

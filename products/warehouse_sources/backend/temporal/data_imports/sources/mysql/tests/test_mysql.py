@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     MySQLImplementation,
     _build_query,
     _is_bad_plan_error,
+    _is_transient_cant_create_thread,
     _is_transient_connect_broken_pipe,
     _is_transient_connect_dns_failure,
     _is_transient_connect_drop,
@@ -1213,6 +1214,33 @@ class TestIsTransientTooManyConnections:
         assert not _is_transient_too_many_connections(pymysql.err.InternalError(1040, "Too many connections"))
 
 
+class TestIsTransientCantCreateThread:
+    def test_matches_cant_create_thread(self):
+        assert _is_transient_cant_create_thread(
+            pymysql.err.OperationalError(
+                1135, 'Can\'t create a new thread (errno 11 "Resource temporarily unavailable")'
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"),
+            (1040, "Too many connections"),
+        ],
+    )
+    def test_does_not_match_other_codes(self, code, message):
+        assert not _is_transient_cant_create_thread(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_cant_create_thread(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_cant_create_thread(
+            pymysql.err.InternalError(1135, 'Can\'t create a new thread (errno 11 "Resource temporarily unavailable")')
+        )
+
+
 class TestConnectTransientRetry:
     @pytest.mark.parametrize(
         "fail_count,expected_sleeps",
@@ -1369,6 +1397,26 @@ class TestConnectTransientRetry:
         mock_connect = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[pymysql.err.OperationalError(1040, "Too many connections"), conn],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_cant_create_thread_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    1135, 'Can\'t create a new thread (errno 11 "Resource temporarily unavailable")'
+                ),
+                conn,
+            ],
         )
 
         with MySQLImplementation().connect(_make_config()) as yielded:
@@ -2134,6 +2182,24 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "OperationalError: (1135, 'Can't create a new thread (errno 11 \"Resource temporarily "
+            'unavailable"); if you are not out of available memory, you can consult the manual for '
+            "a possible OS-dependent bug')",
+            'Can\'t create a new thread (errno 11 "Resource temporarily unavailable")',
+        ],
+    )
+    def test_cant_create_new_thread_is_classified_retryable(self, source, error_msg):
+        # Already retried in-process at connect time (`_is_transient_cant_create_thread`); once
+        # exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering host-capacity condition.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Transient thread-exhaustion error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "OperationalError: (1040, 'Too many connections')",
             "Too many connections",
         ],
@@ -2158,6 +2224,24 @@ class TestMySQLSourceNonRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Too-many-connections error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "(1105, 'unknown: target: keyspace.-.primary: primary is not serving, "
+            "there may be a reparent operation in progress')",
+            "reparent operation in progress",
+        ],
+    )
+    def test_vitess_reparent_is_classified_retryable(self, source, error_msg):
+        # `_retry_on_transient_tablet_unavailable` already retries this in-process during metadata
+        # discovery, but a reparent can outlast that bounded budget; once exhausted it re-raises for
+        # Temporal to retry the whole activity. Without this classification `_handle_import_error`
+        # logs it at `exception` on every occurrence, flooding error tracking with a self-recovering
+        # Vitess/PlanetScale failover.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Vitess reparent error should be classified retryable: {error_msg}"
 
 
 class TestMySQLSourceValidateCredentials:
@@ -2188,7 +2272,7 @@ class TestMySQLSourceValidateCredentials:
             ),
             (
                 pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'db.example.com' (timed out)"),
-                "Connection timed out. Does your database have our IP addresses allowed?",
+                "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
             ),
             (
                 pymysql.err.OperationalError(

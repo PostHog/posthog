@@ -83,7 +83,10 @@ import { QueryContext } from '~/queries/types'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
-import type { OrganizationMemberApi } from 'products/platform_features/frontend/generated/api.schemas'
+import type {
+    CommentSlackThreadRefApi,
+    OrganizationMemberApi,
+} from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -5463,6 +5466,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-storage',
     'google-ads',
     'google-analytics',
+    'google-calendar',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
@@ -6022,6 +6026,7 @@ export enum ActivityScope {
     OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
+    DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
@@ -6060,6 +6065,8 @@ export type CommentType = {
     is_task: boolean
     completed_at: string | null
     completed_by: UserBasicType | null
+    /** The Slack thread this comment's discussion is mirrored to (read-only); set only on a tracked thread root. */
+    slack_thread?: CommentSlackThreadRefApi | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }
