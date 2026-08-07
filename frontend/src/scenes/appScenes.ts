@@ -49,7 +49,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.GroupsNew]: () => import('./groups/GroupsNew'),
     [Scene.Groups]: () => import('./groups/Groups'),
-    [Scene.Inbox]: () => import('./inbox/InboxScene'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.InsightQuickStart]: () => import('./insights/InsightQuickStart/InsightQuickStart'),

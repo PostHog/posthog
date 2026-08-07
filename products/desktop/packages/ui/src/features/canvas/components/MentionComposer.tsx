@@ -29,6 +29,8 @@ interface MentionComposerProps {
   placeholder?: string;
   rows?: number;
   inputClassName?: string;
+  /** Put the caret in the editor on mount, for a composer the user just opened. */
+  autoFocus?: boolean;
   /** Rendered inside the input group after the editor (send button etc.). */
   children?: ReactNode;
 }
@@ -57,6 +59,7 @@ export function MentionComposer({
   onValueChange,
   onSubmit,
   members,
+  autoFocus = false,
   allowAgentMention = false,
   onMentionInsert,
   placeholder,
@@ -99,6 +102,7 @@ export function MentionComposer({
 
   const editor = useEditor(
     {
+      autofocus: autoFocus ? "end" : false,
       extensions: [
         StarterKit.configure({
           heading: false,
