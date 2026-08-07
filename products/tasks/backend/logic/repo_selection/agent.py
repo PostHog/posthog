@@ -91,7 +91,7 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None
+    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -108,6 +108,10 @@ def resolve_team_github_integration(
 
     The owner fallback still applies after the requester check, so an owner-connected source backs
     a requester who has none of their own.
+
+    ``team_only=True`` disables both personal-connection fallbacks. Use it when the resolved
+    source's repository names are shown to other team members, or when the work runs under the
+    team installation's bot identity — a personal connection is a cross-account leak there.
     """
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
@@ -124,6 +128,9 @@ def resolve_team_github_integration(
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration)
+
+    if team_only:
+        return None
 
     # User-initiated path: the requester's own connected GitHub (their own credentials, not a leak)
     # takes precedence over the owner fallback so they can reference repos only they have connected.

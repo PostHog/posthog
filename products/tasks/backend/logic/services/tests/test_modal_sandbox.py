@@ -1048,13 +1048,14 @@ class TestStartupFailureDiagnostics:
         assert "poll=137" in diagnostics["failure_reason"]
         sandbox._sandbox.exec.assert_not_called()
 
+    @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
     def test_reports_blocked_egress_host(self):
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "printf" in command:
                 return ExecutionResult(
-                    stdout="api.anthropic.com code=200\nmcp.posthog.com http_code=000",
+                    stdout="api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000",
                     stderr="",
                     exit_code=0,
                     error=None,
@@ -1071,7 +1072,7 @@ class TestStartupFailureDiagnostics:
 
         assert diagnostics["sandbox_terminated"] == "false"
         assert "egress blocked" in diagnostics["failure_reason"]
-        assert "mcp.posthog.com" in diagnostics["failure_reason"]
+        assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
 
     def test_reports_alive_without_session_when_no_block(self):
         sandbox = self._sandbox()
@@ -1607,6 +1608,28 @@ class TestModalSandboxCreateSnapshot:
 
 
 class TestSessionInitProbeHosts:
+    @pytest.mark.parametrize(
+        ("site_url", "mcp_url", "expected_host", "unused_host"),
+        [
+            ("https://us.posthog.com", None, "mcp.posthog.com", "mcp-eu.posthog.com"),
+            ("https://eu.posthog.com", None, "mcp-eu.posthog.com", "mcp.posthog.com"),
+            (
+                "https://us.posthog.com",
+                "https://custom-mcp.example.com/mcp",
+                "custom-mcp.example.com",
+                "mcp.posthog.com",
+            ),
+        ],
+    )
+    def test_includes_only_resolved_mcp_host(
+        self, site_url: str, mcp_url: str | None, expected_host: str, unused_host: str
+    ):
+        with override_settings(SITE_URL=site_url, SANDBOX_MCP_URL=mcp_url):
+            hosts = _session_init_probe_hosts()
+
+        assert expected_host in hosts
+        assert unused_host not in hosts
+
     @override_settings(
         SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
         SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev",

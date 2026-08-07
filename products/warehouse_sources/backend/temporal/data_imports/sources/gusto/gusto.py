@@ -9,6 +9,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import (
     GUSTO_ENDPOINTS,
@@ -188,15 +189,15 @@ def list_companies(client: GustoClient) -> list[dict[str, Any]]:
     return [companies[uuid] for uuid in sorted(companies)]
 
 
-def _window_bounds(db_incremental_field_last_value: Optional[Any]) -> tuple[str, str]:
+def _window_bounds(db_incremental_field_last_value: Optional[Any]) -> SyncWindow[str]:
     end = (datetime.now(UTC).date() + timedelta(days=FUTURE_WINDOW_DAYS)).isoformat()
     if db_incremental_field_last_value is None:
-        return DEFAULT_WINDOW_START, end
+        return SyncWindow(start=DEFAULT_WINDOW_START, end=end)
 
     raw = db_incremental_field_last_value
     if isinstance(raw, datetime | date):
-        return raw.isoformat()[:10], end
-    return str(raw)[:10] or DEFAULT_WINDOW_START, end
+        return SyncWindow(start=raw.isoformat()[:10], end=end)
+    return SyncWindow(start=str(raw)[:10] or DEFAULT_WINDOW_START, end=end)
 
 
 def _stamp_parents(rows: list[dict[str, Any]], parents: dict[str, str]) -> list[dict[str, Any]]:
@@ -329,10 +330,10 @@ def get_rows(
     companies = list_companies(client)
 
     if config.date_window_field is not None:
-        start_date, end_date = _window_bounds(db_incremental_field_last_value)
+        window = _window_bounds(db_incremental_field_last_value)
         # The whole window is buffered so it can be sorted, so there is no partial state worth
         # checkpointing here — a retry simply re-requests the window.
-        yield from _windowed_rows(client, config, companies, start_date, end_date)
+        yield from _windowed_rows(client, config, companies, window.start, window.end)
         return
 
     def checkpoint_page(company_index: int) -> Callable[[int], None]:

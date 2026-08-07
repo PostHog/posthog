@@ -32,9 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     compute_table_statistics_sync,
 )
 
-DELTA_HELPER_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper.DeltaTableHelper"
-)
+DELTA_HELPER_PATH = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table.DeltaTableRef"
 
 
 class TestAggregateAddActionStats:

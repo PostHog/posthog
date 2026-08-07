@@ -328,4 +328,229 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "conversion_action_counting_type": "Whether every conversion or one per click/interaction is counted.",
         },
     },
+    "campaign_budget": {
+        "description": "A campaign budget, including the daily amount, delivery method and Google's recommended budget.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/campaign_budget",
+        "columns": {
+            "customer_id": "The Google Ads customer (account) ID the budget belongs to.",
+            "customer_currency_code": "Three-letter ISO 4217 currency code of the account.",
+            "campaign_budget_id": "Unique ID of the campaign budget. Join to campaign.campaign_budget.",
+            "campaign_budget_name": "Name of the budget. Only explicitly shared budgets are required to have one.",
+            "campaign_budget_amount_micros": "Average daily amount to spend, in micros, when the period is daily.",
+            "campaign_budget_total_amount_micros": "Total amount to spend over the whole run, in micros, when the period is a custom period.",
+            "campaign_budget_status": "Status of the budget (enabled or removed).",
+            "campaign_budget_delivery_method": "Rate at which the budget is spent (standard or accelerated).",
+            "campaign_budget_explicitly_shared": "Whether the budget was created to be shared across several campaigns.",
+            "campaign_budget_reference_count": "Number of campaigns actively using the budget.",
+            "campaign_budget_has_recommended_budget": "Whether Google has a recommended budget for this budget.",
+            "campaign_budget_recommended_budget_amount_micros": "Google's recommended budget amount, in micros. Falls back to the current amount when there is no recommendation.",
+            "campaign_budget_period": "Period the budget is spent over (daily or a custom period).",
+            "campaign_budget_type": "Type of the budget (standard or Smart campaign).",
+            "campaign_budget_aligned_bidding_strategy_id": "ID of the portfolio bidding strategy this shared budget is aligned with.",
+        },
+    },
+    "bidding_strategy": {
+        "description": "A portfolio bidding strategy shared across campaigns, including its targets and how many campaigns use it.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/bidding_strategy",
+        "columns": {
+            "customer_id": "The Google Ads customer (account) ID the strategy belongs to.",
+            "bidding_strategy_id": "Unique ID of the bidding strategy. Join to campaign.bidding_strategy.",
+            "bidding_strategy_name": "Name of the bidding strategy, unique within the account.",
+            "bidding_strategy_type": "Type of the strategy (e.g. target CPA, target ROAS, maximize conversions).",
+            "bidding_strategy_status": "Status of the strategy (enabled or removed).",
+            "bidding_strategy_currency_code": "Currency the strategy bids in, as an ISO 4217 three-letter code.",
+            "bidding_strategy_effective_currency_code": "Currency actually used by the strategy, as an ISO 4217 three-letter code.",
+            "bidding_strategy_campaign_count": "Number of campaigns attached to the strategy.",
+            "bidding_strategy_non_removed_campaign_count": "Number of non-removed campaigns attached to the strategy.",
+            "bidding_strategy_aligned_campaign_budget_id": "ID of the campaign budget this portfolio strategy is aligned with.",
+            "bidding_strategy_target_cpa_target_cpa_micros": "Average cost-per-action target, in micros.",
+            "bidding_strategy_target_cpa_cpc_bid_ceiling_micros": "Highest CPC bid the target CPA strategy may set, in micros.",
+            "bidding_strategy_target_cpa_cpc_bid_floor_micros": "Lowest CPC bid the target CPA strategy may set, in micros.",
+            "bidding_strategy_target_roas_target_roas": "Target return on ad spend: revenue per unit of spend.",
+            "bidding_strategy_target_spend_target_spend_micros": "Spend target to maximize clicks under, in micros. Deprecated by Google in favour of the campaign budget.",
+            "bidding_strategy_target_spend_cpc_bid_ceiling_micros": "Highest CPC bid the maximize clicks strategy may set, in micros.",
+            "bidding_strategy_maximize_conversions_target_cpa_micros": "Target cost per conversion for a maximize conversions strategy, in micros.",
+            "bidding_strategy_maximize_conversion_value_target_roas": "Target return on ad spend for a maximize conversion value strategy.",
+            "bidding_strategy_target_impression_share_location": "Where on the search results page the strategy targets impressions.",
+            "bidding_strategy_target_impression_share_location_fraction_micros": "Chosen share of ads to show in the targeted location, in micros (1% is 10,000).",
+            "bidding_strategy_target_impression_share_cpc_bid_ceiling_micros": "Highest CPC bid the target impression share strategy may set, in micros.",
+        },
+    },
+    "label": {
+        "description": "A label that can be applied to campaigns, ad groups, ads and keywords for grouping and reporting.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/label",
+        "columns": {
+            "customer_id": "The Google Ads customer (account) ID the label belongs to.",
+            "label_id": "Unique ID of the label.",
+            "label_name": "Name of the label.",
+            "label_status": "Status of the label (enabled or removed).",
+            "label_text_label_background_color": "Background color of the label, in hex format.",
+            "label_text_label_description": "Short description of the label.",
+        },
+    },
+    "audience": {
+        "description": "An audience: a reusable targeting definition combining segments such as user lists, interests and demographics.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/audience",
+        "columns": {
+            "customer_id": "The Google Ads customer (account) ID the audience belongs to.",
+            "audience_id": "Unique ID of the audience.",
+            "audience_name": "Name of the audience, unique within the account.",
+            "audience_description": "Description of the audience.",
+            "audience_scope": "Whether the audience is available account-wide or only to one asset group.",
+            "audience_status": "Status of the audience (enabled or removed).",
+            "audience_asset_group": "Resource name of the asset group the audience is scoped to, when the scope is asset group.",
+            "audience_dimensions": "Positive dimensions making up the audience, as JSON.",
+            "audience_exclusion_dimension": "Negative dimension excluded from the audience, as JSON.",
+        },
+    },
+    "asset": {
+        "description": "An individual asset (text, image, video, sitelink, callout and so on) that can be attached to campaigns, ad groups and ads.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/asset",
+        "columns": {
+            "customer_id": "The Google Ads customer (account) ID the asset belongs to.",
+            "asset_id": "Unique ID of the asset.",
+            "asset_name": "Optional name of the asset.",
+            "asset_type": "Type of the asset (e.g. text, image, youtube video, sitelink, callout).",
+            "asset_source": "Where the asset came from (advertiser-provided or automatically created).",
+            "asset_final_urls": "Landing-page URLs the asset sends users to.",
+            "asset_final_mobile_urls": "Mobile landing-page URLs the asset sends users to.",
+            "asset_tracking_url_template": "URL template used to build a tracking URL for the asset.",
+            "asset_policy_summary_approval_status": "Overall policy approval status of the asset.",
+            "asset_policy_summary_review_status": "Where the asset is in Google's review process.",
+            "asset_text_asset_text": "Text content, for text assets.",
+            "asset_image_asset_file_size": "File size of the image, in bytes.",
+            "asset_image_asset_mime_type": "MIME type of the image.",
+            "asset_image_asset_full_size_url": "URL that returns the image at its full size.",
+            "asset_image_asset_full_size_height_pixels": "Height of the image, in pixels.",
+            "asset_image_asset_full_size_width_pixels": "Width of the image, in pixels.",
+            "asset_youtube_video_asset_youtube_video_id": "YouTube video ID, the 11-character string from the video URL.",
+            "asset_youtube_video_asset_youtube_video_title": "Title of the YouTube video.",
+            "asset_callout_asset_callout_text": "Callout text, for callout assets.",
+            "asset_sitelink_asset_link_text": "Display text of the sitelink.",
+            "asset_sitelink_asset_description1": "First description line of the sitelink.",
+            "asset_sitelink_asset_description2": "Second description line of the sitelink.",
+            "asset_call_asset_phone_number": "Advertiser phone number, for call assets.",
+            "asset_call_asset_country_code": "Two-letter country code of the phone number.",
+            "asset_promotion_asset_promotion_code": "Code the user enters to qualify for the promotion.",
+            "asset_structured_snippet_asset_header": "Header of the structured snippet.",
+            "asset_structured_snippet_asset_values": "Values listed in the structured snippet.",
+            "asset_mobile_app_asset_app_id": "Store ID of the promoted mobile app.",
+            "asset_mobile_app_asset_app_store": "App store the promoted app is distributed on.",
+            "asset_lead_form_asset_business_name": "Name of the business advertised on the lead form.",
+            "asset_lead_form_asset_headline": "Headline of the lead form.",
+        },
+    },
+    "age_range_stats": {
+        "description": "Daily performance broken out by the age range of the user (age_range_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/age_range_view",
+        "columns": _stats_columns(
+            **{
+                "ad_group_criterion_criterion_id": "Criterion ID of the age range within the ad group.",
+                "ad_group_criterion_age_range_type": "The age range bucket the metrics are reported for (e.g. 25-34, undetermined).",
+                "ad_group_criterion_status": "Status of the age range criterion (enabled, paused, or removed).",
+                "ad_group_criterion_bid_modifier": "Bid modifier applied to this age range.",
+            }
+        ),
+    },
+    "gender_stats": {
+        "description": "Daily performance broken out by the gender of the user (gender_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/gender_view",
+        "columns": _stats_columns(
+            **{
+                "ad_group_criterion_criterion_id": "Criterion ID of the gender within the ad group.",
+                "ad_group_criterion_gender_type": "The gender bucket the metrics are reported for (male, female, or undetermined).",
+                "ad_group_criterion_status": "Status of the gender criterion (enabled, paused, or removed).",
+                "ad_group_criterion_bid_modifier": "Bid modifier applied to this gender.",
+            }
+        ),
+    },
+    "detail_placement_stats": {
+        "description": "Daily performance broken out by the individual placement (website, app, or YouTube channel) an ad ran on (detail_placement_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/detail_placement_view",
+        "columns": _stats_columns(
+            **{
+                "detail_placement_view_placement": "Automatic placement string, e.g. a website URL, a mobile app ID, or a YouTube video or channel ID.",
+                "detail_placement_view_display_name": "Human-readable name of the placement: the website name, app name, or YouTube video or channel title.",
+                "detail_placement_view_placement_type": "Type of the placement (website, mobile app, YouTube video, or YouTube channel).",
+                "detail_placement_view_target_url": "URL of the placement, e.g. the website, the app store listing, or the YouTube video.",
+                "detail_placement_view_group_placement_target_url": "URL of the group that contains the placement, e.g. the domain or the YouTube channel.",
+            }
+        ),
+    },
+    "landing_page_stats": {
+        "description": "Daily performance broken out by the unexpanded final URL of the landing page ads sent users to (landing_page_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/landing_page_view",
+        "columns": _stats_columns(
+            **{
+                "landing_page_view_unexpanded_final_url": "The final URL as entered by the advertiser, before URL expansion.",
+                "metrics_speed_score": "Google's 0-100 estimate of how fast the landing page loads on mobile, relative to other pages.",
+                "metrics_mobile_friendly_clicks_percentage": "Percentage of mobile clicks that went to a mobile-friendly page.",
+                "metrics_valid_accelerated_mobile_pages_clicks_percentage": "Percentage of clicks to a landing page that is a valid AMP page.",
+            }
+        ),
+    },
+    "user_location_stats": {
+        "description": "Daily performance broken out by the country the user was physically in, regardless of the locations the campaign targets (user_location_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/user_location_view",
+        "columns": _stats_columns(
+            **{
+                "user_location_view_country_criterion_id": "Criterion ID of the country the user was physically located in.",
+                "user_location_view_targeting_location": "Whether the location was one the campaign targets.",
+            }
+        ),
+    },
+    "location_stats": {
+        "description": "Daily performance broken out by the location criteria a campaign targets (location_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/location_view",
+        "columns": _stats_columns(
+            **{
+                "campaign_criterion_criterion_id": "Criterion ID of the targeted location within the campaign.",
+                "campaign_criterion_location_geo_target_constant": "Resource name of the targeted geo target constant.",
+                "campaign_criterion_negative": "Whether the location is excluded rather than targeted.",
+                "campaign_criterion_bid_modifier": "Bid modifier applied to this location.",
+                "campaign_criterion_status": "Status of the location criterion (enabled, paused, or removed).",
+            }
+        ),
+    },
+    "product_group_stats": {
+        "description": "Daily performance broken out by the product group nodes of a Shopping campaign's product partition tree (product_group_view).",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/product_group_view",
+        "columns": _stats_columns(
+            **{
+                "ad_group_criterion_criterion_id": "Criterion ID of the product group node.",
+                "ad_group_criterion_listing_group_type": "Type of the node: a subdivision that splits further, or a unit that can be bid on.",
+                "ad_group_criterion_listing_group_parent_ad_group_criterion": "Resource name of the parent node in the product partition tree.",
+                "ad_group_criterion_listing_group_case_value_product_item_id_value": "Product item ID the node splits on.",
+                "ad_group_criterion_listing_group_case_value_product_brand_value": "Product brand the node splits on.",
+                "ad_group_criterion_listing_group_case_value_product_condition_condition": "Product condition the node splits on (new, refurbished, or used).",
+                "ad_group_criterion_listing_group_case_value_product_type_value": "Product type value the node splits on.",
+                "ad_group_criterion_listing_group_case_value_product_type_level": "Level of the product type the node splits on.",
+                "ad_group_criterion_listing_group_case_value_product_channel_channel": "Sales channel the node splits on (online or local).",
+                "ad_group_criterion_negative": "Whether the node is excluded rather than bid on.",
+                "ad_group_criterion_status": "Status of the product group criterion (enabled, paused, or removed).",
+                "ad_group_criterion_cpc_bid_micros": "Maximum cost-per-click bid on the node, in micros.",
+            }
+        ),
+    },
+    "campaign_hourly_stats": {
+        "description": "Hourly campaign performance, one row per campaign, day, hour, device and network. Use it for dayparting analysis.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/campaign",
+        "columns": _stats_columns(
+            **{
+                "segments_hour": "Hour of day the metrics are reported for, as an integer from 0 to 23 in the account time zone.",
+            }
+        ),
+    },
+    "campaign_conversion_action_stats": {
+        "description": "Daily campaign conversions broken out by conversion action. Only conversion metrics are available alongside this segmentation, so clicks, impressions and cost are not included.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/campaign",
+        "columns": _stats_columns(
+            **{
+                "segments_conversion_action": "Resource name of the conversion action the conversions are attributed to. Join to conversion_action.",
+                "segments_conversion_action_name": "Name of the conversion action.",
+                "segments_conversion_action_category": "Category of the conversion action (e.g. purchase, lead, sign-up).",
+                "metrics_cross_device_conversions": "Conversions where the conversion happened on a different device to the ad interaction.",
+            }
+        ),
+    },
 }
