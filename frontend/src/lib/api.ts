@@ -6401,11 +6401,8 @@ const api = {
         ): Promise<{ workspaces: { id: string; name: string }[] }> {
             return await new ApiRequest().integrationClickUpWorkspaces(id, teamId).get()
         },
-        async verifyEmail(
-            id: IntegrationType['id'],
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
-        ): Promise<EmailSenderDomainStatus> {
-            return await new ApiRequest().integrationEmailVerify(id, teamId).create()
+        async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
+            return await new ApiRequest().integrationEmailVerify(id).create()
         },
         async updateEmailConfig(
             integrationId: IntegrationType['id'],
