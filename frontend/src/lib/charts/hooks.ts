@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
-import { type DependencyList, useCallback, useMemo } from 'react'
+import { type DependencyList, useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useAppliedThemeValue } from 'lib/hooks/useAppliedThemeValue'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 
@@ -30,18 +29,39 @@ function chartThemeDefaults(isDarkModeOn: boolean): Partial<ChartTheme> {
     }
 }
 
-/** The CSS-variable half of a chart theme, re-read whenever the applied theme changes. Use it only
- *  for a chart that deliberately keeps its own grid and crosshair styling; `useChartTheme()` is the
- *  default, and layers the app's chart defaults on top of this. */
-export function useChartCssVarTheme(): ChartTheme {
-    return useAppliedThemeValue(buildTheme)
+/** `buildTheme()` reads CSS variables, so it can't be keyed on `isDarkModeOn`: `useThemedHtml` applies
+ *  the theme by writing `document.body[theme]` from an effect, which runs after the render that
+ *  flipped the value. Reading at render time therefore returns the outgoing theme's variables, and
+ *  nothing recomputes them until the next reload — leaving axis labels in the previous mode's text
+ *  color. Watching the attribute is independent of that ordering. */
+function useCssVarTheme(): ChartTheme {
+    const [theme, setTheme] = useState<ChartTheme>(buildTheme)
+
+    useEffect(() => {
+        let applied = document.body.getAttribute('theme')
+        const reread = (): void => {
+            const next = document.body.getAttribute('theme')
+            if (next !== applied) {
+                applied = next
+                setTheme(buildTheme())
+            }
+        }
+        // The attribute may already have been written between the first render and here.
+        reread()
+
+        const observer = new MutationObserver(reread)
+        observer.observe(document.body, { attributeFilter: ['theme'] })
+        return () => observer.disconnect()
+    }, [])
+
+    return theme
 }
 
 /** Theme for app quill charts. Pass a stable (memoized or module-level) `overrides` object — a fresh
  *  object every render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
-    const cssVarTheme = useChartCssVarTheme()
+    const cssVarTheme = useCssVarTheme()
     return useMemo(
         () => ({ ...cssVarTheme, ...chartThemeDefaults(isDarkModeOn), ...overrides }),
         [cssVarTheme, isDarkModeOn, overrides]

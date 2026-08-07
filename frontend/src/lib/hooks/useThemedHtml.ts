@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { CUSTOM_THEME_STYLES_ID } from 'lib/hooks/useAppliedThemeValue'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -10,6 +9,8 @@ export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dar
     const { isDarkModeOn, customCss } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const isDarkTheme = forcedTheme ? forcedTheme === 'dark' : isDarkModeOn
+
+    const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
 
     useEffect(() => {
         const oldStyle = document.getElementById(CUSTOM_THEME_STYLES_ID)
