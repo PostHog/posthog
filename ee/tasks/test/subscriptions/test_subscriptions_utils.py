@@ -99,9 +99,13 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
 
 class TestSubscriptionAssetErrorMessage(APIBaseTest):
-    def _asset(self, exception: str | None) -> ExportedAsset:
+    def _asset(self, exception: str | None, exception_type: str | None = None) -> ExportedAsset:
         return ExportedAsset.objects.create(
-            team=self.team, insight_id=self.insight.id, export_format="image/png", exception=exception
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            exception=exception,
+            exception_type=exception_type,
         )
 
     def setUp(self) -> None:
@@ -120,6 +124,10 @@ class TestSubscriptionAssetErrorMessage(APIBaseTest):
 
     def test_replaces_out_of_memory_regardless_of_casing(self) -> None:
         asset = self._asset("Query Ran Out Of Memory")
+        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
+
+    def test_replaces_memory_limit_exception_by_type(self) -> None:
+        asset = self._asset("Memory limit (for query) exceeded", "ClickHouseQueryMemoryLimitExceeded")
         assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
 
     def test_falls_back_to_generic_message_when_no_exception(self) -> None:
