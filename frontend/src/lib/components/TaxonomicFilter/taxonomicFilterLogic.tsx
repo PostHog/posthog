@@ -577,17 +577,18 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
             eventNames: any,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            arg: boolean | undefined
         ) => TaxonomicFilterGroupType[]
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -645,7 +646,7 @@ export type taxonomicFilterLogicType = MakeLogicType<
 >
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
-    props({} as TaxonomicFilterLogicProps),
+    props({ disableSuggestedFilters: false } as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
     connect(() => ({
@@ -1954,12 +1955,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 new Set(taxonomicGroups.filter((g) => g.isMetaGroup).map((g) => g.type)),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames, s.featureFlags],
+            (s, p) => [
+                p.taxonomicGroupTypes,
+                s.taxonomicGroups,
+                s.eventNames,
+                s.featureFlags,
+                (_: unknown, props: TaxonomicFilterLogicProps) => props.disableSuggestedFilters,
+            ],
             (
                 groupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
                 eventNames,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                disableSuggestedFilters: boolean | undefined
             ): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
@@ -2000,7 +2008,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     TaxonomicFilterGroupType.PinnedFilters,
                 ]
 
-                if (singleSubstantiveGroup) {
+                if (disableSuggestedFilters) {
+                    // Browse-style surfaces (column configurators) opt out of the aggregated
+                    // "All" tab entirely — with no event context it has nothing to suggest and
+                    // would land the picker on an empty search-first state. Drop it even if a
+                    // call site explicitly listed it, so the picker opens on a real category.
+                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+                    if (suggestedIdx !== -1) {
+                        filtered.splice(suggestedIdx, 1)
+                    }
+                } else if (singleSubstantiveGroup) {
                     // With one real group there's nothing for "All" to aggregate, so drop it
                     // (a call site may have prepended SuggestedFilters — see TaxonomicPropertyFilter).
                     // Recent/Pinned then follow the group instead of leading, and the group's own

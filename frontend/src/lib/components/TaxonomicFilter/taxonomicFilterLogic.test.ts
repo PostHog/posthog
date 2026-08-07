@@ -941,14 +941,36 @@ describe('taxonomicFilterLogic', () => {
                 expectPresent: false,
                 expectDefault: false,
             },
-        ])('$description', ({ variant, groupTypes, expectPresent, expectDefault }) => {
+            {
+                description:
+                    'pill: does not auto-inject SuggestedFilters when the picker opts out (browse-style column configurator)',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+                disableSuggestedFilters: true,
+                expectPresent: false,
+                expectDefault: false,
+            },
+            {
+                description: 'pill: strips explicitly-listed SuggestedFilters when the picker opts out',
+                variant: 'pill',
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+                disableSuggestedFilters: true,
+                expectPresent: false,
+                expectDefault: false,
+            },
+        ])('$description', ({ variant, groupTypes, disableSuggestedFilters, expectPresent, expectDefault }) => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
             })
 
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testVariant-${variant}-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testVariant-${variant}-${groupTypes.join('-')}-${!!disableSuggestedFilters}`,
                 taxonomicGroupTypes: groupTypes,
+                disableSuggestedFilters,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
             testLogic.mount()

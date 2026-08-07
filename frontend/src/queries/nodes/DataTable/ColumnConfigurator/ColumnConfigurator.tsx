@@ -262,6 +262,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             }}
                                             popoverEnabled={false}
                                             selectFirstItem={false}
+                                            disableSuggestedFilters
                                             selectingKeyOnly
                                         />
                                     ) : null

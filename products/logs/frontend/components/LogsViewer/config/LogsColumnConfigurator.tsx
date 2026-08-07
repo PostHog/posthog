@@ -287,6 +287,7 @@ export function LogsColumnConfigurator(): JSX.Element {
                                             }}
                                             popoverEnabled={false}
                                             selectFirstItem={false}
+                                            disableSuggestedFilters
                                             selectingKeyOnly
                                         />
                                     ) : null

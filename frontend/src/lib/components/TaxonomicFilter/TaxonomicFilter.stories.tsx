@@ -533,6 +533,32 @@ export const CategoryDropdownPill: Story = {
     },
 }
 
+// Browse-style surfaces (column configurators) opt out of the aggregated "All" tab: in the
+// pill variant it would otherwise be the default, and with no event context to draw
+// suggestions from it renders an empty search-first state. `disableSuggestedFilters` drops
+// the tab so the picker opens on a real property category with a browsable list.
+export const PillBrowseSurfaceOptOut: Story = {
+    render: (args) => (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    ),
+    args: {
+        taxonomicFilterLogicKey: 'pill-browse-surface-opt-out',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+        disableSuggestedFilters: true,
+    },
+    parameters: {
+        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
+        docs: {
+            description: {
+                story: 'Pill variant on a browse-style surface (e.g. the "Configure columns" modal): the aggregated "All" tab is suppressed so the picker opens on Event properties with a full list instead of an empty search prompt.',
+            },
+        },
+    },
+}
+
 // The committed selection of a renamed series ('signed up', renamed "Completed sign-up")
 // is promoted to the top of the list, labelled with the rename and revealing the
 // underlying event as secondary text (tooltip on hover).

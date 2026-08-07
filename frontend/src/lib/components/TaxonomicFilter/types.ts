@@ -162,6 +162,13 @@ export interface TaxonomicFilterProps {
     minSearchQueryLength?: number
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
+    /** Opt out of the aggregated "Suggested filters" tab entirely, for browse-style
+     *  surfaces (column configurators) whose job is to show the full property list.
+     *  The pill variant otherwise auto-injects that tab and lands on it by default;
+     *  with no event context to populate suggestions it renders an empty search-first
+     *  state. Setting this drops the tab (even if explicitly listed) so the picker opens
+     *  on a real category. */
+    disableSuggestedFilters?: boolean
     /** Hide the built-in search input when an external input drives the search query.
      *  Note: the pill category-dropdown affordance lives inside the built-in input,
      *  so when you hide it the host is responsible for rendering `CategoryDropdown` itself
