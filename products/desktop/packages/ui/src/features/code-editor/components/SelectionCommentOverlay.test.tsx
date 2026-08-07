@@ -2,12 +2,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
-}));
-
 vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
   MentionComposer: ({
     value,
@@ -32,8 +26,7 @@ vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
 import { SelectionCommentOverlay } from "./SelectionCommentOverlay";
 
 describe("SelectionCommentOverlay", () => {
-  it("stays hidden while comments are disabled", () => {
-    commentsFlag.enabled = false;
+  it("keeps the existing add-to-chat action available", () => {
     render(
       <SelectionCommentOverlay
         selection={{
@@ -49,8 +42,7 @@ describe("SelectionCommentOverlay", () => {
       />,
     );
 
-    expect(screen.queryByLabelText("Add to chat")).toBeNull();
-    commentsFlag.enabled = true;
+    expect(screen.getByLabelText("Add to chat")).toBeInTheDocument();
   });
   it("prevents duplicate comment creation while submitting", async () => {
     let resolveSubmit: (() => void) | undefined;

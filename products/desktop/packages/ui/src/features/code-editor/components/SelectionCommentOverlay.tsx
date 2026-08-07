@@ -4,7 +4,6 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { CommentAnnotation } from "@posthog/ui/features/code-review/components/CommentAnnotation";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -56,8 +55,7 @@ export function SelectionCommentOverlay({
   initiallyExpanded = false,
   members,
 }: SelectionCommentOverlayProps) {
-  const commentsEnabled = useCommentsEnabled();
-  if (!commentsEnabled || !open || !selection?.anchor) return null;
+  if (!open || !selection?.anchor) return null;
   // Key by the range so a fresh selection remounts the card back to the "+".
   return (
     <SelectionComposerCard
