@@ -159,6 +159,9 @@ describe("CloudArtifactDownloads", () => {
     renderDownloads();
 
     expect(screen.getAllByText("report.pdf")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Files (1)" }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("report.pdf"));
 
@@ -224,6 +227,9 @@ describe("CloudArtifactDownloads", () => {
     renderDownloads();
 
     expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Files (0)" }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Show 1 dismissed"));
 
