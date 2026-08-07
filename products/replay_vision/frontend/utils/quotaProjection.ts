@@ -132,7 +132,7 @@ export function projectQuota(
     }
 }
 
-/** Fractional days until the limit is reached; null when that isn't imminent, or the exhausted copy covers it. */
+/** Null unless the limit lands within IMMINENT_CAP_DAYS and scanning hasn't already stopped. */
 export function daysUntilCapReached(projection: QuotaProjection): number | null {
     if (!projection.capReachDate || projection.exhausted) {
         return null

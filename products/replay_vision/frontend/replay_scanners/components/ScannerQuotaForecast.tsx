@@ -62,7 +62,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
 
-    // Without an estimate the projection is fleet-only, so it isn't about the scanner being edited.
+    // No estimate means the projection isn't about the scanner being edited.
     const imminentDays = projectedCredits !== null ? daysUntilCapReached(projection) : null
 
     const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)

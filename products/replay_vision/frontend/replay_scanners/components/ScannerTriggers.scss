@@ -1,5 +1,4 @@
-// Option labels never wrap, and the row needs 389px. Measured against the card, not the viewport,
-// since the nav and page chrome sit between them.
+// The three option labels total 389px and never wrap.
 .ScannerSessionCoverage.LemonSegmentedButton {
     @container (max-width: 400px) {
         width: 100%;
@@ -9,7 +8,6 @@
         }
 
         .LemonSegmentedButton__option {
-            // A lone option is excluded from both, so it keeps all four corners.
             &:first-child:not(:last-child) {
                 &,
                 .LemonButton,

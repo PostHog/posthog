@@ -99,7 +99,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
     const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
-    // Held back while an estimate is in flight, so an edit can't briefly report on the previous filters.
+    // Waits for the in-flight estimate so an edit can't report on the previous filters.
     const noMatchWindowDays =
         !scannerEstimateLoading && scannerEstimate?.matched_sessions_in_window === 0
             ? scannerEstimate.window_days

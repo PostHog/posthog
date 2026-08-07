@@ -126,7 +126,7 @@ describe('daysUntilCapReached', () => {
         ['no fleet spend, so the cap is never reached', { credits_used: 9_000 }, null],
     ])('%s', (_name, overrides, expected) => {
         const days = daysUntilCapReached(projectQuota(makeQuota(overrides)))
-        // Rounded because the two `dayjs()` calls behind the diff are milliseconds apart.
+        // Rounded: the two `dayjs()` calls behind the diff are milliseconds apart.
         expect(days === null ? null : Math.round(days * 100) / 100).toBe(expected)
     })
 })
