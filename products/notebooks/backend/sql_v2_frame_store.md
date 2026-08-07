@@ -419,6 +419,12 @@ into the key.
   then superseded for cloud: `NOTEBOOKS_FRAME_STORE_S3_BUCKET` points at a dedicated frames bucket
   (1-day lifecycle TTL, least-privilege CH-node grant), falling back to `OBJECT_STORAGE_BUCKET` for
   dev/CI/self-hosted. The lifecycle TTL is a bucket rule owned by infra, not app code.
+  **Both write paths target that one bucket**, which is easy to misread from the CH-node grant alone:
+  ClickHouse writes it on the phase-2 path, and the worker writes it on the phase-1 streaming path —
+  still the default, and the fallback whenever the CH writer identity is missing. So the worker's IAM
+  role needs `PutObject` plus the multipart actions there, not just the read/delete it needs to size-check
+  and clean up. One bucket also means one TTL covers frames from either path. Drop the worker's write
+  grant only if the streaming path itself is removed.
 - ~~Does cloud CH's instance role already permit writes to the chosen bucket?~~ — infra work, in flight for
   dev: the dedicated bucket grants the CH node role Put/Get/List/Abort (no Delete), mirrored in the CH
   identity policy's allowed-bucket list; prod-us/prod-eu follow after dev verification.
