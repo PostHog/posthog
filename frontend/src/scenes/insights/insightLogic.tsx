@@ -344,86 +344,14 @@ export interface insightLogicActions {
         >
     }
     setInsightMetadataSuccess: (
-        insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            created_at?: string | undefined
-            created_by?: UserBasicType | null | undefined
-            dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | null | undefined
-            deleted?: boolean | undefined
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
-            id?: number | undefined
-            is_cached?: boolean | undefined
-            is_sample?: boolean | undefined
-            last_modified_at?: string | undefined
-            last_modified_by?: UserBasicType | null | undefined
-            last_refresh?: string | null | undefined
-            last_viewed_at?: string | null | undefined
-            name?: string | undefined
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
-            order?: number | null | undefined
-            query?: Node<Record<string, any>> | null | undefined
-            query_status?: QueryStatus | undefined
-            result?: any
-            saved?: boolean | undefined
-            short_id?: InsightShortId | undefined
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            updated_at?: string | undefined
-            user_access_level?: AccessControlLevel | undefined
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-        },
+        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
         payload?: {
             metadataUpdate: Partial<
                 Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
             >
         }
     ) => {
-        insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            created_at?: string | undefined
-            created_by?: UserBasicType | null | undefined
-            dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | null | undefined
-            deleted?: boolean | undefined
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
-            id?: number | undefined
-            is_cached?: boolean | undefined
-            is_sample?: boolean | undefined
-            last_modified_at?: string | undefined
-            last_modified_by?: UserBasicType | null | undefined
-            last_refresh?: string | null | undefined
-            last_viewed_at?: string | null | undefined
-            name?: string | undefined
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
-            order?: number | null | undefined
-            query?: Node<Record<string, any>> | null | undefined
-            query_status?: QueryStatus | undefined
-            result?: any
-            saved?: boolean | undefined
-            short_id?: InsightShortId | undefined
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            updated_at?: string | undefined
-            user_access_level?: AccessControlLevel | undefined
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-        }
+        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
         payload?: {
             metadataUpdate: Partial<
                 Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
