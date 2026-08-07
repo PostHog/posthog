@@ -316,7 +316,10 @@ export function buildSandboxDocument(
         clearTextSelection();
         return;
       }
-      const rect = range.getBoundingClientRect();
+      // The END line's rect, so the host anchors the comment action where the
+      // pointer was released rather than at the whole-range bounding box.
+      const clientRects = range.getClientRects();
+      const rect = clientRects.length ? clientRects[clientRects.length - 1] : range.getBoundingClientRect();
       post({
         type: "text-selection",
         selection: {

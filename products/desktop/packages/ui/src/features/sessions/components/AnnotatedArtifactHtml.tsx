@@ -176,11 +176,9 @@ export function AnnotatedArtifactHtml({
         fromLine: parsed.data.start + 1,
         toLine: parsed.data.end + 1,
         anchor: {
-          top: frameBox.top + data.triggerRect.bottom,
-          left: Math.min(
-            frameBox.left + data.triggerRect.right + 6,
-            window.innerWidth - 440,
-          ),
+          top: frameBox.top + data.triggerRect.top,
+          left: frameBox.left + data.triggerRect.left,
+          bottom: frameBox.top + data.triggerRect.bottom,
         },
       });
     },

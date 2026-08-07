@@ -26,6 +26,9 @@ function loadBridgeDocument(
       width: 100,
       height: 20,
     }) as DOMRect;
+  dom.window.Range.prototype.getClientRects = function () {
+    return [this.getBoundingClientRect()] as unknown as DOMRectList;
+  };
   return dom;
 }
 
@@ -74,6 +77,10 @@ describe("artifactHtmlCommentBridge", () => {
     releaseOn(dom, "p");
     expect(actionButton(dom)?.style.display).toBe("flex");
     expect(actionButton(dom)?.textContent).toBe("Comment");
+    // Anchored right of the selection end (110 + 8), centered on the end
+    // line (50 - 15).
+    expect(actionButton(dom)?.style.left).toBe("118px");
+    expect(actionButton(dom)?.style.top).toBe("35px");
     dom.window.close();
   });
 

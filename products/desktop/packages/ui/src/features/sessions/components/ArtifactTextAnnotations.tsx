@@ -323,15 +323,20 @@ export function ArtifactTextAnnotations({
         offsets.end,
       );
       if (!anchor) return;
-      const box = range.getBoundingClientRect();
+      // Anchor to the selection's end line, where the pointer was released.
+      const clientRects = range.getClientRects?.() ?? [];
+      const endRect = clientRects.length
+        ? clientRects[clientRects.length - 1]
+        : range.getBoundingClientRect();
       setPendingAnchor(anchor);
       setSelection({
         text: anchor.quote,
         fromLine: offsets.start + 1,
         toLine: offsets.end + 1,
         anchor: {
-          top: box.bottom,
-          left: Math.min(box.right, window.innerWidth - 440),
+          top: endRect.top,
+          left: endRect.right,
+          bottom: endRect.bottom,
         },
       });
     };

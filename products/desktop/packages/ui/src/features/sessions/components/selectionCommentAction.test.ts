@@ -3,6 +3,7 @@ import {
   COMMENT_ACTION_BUTTON_THEMES,
   commentActionButtonCss,
   commentActionButtonCssVars,
+  computeCommentActionPlacement,
   installSelectionSettleGate,
   type SelectionSettleGateCallbacks,
   setCommentActionTheme,
@@ -154,6 +155,53 @@ function cssVarField(
     "--ph-comment-action-fg": "color",
     "--ph-comment-action-border": "border",
     "--ph-comment-action-hover": "hoverBackground",
+    "--ph-comment-action-shadow": "shadow",
+    "--ph-comment-action-hover-shadow": "hoverShadow",
   };
   return fields[variable];
 }
+
+describe("computeCommentActionPlacement", () => {
+  const bounds = { width: 1000, height: 700 };
+  const action = { width: 120, height: 30 };
+
+  it("sits right of the selection end, vertically centered on the end line", () => {
+    expect(
+      computeCommentActionPlacement(
+        { top: 100, right: 400, bottom: 120 },
+        bounds,
+        action,
+      ),
+    ).toEqual({ top: 95, left: 408 });
+  });
+
+  it("drops below the end line when the right edge has no room, right-aligned to the caret", () => {
+    expect(
+      computeCommentActionPlacement(
+        { top: 100, right: 950, bottom: 120 },
+        bounds,
+        action,
+      ),
+    ).toEqual({ top: 126, left: 830 });
+  });
+
+  it("flips above the end line when below would leave the viewport", () => {
+    expect(
+      computeCommentActionPlacement(
+        { top: 100, right: 950, bottom: 120 },
+        { width: 1000, height: 140 },
+        action,
+      ),
+    ).toEqual({ top: 64, left: 830 });
+  });
+
+  it("clamps to the viewport margins for selections hugging the edges", () => {
+    expect(
+      computeCommentActionPlacement(
+        { top: 4, right: 2, bottom: 12 },
+        bounds,
+        action,
+      ),
+    ).toEqual({ top: 8, left: 10 });
+  });
+});

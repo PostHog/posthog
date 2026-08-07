@@ -41,8 +41,8 @@ export interface EditorSelection {
   /** 1-based line numbers. */
   fromLine: number;
   toLine: number;
-  /** Viewport pixel anchor below the selection, or null when off-screen. */
-  anchor: { top: number; left: number } | null;
+  /** Viewport rect of the selection's end caret (end-line top/bottom + end column x), or null when off-screen. */
+  anchor: { top: number; left: number; bottom: number } | null;
 }
 
 interface CodeMirrorEditorProps {
@@ -100,13 +100,16 @@ export function CodeMirrorEditor({
           return;
         }
         const endRect = update.view.coordsAtPos(sel.to);
-        const startRect = update.view.coordsAtPos(doc.lineAt(sel.to).from);
         cb({
           text: doc.sliceString(sel.from, sel.to),
           fromLine: doc.lineAt(sel.from).number,
           toLine: doc.lineAt(sel.to).number,
           anchor: endRect
-            ? { top: endRect.bottom, left: (startRect ?? endRect).left }
+            ? {
+                top: endRect.top,
+                left: endRect.right,
+                bottom: endRect.bottom,
+              }
             : null,
         });
       }),

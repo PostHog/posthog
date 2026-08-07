@@ -484,7 +484,8 @@ describe("ArtifactPreview", () => {
     const heading = screen.getByRole("heading", { name: "Report" });
     const range = document.createRange();
     range.selectNodeContents(heading);
-    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    range.getBoundingClientRect = () =>
+      ({ top: 0, left: 20, right: 120, bottom: 20 }) as DOMRect;
     window.getSelection()?.removeAllRanges();
     window.getSelection()?.addRange(range);
     fireEvent.mouseUp(heading);
@@ -526,7 +527,8 @@ describe("ArtifactPreview", () => {
     const heading = screen.getByRole("heading", { name: "Report" });
     const range = document.createRange();
     range.selectNodeContents(heading);
-    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    range.getBoundingClientRect = () =>
+      ({ top: 0, left: 20, right: 120, bottom: 20 }) as DOMRect;
     window.getSelection()?.removeAllRanges();
     window.getSelection()?.addRange(range);
     fireEvent.mouseUp(heading);
@@ -558,7 +560,8 @@ describe("ArtifactPreview", () => {
     const heading = screen.getByRole("heading", { name: "Report" });
     const range = document.createRange();
     range.selectNodeContents(heading);
-    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    range.getBoundingClientRect = () =>
+      ({ top: 0, left: 20, right: 120, bottom: 20 }) as DOMRect;
     window.getSelection()?.removeAllRanges();
     window.getSelection()?.addRange(range);
     fireEvent.mouseUp(heading);
@@ -806,7 +809,7 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
     expect(document).toContain("posthog-artifact-comment-active");
     expect(document).not.toContain("ph-artifact-comment-outline");
-    expect(document).toContain('textContent="Comment"');
+    expect(document).toContain("<span>Comment</span>");
     expect(document).toContain('var CHANNEL="test-channel"');
     expect(document).toContain('d.type==="locate"');
     expect(document).toContain('send("open-external",{href:link.href})');

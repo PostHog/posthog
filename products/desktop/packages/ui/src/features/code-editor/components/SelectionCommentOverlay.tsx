@@ -1,9 +1,9 @@
 import { ChatCircle, Plus } from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { CommentAnnotation } from "@posthog/ui/features/code-review/components/CommentAnnotation";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
+import { computeCommentActionPlacement } from "@posthog/ui/features/sessions/components/selectionCommentAction";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -88,7 +88,7 @@ function SelectionComposerCard({
   initiallyExpanded,
   members,
 }: {
-  anchor: { top: number; left: number };
+  anchor: { top: number; left: number; bottom: number };
   fromLine: number;
   toLine: number;
   filePath: string;
@@ -109,18 +109,14 @@ function SelectionComposerCard({
   const expanded = initiallyExpanded || userExpanded;
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const overlayWidth = expanded ? Math.min(420, window.innerWidth * 0.8) : 120;
-  const overlayHeight = expanded ? 180 : 36;
-  const style = {
-    top: Math.max(
-      8,
-      Math.min(anchor.top + 4, window.innerHeight - overlayHeight - 8),
-    ),
-    left: Math.max(
-      8,
-      Math.min(anchor.left, window.innerWidth - overlayWidth - 8),
-    ),
-  };
+  const actionSize = expanded
+    ? { width: Math.min(420, window.innerWidth * 0.8), height: 180 }
+    : { width: showActionText ? 116 : 30, height: 30 };
+  const style = computeCommentActionPlacement(
+    { top: anchor.top, right: anchor.left, bottom: anchor.bottom },
+    { width: window.innerWidth, height: window.innerHeight },
+    actionSize,
+  );
 
   useEffect(() => {
     const dismissOutside = (event: PointerEvent) => {
@@ -139,13 +135,15 @@ function SelectionComposerCard({
 
   if (!expanded) {
     const action = (
-      <Button
+      <button
         type="button"
-        variant="outline"
-        size={showActionText ? "sm" : "icon-sm"}
         aria-label={actionLabel}
         data-selection-comment-overlay=""
-        className="fixed z-50 shadow-sm"
+        className={
+          showActionText
+            ? "fixed z-50 flex h-[30px] cursor-pointer select-none items-center gap-1.5 rounded-full border border-gray-5 bg-gray-2 px-3 font-semibold text-gray-12 text-xs shadow-md transition hover:bg-gray-4 hover:shadow-lg"
+            : "fixed z-50 flex h-[30px] w-[30px] cursor-pointer select-none items-center justify-center rounded-full border border-gray-5 bg-gray-2 font-semibold text-gray-12 shadow-md transition hover:bg-gray-4 hover:shadow-lg"
+        }
         style={style}
         onClick={() => setUserExpanded(true)}
       >
@@ -157,7 +155,7 @@ function SelectionComposerCard({
         ) : (
           <Plus size={14} weight="bold" />
         )}
-      </Button>
+      </button>
     );
     // The text button names itself; only the icon-only variant needs a label
     // on hover.
