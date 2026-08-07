@@ -18,6 +18,7 @@ import {
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
@@ -36,12 +37,14 @@ const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
  *  review toolbar, which are the same fixed height and border. */
 function ActivityHeader({
   tab,
+  commentsEnabled,
   onTabChange,
   onClose,
   onToggleCollapsed,
   onOpenFull,
 }: {
   tab: ActivityTab;
+  commentsEnabled: boolean;
   onTabChange: (tab: ActivityTab) => void;
   onClose?: () => void;
   onToggleCollapsed?: () => void;
@@ -62,7 +65,9 @@ function ActivityHeader({
           aria-label="Activity"
           className="h-[31px] gap-0.5 p-0"
         >
-          {ACTIVITY_TABS.map((t) => (
+          {ACTIVITY_TABS.filter(
+            (candidate) => commentsEnabled || candidate.key !== "comments",
+          ).map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="px-2.5">
               <span className="font-medium text-[13px]">{t.label}</span>
             </TabsTrigger>
@@ -123,6 +128,7 @@ function ActivityConversation({
   canOpenInPlace?: boolean;
 }) {
   const taskId = task.id;
+  const commentsEnabled = useCommentsEnabled();
   const {
     timeline,
     agentStatus,
@@ -185,6 +191,7 @@ function ActivityConversation({
       return;
     }
     if (
+      commentsEnabled &&
       commentFocus?.openCommentsTab &&
       commentFocus.nonce !== seenFocus.current.nonce
     ) {
@@ -192,7 +199,10 @@ function ActivityConversation({
       // Not handleTabChange: a programmatic switch isn't a user tab change.
       setTab("comments");
     }
-  }, [commentFocus, taskId]);
+  }, [commentFocus, commentsEnabled, taskId]);
+  useEffect(() => {
+    if (!commentsEnabled && tab === "comments") setTab("timeline");
+  }, [commentsEnabled, tab]);
   useEffect(() => {
     if (tab === "comments" && commentFocus?.openCommentsTab) {
       acknowledgeCommentsTabOpen(taskId, commentFocus.nonce);
@@ -243,6 +253,7 @@ function ActivityConversation({
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
       <ActivityHeader
         tab={tab}
+        commentsEnabled={commentsEnabled}
         onTabChange={handleTabChange}
         onOpenFull={onOpenFull}
         onToggleCollapsed={onToggleCollapsed}

@@ -33,6 +33,11 @@ const artifactComments = vi.hoisted(() => ({
 }));
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
+const commentsFlag = vi.hoisted(() => ({ enabled: true }));
+
+vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
+  useCommentsEnabled: () => commentsFlag.enabled,
+}));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
   SESSION_SERVICE: Symbol("SESSION_SERVICE"),
@@ -122,6 +127,7 @@ function textComment(): ResourceComment {
 
 describe("ArtifactPreview", () => {
   beforeEach(() => {
+    commentsFlag.enabled = true;
     auth.identity = "auth-1";
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -203,6 +209,31 @@ describe("ArtifactPreview", () => {
     expect(frame).toHaveAttribute("src", "blob:preview");
     expect(frame).toHaveAttribute("sandbox", "allow-scripts");
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
+  });
+
+  it("keeps comment controls and the HTML bridge out while comments are disabled", async () => {
+    commentsFlag.enabled = false;
+    useQuery.mockReturnValue({
+      data: { kind: "html", html: "<h1>Artifact content</h1>" },
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.html"
+      />,
+    );
+
+    expect(screen.queryByText("Comment…")).toBeNull();
+    const documentBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0];
+    expect(documentBlob).toBeInstanceOf(Blob);
+    await expect(
+      new Response(documentBlob as Blob).text(),
+    ).resolves.not.toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
   });
 
   // Same zoom-and-annotate surface as a raster image: an <img> renders SVG in a

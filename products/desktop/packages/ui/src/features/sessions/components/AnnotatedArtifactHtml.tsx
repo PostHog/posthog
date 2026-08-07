@@ -36,6 +36,7 @@ function isFrameRect(value: unknown): value is FrameRect {
 export function AnnotatedArtifactHtml({
   html,
   name,
+  commentsEnabled,
   comments,
   activeThreadId,
   locateRequest,
@@ -46,6 +47,7 @@ export function AnnotatedArtifactHtml({
 }: {
   html: string;
   name: string;
+  commentsEnabled: boolean;
   comments: ResourceComment[];
   activeThreadId: string | null;
   locateRequest: CommentLocateRequest | null;
@@ -67,13 +69,16 @@ export function AnnotatedArtifactHtml({
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    const document = artifactHtmlDocument(html, channelRef.current);
+    const document = artifactHtmlDocument(
+      html,
+      commentsEnabled ? channelRef.current : undefined,
+    );
     const nextDocumentUrl = URL.createObjectURL(
       new Blob([document], { type: "text/html" }),
     );
     setDocumentUrl(nextDocumentUrl);
     return () => URL.revokeObjectURL(nextDocumentUrl);
-  }, [html]);
+  }, [commentsEnabled, html]);
 
   const bridgeItems = useMemo(
     () =>

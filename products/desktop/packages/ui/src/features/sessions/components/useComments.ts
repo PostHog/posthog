@@ -110,7 +110,7 @@ export function isOptimisticComment(comment: ResourceComment): boolean {
 export function useCommentsQuery(
   target: CommentTarget | null,
   taskId: string,
-  options: { live?: boolean } = {},
+  options: { enabled?: boolean; live?: boolean } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
@@ -120,7 +120,7 @@ export function useCommentsQuery(
       target
         ? service.getResourceComments(target, taskId)
         : Promise.resolve([]),
-    enabled: authIdentity !== null && !!target,
+    enabled: options.enabled !== false && authIdentity !== null && !!target,
     staleTime: 3_000,
     refetchInterval: options.live === false ? false : 5_000,
     refetchIntervalInBackground: false,
@@ -138,7 +138,7 @@ export function useCommentsQuery(
 export function useCommentsForTargetsQuery(
   targets: CommentTarget[],
   taskId: string,
-  options: { live?: boolean; intervalMs?: number } = {},
+  options: { enabled?: boolean; live?: boolean; intervalMs?: number } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
@@ -147,7 +147,8 @@ export function useCommentsForTargetsQuery(
   return useQuery({
     queryKey: ["comments", "targets", authIdentity, taskId, key] as const,
     queryFn: () => service.getResourceCommentsForTargets(targets, taskId),
-    enabled: authIdentity !== null && targets.length > 0,
+    enabled:
+      options.enabled !== false && authIdentity !== null && targets.length > 0,
     staleTime: 3_000,
     refetchInterval: options.live ? (options.intervalMs ?? 5_000) : false,
     refetchIntervalInBackground: false,

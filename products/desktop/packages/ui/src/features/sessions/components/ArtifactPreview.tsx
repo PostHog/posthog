@@ -19,6 +19,7 @@ import {
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { useQuery } from "@tanstack/react-query";
 import {
   type ReactNode,
@@ -96,6 +97,7 @@ export function ArtifactPreview({
   artifactId: string;
   name: string;
 }) {
+  const commentsEnabled = useCommentsEnabled();
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const [showRendered, setShowRendered] = useState(true);
   const markdownRootRef = useRef<HTMLDivElement>(null);
@@ -107,7 +109,9 @@ export function ArtifactPreview({
     () => ({ scope: "task_artifact", itemId: artifactId }),
     [artifactId],
   );
-  const commentsQuery = useCommentsQuery(commentTarget, taskId);
+  const commentsQuery = useCommentsQuery(commentTarget, taskId, {
+    enabled: commentsEnabled,
+  });
   const { members } = useOrgMembers();
   const createComment = useCreateComment(commentTarget, taskId);
   const requestCommentFocus = useCommentNavigationStore(
@@ -145,7 +149,9 @@ export function ArtifactPreview({
     () => (data instanceof Blob ? URL.createObjectURL(data) : null),
     [data],
   );
-  const comments = commentsQuery.data ?? EMPTY_COMMENTS;
+  const comments = commentsEnabled
+    ? (commentsQuery.data ?? EMPTY_COMMENTS)
+    : EMPTY_COMMENTS;
   const threads = useMemo(() => buildCommentThreads(comments), [comments]);
   const openRootComments = useMemo(
     () => threads.flatMap((thread) => (thread.resolved ? [] : [thread.root])),
@@ -227,10 +233,12 @@ export function ArtifactPreview({
           showRendered={showRendered}
           onToggleRendered={() => setShowRendered((rendered) => !rendered)}
           actions={
-            <ArtifactDocumentCommentAction
-              target={commentTarget}
-              taskId={taskId}
-            />
+            commentsEnabled ? (
+              <ArtifactDocumentCommentAction
+                target={commentTarget}
+                taskId={taskId}
+              />
+            ) : undefined
           }
         />
         {showRendered ? (
@@ -244,18 +252,20 @@ export function ArtifactPreview({
                 components={{ img: () => null }}
               />
             </div>
-            <ArtifactTextAnnotations
-              artifactName={name}
-              rootRef={markdownRootRef}
-              containerRef={markdownContainerRef}
-              comments={annotationComments}
-              activeThreadId={focusedThreadId}
-              locateRequest={locateRequest}
-              members={members}
-              onActivateThread={activateThread}
-              onCreate={createAnchoredComment}
-              onResolutionsChange={onResolutionsChange}
-            />
+            {commentsEnabled && (
+              <ArtifactTextAnnotations
+                artifactName={name}
+                rootRef={markdownRootRef}
+                containerRef={markdownContainerRef}
+                comments={annotationComments}
+                activeThreadId={focusedThreadId}
+                locateRequest={locateRequest}
+                members={members}
+                onActivateThread={activateThread}
+                onCreate={createAnchoredComment}
+                onResolutionsChange={onResolutionsChange}
+              />
+            )}
           </div>
         ) : (
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -272,16 +282,19 @@ export function ArtifactPreview({
         <GenericArtifactHeader
           name={name}
           actions={
-            <ArtifactDocumentCommentAction
-              target={commentTarget}
-              taskId={taskId}
-            />
+            commentsEnabled ? (
+              <ArtifactDocumentCommentAction
+                target={commentTarget}
+                taskId={taskId}
+              />
+            ) : undefined
           }
         />
         <div className="min-h-0 min-w-0 flex-1">
           <AnnotatedArtifactHtml
             html={data.html}
             name={name}
+            commentsEnabled={commentsEnabled}
             comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
@@ -301,7 +314,7 @@ export function ArtifactPreview({
     data instanceof Blob &&
     (isAllowedImageMimeType(data.type) || data.type === SVG_MIME_TYPE)
   ) {
-    const imageActions = (
+    const imageActions = commentsEnabled ? (
       <div className="flex items-center gap-1">
         <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
         <Button
@@ -313,7 +326,7 @@ export function ArtifactPreview({
           {imageCommenting ? "Cancel" : "Pin comment…"}
         </Button>
       </div>
-    );
+    ) : undefined;
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <GenericArtifactHeader name={name} actions={imageActions} />
@@ -324,7 +337,7 @@ export function ArtifactPreview({
             comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
-            commenting={imageCommenting}
+            commenting={commentsEnabled && imageCommenting}
             members={members}
             onCommentingChange={setImageCommenting}
             onActivateThread={activateThread}
@@ -341,10 +354,12 @@ export function ArtifactPreview({
       <GenericArtifactHeader
         name={name}
         actions={
-          <ArtifactDocumentCommentAction
-            target={commentTarget}
-            taskId={taskId}
-          />
+          commentsEnabled ? (
+            <ArtifactDocumentCommentAction
+              target={commentTarget}
+              taskId={taskId}
+            />
+          ) : undefined
         }
       />
       <div className="min-h-0 min-w-0 flex-1">

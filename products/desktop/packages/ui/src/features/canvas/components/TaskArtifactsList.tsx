@@ -40,6 +40,7 @@ import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -311,6 +312,7 @@ export function TaskArtifactsList({
    *  open externally rather than into a review pane nobody is showing. */
   canOpenInPlace?: boolean;
 }) {
+  const commentsEnabled = useCommentsEnabled();
   const { runs } = useTaskRuns(task.id);
   const rows = useMemo(
     () => buildRows(task, timeline, runs),
@@ -319,8 +321,12 @@ export function TaskArtifactsList({
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);
-  const commentsQuery = useCommentsForTargetsQuery(targets, task.id);
-  const comments = commentsQuery.data ?? EMPTY_COMMENTS;
+  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
+    enabled: commentsEnabled,
+  });
+  const comments = commentsEnabled
+    ? (commentsQuery.data ?? EMPTY_COMMENTS)
+    : EMPTY_COMMENTS;
   // Open threads only, so a row's badge agrees with what the Comments tab
   // shows on the same resource.
   const openCountByItem = useMemo(() => {

@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   getCloudAttachmentPreviewUrl: vi.fn(),
 }));
 
+vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
+  useCommentsEnabled: () => true,
+}));
+
 vi.mock("@posthog/core/sessions/sessionService", () => ({
   SESSION_SERVICE: Symbol("SESSION_SERVICE"),
 }));

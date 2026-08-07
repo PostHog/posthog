@@ -18,6 +18,10 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow, activityHeadline } from "./ActivityView";
 
+vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
+  useCommentsEnabled: () => true,
+}));
+
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
     id: "activity-1",

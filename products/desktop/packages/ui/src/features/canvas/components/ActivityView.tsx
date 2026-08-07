@@ -33,6 +33,7 @@ import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPa
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import {
   PageHeader,
   PageHeaderActions,
@@ -300,6 +301,7 @@ export function ActivityRow({
 // in, or messaged in — newest activity first. Rows clear as they are opened, not
 // when the page is; merely landing here shouldn't dismiss what you haven't read.
 export function ActivityView() {
+  const commentsEnabled = useCommentsEnabled();
   const spacesLayout = useChannelsLayout();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
@@ -313,7 +315,23 @@ export function ActivityView() {
   } = useTaskActivity();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
-  const unreadItems = useMemo(() => getUnreadActivityItems(items), [items]);
+  const visibleItems = useMemo(
+    () =>
+      commentsEnabled
+        ? items
+        : items.filter(
+            (item) =>
+              item.activityKind !== "mention" &&
+              item.activityKind !== "thread_reply" &&
+              item.activityKind !== "owned_item_comment",
+          ),
+    [commentsEnabled, items],
+  );
+  const unreadItems = useMemo(
+    () => getUnreadActivityItems(visibleItems),
+    [visibleItems],
+  );
+  const visibleUnreadCount = commentsEnabled ? unreadCount : unreadItems.length;
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(
@@ -346,18 +364,18 @@ export function ActivityView() {
       onClick={markAllRead}
     >
       <ChecksIcon size={14} />
-      {markLoadedReadLabel(unreadItems.length, unreadCount)}
+      {markLoadedReadLabel(unreadItems.length, visibleUnreadCount)}
     </Button>
   );
 
   // The feed body is identical in both shells; only the empty-state copy tracks
   // the layout's naming ("spaces" vs "channels").
   const feed =
-    isLoading && items.length === 0 ? (
+    isLoading && visibleItems.length === 0 ? (
       <div className="flex justify-center py-16">
         <Spinner />
       </div>
-    ) : items.length === 0 ? (
+    ) : visibleItems.length === 0 ? (
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">
@@ -372,7 +390,7 @@ export function ActivityView() {
       </Empty>
     ) : (
       <div className="flex flex-col gap-0.5">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <ActivityRow
             key={item.id}
             item={item}
