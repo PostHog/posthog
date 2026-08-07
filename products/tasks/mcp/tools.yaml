@@ -450,6 +450,9 @@ tools:
     tasks-runs-artifacts-download-create:
         operation: tasks_runs_artifacts_download_create
         enabled: false
+    tasks-runs-artifacts-download-retrieve:
+        operation: tasks_runs_artifacts_download_retrieve
+        enabled: false
     tasks-runs-artifacts-finalize-upload-create:
         operation: tasks_runs_artifacts_finalize_upload_create
         enabled: false
