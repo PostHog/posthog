@@ -834,3 +834,70 @@ ENDPOINTS = tuple(GITHUB_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in GITHUB_ENDPOINTS.items()
 }
+
+# The grant a connection needs before GitHub will answer this endpoint, keyed the way GitHub names
+# it in an installation's permission set, so the picker can compare it against the permissions the
+# installation actually holds. Endpoints not listed here need no grant beyond the metadata/contents
+# read that every connection is validated for at connect time, so a denial on those is not a
+# per-table gap.
+ENDPOINT_REQUIRED_PERMISSION: dict[str, str] = {
+    "issues": "issues",
+    "issue_comments": "issues",
+    "issue_events": "issues",
+    "issue_types": "issues",
+    "labels": "issues",
+    "milestones": "issues",
+    "pull_requests": "pull_requests",
+    "pull_request_comments": "pull_requests",
+    "reviews": "pull_requests",
+    "workflow_runs": "actions",
+    "workflow_jobs": "actions",
+    "workflows": "actions",
+    "artifacts": "actions",
+    "actions_caches": "actions",
+    "check_runs": "checks",
+    "commit_statuses": "statuses",
+    "environments": "environments",
+    "deployments": "deployments",
+    "deployment_statuses": "deployments",
+    "code_scanning_alerts": "security_events",
+    "secret_scanning_alerts": "secret_scanning_alerts",
+    "dependabot_alerts": "vulnerability_alerts",
+    "security_advisories": "repository_advisories",
+    "runners": "administration",
+    "traffic_views": "administration",
+    "traffic_clones": "administration",
+    "traffic_referrers": "administration",
+    "traffic_paths": "administration",
+    "hooks": "repository_hooks",
+    "teams": "members",
+    "team_members": "members",
+}
+
+# Prefix of every per-endpoint grant-denial message _fetch_page raises. GithubSource's
+# get_non_retryable_errors keys its catch-all on this exact string: GitHub phrases denials per
+# endpoint ("Must have push access to view repository collaborators"), so without the shared prefix
+# those wordings would match no key and the job would retry a denial forever instead of disabling
+# the schema.
+GRANT_DENIAL_PREFIX = "GitHub can't read this table"
+
+# What to ask for, as (name on a fine-grained token or app installation, scope on a classic token).
+# The three name the same grant differently, so the message carries both rather than making the
+# reader translate. _grant_hint in github.py builds the sentence, which keeps the wording in one
+# place and out of the user-facing string, where markdown does not render.
+GRANT_NAMES: dict[str, tuple[str, str]] = {
+    "issues": ("Issues: read", "repo"),
+    "pull_requests": ("Pull requests: read", "repo"),
+    "actions": ("Actions: read", "repo"),
+    "checks": ("Checks: read", "repo"),
+    "statuses": ("Commit statuses: read", "repo:status"),
+    "environments": ("Environments: read", "repo"),
+    "deployments": ("Deployments: read", "repo_deployment"),
+    "security_events": ("Code scanning alerts: read", "security_events"),
+    "secret_scanning_alerts": ("Secret scanning alerts: read", "repo"),
+    "vulnerability_alerts": ("Dependabot alerts: read", "security_events"),
+    "repository_advisories": ("Repository security advisories: read", "repo"),
+    "administration": ("Administration: read", "repo"),
+    "repository_hooks": ("Webhooks: read", "admin:repo_hook"),
+    "members": ("Members: read on the organization", "read:org"),
+}
