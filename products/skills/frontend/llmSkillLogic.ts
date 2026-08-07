@@ -124,11 +124,19 @@ export interface PublishConflict {
 }
 
 // Sorted by path so a reorder that ends up byte-identical on the server is not presented as a change.
+function sortSkillFilesByPath(files: SkillFormFileValues[]): SkillFormFileValues[] {
+    return [...files].sort((a, b) => a.path.localeCompare(b.path))
+}
+
 function normalizeSkillFormForCompare(form: SkillFormValues): SkillFormValues {
     return {
         ...form,
-        files: [...form.files].sort((a, b) => a.path.localeCompare(b.path)),
+        files: sortSkillFilesByPath(form.files),
     }
+}
+
+function areSkillFilesEqual(a: SkillFormFileValues[], b: SkillFormFileValues[]): boolean {
+    return JSON.stringify(sortSkillFilesByPath(a)) === JSON.stringify(sortSkillFilesByPath(b))
 }
 
 async function fetchResolvedSkill(
@@ -569,14 +577,19 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 try {
                     let savedSkill: LLMSkillApi
 
-                    const filesToSend: LLMSkillFileInputApi[] | undefined =
-                        formValues.files.length > 0
-                            ? formValues.files.map((f) => ({
-                                  path: f.path,
-                                  content: f.content,
-                                  content_type: f.content_type || undefined,
-                              }))
-                            : undefined
+                    const formFiles: LLMSkillFileInputApi[] = formValues.files.map((f) => ({
+                        path: f.path,
+                        content: f.content,
+                        content_type: f.content_type || undefined,
+                    }))
+                    // Send files only when the user changed them: omitting the key carries the
+                    // current latest's files forward on the server, so an untouched file set can't
+                    // clobber files a concurrent publish added, and publishing before the lazy file
+                    // contents finish loading can't wipe content. An emptied set is a real change
+                    // and goes through as [].
+                    const baselineFiles = values.skillFormBaseline?.files
+                    const filesChanged = !baselineFiles || !areSkillFilesEqual(formValues.files, baselineFiles)
+                    const filesToSend: LLMSkillFileInputApi[] | undefined = filesChanged ? formFiles : undefined
 
                     if (isNew) {
                         const createResponse = await llmSkillsCreate(String(ApiConfig.getCurrentTeamId()), {
@@ -585,7 +598,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             body: formValues.body,
                             license: formValues.license || undefined,
                             compatibility: formValues.compatibility || undefined,
-                            files: filesToSend,
+                            files: formFiles.length > 0 ? formFiles : undefined,
                         })
                         savedSkill = { ...createResponse, files: [] }
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)

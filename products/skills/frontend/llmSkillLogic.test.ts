@@ -5,7 +5,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { ApiError } from '~/lib/api-error'
 import { initKeaTests } from '~/test/init'
 
-import { llmSkillsNamePartialUpdate, llmSkillsResolveNameRetrieve } from 'products/skills/frontend/generated/api'
+import {
+    llmSkillsNameFilesRetrieve,
+    llmSkillsNamePartialUpdate,
+    llmSkillsResolveNameRetrieve,
+} from 'products/skills/frontend/generated/api'
 import type { LLMSkillApi, LLMSkillResolveResponseApi } from 'products/skills/frontend/generated/api.schemas'
 
 import { SkillMode, llmSkillLogic } from './llmSkillLogic'
@@ -26,6 +30,9 @@ jest.mock('products/skills/frontend/generated/api', () => ({
 
 const mockPartialUpdate = llmSkillsNamePartialUpdate as jest.MockedFunction<typeof llmSkillsNamePartialUpdate>
 const mockResolve = llmSkillsResolveNameRetrieve as jest.MockedFunction<typeof llmSkillsResolveNameRetrieve>
+const mockFilesRetrieve = llmSkillsNameFilesRetrieve as jest.MockedFunction<typeof llmSkillsNameFilesRetrieve>
+
+const MOCK_FILE = { path: 'scripts/run.sh', content: 'echo hi', content_type: 'text/x-shellscript' }
 
 const mockSkill = {
     id: 'skill-version-2',
@@ -46,7 +53,7 @@ const mockSkill = {
     created_at: '2024-01-02T00:00:00Z',
     updated_at: '2024-01-02T00:00:00Z',
     created_by: { id: 1, email: 'test@example.com' },
-    files: [],
+    files: [{ path: MOCK_FILE.path, content_type: MOCK_FILE.content_type }],
     body_total_length: 10,
     body_next_offset: null,
     versions: [
@@ -77,6 +84,7 @@ describe('llmSkillLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
+            mockFilesRetrieve.mockResolvedValue(MOCK_FILE)
         })
 
         afterEach(() => {
@@ -103,6 +111,7 @@ describe('llmSkillLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadSkillSuccess'])
 
             logic.actions.setMode(SkillMode.Edit)
+            await expectLogic(logic).toFinishAllListeners()
             logic.actions.setSkillFormValues({ body: '# My skill, improved' })
 
             logic.actions.requestPublish()
@@ -122,6 +131,9 @@ describe('llmSkillLogic', () => {
                     version_description: 'Added a troubleshooting section',
                 })
             )
+            // Untouched files are omitted, so the server carries the current latest's files
+            // forward instead of overwriting them with this editor's stale copy.
+            expect(mockPartialUpdate.mock.calls[0]?.[2]?.files).toBeUndefined()
             expect(logic.values.isPublishReviewOpen).toBe(false)
             expect(logic.values.mode).toBe(SkillMode.View)
         })
