@@ -1,6 +1,6 @@
 //! Differential parity for the event-name fan-out gate: the same event sequence with gating ON
 //! (evaluate only the event's name bucket) and OFF (full behavioral sweep) must yield byte-identical
-//! `cf_stage1` and the same leaf transitions. Covers a matching name, a non-matching name, and
+//! `cf_behavioral` and the same leaf transitions. Covers a matching name, a non-matching name, and
 //! numeric-looking names (`"0"` vs `"0.0"`) that must not cross-match.
 
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
@@ -10,14 +10,10 @@ use std::collections::BTreeMap;
 
 use chrono_tz::UTC;
 use cohort_stream_processor::consumers::CohortStreamEvent;
-use cohort_stream_processor::filters::{
-    CohortId, Generation, TeamFilters, TeamFiltersBuilder, TeamId,
-};
+use cohort_stream_processor::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
 use cohort_stream_processor::stage1::LeafTransition;
 use cohort_stream_processor::store::{CohortStore, StoreConfig};
-use cohort_stream_processor::workers::{
-    process_event_with_memo, EventNameGating, EventOutcome, PersonMemo,
-};
+use cohort_stream_processor::workers::{process_event_gated, EventNameGating, EventOutcome};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -149,14 +145,14 @@ fn temp_store() -> (TempDir, CohortStore) {
     (dir, store)
 }
 
-/// The partition's full `cf_stage1`, keyed by encoded key bytes. Two byte-identical runs compare
+/// The partition's full `cf_behavioral`, keyed by encoded key bytes. Two byte-identical runs compare
 /// equal regardless of write order.
 fn dump_stage1(store: &CohortStore) -> BTreeMap<Vec<u8>, Vec<u8>> {
     let mut out = BTreeMap::new();
     let mut cursor: Option<Vec<u8>> = None;
     loop {
         let page = store
-            .scan_stage1(PARTITION, cursor.as_deref(), 4096)
+            .scan_behavioral(PARTITION, cursor.as_deref(), 4096)
             .unwrap();
         if page.is_empty() {
             break;
@@ -182,7 +178,8 @@ fn sorted_transitions(transitions: &[LeafTransition]) -> Vec<LeafTransition> {
 }
 
 /// Feeds each event to two independent stores — gating ON and OFF — and asserts parity after every
-/// step. The memo is disabled on both so the gate is the only varying axis.
+/// step. Gating is the only varying axis; the person leaf never matches, so the person record is
+/// identical on both sides and the gate's effect is confined to `cf_behavioral`.
 struct GatingParity {
     _on_dir: TempDir,
     _off_dir: TempDir,
@@ -208,23 +205,19 @@ impl GatingParity {
         event: &CohortStreamEvent,
         label: &str,
     ) -> EventOutcome {
-        let on = process_event_with_memo(
+        let on = process_event_gated(
             PARTITION,
             &self.on_store,
             filters,
-            Generation(1),
             event,
-            &mut PersonMemo::disabled(),
             EventNameGating::Enabled,
         )
         .unwrap();
-        let off = process_event_with_memo(
+        let off = process_event_gated(
             PARTITION,
             &self.off_store,
             filters,
-            Generation(1),
             event,
-            &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
         )
         .unwrap();
@@ -243,7 +236,7 @@ impl GatingParity {
         assert_eq!(
             dump_stage1(&self.on_store),
             dump_stage1(&self.off_store),
-            "{label}: cf_stage1 bytes",
+            "{label}: cf_behavioral bytes",
         );
         on
     }
@@ -313,7 +306,7 @@ fn gating_matches_full_sweep_on_a_multi_condition_event_name_bucket() {
     // conditionHashes. The single-leaf-per-name catalog above never exercises a 2+ condition bucket,
     // so a gate that dropped or double-counted a hash within one bucket would diverge from the full
     // sweep silently. Feed a `$pageview` into a bucket holding both a `BehavioralSingle` and a
-    // `BehavioralDailyBuckets` leaf: `feed` asserts byte-identical `cf_stage1` (covering the
+    // `BehavioralDailyBuckets` leaf: `feed` asserts byte-identical `cf_behavioral` (covering the
     // daily-bucket write path), and both leaves must flip.
     let filters = multi_condition_catalog();
     assert_eq!(

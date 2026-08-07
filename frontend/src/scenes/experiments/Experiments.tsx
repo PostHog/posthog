@@ -3,24 +3,28 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { HedgehogExperiment } from '@posthog/brand/hoggies'
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -62,6 +66,8 @@ import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -144,6 +150,7 @@ const ExperimentsTableFilters = ({
                                 { label: 'Draft', value: ExperimentStatus.Draft },
                                 { label: 'Running', value: ExperimentStatus.Running },
                                 { label: 'Paused', value: ExperimentStatus.Paused },
+                                { label: 'Exposure frozen', value: ExperimentStatus.ExposureFrozen },
                                 { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
@@ -250,7 +257,14 @@ const ExperimentsTable = ({
                                 )}
                             </>
                         }
-                        description={experiment.description}
+                        description={
+                            experiment.description ? (
+                                // Hypotheses can run many paragraphs, so clamp to keep list rows compact
+                                <LemonMarkdown className="max-w-[30rem] line-clamp-2" lowKeyHeadings disableImages>
+                                    {experiment.description}
+                                </LemonMarkdown>
+                            ) : undefined
+                        }
                     />
                 )
             },
@@ -332,7 +346,8 @@ const ExperimentsTable = ({
                     [ExperimentStatus.Draft]: 1,
                     [ExperimentStatus.Running]: 2,
                     [ExperimentStatus.Paused]: 3,
-                    [ExperimentStatus.Stopped]: 4,
+                    [ExperimentStatus.ExposureFrozen]: 4,
+                    [ExperimentStatus.Stopped]: 5,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },
@@ -546,8 +561,8 @@ const ExperimentsTable = ({
 
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
-
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
@@ -680,6 +695,9 @@ export function Experiments(): JSX.Element {
                     isOpen={true}
                     onCancel={() => setSurveyModalExperiment(null)}
                 />
+            )}
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_LIST_AA_TEST] === 'test' && (
+                <div data-attr="experiments-list-aa-test-variant" className="hidden" />
             )}
         </SceneContent>
     )

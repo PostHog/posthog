@@ -12,6 +12,7 @@ from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
+from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ def get_posthog_code_usage(user, team_id: int) -> CodeUsageStatus | None:
 
 
 def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
-    """Structured 429 body the PostHog Code client parses into its upgrade prompt.
+    """Structured 429 body the PostHog Desktop client parses into its upgrade prompt.
 
     Omits unknown bucket/reset fields so they don't render as null in the shared
     error serializer (which other error responses reuse).
@@ -125,7 +126,7 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "type": "rate_limited",
         "code": "usage_limit_exceeded",
-        "error": "You've reached your PostHog Code usage limit.",
+        "error": "You've reached your PostHog Desktop usage limit.",
         "is_pro": usage.is_pro,
     }
     if usage.limit_type is not None:
@@ -135,14 +136,22 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
-def cloud_usage_limit_response(user, team_id: int) -> Response | None:
-    """Return a structured 429 Response when the team is over its posthog_code usage limit, else None.
+def usage_limit_response(user, team_id: int) -> Response | None:
+    """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-    Fails open: if the gateway can't be reached, returns None and the run proceeds.
+    Since Desktop moved to usage-based billing, this is the whole cost control on cloud runs —
+    no waitlist check is involved. Fails open when the gateway can't be reached, so every check
+    is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
+    gateway silently removing the backstop is visible, not just logged.
     """
     usage = get_posthog_code_usage(user, team_id)
-    if usage is None or not usage.is_rate_limited:
+    if usage is None:
+        observe_code_usage_gate_check(outcome="fail_open")
         return None
+    if not usage.is_rate_limited:
+        observe_code_usage_gate_check(outcome="checked_allowed")
+        return None
+    observe_code_usage_gate_check(outcome="checked_blocked")
     return Response(
         TaskRunErrorResponseSerializer(rate_limit_error_payload(usage)).data,
         status=status.HTTP_429_TOO_MANY_REQUESTS,

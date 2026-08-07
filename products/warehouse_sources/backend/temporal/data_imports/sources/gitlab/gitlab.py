@@ -9,11 +9,11 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import (
     GITLAB_ENDPOINTS,
     GitLabEndpointConfig,
@@ -190,6 +190,16 @@ def validate_credentials(
     if not project or not project.strip():
         return False, "Missing project id or path"
 
+    # GitLab addresses a project by its numeric id or a group/project path. A pasted URL or a bare
+    # group name otherwise URL-encodes into a nonsense path, 404s, and gets reported as "not found
+    # or not accessible with this token" — which points the user at the token rather than the format.
+    project_ref = project.strip()
+    if "://" in project_ref or ("/" not in project_ref and not project_ref.isdigit()):
+        return (
+            False,
+            "Enter the project as group/project (for example, mygroup/myproject) or its numeric project ID, not a full URL.",
+        )
+
     host_only = _host_only(host)
     if not host_only:
         return False, "Invalid GitLab host"
@@ -233,11 +243,26 @@ def validate_credentials(
     if response.status_code == 404:
         return False, f"Project '{project}' not found or not accessible with this token"
 
+    if response.status_code == 403:
+        # GitLab returns a raw OAuth-style JSON body (e.g. {"error":"insufficient_scope",...}) here,
+        # which has no "message" field and is meaningless to the user. Guide them to the scope needed.
+        return False, (
+            "Your GitLab personal access token doesn't have the required scope. Create a token with "
+            "the 'read_api' scope (or 'api') and access to this project, then try again."
+        )
+
+    # Surface GitLab's own error text only when it's a plain string; otherwise a generic message, so
+    # we never echo a raw JSON body (which can embed the request context) back to the user.
     try:
-        body = response.json()
-        return False, body.get("message", response.text)
+        message = response.json().get("message")
     except Exception:
-        return False, response.text
+        message = None
+    if isinstance(message, str) and message.strip():
+        return False, message
+    return False, (
+        f"GitLab rejected the connection (HTTP {response.status_code}). "
+        "Please check your GitLab host, token, and project, then try again."
+    )
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:

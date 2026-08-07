@@ -8,7 +8,6 @@ from django.test import override_settings
 from posthog.schema import (
     CompareFilter,
     DateRange,
-    EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
@@ -150,22 +149,6 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 is False
             )
 
-    def test_rejected_for_unsupported_filter_key(self):
-        self._create_action("Pageview")
-        with self._enable_lazy():
-            assert (
-                can_use_lazy_precompute(
-                    self._runner(
-                        self._build_query(
-                            properties=[
-                                EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
-                            ]
-                        )
-                    )
-                )
-                is False
-            )
-
     def test_rejected_for_non_event_property_filter(self):
         self._create_action("Pageview")
         with self._enable_lazy():
@@ -245,3 +228,31 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         # The live slice is hard-coded `[:5]` in `web_goals.py`'s `to_query`.
         assert MAX_ACTIONS == 5
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_served_enqueues_background_revalidation(self):
+        # Without the `result.stale` hook this family would serve stale for the whole
+        # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+        from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import execute_lazy_precomputed_read
+
+        self._create_action("goal")
+        with (
+            tags_context(),
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute.ensure_web_goals_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
+            ),
+            patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.apply_async"
+            ) as delay,
+        ):
+            reset_query_tags()
+            runner = self._runner(self._build_query())
+            execute_lazy_precomputed_read(runner)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk

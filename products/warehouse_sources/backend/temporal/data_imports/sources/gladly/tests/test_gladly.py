@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import (
     CHUNK_SIZE,
     GladlyResumeConfig,
@@ -54,12 +56,15 @@ class TestCleanOrganization:
             ("https://myorg.gladly.com", "myorg"),
             ("myorg.gladly.com/api/v1", "myorg"),
             ("my-org", "my-org"),
+            ("myorg.us-1", "myorg.us-1"),
+            ("https://myorg.us-1.gladly.com", "myorg.us-1"),
+            ("MYORG.GLADLY.COM", "MYORG"),
         ],
     )
     def test_valid_organizations(self, value, expected):
         assert _clean_organization(value) == expected
 
-    @pytest.mark.parametrize("value", ["", "my org", "org?x=1"])
+    @pytest.mark.parametrize("value", ["", "my org", "org?x=1", "myorg.us-1.extra"])
     def test_invalid_organizations_raise(self, value):
         with pytest.raises(ValueError):
             _clean_organization(value)
@@ -70,20 +75,47 @@ class TestCleanOrganization:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_valid, expected_message_fragment",
         [
-            (200, True),
-            (401, False),
-            (403, False),
+            (200, True, None),
+            (401, False, "agent email and API token"),
+            (403, False, "API User permission"),
+            (404, False, "No Gladly organization found at myorg.gladly.com"),
+            (500, False, "unexpected status: 500"),
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_status_mapping(
+        self, mock_session, status_code, expected_valid, expected_message_fragment
+    ):
         response = mock.MagicMock()
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("myorg", "agent@x.com", "token") is expected
+        is_valid, message = validate_credentials("myorg", "agent@x.com", "token")
+
+        assert is_valid is expected_valid
+        if expected_message_fragment is None:
+            assert message is None
+        else:
+            assert expected_message_fragment in (message or "")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_unreachable_host_is_not_reported_as_bad_credentials(self, mock_session):
+        mock_session.return_value.get.side_effect = requests.ConnectionError("nodename nor servname provided")
+
+        is_valid, message = validate_credentials("myorg", "agent@x.com", "token")
+
+        assert is_valid is False
+        assert "Could not connect to Gladly at myorg.gladly.com" in (message or "")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_malformed_organization_is_reported_without_a_probe(self, mock_session):
+        is_valid, message = validate_credentials("my org", "agent@x.com", "token")
+
+        assert is_valid is False
+        assert "Invalid Gladly organization" in (message or "")
+        mock_session.assert_not_called()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_session_uses_basic_auth(self, mock_session):

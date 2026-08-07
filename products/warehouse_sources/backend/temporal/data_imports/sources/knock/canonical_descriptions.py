@@ -1,0 +1,73 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "messages": {
+        "description": "A notification delivered (or attempted) to a single recipient on a specific channel, with delivery and engagement status.",
+        "docs_url": "https://docs.knock.app/api-reference/messages/list",
+        "columns": {
+            "id": "The unique identifier for the message.",
+            "channel_id": "The ID of the channel the message was sent through.",
+            "recipient": "The recipient of the message: a user ID string or an object reference.",
+            "recipient_snapshot": "Snapshot of the recipient's contact information at send time; null for non-email channels.",
+            "status": "The delivery status of the message (e.g. queued, sent, delivered, undelivered, bounced).",
+            "engagement_statuses": "Engagement statuses recorded for the message (e.g. seen, read, interacted, link_clicked).",
+            "tenant": "The ID of the tenant associated with the message, when provided on the trigger.",
+            "workflow": "The key of the workflow that generated the message.",
+            "source": "The workflow or guide that triggered the message, including its key and version.",
+            "data": "Trigger data the message was generated with, merged with any fetch-function data.",
+            "metadata": "Additional metadata associated with the message.",
+            "actors": "Actors associated with the message (up to 10 when produced from a batch).",
+            "inserted_at": "Timestamp when the message was created.",
+            "updated_at": "Timestamp when the message was last updated.",
+            "archived_at": "Timestamp when the message was archived.",
+            "read_at": "Timestamp when the message was marked as read.",
+            "seen_at": "Timestamp when the message was marked as seen.",
+            "clicked_at": "Timestamp when the message was clicked.",
+            "interacted_at": "Timestamp when the message was interacted with.",
+            "link_clicked_at": "Timestamp when a link in the message was clicked.",
+            "scheduled_at": "Timestamp when the message was scheduled to be sent.",
+        },
+    },
+    "users": {
+        "description": "A recipient identified to Knock, with the profile properties used to notify them.",
+        "docs_url": "https://docs.knock.app/api-reference/users/list",
+        "columns": {
+            "id": "The unique identifier of the user in your environment.",
+            "name": "The display name of the user.",
+            "email": "The email address of the user.",
+            "phone_number": "The E.164 phone number of the user, required to send SMS messages.",
+            "avatar": "URL to the avatar image of the user.",
+            "timezone": "The IANA timezone of the user, used for recurring schedules.",
+            "created_at": "Timestamp when the user was created; may be null.",
+            "updated_at": "Timestamp when the user was last updated.",
+        },
+    },
+    "tenants": {
+        "description": "A tenant used to scope notifications, preferences, and branding to a group of users (typically one of your customers).",
+        "docs_url": "https://docs.knock.app/api-reference/tenants/list",
+        "columns": {
+            "id": "The unique identifier of the tenant.",
+            "name": "The display name of the tenant.",
+            "settings": "Tenant settings, including branding and the preference set applied to its users.",
+        },
+    },
+    "workflow_recipient_runs": {
+        "description": "An individual execution of a workflow for a specific recipient, with its trigger source and status.",
+        "docs_url": "https://docs.knock.app/api-reference/workflow_recipient_runs/list",
+        "columns": {
+            "id": "The unique identifier for the workflow recipient run.",
+            "workflow": "The key of the workflow that was executed.",
+            "workflow_run_id": "The identifier of the top-level workflow run shared across all recipients of a single trigger.",
+            "recipient": "The recipient the workflow ran for: a user ID string or an object reference.",
+            "actor": "The actor that triggered the run, when one was provided.",
+            "status": "The current status of the run (queued, processing, paused, completed, or cancelled).",
+            "trigger_source": "How the workflow was triggered (e.g. api, audience, schedule, broadcast, workflow_step).",
+            "error_count": "The number of errors encountered during the run.",
+            "tenant": "The ID of the tenant associated with the run, when one was provided.",
+            "inserted_at": "Timestamp when the run was created.",
+            "updated_at": "Timestamp when the run was last updated.",
+        },
+    },
+}

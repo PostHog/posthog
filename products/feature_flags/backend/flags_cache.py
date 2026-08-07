@@ -50,6 +50,7 @@ from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team import Team
 from posthog.storage.cache_expiry_manager import (
+    CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
     refresh_expiring_caches,
@@ -207,7 +208,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
     HYPERCACHE CONTRACT: These field names must match the Rust Cohort struct in
     rust/feature-flags/src/cohorts/cohort_models.rs. Field changes must follow
     the expand-and-contract pattern. The contract test will catch mismatches:
-      pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+      pytest products/feature_flags/backend/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
 
     Note: deleted, is_calculating, is_static, errors_calculating, and groups
     are required by the Rust struct (no #[serde(default)]), so omitting them
@@ -230,11 +231,17 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "groups": cohort.groups,
         "created_by_id": cohort.created_by_id,
         "cohort_type": cohort.cohort_type,
+        "condition_type": cohort.condition_type,
         "last_backfill_person_properties_at": (
             cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
         ),
         "last_backfill_events_at": (
             cohort.last_backfill_events_at.isoformat() if cohort.last_backfill_events_at else None
+        ),
+        "last_realtime_cohort_calculation_at": (
+            cohort.last_realtime_cohort_calculation_at.isoformat()
+            if cohort.last_realtime_cohort_calculation_at
+            else None
         ),
     }
 
@@ -824,6 +831,10 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # The refresh loads flags by team id/project_id; it reads no other Team columns.
+    # Narrowing the SELECT keeps it resilient to newly added Team columns the read
+    # replica may not have applied yet (organization_id keeps the select_related valid).
+    refresh_only_fields=["id", "project_id", "organization_id"],
 )
 
 
@@ -860,7 +871,7 @@ def get_teams_with_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: i
     return get_teams_with_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
-def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> CacheRefreshCounts:
     """
     Refresh flags caches that are expiring soon to prevent cache misses.
 
@@ -882,7 +893,7 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
                - Responsiveness: Completes quickly enough to not block other operations
 
     Returns:
-        Tuple of (successful_refreshes, failed_refreshes)
+        CacheRefreshCounts with successful and failed refresh counts
     """
     return refresh_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
@@ -922,24 +933,26 @@ def get_cache_stats() -> dict[str, Any]:
 # Signal handlers for automatic cache invalidation
 
 
-# DUAL-WRITE TRANSITIONAL CODE — remove at cutover.
+# KAFKA-CUTOVER TRANSITIONAL CODE — remove at cutover.
 # Stages: producer (this block) at 0% → Rust consumer ships → ramp gate to 100%
 # → Kafka becomes primary, this block is deleted and the signal handlers call
 # the Kafka path directly. The Celery task `update_team_service_flags_cache`
 # outlives cutover — `cohort_changed_flags_cache` still calls it directly until
 # cohort invalidation gets its own topic. Throwaway code by design; don't polish.
 #
-# Transitional surface: DUAL_WRITE_FLAG, _kafka_dual_write_enabled,
+# Transitional surface: KAFKA_ROUTING_FLAG, _route_to_kafka,
 # _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover.
 
-# Per-team gate for the Kafka producer side of dual-write. Celery remains the
-# authoritative path until cutover; the Kafka produce is fire-and-forget.
-DUAL_WRITE_FLAG = "flags-cache-kafka-dual-write"
+# Per-team gate that routes invalidation to Kafka instead of Celery — see
+# _enqueue_invalidation for why the two paths are mutually exclusive. The key
+# string is kept as "dual-write" (not renamed to match KAFKA_ROUTING_FLAG) since
+# it's the live PostHog flag key — renaming it would repoint the rollout.
+KAFKA_ROUTING_FLAG = "flags-cache-kafka-dual-write"
 
 
-def _kafka_dual_write_enabled(team_id: int) -> bool:
-    """Return True if this team should also produce a Kafka invalidation message.
+def _route_to_kafka(team_id: int) -> bool:
+    """Return True if this team's invalidation should route to Kafka instead of Celery.
 
     A `None` return from `feature_enabled` means the local-eval cache hasn't
     loaded the flag definition yet. Treated as disabled, but ticks
@@ -952,7 +965,7 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
         # None when local evaluation can't resolve the flag. Widen the type so
         # the None branch below survives type checking.
         result: bool | None = posthoganalytics.feature_enabled(
-            DUAL_WRITE_FLAG,
+            KAFKA_ROUTING_FLAG,
             f"team-{team_id}",
             groups={"project": str(team_id)},
             group_properties={"project": {"id": str(team_id)}},
@@ -963,9 +976,11 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
         # If the flag client misbehaves, default to Celery-only — never block the signal handler.
         # Log so a silent disable across the fleet during rollout is visible in Sentry.
         logger.warning(
+            # Event name kept as "dual_write" (not renamed to match KAFKA_ROUTING_FLAG) so it
+            # keeps matching existing Sentry searches set up during the dual-write phase.
             "flags_cache_kafka_dual_write_flag_evaluation_failed",
             team_id=team_id,
-            flag=DUAL_WRITE_FLAG,
+            flag=KAFKA_ROUTING_FLAG,
             exc_info=True,
         )
         return False
@@ -973,6 +988,8 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
     if result is None:
         TOMBSTONE_COUNTER.labels(
             namespace="flags",
+            # Label kept as "dual_write" for continuity with the existing Grafana dashboards
+            # referenced above.
             operation="dual_write_gate_cache_cold",
             component="flags_cache",
         ).inc()
@@ -984,19 +1001,17 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
 def _produce_invalidation(team_id: int) -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
-    Celery is the source of truth during dual-write — a Kafka produce failure
-    here must not break flag editing. Per-message delivery success/failure is
-    also counted in KAFKA_PRODUCER_MESSAGES_COUNTER (wired in `_KafkaProducer.produce`).
+    A produce failure must not raise out of a signal handler and is deliberately
+    not retried via Celery (see `_enqueue_invalidation`). The `except` below only
+    sees synchronous errors (`BufferError` queue-full, serialization/config).
+    `flush_timeout=0` returns without waiting for acks rather than stalling
+    every flag-edit on-commit hook on an unhealthy cluster, so broker-side
+    failures surface later in `_KafkaProducer._on_delivery` as a counter tick
+    plus a throttled `kafka_producer_delivery_failed` warning keyed by team id.
 
-    `data` must be a dict (not pre-encoded bytes): `_KafkaProducer.produce`
-    runs it through `json_serializer` (`json.dumps` + utf-8 encode). Passing
-    bytes would `TypeError` inside `json.dumps` and silently fail the swallow
-    path. `mode="json"` converts `datetime` to ISO string.
-
-    `flush_timeout=0` keeps this off the request hot path — librdkafka's
-    background thread drains the singleton's queue, and the next call flushes
-    again. A blocking flush would stall every flag-edit on-commit hook on an
-    unhealthy cluster.
+    `data` must be a dict, not pre-encoded bytes: `produce` runs it through
+    `json.dumps`, so bytes would `TypeError` and silently fail the swallow path.
+    `mode="json"` converts `datetime` to ISO string.
     """
     try:
         msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC))
@@ -1005,30 +1020,53 @@ def _produce_invalidation(team_id: int) -> None:
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
                 data=msg.model_dump(mode="json"),
                 key=str(team_id),
+                # The key is only ever a team id, so it is safe to log.
+                log_key_on_delivery_failure=True,
             )
     except Exception as e:
         logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e), exc_info=True)
 
 
 def _enqueue_invalidation(team_id: int) -> None:
-    """Run from `transaction.on_commit`: dual-write to Kafka if enabled, then fire Celery.
+    """Run from `transaction.on_commit`: route to Kafka if enabled, otherwise Celery.
 
-    Deferring until commit avoids race conditions where the Celery worker reads
-    pre-commit state. Shared by all three signal handlers wired to the
-    flag-invalidation topic. Cohort invalidation is intentionally not routed
-    here — cohort changes flow through their own topic.
+    Signal handlers defer this until commit so the Celery worker can't read
+    pre-commit state; callers with no open transaction (staff tooling, via
+    `enqueue_evaluation_cache_invalidation`) call it directly. Cohort
+    invalidation stays on its own topic.
 
-    Kafka runs first so a Celery-broker outage (Redis down) does not suppress
-    the rollout-observability signal we're trying to gather. The Kafka path
-    swallows its own errors, so it cannot block Celery. Celery's `.delay()`
-    is allowed to raise — it's the authoritative path during dual-write and
-    operators want broker failures loud.
+    The two paths are mutually exclusive so the rollout proves the Kafka path
+    end to end: a broken Kafka path shows up as a stale cache instead of being
+    masked by Celery quietly picking up the slack. Do not add a Celery fallback
+    on produce failure. It would hide that signal, and it would miss the
+    realistic failure mode anyway, because broker-side delivery failures are
+    reported only after `_produce_invalidation` has returned (see its
+    docstring). A dropped invalidation is repaired by the
+    `verify_and_fix_flags_cache_task` sweep (which includes teams whose flags
+    are all soft-deleted), so worst-case staleness is one sweep interval plus
+    the verification grace period, well under an hour rather than the cache
+    TTL. Celery's `.delay()` may raise when the flag is off, since it is the
+    sole path then and operators want broker failures loud.
+
+    Guarded on FLAGS_REDIS_URL here rather than at each call site so every
+    caller gets the same no-op-when-unconfigured behavior.
     """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
     from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
-    if _kafka_dual_write_enabled(team_id):
+    if _route_to_kafka(team_id):
         _produce_invalidation(team_id)
-    update_team_service_flags_cache.delay(team_id)
+    else:
+        update_team_service_flags_cache.delay(team_id)
+
+
+def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
+    """Public entry point for `_enqueue_invalidation`, for callers outside a model signal handler
+    (e.g. staff tooling) that want a rebuild to raise the exact same invalidation signal (Kafka
+    or Celery routing) that an organic flag create/update/delete raises."""
+    _enqueue_invalidation(team_id)
 
 
 @receiver(post_save, sender=FeatureFlag)

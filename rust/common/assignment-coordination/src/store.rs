@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use etcd_client::{
-    Client, DeleteOptions, GetOptions, PutOptions, Txn, TxnResponse, WatchOptions, WatchStream,
+    Client, ConnectOptions, DeleteOptions, GetOptions, PutOptions, Txn, TxnResponse, WatchOptions,
+    WatchStream,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -26,9 +29,53 @@ pub struct EtcdStore {
     config: StoreConfig,
 }
 
+/// Records one etcd operation's wall time on drop, so every return path
+/// (including errors) lands in the histogram. Includes this layer's
+/// (de)serialization, which is negligible next to the etcd round trip.
+struct OpTimer {
+    op: &'static str,
+    start: std::time::Instant,
+}
+
+impl OpTimer {
+    fn new(op: &'static str) -> Self {
+        Self {
+            op,
+            start: std::time::Instant::now(),
+        }
+    }
+}
+
+impl Drop for OpTimer {
+    fn drop(&mut self) {
+        metrics::histogram!("assignment_coordination_etcd_op_ms", "op" => self.op)
+            .record(self.start.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+
 impl EtcdStore {
     pub async fn connect(config: StoreConfig) -> Result<Self> {
-        let client = Client::connect(&config.endpoints, None).await?;
+        // Transport-level liveness so a silent network partition fails
+        // fast instead of hanging until TCP retransmission gives up
+        // (minutes — far past any lease TTL): HTTP/2 pings ride every
+        // connection, including idle ones and long-lived watch streams,
+        // and error all in-flight requests within roughly one ping
+        // interval plus its timeout of the peer going dark. Deliberately
+        // no per-request timeout — it would apply to the whole lifetime
+        // of a watch stream and kill healthy watches.
+        // The ping interval must clear etcd's server-side gRPC keepalive
+        // enforcement (--grpc-keepalive-min-time, default 5s): pings at or
+        // under the floor are strikes, and two strikes close the
+        // connection with GOAWAY. Idle pings are likewise strikes unless
+        // the server permits them, so they stay off — every component
+        // that matters holds an active watch or keepalive stream, and an
+        // idle channel is revalidated on next use within the connect
+        // timeout.
+        let options = ConnectOptions::new()
+            .with_connect_timeout(Duration::from_secs(5))
+            .with_keep_alive(Duration::from_secs(10), Duration::from_secs(5))
+            .with_keep_alive_while_idle(false);
+        let client = Client::connect(&config.endpoints, Some(options)).await?;
         Ok(Self { client, config })
     }
 
@@ -48,11 +95,13 @@ impl EtcdStore {
     // ── Raw (non-JSON) helpers ────────────────────────────────────
 
     pub async fn get_raw(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let _t = OpTimer::new("get_raw");
         let resp = self.client.clone().get(key, None).await?;
         Ok(resp.kvs().first().map(|kv| kv.value().to_vec()))
     }
 
     pub async fn put_raw(&self, key: &str, value: impl Into<Vec<u8>>) -> Result<()> {
+        let _t = OpTimer::new("put_raw");
         self.client.clone().put(key, value, None).await?;
         Ok(())
     }
@@ -60,6 +109,7 @@ impl EtcdStore {
     // ── JSON helpers ─────────────────────────────────────────────
 
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        let _t = OpTimer::new("get");
         let resp = self.client.clone().get(key, None).await?;
         match resp.kvs().first() {
             Some(kv) => Ok(Some(serde_json::from_slice(kv.value())?)),
@@ -68,6 +118,7 @@ impl EtcdStore {
     }
 
     pub async fn get_versioned<T: DeserializeOwned>(&self, key: &str) -> Result<Option<(T, i64)>> {
+        let _t = OpTimer::new("get_versioned");
         let resp = self.client.clone().get(key, None).await?;
         match resp.kvs().first() {
             Some(kv) => {
@@ -78,13 +129,79 @@ impl EtcdStore {
         }
     }
 
+    /// Like `get_versioned`, but returns the key's `mod_revision` instead
+    /// of its per-key `version` counter. Compare-and-swap guards that must
+    /// not match across a delete-and-recreate of the same key MUST use
+    /// this: `version` resets to 1 when a key is recreated, so a guard on
+    /// `version` can accept a different incarnation of the key, while
+    /// `mod_revision` is globally monotonic and never repeats.
+    pub async fn get_with_mod_revision<T: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> Result<Option<(T, i64)>> {
+        let _t = OpTimer::new("get_with_mod_revision");
+        let resp = self.client.clone().get(key, None).await?;
+        match resp.kvs().first() {
+            Some(kv) => {
+                let value = serde_json::from_slice(kv.value())?;
+                Ok(Some((value, kv.mod_revision())))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub async fn list<T: DeserializeOwned>(&self, prefix: &str) -> Result<Vec<T>> {
+        Ok(self.list_with_revision(prefix).await?.0)
+    }
+
+    /// Like `list`, but also returns the etcd store revision the snapshot
+    /// was taken at. Pair with `watch_from(prefix, revision + 1)` for a
+    /// gap-free snapshot-then-watch handshake: every event at or before
+    /// the revision is in the snapshot, every later one is delivered by
+    /// the watch, no matter when the watch actually attaches.
+    pub async fn list_with_revision<T: DeserializeOwned>(
+        &self,
+        prefix: &str,
+    ) -> Result<(Vec<T>, i64)> {
+        let _t = OpTimer::new("list_with_revision");
+        let options = GetOptions::new().with_prefix();
+        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
+        let items = resp
+            .kvs()
+            .iter()
+            .map(|kv| serde_json::from_slice(kv.value()).map_err(Error::from))
+            .collect::<Result<Vec<T>>>()?;
+        Ok((items, revision))
+    }
+
+    /// Like `list`, but pairs each value with its key's `mod_revision` —
+    /// the per-key version an optimistic transaction compares against to
+    /// assert the record is unchanged since this read.
+    pub async fn list_with_mod_revisions<T: DeserializeOwned>(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(T, i64)>> {
+        let _t = OpTimer::new("list_with_mod_revisions");
         let options = GetOptions::new().with_prefix();
         let resp = self.client.clone().get(prefix, Some(options)).await?;
         resp.kvs()
             .iter()
-            .map(|kv| serde_json::from_slice(kv.value()).map_err(Error::from))
+            .map(|kv| Ok((serde_json::from_slice(kv.value())?, kv.mod_revision())))
             .collect()
+    }
+
+    /// The current etcd store revision, for anchoring watches when no
+    /// snapshot read is involved.
+    pub async fn current_revision(&self) -> Result<i64> {
+        let _t = OpTimer::new("current_revision");
+        let options = GetOptions::new().with_prefix().with_count_only();
+        let resp = self
+            .client
+            .clone()
+            .get(self.config.prefix.clone(), Some(options))
+            .await?;
+        Ok(resp.header().map(|h| h.revision()).unwrap_or(0))
     }
 
     pub async fn put<T: Serialize>(
@@ -93,6 +210,7 @@ impl EtcdStore {
         value: &T,
         lease_id: Option<i64>,
     ) -> Result<()> {
+        let _t = OpTimer::new("put");
         let value = serde_json::to_string(value)?;
         let options = lease_id.map(|id| PutOptions::new().with_lease(id));
         self.client.clone().put(key, value, options).await?;
@@ -100,18 +218,37 @@ impl EtcdStore {
     }
 
     pub async fn delete(&self, key: &str) -> Result<()> {
+        let _t = OpTimer::new("delete");
         self.client.clone().delete(key, None).await?;
         Ok(())
     }
 
     pub async fn delete_prefix(&self, prefix: &str) -> Result<()> {
+        let _t = OpTimer::new("delete_prefix");
         let options = DeleteOptions::new().with_prefix();
         self.client.clone().delete(prefix, Some(options)).await?;
         Ok(())
     }
 
     pub async fn watch(&self, prefix: &str) -> Result<WatchStream> {
+        let _t = OpTimer::new("watch");
         let options = WatchOptions::new().with_prefix();
+        let stream = self.client.clone().watch(prefix, Some(options)).await?;
+        Ok(stream)
+    }
+
+    /// Watch the prefix starting from an explicit revision (inclusive).
+    /// Events since that revision are replayed even if they predate the
+    /// watch's creation, which removes the missed-event window between a
+    /// snapshot read and the watch attaching. If etcd has compacted past
+    /// the requested revision the stream is cancelled with an error; the
+    /// caller's watch loop treats that as fatal and the component restarts
+    /// with a fresh snapshot.
+    pub async fn watch_from(&self, prefix: &str, start_revision: i64) -> Result<WatchStream> {
+        let _t = OpTimer::new("watch_from");
+        let options = WatchOptions::new()
+            .with_prefix()
+            .with_start_revision(start_revision);
         let stream = self.client.clone().watch(prefix, Some(options)).await?;
         Ok(stream)
     }
@@ -119,12 +256,14 @@ impl EtcdStore {
     // ── Transactions ─────────────────────────────────────────────
 
     pub async fn txn(&self, txn: Txn) -> Result<TxnResponse> {
+        let _t = OpTimer::new("txn");
         Ok(self.client.clone().txn(txn).await?)
     }
 
     // ── Lease operations ─────────────────────────────────────────
 
     pub async fn grant_lease(&self, ttl: i64) -> Result<i64> {
+        let _t = OpTimer::new("grant_lease");
         let resp = self.client.clone().lease_grant(ttl, None).await?;
         Ok(resp.id())
     }

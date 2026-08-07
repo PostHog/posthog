@@ -9,27 +9,28 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
     ConvexResumeConfig,
     convex_source,
     get_json_schemas,
+    iter_component_tables,
+    qualified_table_name,
     validate_credentials as validate_convex_credentials,
     validate_deploy_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConvexSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convex import ConvexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 
 @SourceRegistry.register
 class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
+    api_docs_url = "https://docs.convex.dev/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CONVEX
@@ -78,13 +79,15 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         clean_url = validate_deploy_url(config.deploy_url)
         schemas_response = get_json_schemas(clean_url, config.deploy_key)
 
-        tables: list[str] = []
-        if isinstance(schemas_response, dict):
-            tables = list(schemas_response.keys())
+        tables: list[str] = [
+            qualified_table_name(component_path, table_name)
+            for component_path, table_name in iter_component_tables(schemas_response)
+        ]
 
         incremental_field: list[IncrementalField] = [
             IncrementalField(
@@ -120,8 +123,21 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
             "is older than Convex's ~30 day retention window": "Delta cursor is older than Convex's ~30 day retention window. Please trigger a full resync of this source.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_CONVEX_RETRY` (convex.py) already retries 429/5xx, including the Cloudflare 52x/530
+        # family Convex deployments can surface, at the urllib3 layer before this can even raise.
+        # A response that still exhausts that budget is a transient Convex/edge blip, not a bug,
+        # so Temporal's activity retry recovers once it clears rather than surfacing it as tracked
+        # exception noise. `requests.Response.raise_for_status` derives these prefixes from the
+        # status code alone, not the vendor's reason text, so they're stable to match on.
+        return {"Server Error", "429 Client Error"}
+
     def validate_credentials(
-        self, config: ConvexSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConvexSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_convex_credentials(config.deploy_url, config.deploy_key)
 

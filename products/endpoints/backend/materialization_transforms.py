@@ -11,6 +11,7 @@ from posthog.hogql.functions.aggregations import COMBINATORS
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -20,6 +21,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRIN
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import User
 from posthog.models.team import Team
+from posthog.schema_migrations.upgrade import upgrade
 
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
@@ -34,6 +36,14 @@ class MaterializationNotSupportedError(ValueError):
 
 class VariableInHavingClauseError(MaterializationNotSupportedError):
     """Raised when a variable is used in a HAVING clause, which is not supported for materialization."""
+
+
+class VariableComparedToPlaceholderExprError(MaterializationNotSupportedError):
+    """Raised when a variable is compared against an expression that itself reads a variable.
+
+    That expression would be the materialized key column, which has to be fixed at
+    materialization time, so it can't depend on a per-request value.
+    """
 
 
 def inject_series_index(query_ast: ast.SelectQuery | ast.SelectSetQuery) -> None:
@@ -96,6 +106,9 @@ def convert_insight_query_to_hogql(
 
     if query_kind == "HogQLQuery":
         return query
+
+    # Stored endpoint snapshots may predate the current query schema
+    query = upgrade(query)
 
     query_runner = get_query_runner(
         query=query,
@@ -301,6 +314,12 @@ def analyze_variables_for_materialization(
             all_usages = find_all_variable_usages(ast_node, placeholder)
         except VariableInHavingClauseError:
             return False, "Variable used in HAVING clause are not supported for materialization.", []
+        except VariableComparedToPlaceholderExprError:
+            return (
+                False,
+                "Variable compared against an expression containing another variable is not supported for materialization",
+                [],
+            )
         except ValueError as e:
             capture_exception(e)
             return False, "Invalid variable usage in WHERE clause.", []
@@ -954,6 +973,11 @@ class VariablePlaceholderFinder(TraversingVisitor):
             self.variable_placeholders.append(node)
 
 
+def _contains_placeholder(node: ast.Expr) -> bool:
+    found = find_placeholders(node)
+    return bool(found.has_filters or found.placeholder_fields or found.placeholder_expressions)
+
+
 def find_variable_in_where(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
 ) -> Optional[VariableUsageInWhere]:
@@ -1062,6 +1086,8 @@ class VariableInWhereFinder(TraversingVisitor):
                 )
             )
         elif isinstance(field_side, ast.Call):
+            if _contains_placeholder(field_side):
+                raise VariableComparedToPlaceholderExprError()
             column_chain = self._extract_column_chain_from_call(field_side)
             self.all_results.append(
                 (

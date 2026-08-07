@@ -19,6 +19,10 @@ If the symptom is "metric count is far smaller than exposures" (e.g. 10× or 100
 file before `numbers-vs-sql.md` — that shape of divergence is most often a bucketing / identity
 problem (A3/A4), not a query-scope problem.
 
+The SQL in this file filters exposures on `$feature_flag_called`. If the experiment's
+`resolved_exposure_event` (from `experiment-get`) is `$experiment_exposure`, substitute that event
+name — it carries the same properties, so nothing else changes.
+
 ## Contents
 
 - A1 — Multi-variant exclusion bias on uneven split (the in-app banner)
@@ -349,7 +353,7 @@ The four common shapes:
   everyone. Rare but high-impact.
 
 **Detect.** `feature-flags-activity-retrieve { id: <feature_flag_id> }` is authoritative for the
-diff (the higher-fidelity activity endpoint). `activity-log-list { scope: "FeatureFlag" }` only
+diff (the higher-fidelity activity endpoint). `advanced-activity-logs-list { scopes: ["FeatureFlag"] }` only
 shows _who/when_, not _what_ — but a cluster of edits around or after `start_date` is the
 fingerprint to pursue further.
 

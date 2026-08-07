@@ -1,3 +1,4 @@
+import base64
 import datetime as dt
 from typing import Any
 
@@ -7,9 +8,17 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 
-from products.metrics.backend.facade.api import investigate
-from products.metrics.backend.facade.contracts import CompanionMetric, CompanionVerdict
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.facade.api import investigate, investigate_incident
+from products.metrics.backend.facade.contracts import CompanionMetric, CompanionVerdict, IncidentContext
+from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event
+
+
+def _trace_hex(i: int) -> str:
+    return f"{i:032x}".upper()
+
+
+def _trace_b64(i: int) -> str:
+    return base64.b64encode(bytes.fromhex(_trace_hex(i))).decode()
 
 
 class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
@@ -18,6 +27,8 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
         # 20-minute window: minutes 0-9 baseline, 10-19 anomaly (spike from 12).
         self.start = (timezone.now() - dt.timedelta(hours=1)).replace(second=0, microsecond=0)
         self.anomaly_from = self.start + dt.timedelta(minutes=10)
@@ -77,6 +88,8 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
 
         self.assertFalse(self._verdict(result, "throughput").moved_with_symptom)
         self.assertTrue(self._verdict(result, "error_rate").moved_with_symptom)
+        # No metric_samples rows exist -> the pivot stays empty rather than erroring.
+        self.assertEqual(result.evidence.trace_exemplars, ())
 
         self.assertEqual(result.confidence, "high")
         self.assertIn("logs-ingestion", result.narrative)
@@ -117,6 +130,57 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.blast_radius, "localized")
         self.assertEqual(result.symptom.top_movers[0].label, "big")
 
+    def test_attaches_trace_exemplars_from_the_anomaly_window_only(self):
+        # If exemplar wiring regresses (window ignored, untraced samples included,
+        # or the cap dropped), an investigation would pivot into the wrong traces
+        # or bloat the result; nothing else exercises evidence.trace_exemplars.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="ingestion_lag",
+            points=self._spike(10.0, 100.0),
+            service_name="logs-ingestion",
+        )
+        in_window = self.anomaly_from + dt.timedelta(minutes=2)
+        # Six traced samples inside the window (one more than the cap), each its
+        # own emission so each carries a distinct trace id.
+        for i in range(1, 7):
+            seed_metric_event(
+                team_id=self.team.id,
+                metric_name="ingestion_lag",
+                points=[(in_window + dt.timedelta(seconds=i), 100.0 + i)],
+                trace_id=_trace_b64(i),
+                attributes={"pod": f"pod-{i}"},
+            )
+        # A traced sample before the window and an untraced one inside it must
+        # both be excluded.
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="ingestion_lag",
+            points=[(self.start + dt.timedelta(minutes=1), 10.0)],
+            trace_id=_trace_b64(99),
+            attributes={"pod": "baseline"},
+        )
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="ingestion_lag",
+            points=[(in_window, 100.0)],
+            attributes={"pod": "untraced"},
+        )
+
+        result = self._investigate()
+
+        self.assertEqual(len(result.evidence.trace_exemplars), 5)
+        # Newest first, so the cap keeps traces 6..2 and drops 1.
+        self.assertEqual(
+            [e.trace_id for e in result.evidence.trace_exemplars], [_trace_hex(i) for i in (6, 5, 4, 3, 2)]
+        )
+        newest = result.evidence.trace_exemplars[0]
+        self.assertEqual(newest.value, 106.0)
+        self.assertTrue(
+            newest.timestamp.startswith((in_window + dt.timedelta(seconds=6)).strftime("%Y-%m-%dT%H:%M:%S"))
+        )
+        self.assertNotIn(_trace_hex(99), [e.trace_id for e in result.evidence.trace_exemplars])
+
     def test_flat_metric_yields_low_confidence(self):
         seed_metric(
             team_id=self.team.id, metric_name="ingestion_lag", points=self._flat(50.0), service_name="logs-ingestion"
@@ -127,3 +191,58 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.symptom.direction, "flat")
         self.assertEqual(result.confidence, "low")
         self.assertIn("held flat", result.narrative)
+
+    def test_incident_derives_window_from_fire_time(self):
+        # No timestamp math on the caller: the window comes from fired_at alone.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="ingestion_lag",
+            points=self._spike(10.0, 100.0),
+            service_name="logs-ingestion",
+        )
+
+        result = investigate_incident(
+            team=self.team,
+            context=IncidentContext(
+                metric_name="ingestion_lag",
+                fired_at=self.start + dt.timedelta(minutes=20),
+                lookback=dt.timedelta(minutes=10),
+                leadout=dt.timedelta(minutes=5),
+            ),
+        )
+
+        self.assertEqual(result.symptom.anomaly_from, (self.start + dt.timedelta(minutes=10)).isoformat())
+        self.assertEqual(result.symptom.anomaly_to, (self.start + dt.timedelta(minutes=25)).isoformat())
+        self.assertEqual(result.symptom.direction, "up")
+
+    def test_incident_scopes_to_the_implicated_service(self):
+        # svc-a is flat, svc-b spikes; scoping to svc-a must hide svc-b's spike.
+        seed_metric(team_id=self.team.id, metric_name="ingestion_lag", points=self._flat(10.0), service_name="svc-a")
+        seed_metric(
+            team_id=self.team.id, metric_name="ingestion_lag", points=self._spike(10.0, 100.0), service_name="svc-b"
+        )
+
+        result = investigate_incident(
+            team=self.team,
+            context=IncidentContext(
+                metric_name="ingestion_lag",
+                fired_at=self.start + dt.timedelta(minutes=20),
+                lookback=dt.timedelta(minutes=10),
+                leadout=dt.timedelta(0),
+                service_name="svc-a",
+            ),
+        )
+
+        self.assertEqual(result.symptom.direction, "flat")
+
+    def test_incident_context_normalizes_fired_at_to_utc(self):
+        # fired_at must be an explicit instant: naive datetimes are rejected at
+        # construction rather than silently mis-bucketed as UTC, and aware
+        # non-UTC instants are normalized so window math always runs in UTC.
+        with self.assertRaises(ValueError):
+            IncidentContext(metric_name="ingestion_lag", fired_at=dt.datetime(2026, 1, 1, 12, 0))
+
+        ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+        context = IncidentContext(metric_name="ingestion_lag", fired_at=dt.datetime(2026, 1, 1, 17, 30, tzinfo=ist))
+        self.assertEqual(context.fired_at, dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC))
+        self.assertEqual(context.fired_at.tzinfo, dt.UTC)

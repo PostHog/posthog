@@ -1,16 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconList, IconListTree, IconRefresh } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonDropdown,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSwitch,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { IconChevronDown, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { DateRangePickerWithZoom } from 'lib/components/DateFilter/DateRangePicker'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
@@ -21,7 +13,6 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { DateRange } from '~/queries/schema/schema-general'
@@ -34,9 +25,8 @@ import {
 } from '~/types'
 
 import { SavedViewsButton } from './savedViews/SavedViewsButton'
-import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
-import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
 
 const taxonomicFilterLogicKey = 'tracing'
@@ -47,32 +37,17 @@ const taxonomicGroupTypes = [
 ]
 
 export function TracingFilterBar(): JSX.Element {
-    const { spansLoading } = useValues(tracingDataLogic())
-    const { runQuery } = useActions(tracingDataLogic())
-    const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic())
-    const { setDateRange, setTimezone, setServiceNames, setFilterGroup, setViewMode, setCompareMode } =
-        useActions(tracingFiltersLogic())
-    const { dateRange, serviceNames, filterGroup, viewMode, compareMode } = filters
-    const showFacetRail = useFeatureFlag('TRACING_FACET_RAIL')
-    const { facetRailCollapsed } = useValues(tracingConfigLogic)
-    const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
+    const { spansLoading } = useValues(tracingDataLogic)
+    const { runQuery } = useActions(tracingDataLogic)
+    const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic)
+    const { setDateRange, setTimezone, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic)
+    const { dateRange, serviceNames, filterGroup } = filters
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
             <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
-                        {showFacetRail && !compareMode && (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
-                                onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
-                                aria-label={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
-                                tooltip={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
-                                data-attr="tracing-facet-rail-toggle"
-                            />
-                        )}
                         <TracingServiceFilter
                             value={serviceNames}
                             onChange={setServiceNames}
@@ -89,36 +64,6 @@ export function TracingFilterBar(): JSX.Element {
                             setDateRange={setDateRange}
                             timezone={timezone}
                             onTimezoneChange={setTimezone}
-                        />
-                        {!compareMode && (
-                            <LemonSegmentedButton<TracingViewMode>
-                                size="small"
-                                value={viewMode}
-                                onChange={setViewMode}
-                                options={[
-                                    {
-                                        value: 'traces',
-                                        label: 'Traces',
-                                        icon: <IconListTree />,
-                                        tooltip: 'Group matching spans by trace — one row per trace (its root span)',
-                                        'data-attr': 'tracing-view-mode-traces',
-                                    },
-                                    {
-                                        value: 'spans',
-                                        label: 'Spans',
-                                        icon: <IconList />,
-                                        tooltip: 'Show every matching span individually, including child spans',
-                                        'data-attr': 'tracing-view-mode-spans',
-                                    },
-                                ]}
-                            />
-                        )}
-                        <LemonSwitch
-                            label="Compare"
-                            checked={compareMode}
-                            onChange={setCompareMode}
-                            bordered
-                            size="small"
                         />
                         <LemonButton
                             size="small"
@@ -145,11 +90,13 @@ function TracingFilterGroup({
     onFilterGroupChange: (filterGroup: UniversalFiltersGroup) => void
     children: React.ReactNode
 }): JSX.Element {
-    const { utcDateRange, filters } = useValues(tracingFiltersLogic())
+    const { utcDateRange, filters, queryFilterGroup } = useValues(tracingFiltersLogic)
 
+    // Suggestions are scoped by the query-facing group (pinned filters included) so an
+    // embedded viewer only suggests values that exist within its pinned scope.
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup,
+        filterGroup: queryFilterGroup,
         serviceNames: filters.serviceNames,
     }
 
@@ -170,7 +117,7 @@ function TracingFilterGroup({
 
 function TracingFilterSearch(): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic())
+    const { utcDateRange, filters: tracingFilters, queryFilterGroup } = useValues(tracingFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -187,7 +134,7 @@ function TracingFilterSearch(): JSX.Element {
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-            filterGroup: tracingFilters.filterGroup,
+            filterGroup: queryFilterGroup,
             serviceNames: tracingFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item) => {

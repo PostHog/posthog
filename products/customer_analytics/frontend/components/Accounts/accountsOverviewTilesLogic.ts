@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -9,10 +9,23 @@ import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general
 
 import type { CustomPropertyDisplayTypeEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import type {
+    ErrorTrackingQueryResponse,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    MetricsQueryResponse,
+    SessionsQueryResponse,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+} from '../../../../../frontend/src/queries/schema/schema-general'
 import { ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
 import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 import {
     ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX,
     AccountsEvents,
@@ -22,10 +35,15 @@ import {
     NUMERIC_FIELD_TYPES,
 } from './constants'
 
+// Single-column scalar aggregations whose metric-type name is also the HogQL
+// aggregate function name (see tileMetricExpression). They share one shape and
+// support an optional `scale` multiplier, e.g. sum(mrr) * 12 to annualize.
+export const COLUMN_AGGREGATE_TYPES = ['sum', 'avg', 'min', 'max', 'median'] as const
+export type ColumnAggregateType = (typeof COLUMN_AGGREGATE_TYPES)[number]
+
 export type AccountsOverviewTileMetric =
     | { type: 'count' }
-    | { type: 'sum'; columnExpression: string; columnLabel: string }
-    | { type: 'avg'; columnExpression: string; columnLabel: string }
+    | { type: ColumnAggregateType; columnExpression: string; columnLabel: string; scale?: number }
     | {
           type: 'count_threshold'
           columnExpression: string
@@ -36,10 +54,27 @@ export type AccountsOverviewTileMetric =
 
 export type AccountsOverviewTileMetricType = AccountsOverviewTileMetric['type']
 
+// Per-tile value display format. A subset of OverviewGrid's WebAnalyticsItemKind
+// (we omit `duration_s`, no account metric is a duration), so `format` maps 1:1
+// to the render `kind`. `currency` uses the team's base currency; `percentage`
+// treats the value as already in percent units (85 → "85%").
+export const TILE_VALUE_FORMATS = ['unit', 'currency', 'percentage'] as const
+export type TileValueFormat = (typeof TILE_VALUE_FORMATS)[number]
+
+export function isColumnAggregateMetric(
+    metric: AccountsOverviewTileMetric
+): metric is Extract<AccountsOverviewTileMetric, { type: ColumnAggregateType }> {
+    return (COLUMN_AGGREGATE_TYPES as readonly string[]).includes(metric.type)
+}
+
 export interface AccountsOverviewTile {
     id: string
     label: string
     metric: AccountsOverviewTileMetric
+    // Custom subtitle; empty/whitespace/undefined falls back to the auto-derived caption.
+    caption?: string
+    // Value display format; undefined renders as a plain unit.
+    format?: TileValueFormat
 }
 
 export interface TileFilter {
@@ -80,23 +115,59 @@ export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColum
         )
 }
 
+// A `scale` of undefined/1 (or anything non-finite) is a no-op; otherwise the
+// aggregation is multiplied by the literal. `scale` is always a finite number
+// from the editor's numeric input, so it is safe to inline into the HogQL.
+export function applyScale(expression: string, scale: number | undefined): string {
+    if (scale === undefined || !Number.isFinite(scale) || scale === 1) {
+        return expression
+    }
+    return `${expression} * ${scale}`
+}
+
+// Human-readable multiplier suffix for tile labels/captions (e.g. " × 12").
+// Empty when the scale is a no-op, mirroring applyScale's guard.
+export function scaleSuffix(scale: number | undefined): string {
+    return scale === undefined || !Number.isFinite(scale) || scale === 1 ? '' : ` × ${scale}`
+}
+
 export function tileMetricExpression(tile: AccountsOverviewTile): string {
     const { metric } = tile
     switch (metric.type) {
         case 'count':
             return 'count()'
-        case 'sum':
-            return `sum(${metric.columnExpression})`
-        case 'avg':
-            return `avg(${metric.columnExpression})`
         case 'count_threshold':
             return `countIf(${metric.columnExpression} ${metric.operator} ${metric.value})`
+        default:
+            // sum | avg | min | max | median: the metric type is the HogQL aggregate fn name.
+            return applyScale(`${metric.type}(${metric.columnExpression})`, metric.scale)
     }
 }
 
+// The auto-derived subtitle for a tile, from its metric. `count` has none.
+export function autoCaption(tile: AccountsOverviewTile): string | undefined {
+    const { metric } = tile
+    switch (metric.type) {
+        case 'count':
+            return undefined
+        case 'count_threshold':
+            return `${metric.columnLabel} ${metric.operator} ${metric.value}`
+        default:
+            // sum | avg | min | max | median: the metric type reads as the aggregation verb.
+            return `${metric.type} of ${metric.columnLabel}${scaleSuffix(metric.scale)}`
+    }
+}
+
+// The subtitle shown on a tile: the user's custom caption when set, else the
+// auto-derived one. A whitespace-only caption is treated as unset.
+export function tileCaption(tile: AccountsOverviewTile): string | undefined {
+    const custom = tile.caption?.trim()
+    return custom ? custom : autoCaption(tile)
+}
+
 // A tile only acts as a row-level predicate when it represents an
-// inherently row-level condition. `count_threshold` does; `count`/`sum`/`avg`
-// describe the whole set, not a subset.
+// inherently row-level condition. `count_threshold` does; `count` and the
+// column aggregations describe the whole set, not a subset.
 export function tileToRowFilter(tile: AccountsOverviewTile): string | null {
     if (tile.metric.type !== 'count_threshold') {
         return null
@@ -186,6 +257,125 @@ function readLegacyOverviewTiles(): AccountsOverviewTile[] | null {
     }
     return null
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface accountsOverviewTilesLogicValues {
+    accountsColumnGroups: AccountColumnGroup[] // accountsColumnConfigLogic
+    accountsResponse:
+        | ErrorTrackingQueryResponse
+        | HogQLAutocompleteResponse
+        | HogQLMetadataResponse
+        | HogQLQueryResponse<any[]>
+        | HogQueryResponse
+        | LogAttributesQueryResponse
+        | LogValuesQueryResponse
+        | MetricsQueryResponse
+        | Record<string, any>
+        | SessionsQueryResponse
+        | TraceSpansAggregationQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
+        | TraceSpansQueryResponse
+        | null // dataNodeLogic
+    accountsResponseLoading: boolean // dataNodeLogic
+    editorVisible: boolean
+    metrics: string[]
+    numericColumnExpressions: Set<string>
+    numericColumns: AccountColumnOption[]
+    reconciledTiles: AccountsOverviewTile[]
+    selectedTileId: string | null
+    tileFilter: TileFilter | null
+    tileValues: Record<string, number | null>
+    tiles: AccountsOverviewTile[]
+    tilesLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface accountsOverviewTilesLogicActions {
+    addTile: (
+        tile: Omit<AccountsOverviewTile, 'id'> & {
+            id?: string
+        }
+    ) => {
+        tile: Omit<AccountsOverviewTile, 'id'> & {
+            id?: string | undefined
+        }
+    }
+    hideEditor: () => {
+        value: true
+    }
+    moveTile: (
+        oldIndex: number,
+        newIndex: number
+    ) => {
+        newIndex: number
+        oldIndex: number
+    }
+    removeTile: (id: string) => {
+        id: string
+    }
+    resetTiles: () => {
+        value: true
+    }
+    setTileFilter: (filter: TileFilter | null) => {
+        filter: TileFilter | null
+    }
+    setTiles: (tiles: AccountsOverviewTile[]) => {
+        tiles: AccountsOverviewTile[]
+    }
+    showEditor: () => {
+        value: true
+    }
+    toggleTileSelection: (tile: AccountsOverviewTile) => {
+        tile: AccountsOverviewTile
+    }
+    updateTile: (
+        id: string,
+        tile: Omit<AccountsOverviewTile, 'id'>
+    ) => {
+        id: string
+        tile: Omit<AccountsOverviewTile, 'id'>
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface accountsOverviewTilesLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        numericColumns: (accountsColumnGroups: AccountColumnGroup[]) => AccountColumnOption[]
+        numericColumnExpressions: (numericColumns: AccountColumnOption[]) => Set<string>
+        reconciledTiles: (
+            tiles: AccountsOverviewTile[],
+            numericColumnExpressions: Set<string>
+        ) => AccountsOverviewTile[]
+        metrics: (reconciledTiles: AccountsOverviewTile[]) => string[]
+        tileValues: (
+            accountsResponse:
+                | ErrorTrackingQueryResponse
+                | HogQLAutocompleteResponse
+                | HogQLMetadataResponse
+                | HogQLQueryResponse<any[]>
+                | HogQueryResponse
+                | LogAttributesQueryResponse
+                | LogValuesQueryResponse
+                | MetricsQueryResponse
+                | Record<string, any>
+                | SessionsQueryResponse
+                | TraceSpansAggregationQueryResponse
+                | TraceSpansAttributeBreakdownQueryResponse
+                | TraceSpansQueryResponse
+                | null,
+            reconciledTiles: AccountsOverviewTile[]
+        ) => Record<string, number | null>
+        tilesLoading: (accountsResponseLoading: boolean) => boolean
+        selectedTileId: (tileFilter: TileFilter | null) => string | null
+    }
+}
+
+export type accountsOverviewTilesLogicType = MakeLogicType<
+    accountsOverviewTilesLogicValues,
+    accountsOverviewTilesLogicActions,
+    Record<string, any>,
+    accountsOverviewTilesLogicMeta
+>
 
 export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsOverviewTilesLogic']),

@@ -289,10 +289,20 @@ def _serialize(pattern: MinedPattern, *, total_count: int, scanned_count: int) -
         "estimated_error_count": estimate(pattern.error_count),
         "first_seen": pattern.first_seen.isoformat(),
         "last_seen": pattern.last_seen.isoformat(),
-        "examples": pattern.examples,
+        "examples": [
+            {
+                "body": example.body,
+                "severity_text": example.severity_text,
+                "service_name": example.service_name,
+                "timestamp": example.timestamp.isoformat(),
+            }
+            for example in pattern.examples
+        ],
         "services": pattern.services,
         "sparkline": [estimate(c) for c in pattern.bucket_counts],
         # Raw sample counts: severity dominance is a proportion, which is scale-invariant,
         # so extrapolating the map would add payload without changing what it says.
         "severity_counts": pattern.severity_counts,
+        "match_regex": pattern.match_regex,
+        "match_literal": pattern.match_literal,
     }

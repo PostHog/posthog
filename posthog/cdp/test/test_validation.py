@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from parameterized import parameterized
@@ -377,6 +378,71 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
+            ("string_input", "string", "Hey {{ person.properties.name }}"),
+            (
+                "email_object_input",
+                "native_email",
+                {
+                    "to": "{{ person.properties.email }}",
+                    "from": "hi@posthog.com",
+                    "subject": "Hello",
+                    "html": "<p>hi</p>",
+                },
+            ),
+        ]
+    )
+    def test_liquid_syntax_in_hog_templated_input_names_the_expected_syntax(self, _name, item_type, value):
+        # Liquid-style {{ ... }} in a hog-templated field is the dominant authoring mistake
+        # behind template errors, and the transpiler's own message ("Placeholders are not
+        # allowed in this context") never names it - agents bisect blind on it. The error
+        # must state the expected single-curly syntax and call out Liquid.
+        inputs_schema = [{"key": "field", "type": item_type, "required": True}]
+        inputs = {"field": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        message = str(ctx.value.detail)
+        assert "{person.properties.email}" in message
+        assert "Liquid" in message
+
+    def test_liquid_templated_input_still_accepts_liquid_syntax(self):
+        inputs_schema = [{"key": "field", "type": "string", "required": True, "templating": "liquid"}]
+        inputs = {"field": {"value": "Hey {{ person.properties.name }}"}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["field"]["value"] == "Hey {{ person.properties.name }}"
+
+    @parameterized.expand(
+        [
+            (
+                "single_missing_key_keeps_the_familiar_message",
+                {"to": "a@b.com", "subject": "hi", "html": "<p>hi</p>"},
+                "Missing value for 'from'.",
+            ),
+            (
+                "multiple_missing_keys_reported_at_once",
+                {"to": "a@b.com"},
+                "Missing values for 'from', 'subject', either 'text' or 'html'.",
+            ),
+            (
+                "body_alternatives_named_together",
+                {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi"},
+                "Missing value for either 'text' or 'html'.",
+            ),
+        ]
+    )
+    def test_email_input_reports_all_missing_keys_in_one_error(self, _name, value, expected):
+        # Email objects are typically authored programmatically; raising on the first absent
+        # key forces a validate round trip per key, so every missing key is named at once.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        inputs = {"email": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert expected in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
             ("person", "{person?.id}"),
             ("groups", "{groups.organization.id}"),
             ("source", "{source.name}"),
@@ -732,6 +798,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, inputs)
 
         assert validated["properties"].get("bytecode") is not None
+
+    def test_customer_analytics_account_relationships_validates_assignment_dict(self):
+        # Guards the type's registration in InputsSchemaItemSerializer's ChoiceField —
+        # without it, publishing a workflow with the relationships node 400s.
+        inputs_schema = [{"key": "relationships", "type": "customer_analytics_account_relationships", "required": True}]
+        inputs = {"relationships": {"value": {"0197f9f0-1111-0000-0000-000000000000": {"type": "user", "id": 42}}}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+
+        assert validated["relationships"].get("bytecode") is not None
 
     @parameterized.expand(
         [

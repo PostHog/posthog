@@ -108,6 +108,9 @@ function DropdownMenuItem({
                 inset && 'quill-menu-item--inset',
                 className
             )}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button variant="default" className="w-full font-normal [&_kbd]:ml-auto" left />}
             {...props}
         />
@@ -135,6 +138,9 @@ function DropdownMenuSubTrigger({
                 inset && 'quill-menu-item--inset',
                 className
             )}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button className="w-full font-normal" left />}
             {...props}
         >
@@ -183,6 +189,9 @@ function DropdownMenuCheckboxItem({
                 className
             )}
             checked={checked}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button className="w-full font-normal" left />}
             {...props}
         >
@@ -220,6 +229,9 @@ function DropdownMenuRadioItem({
                 "quill-menu-item--inset relative flex min-h-7 cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button className="w-full font-normal" left />}
             {...props}
         >

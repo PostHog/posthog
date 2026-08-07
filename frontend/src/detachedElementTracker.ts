@@ -1,3 +1,7 @@
+import type { MemLensScanner } from '@memlab/lens/dist/memlens.lib.bundle.js'
+
+import { getAppContext } from 'lib/utils/getAppContext'
+
 const SCAN_INTERVAL_MS = 30_000
 const TOP_N = 10
 const IDLE_TIMEOUT_MS = 5_000
@@ -6,20 +10,49 @@ interface Capturable {
     capture: (event: string, properties?: Record<string, unknown>) => void
 }
 
-interface MemLensScanResult {
-    totalElements: number
-    totalDetachedElements: number
-    detachedComponentToFiberNodeCount: Map<string, number>
-    componentToFiberNodeCount: Map<string, number>
-    start: number
-    end: number
+export interface DetachedElementTrackingState {
+    currentPath: string | null
+    previousDetachedCount: number | null
+    routeBaselineDetachedCount: number | null
 }
 
-interface MemLensScanner {
-    subscribe: (callback: (result: MemLensScanResult) => void) => () => void
-    start: () => void
-    stop: () => void
-    dispose: () => void
+interface DetachedElementTrackingContext {
+    detachedElementsDelta: number | null
+    nextState: DetachedElementTrackingState
+    pathChanged: boolean
+    routeBaselineDetachedElements: number
+    routeDetachedElementsDelta: number
+}
+
+export function createDetachedElementTrackingState(): DetachedElementTrackingState {
+    return {
+        currentPath: null,
+        previousDetachedCount: null,
+        routeBaselineDetachedCount: null,
+    }
+}
+
+export function getDetachedElementTrackingContext(
+    state: DetachedElementTrackingState,
+    currentCount: number,
+    currentPath: string
+): DetachedElementTrackingContext {
+    const pathChanged = state.currentPath !== null && state.currentPath !== currentPath
+    const routeBaselineDetachedElements = pathChanged
+        ? currentCount
+        : (state.routeBaselineDetachedCount ?? currentCount)
+
+    return {
+        detachedElementsDelta: state.previousDetachedCount === null ? null : currentCount - state.previousDetachedCount,
+        pathChanged,
+        routeBaselineDetachedElements,
+        routeDetachedElementsDelta: currentCount - routeBaselineDetachedElements,
+        nextState: {
+            currentPath,
+            previousDetachedCount: currentCount,
+            routeBaselineDetachedCount: routeBaselineDetachedElements,
+        },
+    }
 }
 
 export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
@@ -70,27 +103,38 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
             state = 'ready'
 
-            const scan: MemLensScanner = createReactMemoryScan({
+            const scan = createReactMemoryScan({
                 scanIntervalMs: SCAN_INTERVAL_MS,
                 trackEventListenerLeaks: false,
             })
 
-            let previousDetachedCount: number | null = null
+            let trackingState = createDetachedElementTrackingState()
 
             scan.subscribe((result) => {
-                if (!shouldCaptureDetachedElements(result.totalDetachedElements, previousDetachedCount)) {
-                    previousDetachedCount = result.totalDetachedElements
+                const currentPath = window.location.pathname
+                const trackingContext = getDetachedElementTrackingContext(
+                    trackingState,
+                    result.totalDetachedElements,
+                    currentPath
+                )
+
+                if (!shouldCaptureDetachedElements(result.totalDetachedElements, trackingState.previousDetachedCount)) {
+                    trackingState = trackingContext.nextState
                     return
                 }
-                previousDetachedCount = result.totalDetachedElements
+                trackingState = trackingContext.nextState
 
                 posthog.capture('detached_elements', {
                     total_elements: result.totalElements,
                     detached_elements: result.totalDetachedElements,
+                    detached_elements_delta: trackingContext.detachedElementsDelta,
                     detached_components: mapToTopN(result.detachedComponentToFiberNodeCount, TOP_N),
                     all_components: mapToTopN(result.componentToFiberNodeCount, TOP_N),
                     scan_duration_ms: Math.round(result.end - result.start),
-                    current_path: window.location.pathname,
+                    current_path: currentPath,
+                    path_changed_at_scan: trackingContext.pathChanged,
+                    path_change_baseline_detached_elements: trackingContext.routeBaselineDetachedElements,
+                    detached_elements_delta_since_path_change: trackingContext.routeDetachedElementsDelta,
                 })
             })
 
@@ -98,12 +142,16 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 if (document.hidden) {
                     scan.stop()
                 } else {
-                    previousDetachedCount = null
+                    trackingState = { ...trackingState, previousDetachedCount: null }
                     scan.start()
                 }
             }
 
             document.addEventListener('visibilitychange', onVisibilityChange)
+
+            if (getAppContext()?.preflight?.is_debug) {
+                exposeLeakHunterDevHelpers(scan)
+            }
 
             if (!document.hidden) {
                 scan.start()
@@ -112,6 +160,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             window.addEventListener('beforeunload', () => {
                 scan.stop()
                 scan.dispose()
+                delete (window as unknown as { __leakHunter?: unknown }).__leakHunter
                 document.removeEventListener('visibilitychange', onVisibilityChange)
             })
         } catch {
@@ -119,4 +168,52 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             console.warn('[detachedElementTracker] Failed to load MemLens, detached element tracking disabled')
         }
     }, IDLE_TIMEOUT_MS)
+}
+
+interface LeakHunterScanSummary {
+    totalElements: number
+    totalDetachedElements: number
+    detachedComponents: Record<string, number>
+}
+
+interface LeakHunterDetachedElementSummary {
+    i: number
+    tag?: string
+    id?: string
+    classes?: string | null
+    components?: string[]
+}
+
+// Dev-only console helpers for hunting detached-DOM retainers. The convenience
+// accessors (`el(i)`, `detached()`) deref WeakRefs on demand rather than holding
+// elements; `scanner` is the raw MemLens instance and keeps its own tracking state.
+function exposeLeakHunterDevHelpers(scan: MemLensScanner): void {
+    const leakHunter = {
+        scanner: scan,
+        scan: (): LeakHunterScanSummary => {
+            const result = scan.scan()
+            return {
+                totalElements: result.totalElements,
+                totalDetachedElements: result.totalDetachedElements,
+                detachedComponents: mapToTopN(result.detachedComponentToFiberNodeCount, 50),
+            }
+        },
+        detached: (limit: number = 50): LeakHunterDetachedElementSummary[] =>
+            scan
+                .getDetachedDOMInfo()
+                .slice(0, limit)
+                .map((info, i) => {
+                    const el = info.element.deref()
+                    return {
+                        i,
+                        tag: el?.tagName,
+                        id: el?.id,
+                        classes: el?.getAttribute('class'),
+                        components: info.componentStack?.slice(0, 10) ?? undefined,
+                    }
+                }),
+        el: (i: number): Element | undefined => scan.getDetachedDOMInfo()[i]?.element.deref(),
+    }
+    ;(window as unknown as { __leakHunter?: typeof leakHunter }).__leakHunter = leakHunter
+    console.info('[leak-hunter] window.__leakHunter ready')
 }

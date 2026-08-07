@@ -32,9 +32,8 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpHogflowSubscriptionMatcher: isDevEnv(),
 }
 
-/** Realtime Cohorts - precalculated filters and cohort membership */
+/** Realtime Cohorts - cohort membership persistence */
 export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
-    cdpPrecalculatedFilters: true,
     cdpCohortMembership: true,
 }
 
@@ -141,9 +140,9 @@ export function getPluginServerCapabilities(
                 cdpCyclotronWorkerEmailLegacyPg: true,
             }
         case PluginServerMode.cdp_precalculated_filters:
-            return {
-                cdpPrecalculatedFilters: true,
-            }
+            // The consumer is gone. Boot with no capabilities so a pod that charts still
+            // launches in this mode idles instead of crash-looping on an unknown mode.
+            return {}
         case PluginServerMode.cdp_hogflow_subscription_matcher:
             return {
                 cdpHogflowSubscriptionMatcher: true,
@@ -204,6 +203,7 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_mirror:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_parquet_sink:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

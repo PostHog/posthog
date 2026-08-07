@@ -85,25 +85,25 @@ describe('playgroundModelMatching', () => {
     })
 
     describe('resolveTraceModelSelection', () => {
-        const trialModels = [model('gpt-5'), model('gpt-5-mini'), model('claude-sonnet-4')]
+        const playgroundModels = [model('gpt-5'), model('gpt-5-mini'), model('claude-sonnet-4')]
 
         it('resolves exact match from available models', () => {
-            const result = resolveTraceModelSelection('claude-sonnet-4', 'anthropic', trialModels, [])
+            const result = resolveTraceModelSelection('claude-sonnet-4', 'anthropic', playgroundModels, [])
             expect(result.resolvedModelId).toBe('claude-sonnet-4')
         })
 
         it('resolves gateway-style model by stripping namespace', () => {
-            const result = resolveTraceModelSelection('anthropic/claude-sonnet-4', 'anthropic', trialModels, [])
+            const result = resolveTraceModelSelection('anthropic/claude-sonnet-4', 'anthropic', playgroundModels, [])
             expect(result.resolvedModelId).toBe('claude-sonnet-4')
         })
 
         it('resolves snapshot model ID via prefix matching', () => {
-            const result = resolveTraceModelSelection('gpt-5-2025-08-07', 'openai', trialModels, [])
+            const result = resolveTraceModelSelection('gpt-5-2025-08-07', 'openai', playgroundModels, [])
             expect(result.resolvedModelId).toBe('gpt-5')
         })
 
         it('falls back to raw model ID when no match found', () => {
-            const result = resolveTraceModelSelection('llama-3-70b', 'meta', trialModels, [])
+            const result = resolveTraceModelSelection('llama-3-70b', 'meta', playgroundModels, [])
             expect(result.resolvedModelId).toBe('llama-3-70b')
         })
 

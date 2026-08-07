@@ -10,8 +10,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
 from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
-from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
 

@@ -25,7 +25,6 @@ logger = structlog.get_logger(__name__)
 MESSAGES_CACHE_TTL = 15  # Short TTL - messages need to appear quickly
 TICKETS_CACHE_TTL = 30  # Slightly longer - ticket list changes less frequently
 UNREAD_COUNT_CACHE_TTL = 30  # For dashboard polling - invalidated on changes
-SLACK_AVATAR_CACHE_TTL = 5 * 60  # 5 minutes for slack avatar lookup
 
 # All possible status filter values for tickets cache invalidation
 _TICKETS_STATUS_VARIANTS: list[str | None] = [None, *[s.value for s in Status]]
@@ -150,24 +149,6 @@ def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:
         logger.warning("conversations_cache_invalidate_error", keys=keys)
 
 
-# Slack User Cache
-# Caches Slack user profile lookups (name, email, avatar) to reduce
-# Slack API calls. Keyed by slack_user_id — IDs are functionally unique
-# across workspaces. Short TTL keeps profiles reasonably fresh.
-
-SLACK_USER_CACHE_TTL = 5 * 60  # 5 minutes
-
-
-def get_cached_slack_user(slack_user_id: str) -> dict | None:
-    """Get cached Slack user profile."""
-    key = _make_cache_key("slack_user", slack_user_id)
-    try:
-        return cache.get(key)
-    except Exception:
-        logger.warning("conversations_cache_get_error", key=key)
-        return None
-
-
 PERSON_DISTINCT_IDS_CACHE_TTL = 30  # seconds
 
 
@@ -199,40 +180,6 @@ def get_person_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
     return all_ids
 
 
-def set_cached_slack_user(slack_user_id: str, user_info: dict) -> None:
-    """Cache a Slack user profile."""
-    key = _make_cache_key("slack_user", slack_user_id)
-    try:
-        cache.set(key, user_info, timeout=SLACK_USER_CACHE_TTL)
-    except Exception:
-        logger.warning("conversations_cache_set_error", key=key)
-
-
-# Slack Avatar-by-Email Cache
-# Caches the result of users.lookupByEmail so outbound replies can show
-# the replying user's Slack profile picture. Empty string = negative cache
-# (user not found in the Slack workspace for that email).
-
-
-def get_cached_slack_avatar(email: str) -> str | None:
-    """Get cached Slack avatar URL for an email. Returns None on cache miss, empty string for negative cache."""
-    key = _make_cache_key("slack_avatar", email.lower())
-    try:
-        return cache.get(key)
-    except Exception:
-        logger.warning("conversations_cache_get_error", key=key)
-        return None
-
-
-def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
-    """Cache a Slack avatar URL (or empty string for negative cache)."""
-    key = _make_cache_key("slack_avatar", email.lower())
-    try:
-        cache.set(key, avatar_url, timeout=SLACK_AVATAR_CACHE_TTL)
-    except Exception:
-        logger.warning("conversations_cache_set_error", key=key)
-
-
 # Slack Bot User ID Cache
 # Caches the bot's own user_id (from auth.test) so member join/leave handlers
 # don't burn Slack's Tier-1 rate-limit budget with a round-trip per event.
@@ -257,6 +204,38 @@ def set_cached_bot_user_id(team_id: int, bot_user_id: str) -> None:
     key = _make_cache_key("slack_bot_user_id", str(team_id))
     try:
         cache.set(key, bot_user_id, timeout=BOT_USER_ID_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
+# Slack Nudge Suppression
+# Suppresses the opt-in "open a ticket?" nudge so we don't pester a user on every
+# message in a channel. Set after sending a nudge (short cooldown) or after the user
+# clicks "No thanks" (longer). Keyed by team:channel:user — presence means suppressed.
+
+NUDGE_COOLDOWN_TTL = 5 * 60  # after nudging the same user in a channel
+NUDGE_DISMISS_TTL = 3 * 60 * 60  # after the user clicks "No thanks"
+
+
+def _nudge_suppress_key(team_id: int, channel: str, slack_user_id: str) -> str:
+    return _make_cache_key("slack_nudge_suppressed", str(team_id), channel, slack_user_id)
+
+
+def is_nudge_suppressed(team_id: int, channel: str, slack_user_id: str) -> bool:
+    """Whether the confirm-ticket nudge is currently suppressed for this user in this channel."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        return cache.get(key) is not None
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return False
+
+
+def suppress_nudge(team_id: int, channel: str, slack_user_id: str, ttl_seconds: int) -> None:
+    """Suppress the nudge for this user in this channel for ttl_seconds."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        cache.set(key, True, timeout=ttl_seconds)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)
 

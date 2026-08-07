@@ -32,43 +32,117 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 - **Initial sync is best-effort.** Saving an enabled source enqueues a sync on commit so values
   populate without waiting for the next materialization. If the broker is down the save still
   succeeds and the enqueue is dropped (logged to error tracking) — the next materialization recovers.
+- **Create-path sync is synchronous, best-effort, and workflow-only.** When the external create
+  endpoint is called by a workflow "Create account" step (the `X-PostHog-Hog-Flow-Id` header),
+  it syncs warehouse-backed custom properties for the new account inline — scoped to its external
+  id, materialized views only — so the next workflow step can read the values. Creates without the
+  header skip the sync, which keeps the per-request warehouse fan-out off the general create path;
+  the header is caller-supplied, so a token holder can opt in by faking it — same trust level as
+  the existing workflow attribution. Failures are captured and swallowed: creation never fails,
+  and no sync outcome is recorded (streaks and `last_synced_at` belong to the scheduled full
+  sync). Values are as fresh as the last materialization. All enabled sources sync, not just
+  properties the workflow references — read-side usage isn't indexed, and one filtered query per
+  view is cheap. If the added request latency bites, narrow to workflow-referenced properties or
+  make the step poll.
 - **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
   teams get it after migrating to v2.
 
-## Account relationships — transitional JSON forward-sync
+## Account relationships — leftover JSON role keys in stored rows
 
-The relationship tables (`AccountRelationshipDefinition` + `AccountRelationship`) exist, but the
-legacy JSON role keys (`csm`, `account_executive`, `account_owner`) in `Account._properties` are
-still the **source of truth** for account roles. Every JSON role write forward-syncs into the
-table via `logic/relationships.sync_from_account_properties` (called from `create_account_for_view`,
-`update_account_for_view`, `_apply_external_role_assignments`, and the Max upsert tool), so the
-table shadows the JSON and accrues assignment history. Rules while the sync is alive:
+The relationship tables are the only source of truth for account roles; the JSON role keys
+(`csm`, `account_executive`, `account_owner`) are gone from `AccountProperties`.
+Stored `Account._properties` rows may still carry them until
+`manage.py backfill_account_relationships` has run in the environment
+(it assigns any not-yet-migrated JSON holders as relationships, then strips the keys).
+Until then `Account.properties` silently ignores unknown stored keys, and the raw keys remain
+visible through the HogQL `system.accounts.properties` JSON column.
+Delete this section (and the getter's key filter can revert to a plain `model_validate`)
+once the command has run everywhere.
 
-- **Nothing may write the relationship table directly** — the next JSON write reconciles direct
-  table writes away. That's why the facade deliberately exposes no assign/end functions yet.
-- The three seeded definitions are matched **by name** (`SEEDED_DEFINITIONS` maps JSON key →
-  definition name). Renaming a seeded definition silently unlinks it from its JSON key.
-- Definitions are not auto-created; on teams without them the sync is a silent no-op. They're
-  created ad-hoc (or by the future definitions UI).
+## External account `custom_properties` payload
 
-Cutover checklist — when done, the sync and this section are deleted:
+- **Every definition is emitted, unbounded.** `_to_external_account` includes every team
+  custom property definition keyed by name (`null` when unset) so workflow result paths are
+  deterministic. The hogflow executor caps all workflow variables at 5 KB of JSON combined and
+  the Get account node's default `account` variable stores the whole response body, so a team
+  with enough definitions (roughly 100–150 at typical name lengths, fewer with long names or
+  populated values) makes every Get account step throw and drop its variables — even in
+  workflows that never touch custom properties. If this bites: stop emitting unset definitions
+  as `null`, or drop the whole-body default variable in favor of path-scoped ones.
+- **Output variable suggestions read one page.** The workflow editor's suggestion chips fetch
+  custom property and relationship definitions without pagination (default page size 100), so
+  definitions past the first page silently never appear as suggestions — the value still exists
+  in the payload and can be mapped by hand. Follow `next` pages in
+  `getOutputMappingSuggestions` (workflows frontend registry) if teams that large show up.
 
-- [ ] Relationship read path in HogQL/query runner replaces the JSON `ExpressionField`s (PR 2)
-- [ ] Writers route through `logic/relationships.assign`/`end` instead of JSON keys, facade grows
-      assign/end functions (PR 3)
-- [ ] Ad-hoc backfill run per environment (create seeded definitions, sync existing accounts)
-- [ ] JSON readers migrated (Max context, usage-spike notifications, external API shape, CDP
-      "update account" template, Workflows result paths)
-- [ ] Delete `sync_from_account_properties` + call sites; strip the three role keys from
-      `AccountProperties`
+## Event stream
+
+- **Cascade deletions don't archive the Slack destination.** The managed HogFunction is archived
+  in `delete_event_stream` (the facade, the only deliberate deletion path) and in
+  `delete_event_streams_for_user` (called from core's `OrganizationMembership` post_delete, so a
+  member leaving or being removed from the org stops their stream delivering) rather than a
+  `pre_delete` signal on the stream itself, so plain ORM cascades still bypass it. Team deletion
+  is harmless — the HogFunction is team-scoped and dies in the same cascade. Hard-deleting an
+  owner (`created_by` CASCADE) usually archives via the membership post_delete firing in the same
+  collector run, but the ordering isn't guaranteed. Accepted because user hard-deletion is rare
+  (members are deactivated or removed from the org, not deleted); if it bites, archive the
+  destinations explicitly in the user-deletion flow rather than reintroducing a signal.
+
+## Account custom property changed workflow trigger
+
+- **Volatile synced columns can flood workflows.** A view column that genuinely changes for many
+  accounts each sync emits one `$account_custom_property_changed` event — and starts one workflow
+  run — per account per sync run. No cap and no emission-volume observability. Acceptable while the
+  product is internal-only; before external exposure add emission counts to `SyncResult` and
+  guidance to trigger on stable columns.
+- **Multi-property triggers fan out.** One event per changed property, so one run per property,
+  never one per batch write. The trigger UI warns; routing logic is the workflow author's job.
+- **Cross-workflow loops are damped, not prevented.** Same-value writes never emit and frequency
+  masking caps rate, but value-flapping loops (workflow A sets X→1, triggering B which sets X→2, …)
+  depend on runtime values and cannot be detected statically. The save-time cycle advisory is
+  best-effort — static tag/property references only, never a save blocker.
+- **Frequency options are account-keyed because account events carry no person.** The generic event
+  trigger's frequency options hash on `{person.id}`, which resolves empty on person-less events and
+  would mask globally across accounts. CA triggers ship account-keyed options; the generic event
+  trigger keeps its person-keyed options and retains this gap for person-less events.
+- **current/previous are event properties, not workflow variables.** Same `{event.properties.*}`
+  templating access everywhere; auto-populated variables would need executor and trigger-schema
+  changes. Revisit only if variable semantics (mutation, Variables taxonomic category) are needed.
+  The values land as analytics events in the team's own project (the established pattern —
+  conversation events carry old/new status and truncated message content the same way), so they
+  are visible to anyone with project access, like the rest of the account's data.
+- **No unset/delete emission.** No value-delete path exists; if one is added, its author decides
+  whether removal counts as a change.
+
+## Account channel summaries
+
+- **The channel binding is trusted as written.** `slack_channel_id` is an account property any
+  account editor can set, and the summary pipeline reads whatever channel it names with the team's
+  own SupportHog bot token. An editor can therefore point an account at any channel that team's bot
+  is in — including a private channel the editor isn't a member of — and read its summary. Accepted
+  for now: editors are internal team members, the token is team-scoped (no cross-team reach), and
+  the announcements feature already posts through the same binding. The activity re-resolves the
+  binding, cadence, and org AI-processing approval from the DB just before fetching, so stale or
+  forged workflow inputs can't widen this. If summaries ever cover channels whose membership matters,
+  validate the binding at write time against a server-side channel policy instead.
+
+## Slack workspace URL is hardcoded
+
+- **`SLACK_ARCHIVES_ORIGIN` hardcodes PostHog's own workspace** — in `backend/constants.py` and
+  mirrored in `frontend/components/Accounts/accountLinksLogic.ts`. Every Slack link built from it
+  (Useful links sidebar, Slack summary message permalinks, channel summary citations) is wrong for
+  any team other than us.
+  Fine while the product is PostHog-internal; **must be fixed before GA**. The correct value is
+  per-team and owned by conversations: the bot's `auth.test` response carries the workspace `url`
+  (same call `get_bot_user_id_cached` already caches a field from), so the fix is a cached lookup
+  in conversations exposed through its facade, consumed here and by the frontend.
 
 ## Tech debt
 
-- **Account property writes have no single choke point.** `Account._properties` is mutated from four
-  independent paths: `create_account_for_view` / `update_account_for_view` (via the manager),
-  `_apply_external_role_assignments` (raw `account.save`, bypassing the manager), and the Max tool's
-  `_create_account` / `_update_account`. Anything that must happen on every properties write — like the
-  transitional relationship forward-sync — has to be repeated per call site, and a new writer can
-  silently forget it. Funneling every properties write through `AccountManager` (and hooking
-  cross-cutting behavior there) is the fix if account properties grow more derived behavior; not done
-  now because the sync call sites are deleted at relationship cutover anyway.
+- **Account property writes have no single choke point.** `Account._properties` is mutated from
+  independent paths: `create_account_for_view` / `update_account_for_view` (via the manager)
+  and the Max tool's `_create_account` / `_update_account`.
+  Anything that must happen on every properties write has to be repeated per call site,
+  and a new writer can silently forget it.
+  Funneling every properties write through `AccountManager` (and hooking cross-cutting behavior
+  there) is the fix if account properties grow more derived behavior.

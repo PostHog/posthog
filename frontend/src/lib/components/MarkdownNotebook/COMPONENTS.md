@@ -190,6 +190,7 @@ The internal AI tag `Prompt` is also reserved (registered by the notebooks scene
 `Image` and `Divider` are special: they serialize back to plain markdown (`![alt](src)` and `---`) rather than component-tag syntax.
 `Comment` is special too: its authorial-note flavor (`text` prop) serializes as a markdown `<!-- … -->` comment, while its discussion flavor (`ref` + `replies` props, a Google Docs-style thread anchored to an inline `<ref id="…">` highlight) serializes as a regular `<Comment … />` tag.
 The lowercase inline tags `<ref>` and `<mention>` are part of the inline grammar, not components — component tags must start with an uppercase letter.
+Code carries no inline marks, so a comment anchored to a selection inside a code block stores its anchor as a `ref=<id>:<start>-<end>` token in the fence info string (e.g. ` ```python ref=abc123:4-17 `), with UTF-16 offsets into the code text.
 Choose a specific tag name that describes the persisted block.
 
 ## Testing checklist

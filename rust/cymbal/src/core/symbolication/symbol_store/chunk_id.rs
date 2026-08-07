@@ -141,7 +141,7 @@ where
             }
             SymbolSetLoadResult::MissingStoragePtr(set_ref) => {
                 // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
-                error!("No storage pointer found for chunk id {}", set_ref);
+                error!(team_id, "No storage pointer found for chunk id {}", set_ref);
                 panic!("No storage pointer found for chunk id {set_ref}");
             }
             SymbolSetLoadResult::MissingBlob(mut record) => {
@@ -358,7 +358,7 @@ mod test {
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
             Catalog, MockS3Client, Provider,
         },
-        types::RawErrProps,
+        types::RawExceptionProperties,
     };
 
     const EXAMPLE_EXCEPTION: &str =
@@ -404,7 +404,8 @@ mod test {
 
     fn get_example_frame() -> RawJSFrame {
         let event: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
-        let mut props: RawErrProps = serde_json::from_str(&event.properties.unwrap()).unwrap();
+        let mut props: RawExceptionProperties =
+            serde_json::from_str(&event.properties.unwrap()).unwrap();
         let stack = props.exception_list.swap_remove(0).stack.unwrap();
         let Stacktrace::Raw { frames } = stack else {
             panic!("Expected a raw stacktrace");

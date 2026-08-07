@@ -437,6 +437,91 @@ fn edge_expo_with_minimal_fields_only() {
     assert_eq!(eh.data_points.len(), 1);
 }
 
+/// Contract test for the nodejs OtlpJsonMetricExporter (nodejs/src/common/metrics/
+/// otlp-json-exporter.ts): its exact wire shape — camelCase fields, hex trace/span
+/// ids, string unix nanos, exemplars on sum and histogram data points — must parse
+/// and flatten into rows carrying the exemplar's trace context. If either side
+/// drifts, the metric-to-trace pivot silently loses its links.
+#[test]
+fn nodejs_otlp_json_exporter_exemplars_flatten_into_rows() {
+    let json = r#"{
+      "resourceMetrics":[{
+        "resource":{"attributes":[{"key":"service.name","value":{"stringValue":"logs-ingestion"}}]},
+        "scopeMetrics":[{
+          "scope":{"name":"logs-ingestion"},
+          "metrics":[
+            {"name":"logs_ingestion_records_dropped_total","description":"","unit":"","sum":{
+              "dataPoints":[{
+                "attributes":[{"key":"team_id","value":{"stringValue":"42"}}],
+                "startTimeUnixNano":"1700000000000000000",
+                "timeUnixNano":"1700000060000000000",
+                "asDouble":7,
+                "exemplars":[{
+                  "filteredAttributes":[],
+                  "timeUnixNano":"1700000030000000000",
+                  "asDouble":7,
+                  "traceId":"0102030405060708090a0b0c0d0e0f10",
+                  "spanId":"0102030405060708"
+                }]
+              }],
+              "aggregationTemporality":2,
+              "isMonotonic":true
+            }},
+            {"name":"logs_ingestion_processing_duration_seconds","description":"","unit":"s","histogram":{
+              "dataPoints":[{
+                "attributes":[],
+                "startTimeUnixNano":"1700000000000000000",
+                "timeUnixNano":"1700000060000000000",
+                "count":1,
+                "sum":0.05,
+                "bucketCounts":[0,1,0,0],
+                "explicitBounds":[0.01,0.1,1],
+                "min":0.05,
+                "max":0.05,
+                "exemplars":[{
+                  "filteredAttributes":[],
+                  "timeUnixNano":"1700000030000000000",
+                  "asDouble":0.05,
+                  "traceId":"0102030405060708090a0b0c0d0e0f10",
+                  "spanId":"0102030405060708"
+                }]
+              }],
+              "aggregationTemporality":2
+            }}
+          ]
+        }]
+      }]
+    }"#;
+
+    let request = parse_otel_metrics_message(&Bytes::from(json)).expect("parse ok");
+    let resource_metrics = &request.resource_metrics[0];
+    let scope_metrics = &resource_metrics.scope_metrics[0];
+
+    // base64 of the raw exemplar id bytes — the encoding KafkaMetricRow stores.
+    let expected_trace_id = "AQIDBAUGBwgJCgsMDQ4PEA==";
+    let expected_span_id = "AQIDBAUGBwg=";
+
+    for metric in &scope_metrics.metrics {
+        let (rows, _) = capture_logs::metric_record::flatten_metric(
+            metric.clone(),
+            resource_metrics.resource.as_ref(),
+            scope_metrics.scope.as_ref(),
+        )
+        .expect("flatten ok");
+        assert_eq!(rows.len(), 1, "one row per data point for {}", metric.name);
+        assert_eq!(
+            rows[0].trace_id, expected_trace_id,
+            "exemplar trace id must survive into the row for {}",
+            metric.name
+        );
+        assert_eq!(
+            rows[0].span_id, expected_span_id,
+            "exemplar span id must survive into the row for {}",
+            metric.name
+        );
+    }
+}
+
 /// Same as above for summary: required-by-serde fields (sum is non-Option!)
 /// must be defaulted when the client omits them, or the metric silently drops.
 #[test]

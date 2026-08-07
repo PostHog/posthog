@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { buildIntegerMatcher } from '~/common/config/config'
 import { normalizeProcessPerson } from '~/common/utils/event'
 import {
     buildFlagCalledPersonlessMatcher,
@@ -42,14 +43,16 @@ export type ProcessPersonlessOutput = {
  *
  * For personless events, this step:
  * 1. Fetches existing person from cache (populated by prefetchPersonsStep)
- * 2. Checks batch results for is_merged flag (populated by processPersonlessDistinctIdsBatchStep)
+ * 2. Checks batch results for is_merged flag (populated by processPersonlessDistinctIdsChunkStep)
  * 3. Calculates force_upgrade flag
  * 4. Returns person (real or fake) with potential force_upgrade flag
  */
 export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
-    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
+    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+    personlessWritesDisabledTeams: string = ''
 ): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
     const flagCalledDefaultEnabledForTeam = buildFlagCalledPersonlessMatcher(flagCalledPersonlessDefaultTeams)
+    const writesDisabledForTeam = buildIntegerMatcher(personlessWritesDisabledTeams, true)
 
     return async function processPersonlessStep(
         input: TInput
@@ -66,7 +69,11 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
                 return ok(input)
             }
 
-            return await applyFeatureFlagCalledPersonlessDefault(input, input.personsStoreForBatch)
+            return await applyFeatureFlagCalledPersonlessDefault(
+                input,
+                input.personsStoreForBatch,
+                writesDisabledForTeam(input.team.id)
+            )
         }
 
         const { normalizedEvent, team, timestamp, forceDisablePersonProcessing, personsStoreForBatch } = input
@@ -79,10 +86,13 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
         // Check if a real person exists for this distinct_id (from prefetch cache)
         let existingPerson = await personsStoreForBatch.fetchForChecking(team.id, distinctId)
 
-        if (!existingPerson) {
+        if (!existingPerson && !writesDisabledForTeam(team.id)) {
             // Check if batch insert found this distinct_id was merged
-            // The batch step (processPersonlessDistinctIdsBatchStep) already did the INSERT
-            // and stored is_merged=true results in the personsStore cache
+            // The chunk step (processPersonlessDistinctIdsChunkStep) already did the INSERT
+            // and stored is_merged=true results in the personsStore cache.
+            // With personless writes disabled (stop-reading rollout) the hint is skipped: an
+            // event racing a merge stays propertyless and the always-written override
+            // re-points it instead.
             const personIsMerged = personsStoreForBatch.getPersonlessBatchResult(team.id, distinctId)
 
             if (personIsMerged) {
@@ -124,14 +134,15 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
  */
 async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPersonlessInput>(
     input: TInput,
-    personsStore: PersonsStoreForBatch
+    personsStore: PersonsStoreForBatch,
+    personlessWritesDisabled: boolean
 ): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
     const { normalizedEvent, team } = input
     const distinctId = normalizedEvent.distinct_id
 
     let existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
 
-    if (!existingPerson) {
+    if (!existingPerson && !personlessWritesDisabled) {
         let personIsMerged = personsStore.getPersonlessBatchResult(team.id, distinctId)
 
         if (personIsMerged === undefined) {
@@ -142,7 +153,7 @@ async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPer
                 personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit', source: 'flag_called' })
             } else {
                 personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss', source: 'flag_called' })
-                // The batch step (processPersonlessDistinctIdsBatchStep) pre-inserts flag_called
+                // The chunk step (processPersonlessDistinctIdsChunkStep) pre-inserts flag_called
                 // rows when enabled, but it may be disabled or this distinct ID may be first-seen,
                 // so record it here when the LRU shows no prior insert. Without the row, a later
                 // identify/merge would never re-point these events at the merged person.

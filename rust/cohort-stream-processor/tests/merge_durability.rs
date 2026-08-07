@@ -50,7 +50,7 @@ use cohort_stream_processor::store::durability::{
     OffsetManifest, RestoreSource, S3Uploader,
 };
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, Stage1Key, StoreConfig, StoreHandle,
+    BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
     TombstoneKey,
 };
 use cohort_stream_processor::sweep::Sweeper;
@@ -236,6 +236,8 @@ fn producer_kafka_config() -> KafkaConfig {
         kafka_producer_topic_metadata_refresh_interval_ms: None,
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     }
 }
 
@@ -515,14 +517,9 @@ fn stage1_state(
     lsk: LeafStateKey,
     person: Uuid,
 ) -> Option<Stage1State> {
-    let key = Stage1Key {
-        partition_id,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    };
+    let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
     store
-        .get_stage1(&key)
+        .get_behavioral(&key)
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }
@@ -715,6 +712,16 @@ async fn spawn_instance(
             fanout_cap: 1000,
         },
         partition_count: COHORT_PARTITION_COUNT,
+        seed_tile_sink: Arc::new(cohort_stream_processor::producer::CaptureSeedTileSink::new()),
+        seed_tracker: Arc::new(
+            cohort_stream_processor::partitions::offset_tracker::OffsetTracker::new(),
+        ),
+        live_watermarks: Arc::new(
+            cohort_stream_processor::partitions::watermarks::LiveWatermarks::new(),
+        ),
+        register_transfer_enabled: false,
+        reconcile: cohort_stream_processor::workers::ReconcileDeps::default(),
+        person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -808,7 +815,7 @@ async fn spawn_instance(
     tasks.push(tokio::spawn(cascade_follower.process()));
 
     let events_consumer = CohortStreamEventsConsumer::new(
-        events_client,
+        Arc::new(events_client),
         topics.events.clone(),
         dispatcher.clone(),
         events_handle,
@@ -858,7 +865,7 @@ fn commit_follower_offsets_from_manifest(
 }
 
 /// `durable_restore_enabled && cohort_cascade_enabled` requires `durable_restore_single_pod &&
-/// pod_identity().is_some()` to pass `validate_durability_startup`, so those knobs are set too.
+/// pod_identity().is_some()` to pass `validate_startup`, so those knobs are set too.
 #[allow(clippy::too_many_arguments)]
 fn merge_durability_config(
     store_path: &Path,
@@ -921,7 +928,7 @@ fn merge_durability_config(
     }
     let config = Config::init_from_hashmap(&env).expect("build merge-durability config");
     config
-        .validate_durability_startup()
+        .validate_startup()
         .expect("merge-durability config must satisfy the durability startup guard");
     config
 }

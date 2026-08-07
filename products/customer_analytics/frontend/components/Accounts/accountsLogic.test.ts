@@ -10,13 +10,29 @@ import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType, UserType } from '~/types'
 
-import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import {
+    accountRelationshipDefinitionsList,
+    accountsPartialUpdate,
+    accountsRelationshipsCreate,
+    accountsRelationshipsEndCreate,
+    accountsRelationshipsList,
+    customPropertyDefinitionsList,
+} from 'products/customer_analytics/frontend/generated/api'
+import type {
+    AccountApi,
+    AccountRelationshipApi,
+    AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
+    CustomPropertyDisplayTypeEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import {
     ACCOUNTS_HOGQL_DEFAULT_SELECT,
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
+    customPropertyAlias,
+    relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
@@ -26,26 +42,53 @@ import { accountsLogic, savingRoleKey } from './accountsLogic'
 const orderByOf = (source: unknown): AccountsQuery['orderBy'] => (source as AccountsQuery).orderBy
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
-    accountsRetrieve: jest.fn(),
+    // Keep the real module for everything else — connected logics call other generated
+    // functions on mount, and an absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
+    accountRelationshipDefinitionsList: jest.fn(),
+    customPropertyDefinitionsList: jest.fn(),
     accountsPartialUpdate: jest.fn(),
+    accountsRelationshipsCreate: jest.fn(),
+    accountsRelationshipsEndCreate: jest.fn(),
+    accountsRelationshipsList: jest.fn(),
 }))
 
-const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
-const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+const mockDefinitionsList = accountRelationshipDefinitionsList as jest.MockedFunction<
+    typeof accountRelationshipDefinitionsList
+>
+const mockCustomPropertiesList = customPropertyDefinitionsList as jest.MockedFunction<
+    typeof customPropertyDefinitionsList
+>
+const mockRelationshipsCreate = accountsRelationshipsCreate as jest.MockedFunction<typeof accountsRelationshipsCreate>
+const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFunction<
+    typeof accountsRelationshipsEndCreate
+>
+const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
+const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+
+const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
+    { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
+    { id: 'def-ae', name: 'Account executive', description: null, is_single_holder: true },
+    { id: 'def-owner', name: 'Account owner', description: null, is_single_holder: true },
+]
+
+const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): AccountRelationshipApi => ({
+    id: 'rel-1',
+    definition: DEFINITIONS[0],
+    user: { id: 42, email: 'alex@example.com' },
+    started_at: '2026-01-01T00:00:00Z',
+    ended_at: null,
+    ...overrides,
+})
 
 const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     id: 'acc-1',
     name: 'Acme',
-    external_id: 'ext-1',
-    properties: {
-        csm: { id: 1, email: 'csm@example.com' },
-        stripe_customer_id: 'cus_123',
-    },
     tags: [],
     notebooks: [],
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
-    updated_at: '2026-01-01T00:00:00Z',
+    updated_at: null,
     ...overrides,
 })
 
@@ -62,15 +105,23 @@ const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
 describe('accountsLogic', () => {
     let logic: ReturnType<typeof accountsLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         initKeaTests()
         jest.resetAllMocks()
+        // accountsLogic connects to the (localStorage-persisted) shared scene logic;
+        // clear it so a "mine only" write in one test can't leak into the next.
+        localStorage.clear()
+        mockDefinitionsList.mockResolvedValue({ count: DEFINITIONS.length, results: DEFINITIONS })
+        mockCustomPropertiesList.mockResolvedValue({ count: 0, results: [] })
         logic = accountsLogic()
         logic.mount()
+        // Legacy role columns only resolve into the query once definitions load.
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
     })
 
     afterEach(() => {
         logic.unmount()
+        localStorage.clear()
     })
 
     it('starts with empty filters', () => {
@@ -95,6 +146,23 @@ describe('accountsLogic', () => {
         expect(logic.values.searchInput).toBe('acme')
         // Debounced: the query-driving value is not committed synchronously.
         expect(logic.values.searchQuery).toBe('')
+    })
+
+    it('withholds the list and metrics queries until relationship definitions settle', async () => {
+        logic.unmount()
+        let resolveDefinitions: (value: { count: number; results: AccountRelationshipDefinitionApi[] }) => void
+        mockDefinitionsList.mockReturnValue(new Promise((resolve) => (resolveDefinitions = resolve)))
+        logic = accountsLogic()
+        logic.mount()
+
+        expect(logic.values.accountsQuerySource).toBeNull()
+        expect(logic.values.metricsQuery).toBeNull()
+
+        resolveDefinitions!({ count: DEFINITIONS.length, results: DEFINITIONS })
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+
+        expect(logic.values.accountsQuerySource).toEqual(logic.values.hogqlQuery.source)
+        expect(logic.values.metricsQuery).not.toBeNull()
     })
 
     it('keeps the overview tile metrics off the list query so it loads independently', () => {
@@ -204,6 +272,75 @@ describe('accountsLogic', () => {
             expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
             expect(logic.values.assignedToCurrentUser).toBe(true)
         })
+
+        // The "mine only" choice is held in the shared scene logic so it survives a
+        // switch to the Notes tab. These guard the two-way link between the accounts
+        // assigned-to filter and that shared toggle.
+        describe('shared "mine only" toggle', () => {
+            it('toggling "My accounts" writes the shared toggle', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setAssignedToCurrentUser(true)
+                }).toFinishAllListeners()
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setAssignedToCurrentUser(false)
+                }).toFinishAllListeners()
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
+            })
+
+            it('picking explicit assignees clears the shared toggle', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                await expectLogic(logic, () => {
+                    logic.actions.setAssignedToFilter([7])
+                }).toFinishAllListeners()
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
+            })
+
+            it('restores "my accounts" from the shared toggle when the URL has no view hash', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                router.actions.push(urls.customerAnalyticsAccounts())
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+                expect(logic.values.assignedToCurrentUser).toBe(true)
+            })
+
+            it('an explicit shared link still wins over the shared toggle', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([7])
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
+            })
+
+            // Regression: on a fresh load the logic can run URL restore before userLogic
+            // resolves the user (currentUserId null), so the persisted choice can't be applied
+            // then. The user resolving later must apply it, without clearing the preference.
+            it('applies the persisted "my accounts" choice when the user resolves after restore', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                expect(logic.values.assignedToFilter).toEqual([])
+
+                await expectLogic(logic, () => {
+                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+                }).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+            })
+
+            it('the user resolving does not override an explicit assigned-to from the URL', async () => {
+                router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+                }).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([7])
+            })
+        })
     })
 
     describe('sortOrder', () => {
@@ -215,7 +352,6 @@ describe('accountsLogic', () => {
         it('toggleSort on a fresh column starts ascending', () => {
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count'])
         })
 
         it('toggleSort cycles asc -> desc -> null on repeated clicks', () => {
@@ -223,10 +359,8 @@ describe('accountsLogic', () => {
             expect(logic.values.sortOrder?.direction).toBe('asc')
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'desc' })
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count DESC'])
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toBeNull()
-            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
 
         it('toggleSort on a different column resets to ascending', () => {
@@ -234,44 +368,147 @@ describe('accountsLogic', () => {
             logic.actions.toggleSort('notebook_count') // desc
             logic.actions.toggleSort('csm')
             expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2)'])
         })
 
-        it('csm desc produces tupleElement(csm, 2) DESC', () => {
-            logic.actions.toggleSort('csm')
-            logic.actions.toggleSort('csm')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2) DESC'])
+        it('leaves orderBy off while the full list is loaded, for instant client-side sort', () => {
+            expect(logic.values.canSortClientSide).toBe(true)
+            logic.actions.toggleSort('notebook_count')
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+            expect(logic.values.sortedRowsTransformer).toEqual(expect.any(Function))
+            logic.actions.toggleSort('notebook_count') // desc
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
 
-        it('account_executive sort uses the tupleElement expression', () => {
-            logic.actions.toggleSort('account_executive')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_executive, 2)'])
+        it('adds orderBy once the list is paginated, for a global server-side sort', () => {
+            logic.actions.listLoadNextData()
+            expect(logic.values.canSortClientSide).toBe(false)
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count'])
+            logic.actions.toggleSort('notebook_count') // desc
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count DESC'])
         })
 
-        it('account_owner sort uses the tupleElement expression', () => {
-            logic.actions.toggleSort('account_owner')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_owner, 2)'])
-        })
-
-        it('arbitrary column sorts by its alias directly', () => {
+        it('returns to client-side sort after a fresh load re-evaluates pagination', () => {
+            logic.actions.listLoadNextData()
             logic.actions.toggleSort('name')
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name'])
-            logic.actions.toggleSort('name')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name DESC'])
+            logic.actions.listLoadData()
+            expect(logic.values.canSortClientSide).toBe(true)
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+        })
+
+        it('skips the server orderBy when the sorted role column has no matching definition', () => {
+            logic.actions.listLoadNextData()
+            logic.actions.toggleSort('csm')
+            accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+        })
+
+        describe('custom property columns', () => {
+            const PROP_ID = '11111111-2222-3333-4444-555555555555'
+            const alias = customPropertyAlias(PROP_ID)
+            const floatExpr = `toFloatOrNull(accounts.custom_properties.values.\`${PROP_ID}\`)`
+
+            const selectCustomProperty = (displayType: CustomPropertyDisplayTypeEnumApi): void => {
+                const config = accountsColumnConfigLogic.findMounted()!
+                config.actions.loadCustomPropertyDefinitionsSuccess([
+                    {
+                        id: PROP_ID,
+                        name: 'ARR',
+                        display_type: displayType,
+                        is_big_number: false,
+                        description: null,
+                        source: null,
+                    } as CustomPropertyDefinitionApi,
+                ])
+                config.actions.setSelectColumns([
+                    ACCOUNTS_NAME_COLUMN,
+                    `accounts.custom_properties.values.\`${PROP_ID}\` AS ${alias}`,
+                ])
+            }
+
+            // The value is stored in a JSON string column; without the float cast the
+            // backend ORDER BY sorts "55.3" before "5.5" lexically.
+            it.each(['number', 'currency', 'percent'] as const)(
+                'sorts a %s column by its value cast to a float',
+                (displayType) => {
+                    selectCustomProperty(displayType)
+                    logic.actions.listLoadNextData()
+                    logic.actions.toggleSort(alias)
+                    expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([floatExpr])
+                    logic.actions.toggleSort(alias) // desc
+                    expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([`${floatExpr} DESC`])
+                }
+            )
+
+            it('sorts a non-numeric custom property lexically by its alias', () => {
+                selectCustomProperty('text')
+                logic.actions.listLoadNextData()
+                logic.actions.toggleSort(alias)
+                expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([alias])
+            })
         })
     })
 
     describe('selectColumns', () => {
-        it('starts with the default select and includes the mandatory name column', () => {
+        it('defaults to the base columns plus one column per definition, name column included', () => {
             const config = accountsColumnConfigLogic.findMounted()
-            expect(config?.values.selectColumns).toEqual(ACCOUNTS_HOGQL_DEFAULT_SELECT)
+            expect(config?.values.selectColumns).toEqual([
+                ...ACCOUNTS_HOGQL_DEFAULT_SELECT,
+                'csm',
+                'account_executive',
+                'account_owner',
+            ])
             expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
         })
 
-        it('hogqlQuery.source.select equals selectColumns verbatim — no pinned aliases', () => {
-            const config = accountsColumnConfigLogic.findMounted()
+        it('translates legacy role columns through the relationships lazy join in the query select', () => {
             const source = logic.values.hogqlQuery.source as AccountsQuery
-            expect(source.select).toEqual(config?.values.selectColumns)
+            expect(source.select).toEqual([
+                ACCOUNTS_NAME_COLUMN,
+                'accounts.tags.names AS tag_names',
+                'accounts.notebooks.count AS notebook_count',
+                'accounts.relationships.values.`def-csm` AS csm',
+                'accounts.relationships.values.`def-ae` AS account_executive',
+                'accounts.relationships.values.`def-owner` AS account_owner',
+            ])
+        })
+
+        it('drops legacy role columns from the query when no matching definition exists', () => {
+            accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
+            const source = logic.values.hogqlQuery.source as AccountsQuery
+            expect(source.select).toEqual([
+                ACCOUNTS_NAME_COLUMN,
+                'accounts.tags.names AS tag_names',
+                'accounts.notebooks.count AS notebook_count',
+            ])
+            expect(logic.values.visibleColumnNames).toEqual([ACCOUNTS_NAME_COLUMN, 'tag_names', 'notebook_count'])
+        })
+
+        it('materializes pristine defaults into one column per definition once definitions load', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.loadRelationshipDefinitionsSuccess([
+                ...DEFINITIONS,
+                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+            ])
+            expect(config.values.selectColumns).toEqual([
+                ...ACCOUNTS_HOGQL_DEFAULT_SELECT,
+                'csm',
+                'account_executive',
+                'account_owner',
+                `accounts.relationships.values.\`def-os\` AS ${relationshipAlias('def-os')}`,
+            ])
+        })
+
+        it('leaves customized columns alone when definitions load', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            config.actions.loadRelationshipDefinitionsSuccess([
+                ...DEFINITIONS,
+                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+            ])
+            expect(config.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
         })
 
         it('refuses to remove the name column via unselectColumn', () => {
@@ -403,6 +640,34 @@ describe('accountsLogic', () => {
             expect(logic.values.accountIdFilter).toBeNull()
         })
 
+        it('resolves to the account even when the viewer has filters of their own', async () => {
+            logic.actions.setSearchQuery('something else')
+            logic.actions.setAssignedToFilter([99])
+
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const source = logic.values.hogqlQuery.source as AccountsQuery
+            expect(filterExpressionOf(source)).toBe(`(toString(id) = '${ACCOUNT_ID}')`)
+            expect(source.search).toBeUndefined()
+            expect(source.assignedToUserIds).toBeUndefined()
+        })
+
+        it('survives a view-state restore rewriting the URL', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            const deepLinkPath = router.values.location.pathname
+
+            // Landing on a deep link, the saved-view restore and the default-column upgrade both
+            // dispatch the setters that mirror view state into the URL. They must not rewrite the
+            // path, or the link bounces to the unfiltered list before the user sees the account.
+            accountsColumnConfigLogic.findMounted()!.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe(deepLinkPath)
+            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
+        })
+
         it('clears the account filter when returning to the bare list', async () => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
             await expectLogic(logic).toFinishAllListeners()
@@ -415,57 +680,43 @@ describe('accountsLogic', () => {
     })
 
     describe('updateAccountRole', () => {
-        const existingAccount = buildAccount()
-
-        beforeEach(() => {
-            mockAccountsRetrieve.mockResolvedValue(existingAccount)
-        })
-
-        it('PATCHes the merged properties payload with the new assignment', async () => {
+        it('assigns via the relationships API and masks the cell with an override', async () => {
             const user = buildUser()
-            const updated = buildAccount({
-                properties: {
-                    csm: { id: user.id, email: user.email },
-                    stripe_customer_id: 'cus_123',
-                },
-            })
-            mockAccountsPartialUpdate.mockResolvedValue(updated)
+            mockRelationshipsCreate.mockResolvedValue(buildRelationship())
 
             logic.actions.updateAccountRole('acc-1', 'csm', user)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(mockAccountsRetrieve).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1')
-            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
-                properties: {
-                    csm: { id: user.id, email: user.email },
-                    stripe_customer_id: 'cus_123',
-                },
+            expect(mockRelationshipsCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: 'def-csm',
+                user: user.id,
             })
-            expect(logic.values.accountOverrides['acc-1']).toEqual(updated)
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'csm')]).toEqual([user.id])
         })
 
-        it('sends null when clearing an assignment', async () => {
-            mockAccountsPartialUpdate.mockResolvedValue(
-                buildAccount({ properties: { csm: null, stripe_customer_id: 'cus_123' } })
+        it('unassigning ends only the active assignments of that definition', async () => {
+            mockRelationshipsList.mockResolvedValue([
+                buildRelationship({ id: 'rel-csm', definition: DEFINITIONS[0] }),
+                buildRelationship({ id: 'rel-ae', definition: DEFINITIONS[1] }),
+            ])
+            mockRelationshipsEnd.mockResolvedValue(
+                buildRelationship({ id: 'rel-csm', ended_at: '2026-01-02T00:00:00Z' })
             )
 
             logic.actions.updateAccountRole('acc-1', 'csm', null)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
-                properties: {
-                    csm: null,
-                    stripe_customer_id: 'cus_123',
-                },
-            })
+            expect(mockRelationshipsEnd).toHaveBeenCalledTimes(1)
+            expect(mockRelationshipsEnd).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', 'rel-csm')
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'csm')]).toEqual([])
         })
 
         it('flips savingRoles during the in-flight window', async () => {
             const key = savingRoleKey('acc-1', 'account_executive')
-            let resolveUpdate!: (value: AccountApi) => void
-            mockAccountsPartialUpdate.mockReturnValueOnce(
-                new Promise<AccountApi>((resolve) => {
-                    resolveUpdate = resolve
+            let resolveCreate!: (value: AccountRelationshipApi) => void
+            mockRelationshipsCreate.mockReturnValueOnce(
+                new Promise<AccountRelationshipApi>((resolve) => {
+                    resolveCreate = resolve
                 })
             )
 
@@ -474,7 +725,7 @@ describe('accountsLogic', () => {
             expect(logic.values.savingRoles[key]).toBe(true)
             expect(logic.values.isRoleSaving('acc-1', 'account_executive')).toBe(true)
 
-            resolveUpdate(buildAccount())
+            resolveCreate(buildRelationship())
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.savingRoles[key]).toBeUndefined()
@@ -482,19 +733,19 @@ describe('accountsLogic', () => {
         })
 
         it('leaves overrides untouched on failure', async () => {
-            mockAccountsPartialUpdate.mockRejectedValueOnce(new Error('boom'))
+            mockRelationshipsCreate.mockRejectedValueOnce(new Error('boom'))
 
             logic.actions.updateAccountRole('acc-1', 'account_owner', buildUser())
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.accountOverrides['acc-1']).toBeUndefined()
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'account_owner')]).toBeUndefined()
             expect(logic.values.isRoleSaving('acc-1', 'account_owner')).toBe(false)
         })
 
         it('is a no-op while a save for the same role is already in flight', async () => {
-            let resolveFirst!: (value: AccountApi) => void
-            mockAccountsPartialUpdate.mockReturnValueOnce(
-                new Promise<AccountApi>((resolve) => {
+            let resolveFirst!: (value: AccountRelationshipApi) => void
+            mockRelationshipsCreate.mockReturnValueOnce(
+                new Promise<AccountRelationshipApi>((resolve) => {
                     resolveFirst = resolve
                 })
             )
@@ -504,10 +755,48 @@ describe('accountsLogic', () => {
             logic.actions.updateAccountRole('acc-1', 'csm', buildUser({ id: 2, email: 'second@example.com' }))
             await new Promise<void>((r) => setTimeout(r, 0))
 
-            expect(mockAccountsPartialUpdate).toHaveBeenCalledTimes(1)
+            expect(mockRelationshipsCreate).toHaveBeenCalledTimes(1)
 
-            resolveFirst(buildAccount())
+            resolveFirst(buildRelationship())
             await expectLogic(logic).toFinishAllListeners()
+        })
+    })
+
+    describe('updateAccountTags', () => {
+        it('masks the cell optimistically and collapses an editing burst into one PATCH with the final list', async () => {
+            mockPartialUpdate.mockResolvedValue(buildAccount({ tags: ['vip', 'churn-risk'] }))
+
+            logic.actions.updateAccountTags('acc-1', ['vip'])
+            expect(logic.values.tagOverrides['acc-1']).toEqual(['vip'])
+            logic.actions.updateAccountTags('acc-1', ['vip', 'churn-risk'])
+            expect(logic.values.tagOverrides['acc-1']).toEqual(['vip', 'churn-risk'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockPartialUpdate).toHaveBeenCalledTimes(1)
+            expect(mockPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                tags: ['vip', 'churn-risk'],
+            })
+        })
+
+        it('reverts the optimistic override and clears saving on failure', async () => {
+            mockPartialUpdate.mockRejectedValueOnce(new Error('boom'))
+
+            logic.actions.updateAccountTags('acc-1', ['vip'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagOverrides['acc-1']).toBeUndefined()
+            expect(logic.values.isTagsSaving('acc-1')).toBe(false)
+        })
+    })
+
+    describe('addTagToFilter', () => {
+        it('compounds clicked tags into the filter and ignores tags already filtered', async () => {
+            logic.actions.addTagToFilter('vip')
+            logic.actions.addTagToFilter('churn-risk')
+            logic.actions.addTagToFilter('vip')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagsFilter).toEqual(['vip', 'churn-risk'])
         })
     })
 })

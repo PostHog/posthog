@@ -17,7 +17,7 @@ use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
     insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
-    setup_redis_client, TestContext,
+    setup_redis_client, update_team_in_hypercache, TestContext,
 };
 
 pub mod common;
@@ -1741,6 +1741,47 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_minimal_flag_called_events_reaches_v2_but_not_legacy_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user1".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    team.minimal_flag_called_events = true;
+    update_team_in_hypercache(client.clone(), &team).await?;
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // V2 response: the gated team's signal is present and true.
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let v2: FlagsResponse = res.json().await?;
+    assert_eq!(v2.minimal_flag_called_events, Some(true));
+
+    // Legacy response (v=1): LegacyFlagsResponse doesn't carry the field at all, so a
+    // gated team's v1 clients never see the signal and keep sending full events.
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert!(json_data.get("minimalFlagCalledEvents").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
@@ -2183,7 +2224,7 @@ async fn test_config_cache_miss_returns_minimal_fallback() -> Result<()> {
     let json_data = res.json::<Value>().await?;
 
     // Verify minimal fallback config fields are present
-    assert_eq!(json_data.get("token"), Some(&json!(token)));
+    assert!(json_data.get("token").is_none());
     assert_eq!(json_data.get("hasFeatureFlags"), Some(&json!(false))); // no flags configured
     assert_eq!(json_data.get("sessionRecording"), Some(&json!(false)));
     assert_eq!(json_data.get("surveys"), Some(&json!(false)));
@@ -2249,7 +2290,7 @@ async fn test_config_cache_miss_with_recordings_quota_limited() -> Result<()> {
     let json_data = res.json::<Value>().await?;
 
     // Verify fallback config fields are present (cache miss behavior)
-    assert_eq!(json_data.get("token"), Some(&json!(token)));
+    assert!(json_data.get("token").is_none());
     assert_eq!(json_data.get("sessionRecording"), Some(&json!(false)));
 
     // Critical assertion: quota_limited must include "recordings"

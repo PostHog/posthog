@@ -4,9 +4,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { HedgehogShocked } from '@posthog/brand/hoggies'
+import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -15,6 +16,8 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from '../../verifyEmailLogic'
+
+const HedgehogShocked = pngHoggie(shockedPng)
 
 interface SupportButtonsProps {
     disabledReason?: string
@@ -31,7 +34,7 @@ const SupportButtons = ({ disabledReason }: SupportButtonsProps): JSX.Element =>
                 type="primary"
                 disabledReason={disabledReason}
                 onClick={() => {
-                    openSupportForm({ kind: 'bug', target_area: 'login' })
+                    openSupportForm({ kind: 'bug' })
                 }}
             >
                 Contact support

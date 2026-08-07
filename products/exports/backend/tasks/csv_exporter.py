@@ -23,6 +23,7 @@ from rest_framework_csv.renderers import CSVRenderer
 from posthog.schema import QuerySchemaRoot
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.query import LimitContext
 
 from posthog.api.services.query import process_query_dict
@@ -37,6 +38,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
@@ -695,6 +697,23 @@ def export_tabular(
         else:
             team_id = "unknown"
 
-        capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
+        # A revoked creator's access-denied error is a known limitation - report it as an event
+        # rather than surfacing it in error tracking.
+        if isinstance(e, TableAccessDeniedError) and creator_access_revoked(
+            exported_asset.created_by, exported_asset.team
+        ):
+            report_creator_access_revoked(
+                user=exported_asset.created_by,
+                team=exported_asset.team,
+                source="export",
+                error=e,
+                properties={
+                    "exported_asset_id": exported_asset.id,
+                    "insight_id": exported_asset.insight_id,
+                    "dashboard_id": exported_asset.dashboard_id,
+                },
+            )
+        else:
+            capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         raise

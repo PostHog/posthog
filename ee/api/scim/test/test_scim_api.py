@@ -4,6 +4,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -24,7 +25,8 @@ class TestSCIMAPI(APILicensedTest):
             self.organization.available_product_features = features
             self.organization.save()
 
-        # Create organization domain with SCIM enabled
+        # Create organization domain with a linked, SCIM-enabled IdP config (SCIM auth resolves
+        # through the linked config, not the domain's own legacy columns).
         self.domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="example.com",
@@ -32,9 +34,12 @@ class TestSCIMAPI(APILicensedTest):
         )
 
         # Generate SCIM token
-        self.plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
+        token = generate_scim_token()
+        self.plain_token = token.plain
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
+        )
+        self.domain.identity_provider_config = config
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -65,14 +70,17 @@ class TestSCIMAPI(APILicensedTest):
     def test_unverified_domain_is_rejected(self):
         # SCIM can be enabled on a config independently of any domain, so an unverified domain with
         # a SCIM-enabled config must still be rejected — provisioning stays gated behind verification.
-        plain_token, hashed_token = generate_scim_token()
+        token = generate_scim_token()
+        plain_token = token.plain
         unverified = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="unverified.example.com",
             verified_at=None,
         )
-        unverified._scim_enabled = True
-        unverified._scim_bearer_token = hashed_token
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
+        )
+        unverified.identity_provider_config = config
         unverified.save()
         assert unverified.has_scim  # config is SCIM-enabled with a token
 
@@ -266,9 +274,12 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
 
-        self.plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
+        token = generate_scim_token()
+        self.plain_token = token.plain
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
+        )
+        self.domain.identity_provider_config = config
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -503,9 +514,12 @@ class TestSCIMAuditLogging(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
 
-        self.plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
+        token = generate_scim_token()
+        self.plain_token = token.plain
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
+        )
+        self.domain.identity_provider_config = config
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -597,9 +611,12 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
 
-        self.plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
+        token = generate_scim_token()
+        self.plain_token = token.plain
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
+        )
+        self.domain.identity_provider_config = config
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}

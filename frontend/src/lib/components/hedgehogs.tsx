@@ -1,8 +1,9 @@
 // Legacy PostHog hedgehog illustrations.
 //
 // ⚠️ We're migrating away from these hand-rolled hogs to the shared `@posthog/brand`
-// hoggie library — `import { Hedgehog... } from '@posthog/brand/hoggies'`. Do NOT add
-// new usages of anything exported here; reach for a `@posthog/brand` hoggie instead.
+// hoggie library, rendered via its PNG exports — see `pngHoggie` in lib/brand/hoggies.
+// Do NOT add new usages of anything exported here; reach for a `@posthog/brand` hoggie
+// instead.
 // Everything left below is still rendered somewhere, and we'll slowly remove all of
 // them as the remaining usages are migrated over. Tracked by:
 //   - https://github.com/PostHog/posthog.com/issues/17972

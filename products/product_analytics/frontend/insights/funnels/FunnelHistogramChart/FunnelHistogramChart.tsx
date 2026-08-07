@@ -16,7 +16,7 @@ import { buildFunnelHistogramData } from './funnelHistogramTransforms'
 
 const CHART_CONFIG: BarChartConfig = {
     showGrid: true,
-    bars: { cornerRadius: 4 },
+    barCornerRadius: 4,
     yTickFormatter: (value) => humanFriendlyNumber(value),
     // Value labels already show bucket counts; tooltip would just duplicate them.
     tooltip: { enabled: false },

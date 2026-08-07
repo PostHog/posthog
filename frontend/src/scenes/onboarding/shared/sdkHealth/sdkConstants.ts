@@ -4,6 +4,8 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     web: 'Web',
     'posthog-ios': 'iOS',
     'posthog-android': 'Android',
+    'posthog-java': 'Java (legacy)',
+    'posthog-server': 'Java',
     'posthog-node': 'Node.js',
     'posthog-python': 'Python',
     'posthog-php': 'PHP',
@@ -11,6 +13,7 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-go': 'Go',
     'posthog-flutter': 'Flutter',
     'posthog-react-native': 'React Native',
+    'posthog-kmp': 'Kotlin Multiplatform',
     'posthog-dotnet': '.NET',
     'posthog-elixir': 'Elixir',
 }
@@ -27,6 +30,14 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-android': {
         releases: 'https://github.com/PostHog/posthog-android/releases',
         docs: 'https://posthog.com/docs/libraries/android',
+    },
+    'posthog-java': {
+        releases: 'https://github.com/PostHog/posthog-java/releases',
+        docs: 'https://posthog.com/docs/libraries/java',
+    },
+    'posthog-server': {
+        releases: 'https://github.com/PostHog/posthog-android/releases?q=server-v',
+        docs: 'https://posthog.com/docs/libraries/java',
     },
     'posthog-node': {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/node/CHANGELOG.md',
@@ -55,6 +66,10 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-react-native': {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/react-native/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/react-native',
+    },
+    'posthog-kmp': {
+        releases: 'https://github.com/PostHog/posthog-kmp/releases',
+        docs: 'https://github.com/PostHog/posthog-kmp',
     },
     'posthog-dotnet': {
         releases: 'https://github.com/PostHog/posthog-dotnet/releases',

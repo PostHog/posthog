@@ -5,18 +5,39 @@ APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
-APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+# Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
+# budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
+# provider 25m + terminal mark 3m + cleanup 1m = 100m. The 10m headroom covers task-queue scheduling latency
+# between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
+# row is stranded in `running` until the reaper's cutoff below.
+APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
 
-# Pending/running rows older than twice the apply execution timeout are provably orphaned.
-OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2
+# A pending/running row is created inside its workflow, and the workflow cannot outlive its execution timeout
+# (which spans Temporal-level retries), so any such row older than the timeout plus a margin for clock skew
+# and late state writes is provably orphaned.
+OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
 REAP_ORPHANED_OBSERVATIONS_TIMEOUT = dt.timedelta(minutes=3)
+# The reaper heartbeats between phases; a pass that goes quiet this long is stalled, not slow.
+REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
 
 # Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
 # workflow-def module) so the sweep can start it without cross-importing another @wf.defn module.
 PROCESS_VISION_ACTION_WORKFLOW_NAME = "process-vision-action"
 PROCESS_VISION_ACTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+
+# Running runs older than twice the process execution timeout are provably stuck (the final
+# update activity failed or the workflow was terminated without reaching it).
+VISION_ACTION_RUN_STUCK_CUTOFF = PROCESS_VISION_ACTION_EXECUTION_TIMEOUT * 2
+REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE = 500
+REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT = dt.timedelta(minutes=3)
+
+# An inline scanner is minted just before its scans start, so anything still childless well after a
+# scan could have persisted its first observation never had one.
+INLINE_SCANNER_REAP_GRACE = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
+INLINE_SCANNER_REAP_BATCH_SIZE = 500
+INLINE_SCANNER_REAP_TIMEOUT = dt.timedelta(minutes=3)
 
 
 def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
@@ -26,8 +47,15 @@ def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
 
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
-# Children are ABANDONed and don't count against this budget.
-SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+# Children are ABANDONed and don't count against this budget, but activities do: this must cover the
+# prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
+# Overlap SKIP means a slow run absorbs later ticks instead of stacking.
+SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
+
+# The agentic refresh may run several tool rounds and up to two cold summaries. Its in-process budget
+# (_AGENT_BUDGET_BACKGROUND_S) keeps typical runs well under this, so the activity finishes cleanly and
+# a suggestion lands; this cap is the backstop for a hung provider.
+REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -75,8 +103,24 @@ VISION_SIGNALS_SOURCE_TYPE = "scanner_finding"
 
 # Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config
 # (broad filter on a high-volume team) from monopolising the shared rasterizer queue + provider concurrency.
-MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 50
+MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
+# Team-wide ceiling across all of a team's scanners and on-demand triggers, so N scanners can't hold
+# N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
+MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+
+
+def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
+    """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.
+
+    The sweep workflow throttles on this and the count activity records the throttled
+    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
+    inside deterministic workflow code.
+    """
+    return min(
+        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+    )
 
 
 ESTIMATES_WORKFLOW_NAME = "replay-vision-refresh-scanner-estimates"
@@ -101,6 +145,14 @@ REFRESH_SCANNER_ESTIMATE_TIMEOUT = dt.timedelta(seconds=60)
 def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     """Deterministic Temporal workflow id for one (scanner, session) application."""
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
+
+
+EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
+
+
+def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
+    """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
+    return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
 
 
 def replay_vision_distinct_id(team_id: int) -> str:

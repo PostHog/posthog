@@ -9,8 +9,10 @@ import boto3
 import botocore
 import botocore.exceptions
 
+from products.data_warehouse.backend.s3_proxy import boto_proxy_config_kwargs
 
-def get_s3_client():
+
+def get_s3_client(*, endpoint_url: Optional[str] = None):
     # Defaults for localhost dev and test suites
     if settings.USE_LOCAL_SETUP:
         return s3fs.S3FileSystem(
@@ -23,13 +25,28 @@ def get_s3_client():
             skip_instance_cache=True,
         )
 
-    return s3fs.S3FileSystem()
+    # config_kwargs reaches botocore's Config; see s3_proxy for why these clients skip the proxy, and
+    # why a caller-supplied endpoint_url keeps its traffic on it. endpoint_url is only forwarded when
+    # set: fsspec's instance cache keys on the literal kwargs, so passing endpoint_url=None explicitly
+    # would split the shared cached client into a second instance.
+    extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
+    return s3fs.S3FileSystem(config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url), **extra)
 
 
 @contextlib.asynccontextmanager
-async def aget_s3_client():
-    # Defaults for localhost dev and test suites
+async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional[str] = None):
+    # fresh_instance=True bypasses the fsspec instance cache: a new S3FileSystem bound to the current
+    # event loop, closed on context exit. The cached default hands every caller the same instance
+    # regardless of loop, so async_to_sync-driven code (each call runs on a fresh, short-lived loop)
+    # gets an aiobotocore client bound to an already-closed loop ("Event loop is closed") and a
+    # dircache that goes stale whenever delta-rs writes to S3 through its own object store behind
+    # s3fs's back. Reserve it for low-frequency, correctness-critical paths (repartition purge/swap):
+    # every fresh instance pays connection setup + credential resolution, so defaulting it on would
+    # hammer the credential provider from hot paths.
+    uncached = fresh_instance or settings.USE_LOCAL_SETUP
     if settings.USE_LOCAL_SETUP:
+        # Defaults for localhost dev and test suites. skip_instance_cache avoids "Event loop is
+        # closed" errors when the loop changes between test modules.
         s3 = s3fs.S3FileSystem(
             key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
@@ -38,11 +55,32 @@ async def aget_s3_client():
             asynchronous=True,
         )
     else:
-        s3 = s3fs.S3FileSystem(asynchronous=True)
+        # endpoint_url only forwarded when set, so the shared cached client isn't split; see
+        # get_s3_client and s3_proxy for the proxy-bypass reasoning.
+        extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
+        s3 = s3fs.S3FileSystem(
+            asynchronous=True,
+            skip_instance_cache=fresh_instance,
+            config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
+            **extra,
+        )
 
     await s3.set_session()
 
-    yield s3
+    if not uncached:
+        yield s3
+        return
+
+    try:
+        yield s3
+    finally:
+        # Uncached instances aren't finalized by the fsspec registry, so close the aiobotocore client
+        # explicitly (s3fs's set_session docs: "to be closed later with await .close()") to avoid
+        # leaking HTTP connections in long-lived workers. Never close the shared cached instance —
+        # other callers hold references to it.
+        with contextlib.suppress(Exception):
+            if s3._s3 is not None:
+                await s3._s3.close()
 
 
 def get_size_of_folder(path: str) -> float:

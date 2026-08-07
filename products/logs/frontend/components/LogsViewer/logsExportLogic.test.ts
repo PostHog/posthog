@@ -43,6 +43,18 @@ describe('logsExportLogic', () => {
             localStorage.clear()
             initKeaTests()
             jest.clearAllMocks()
+            ;(api.get as jest.Mock).mockResolvedValue({
+                logs_distinct_id_attribute_key: 'posthogDistinctId',
+                logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                logs_session_id_attribute_keys: ['posthogSessionId'],
+            })
+            ;(api.logs.query as jest.Mock).mockResolvedValue({
+                results: [],
+                hasMore: false,
+                nextCursor: null,
+                maxExportableLogs: 10_000,
+            })
+            ;(api.logs.sparkline as jest.Mock).mockResolvedValue([])
 
             viewerLogic = logsViewerLogic({ id: 'test-tab' })
             viewerLogic.mount()

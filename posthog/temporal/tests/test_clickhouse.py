@@ -38,6 +38,12 @@ async def _wait_for_query_status(
     """
     elapsed_time = 0.0
     while elapsed_time < max_wait_time:
+        # Force query_log to materialize before reading (its async flush lags under CI load).
+        # A transient flush failure is a retryable poll miss, so keep it out of the read's error handling.
+        try:
+            await client.execute_query("SYSTEM FLUSH LOGS")
+        except ClickHouseError:
+            pass
         try:
             status = await client.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
             if status == expected_status:
@@ -229,6 +235,31 @@ def test_post_query_disables_http_compression(clickhouse_client):
             "select * from events where event = %(event)s and event != {another}",
             {"event": "index_{something}", "another": "event"},
             "select * from events where event = 'index_{something}' and event != 'event'",
+        ),
+        # a value containing an unbalanced brace used to crash the format pass
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "brace {", "another": "event"},
+            "select * from events where event = 'brace {' and event != 'event'",
+        ),
+        # a JSON string value used to be mangled by the format pass
+        (
+            "select * from events where properties = %(props)s and event != {another}",
+            {"props": '{"a": 1}', "another": "event"},
+            "select * from events where properties = '{\"a\": 1}' and event != 'event'",
+        ),
+        # a value matching another parameter's name must not be substituted again
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "literal {another}", "another": "event"},
+            "select * from events where event = 'literal {another}' and event != 'event'",
+        ),
+        # the INSERT INTO FUNCTION s3(...) shape used by batch exports: intentional escapes
+        # collapse while a value containing '%' and braces survives verbatim
+        (
+            "INSERT INTO FUNCTION s3('bucket/export_{{_partition_id}}.arrow') SELECT %(v)s SETTINGS log_comment={log_comment}",
+            {"v": '100%-{"a": 1}', "log_comment": "comment"},
+            "INSERT INTO FUNCTION s3('bucket/export_{_partition_id}.arrow') SELECT '100%-{\"a\": 1}' SETTINGS log_comment='comment'",
         ),
     ],
 )

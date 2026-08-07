@@ -1,5 +1,6 @@
 import os
 import re
+import inspect
 import dataclasses
 from collections.abc import Callable, Mapping
 from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
@@ -16,10 +17,12 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.logger import get_logger
 
-from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.models.external_table_definitions import (
+    external_tables,
+    get_dlt_mapping_for_external_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -28,29 +31,59 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
+    APPLICATION_FEE_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    CHECKOUT_SESSION_RESOURCE_NAME,
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
+    EARLY_FRAUD_WARNING_RESOURCE_NAME,
+    ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
+    ENTITLEMENTS_FEATURE_RESOURCE_NAME,
+    EVENT_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    PAYMENT_INTENT_RESOURCE_NAME,
+    PAYMENT_LINK_RESOURCE_NAME,
     PAYOUT_RESOURCE_NAME,
+    PLAN_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    PROMOTION_CODE_RESOURCE_NAME,
+    QUOTE_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    REVIEW_RESOURCE_NAME,
+    SETUP_ATTEMPT_RESOURCE_NAME,
+    SETUP_INTENT_RESOURCE_NAME,
+    SHIPPING_RATE_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
+    TAX_ID_RESOURCE_NAME,
+    TAX_RATE_RESOURCE_NAME,
+    TOPUP_RESOURCE_NAME,
+    TRANSFER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
+    DEFAULT_PRIMARY_KEYS,
+    NON_PARTITIONED_ENDPOINTS,
+    PRIMARY_KEYS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
 
@@ -85,6 +118,38 @@ def _is_retryable_connection_reset(error: stripe_lib.APIConnectionError) -> bool
     return isinstance(error.__cause__, requests.exceptions.ChunkedEncodingError)
 
 
+def _trimmed_body_bounds(body: Any) -> Optional[tuple[bytes, int, int]]:
+    """Return ``body`` as bytes plus the indices of its first and last non-whitespace byte, or
+    None when ``body`` isn't str/bytes or is empty/all-whitespace.
+
+    `_should_retry` runs on every successful list page during a sync, so the callers scan the head
+    and tail in place rather than `raw.strip()`-ing a full-body copy; this shares that decode-and-
+    trim step so each shape check differs only in the byte comparison that matters."""
+    if isinstance(body, str):
+        raw: bytes = body.encode("utf-8", "ignore")
+    elif isinstance(body, bytes):
+        raw = body
+    else:
+        return None
+    start = 0
+    end = len(raw) - 1
+    while start <= end and raw[start] in _JSON_WHITESPACE:
+        start += 1
+    while end >= start and raw[end] in _JSON_WHITESPACE:
+        end -= 1
+    if start > end:
+        return None
+    return raw, start, end
+
+
+def _head_mentions_list_object(raw: bytes, start: int) -> bool:
+    """Whether the object's head declares ``"object": "list"``. Matches the specific field, not
+    just the tokens "object" and "list" appearing anywhere — otherwise a single-object response
+    with "list" in a URL or type (e.g. `"type": "list.updated"`) would look like a list read."""
+    head = raw[start : start + 64]
+    return b'"object": "list"' in head or b'"object":"list"' in head
+
+
 def _is_truncated_stripe_list_response(body: Any) -> bool:
     """True when ``body`` is a Stripe ``list`` response cut off before its closing brace.
 
@@ -97,27 +162,38 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
     Scoped to list responses — every bulk read we make is an idempotent ``.list()`` call — so the
     retry never re-issues a non-idempotent webhook write, whose responses are single objects.
     """
-    if isinstance(body, str):
-        raw: bytes = body.encode("utf-8", "ignore")
-    elif isinstance(body, bytes):
-        raw = body
-    else:
+    bounds = _trimmed_body_bounds(body)
+    if bounds is None:
         return False
-    # `_should_retry` runs on every successful list page during a sync, so we scan for the first
-    # and last non-whitespace bytes in place rather than `raw.strip()`-ing a full-body copy.
-    start = 0
-    end = len(raw) - 1
-    while start <= end and raw[start] in _JSON_WHITESPACE:
-        start += 1
-    while end >= start and raw[end] in _JSON_WHITESPACE:
-        end -= 1
-    if start > end or raw[start] != _OPEN_BRACE or raw[end] == _CLOSE_BRACE:
+    raw, start, end = bounds
+    if raw[start] != _OPEN_BRACE or raw[end] == _CLOSE_BRACE:
         return False
-    head = raw[start : start + 64]
-    # Match the specific `"object": "list"` field, not just the tokens "object" and "list"
-    # appearing anywhere in the head — otherwise a truncated single-object response with "list"
-    # in a URL or type (e.g. `"type": "list.updated"`) would be retried as if it were a list read.
-    return b'"object": "list"' in head or b'"object":"list"' in head
+    return _head_mentions_list_object(raw, start)
+
+
+def _is_non_list_stripe_response(body: Any) -> bool:
+    """True when ``body`` is a *complete* JSON object that is not a Stripe ``list``.
+
+    Every bulk read we make is an idempotent ``.list()`` call, whose body is always
+    ``{"object": "list", ...}``. A 2xx whose body parses cleanly but omits that marker is a
+    corrupted/misrouted response (e.g. a proxy returning a different object). Stripe's SDK doesn't
+    validate the shape — it builds a plain ``StripeObject`` and ``auto_paging_iter`` then blows up
+    on the missing ``is_empty`` property (``KeyError: 'is_empty'``) straight out of ``get_rows``,
+    failing the whole import instead of surfacing a retryable error.
+
+    Distinct from ``_is_truncated_stripe_list_response`` (an unclosed list body): here the object
+    is closed, so we require a trailing ``}``. Callers must gate this on GET requests so a
+    single-object write response is never mistaken for a corrupt list read.
+    """
+    bounds = _trimmed_body_bounds(body)
+    if bounds is None:
+        return False
+    raw, start, end = bounds
+    # A complete JSON object opens with `{` and closes with `}`; anything else is a truncation
+    # (handled above) or a non-object body (which fails JSON decode in the SDK, not here).
+    if raw[start] != _OPEN_BRACE or raw[end] != _CLOSE_BRACE:
+        return False
+    return not _head_mentions_list_object(raw, start)
 
 
 class _RateLimitRetryingRequestsClient(RequestsClient):
@@ -129,10 +205,25 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
     limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
     run. We also retry a connection reset that drops the response mid-body (the SDK declines it,
-    see ``_is_retryable_connection_reset``) and a 2xx whose list body was truncated mid-stream —
-    Stripe surfaces the latter as a JSON decode failure (``Invalid response body from API``) only
-    after the SDK's retry loop, too late for it to recover on its own. Our Stripe reads are
+    see ``_is_retryable_connection_reset``), a 2xx whose list body was truncated mid-stream (Stripe
+    surfaces the latter as a JSON decode failure only after the SDK's retry loop), and a 2xx GET
+    whose body parses cleanly but isn't a Stripe list — the SDK builds a plain ``StripeObject`` and
+    ``auto_paging_iter`` then crashes on the missing ``is_empty`` property. Our Stripe reads are
     list/GET calls, so retrying them is idempotent."""
+
+    # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
+    # scope the non-list-body retry to reads, never a single-object write response.
+    _last_request_method: str = ""
+
+    def request(  # type: ignore[override]  # mirrors RequestsClient.request, which already narrows HTTPClient's (str→bytes)
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Mapping[str, str]],
+        post_data: Any = None,
+    ) -> tuple[bytes, int, Mapping[str, str]]:
+        self._last_request_method = (method or "").lower()
+        return super().request(method, url, headers, post_data)
 
     def _should_retry(
         self,
@@ -144,9 +235,10 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
         # The base logic already enforced the retry budget and declined; the cases it leaves on the
-        # table are a 429 (the SDK omits it), a 2xx with a truncated list body (the SDK only fails
-        # on it later, while parsing), and a connection reset that drops the response mid-body —
-        # all safe to retry on our idempotent list/GET calls.
+        # table are a 429 (the SDK omits it), a 2xx with a truncated or non-list body (the SDK only
+        # fails on either later — while parsing, or on `.is_empty` during pagination), and a
+        # connection reset that drops the response mid-body — all safe to retry on our idempotent
+        # list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
         if response is None:
@@ -154,7 +246,13 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         body, status_code, _ = response
         if status_code == 429:
             return True
-        return 200 <= status_code < 300 and _is_truncated_stripe_list_response(body)
+        if not (200 <= status_code < 300):
+            return False
+        if _is_truncated_stripe_list_response(body):
+            return True
+        # A complete but non-list body identifies a corrupt list read only for a GET — a write
+        # (webhook create/update/delete) legitimately returns a single object, so gate on method.
+        return self._last_request_method == "get" and _is_non_list_stripe_response(body)
 
 
 def _tracked_stripe_http_client() -> RequestsClient:
@@ -241,11 +339,69 @@ class StripeNestedResource:
     parent: StripeResource
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Optional builder for request params that depend on fields of the parent object beyond its id
+    # (e.g. the credit balance summary needs the grant's customer as well as the grant id). Merged
+    # over the resource's static params; unset for every resource keyed solely by the parent id.
+    nested_params_from_parent: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
     # Optional predicate over a parent object. When set and it returns False, we skip the nested
     # API call for that parent entirely. Stripe has no top-level list for these nested resources, so
     # the default behaviour fans out one call per parent — most of which return nothing. A cheap
     # signal already present on the parent object lets us avoid the calls that can't yield data.
     parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+
+
+class _SingleObjectList:
+    """Presents one retrieved Stripe object through the ``auto_paging_iter`` interface every other
+    resource in ``_build_resources`` exposes, so a retrieve-only endpoint rides the same fan-out
+    path as the list endpoints instead of needing its own branch in ``get_rows``."""
+
+    def __init__(self, obj: Any) -> None:
+        self._obj = obj
+
+    def auto_paging_iter(self):
+        yield self._obj
+
+
+def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_summary` is a retrieve, not a list: it returns the balance for one
+    customer under a required `filter`. We scope it to a single credit grant so each row is the
+    current balance of a grant we already sync."""
+
+    def _retrieve(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        summary = client.billing.credit_balance_summary.retrieve(
+            params={
+                "customer": params["customer"],
+                "filter": {"type": "credit_grant", "credit_grant": credit_grant},
+            }
+        )
+        return cast(ListObject[Any], _SingleObjectList(summary))
+
+    return _retrieve
+
+
+def _credit_grant_customer_params(credit_grant: dict[str, Any]) -> dict[str, Any]:
+    return {"customer": credit_grant.get("customer")}
+
+
+def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_transactions` requires a `customer` filter — like credit balance
+    summary, it has no unscoped list. Scope it to a single credit grant (also filtering on
+    `credit_grant` so a customer with several grants doesn't return the same transaction once per
+    grant) so each row is a transaction against a grant we already sync."""
+
+    def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        return client.billing.credit_balance_transactions.list(
+            params=cast(Any, {**params, "credit_grant": credit_grant})
+        )
+
+    return _list
+
+
+def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
+    """Credit grants issued to an Account rather than a Customer carry `customer_account` instead of
+    `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
+    rest rather than sending a request Stripe would reject."""
+    return bool(credit_grant.get("customer"))
 
 
 def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
@@ -269,6 +425,28 @@ class StripeResumeConfig:
     starting_after: str
 
 
+def _scrub_client_secrets(obj: Any) -> Any:
+    """Recursively strip Stripe ``client_secret`` values before an object is persisted to a warehouse table.
+
+    PaymentIntent, SetupIntent, and embedded/custom Checkout Session objects carry a ``client_secret``
+    that authorizes Stripe's client-side API to retrieve or confirm that specific payment or setup flow.
+    Stripe requires it never be stored, logged, or exposed to anyone but the customer it belongs to, so
+    persisting it into a queryable table would let anyone with warehouse access act on another customer's
+    flow. Event objects embed full copies of these resources under ``data.object`` and
+    ``data.previous_attributes``, so the walk descends into every nested mapping and list rather than only
+    checking the top level.
+
+    Returns scrubbed plain ``dict``/``list`` structures (scalars pass through unchanged). ``StripeObject``
+    is a ``dict`` subclass, so nested SDK objects flatten into plain dicts, which the batcher already
+    serializes the same way it handles the nested-resource dicts.
+    """
+    if isinstance(obj, Mapping):
+        return {key: _scrub_client_secrets(value) for key, value in obj.items() if key != "client_secret"}
+    if isinstance(obj, list):
+        return [_scrub_client_secrets(value) for value in obj]
+    return obj
+
+
 def _batch_and_yield(
     objects: Any,
     batcher: Batcher,
@@ -282,7 +460,7 @@ def _batch_and_yield(
         if stop_at_or_before is not None and incremental_field_name is not None:
             if obj[incremental_field_name] <= stop_at_or_before:
                 break
-        batcher.batch(obj)
+        batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
 
@@ -352,6 +530,74 @@ def _build_resources(
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
         ),
+        PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.payment_intents.list),
+        CHECKOUT_SESSION_RESOURCE_NAME: StripeResource(method=client.checkout.sessions.list),
+        SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: StripeResource(method=client.subscription_schedules.list),
+        PROMOTION_CODE_RESOURCE_NAME: StripeResource(method=client.promotion_codes.list),
+        # Tiers are only returned when expanded, same as Price. Key must be "expand[]" for a single
+        # string value (see the Subscription note above for the list-valued form).
+        PLAN_RESOURCE_NAME: StripeResource(method=client.plans.list, params={"expand[]": "data.tiers"}),
+        TAX_RATE_RESOURCE_NAME: StripeResource(method=client.tax_rates.list),
+        # `/v1/tax_ids` without an `owner` filter lists the account's own tax IDs. Customer-owned tax
+        # IDs live under the customer and are not part of this list.
+        TAX_ID_RESOURCE_NAME: StripeResource(method=client.tax_ids.list),
+        QUOTE_RESOURCE_NAME: StripeResource(method=client.quotes.list),
+        EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
+        BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
+        BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
+        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_transaction_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
+        ),
+        ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
+        INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),
+        SETUP_INTENT_RESOURCE_NAME: StripeResource(method=client.setup_intents.list),
+        PAYMENT_LINK_RESOURCE_NAME: StripeResource(method=client.payment_links.list),
+        TRANSFER_RESOURCE_NAME: StripeResource(method=client.transfers.list),
+        APPLICATION_FEE_RESOURCE_NAME: StripeResource(method=client.application_fees.list),
+        TOPUP_RESOURCE_NAME: StripeResource(method=client.topups.list),
+        REVIEW_RESOURCE_NAME: StripeResource(method=client.reviews.list),
+        EARLY_FRAUD_WARNING_RESOURCE_NAME: StripeResource(method=client.radar.early_fraud_warnings.list),
+        SHIPPING_RATE_RESOURCE_NAME: StripeResource(method=client.shipping_rates.list),
+        # `/v1/subscription_items` requires a `subscription`, so it fans out over subscriptions. The
+        # parent list skips the discount expansions the Subscription table uses — we only need ids.
+        SUBSCRIPTION_ITEM_RESOURCE_NAME: StripeNestedResource(
+            method=client.subscription_items.list,
+            nested_parent_param="subscription",
+            parent_id="id",
+            parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            parent_name=SUBSCRIPTION_RESOURCE_NAME,
+        ),
+        # `/v1/entitlements/active_entitlements` requires a `customer`.
+        ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME: StripeNestedResource(
+            method=client.entitlements.active_entitlements.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_summary_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
+        ),
+        # `/v1/setup_attempts` requires a `setup_intent`.
+        SETUP_ATTEMPT_RESOURCE_NAME: StripeNestedResource(
+            method=client.setup_attempts.list,
+            nested_parent_param="setup_intent",
+            parent_id="id",
+            parent=StripeResource(method=client.setup_intents.list),
+            parent_name=SETUP_INTENT_RESOURCE_NAME,
+        ),
     }
 
 
@@ -363,12 +609,13 @@ def get_rows(
     db_incremental_field_earliest_value: Optional[Any],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
 ):
     client = StripeClient(
         api_key,
         stripe_account=account_id,
-        stripe_version="2024-09-30.acacia",
+        stripe_version=api_version,
         max_network_retries=2,
         base_addresses=_stripe_base_addresses(),
         http_client=_tracked_stripe_http_client(),
@@ -415,6 +662,11 @@ def get_rows(
                 resource.parent.method,
                 params={**default_params, **resource.parent.params, **resume_params},
             )
+            # Path-scoped services (e.g. customers.payment_methods.list) take the parent id as a
+            # method keyword, while flat services with a required filter (e.g.
+            # entitlements.active_entitlements.list) accept it only inside `params`. Route by the
+            # method's actual signature so both shapes get the parent id where Stripe expects it.
+            parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
             for obj in stripe_parent_objects.auto_paging_iter():
                 parent_obj_id = obj[resource.parent_id]
@@ -423,18 +675,27 @@ def get_rows(
                 if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
                     skipped_parents += 1
                     continue
+                parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
+                nested_params = {**default_params, **resource.params, **parent_params}
+                nested_kwargs: dict[str, Any] = {}
+                if parent_param_is_kwarg:
+                    nested_kwargs[resource.nested_parent_param] = parent_obj_id
+                else:
+                    nested_params[resource.nested_parent_param] = parent_obj_id
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
-                        **{resource.nested_parent_param: parent_obj_id},
-                        params={**default_params, **resource.params},
+                        params=nested_params,
+                        **nested_kwargs,
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
                         batcher.batch(
-                            {
-                                **nested_obj,
-                                **{resource.nested_parent_param: parent_obj_id},
-                            }
+                            _scrub_client_secrets(
+                                {
+                                    **nested_obj,
+                                    **{resource.nested_parent_param: parent_obj_id},
+                                }
+                            )
                         )
 
                         # A single batch can split into several ready chunks, so drain them all
@@ -462,7 +723,7 @@ def get_rows(
                 resource.method, params={**default_params, **resource.params, **resume_params}
             )
             for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(obj)
+                batcher.batch(_scrub_client_secrets(obj))
 
                 while batcher.should_yield():
                     py_table = batcher.get_table()
@@ -541,7 +802,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         if existing is None or ts > existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
-    rows = [obj for _, obj in best_by_id.values()]
+    rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
 
 
@@ -554,16 +815,24 @@ def stripe_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     webhook_source_manager: WebhookSourceManager,
+    api_version: str,
     should_use_incremental_field: bool = False,
 ):
-    column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
+    # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
+    # pipeline infer their columns from the rows Stripe returns.
+    table_name = f"stripe_{endpoint.lower()}"
+    column_mapping = get_dlt_mapping_for_external_table(table_name) if table_name in external_tables else {}
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
     incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
-    webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
+    # Webhook-only endpoints (e.g. Discount) have no list endpoint to poll, so the webhook is the
+    # sole source of truth: activate webhook mode from the first sync and skip the reset wipe on
+    # re-enable — a poll could never rebuild the table.
+    webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
+    webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
 
     def items():
         if webhook_enabled:
@@ -578,20 +847,26 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         )
+
+    # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
+    # datetime partitioner would KeyError looking for the fallback `created` field.
+    partitioned = endpoint not in NON_PARTITIONED_ENDPOINTS
 
     return SourceResponse(
         items=items,
-        primary_keys=["id"],
+        primary_keys=PRIMARY_KEYS.get(endpoint, DEFAULT_PRIMARY_KEYS),
         name=endpoint,
         column_hints=column_hints,
+        webhook_only=webhook_only,
         # Stripe data is returned in descending timestamp order
         sort_mode="desc",
-        partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
-        partition_mode="datetime",
-        partition_format="week",
-        partition_keys=[incremental_field_name],
+        partition_count=1 if partitioned else None,  # this enables partitioning
+        partition_size=1 if partitioned else None,  # this enables partitioning
+        partition_mode="datetime" if partitioned else None,
+        partition_format="week" if partitioned else None,
+        partition_keys=[incremental_field_name] if partitioned else None,
     )
 
 
@@ -612,11 +887,24 @@ class StripeAuthenticationError(Exception):
         super().__init__(stripe_message)
 
 
+class StripeTransientError(Exception):
+    """Raised when a credential probe fails because Stripe itself was unavailable (a 5xx APIError,
+    a connection failure, or a rate limit) rather than because the credentials are wrong. The key
+    may be perfectly valid, so callers surface a retry hint instead of Stripe's internal error text
+    (e.g. "Error while communicating with one of our backends")."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
 class StripeValidationError(Exception):
-    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
-    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
-    decide whether to surface the verbose underlying message — permission errors are
-    self-explanatory from the resource name, but unknown errors need the raw detail."""
+    """Raised when one or more resources failed with a non-403, non-transient exception (e.g. an
+    unexpected response or schema error) during credential validation. Transient Stripe-side
+    failures (5xx, connection, rate limit) raise StripeTransientError instead. Distinct from
+    StripePermissionError so callers can decide whether to surface the verbose underlying message —
+    permission errors are self-explanatory from the resource name, but unknown errors need the raw
+    detail."""
 
     def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
         self.errors = errors
@@ -652,6 +940,11 @@ def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
     except stripe_lib.PermissionError as e:
         raw = getattr(e, "user_message", None) or str(e)
         return _clean_stripe_error_message(raw), None
+    except (stripe_lib.APIError, stripe_lib.APIConnectionError, stripe_lib.RateLimitError) as e:
+        # Stripe was unreachable or returned a 5xx/rate-limit — transient and unrelated to the
+        # credentials. Fail fast with a distinct error so the caller can tell the user to retry
+        # rather than reporting Stripe's internal text as a validation failure.
+        raise StripeTransientError(_clean_stripe_error_message(str(e))) from e
     except Exception as e:
         return None, _clean_stripe_error_message(str(e))
 
@@ -740,7 +1033,13 @@ def check_endpoint_permissions(
             continue
 
         _, probe_resource = _resolve_to_flat(name, all_resources)
-        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        try:
+            permission_msg, error_msg = _probe_endpoint(probe_resource)
+        except StripeTransientError as e:
+            # A transient Stripe outage isn't a per-endpoint verdict, but this function must return
+            # the full picture rather than raise (401 aside), so record it as this endpoint's reason.
+            results[name] = e.stripe_message
+            continue
         results[name] = permission_msg or error_msg
 
     return results
@@ -776,7 +1075,12 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     filtered_events = _all_known_webhook_events()
@@ -831,6 +1135,11 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            if auth_method == "oauth":
+                return WebhookCreationResult(
+                    success=False,
+                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                )
             return WebhookCreationResult(
                 success=False,
                 error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",

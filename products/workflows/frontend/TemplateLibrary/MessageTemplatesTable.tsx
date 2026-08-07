@@ -3,9 +3,10 @@ import './MessageTemplatesGrid.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { HedgehogReadingIsMagic } from '@posthog/brand/hoggies'
+import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconTrash } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -17,6 +18,8 @@ import { urls } from 'scenes/urls'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
+
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)

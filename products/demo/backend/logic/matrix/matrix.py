@@ -286,6 +286,22 @@ class Matrix(ABC):
             cluster.simulate()
         self.is_complete = True
 
+    def demo_data_warehouse_tables_need_saving(self, source_team_id: int) -> bool:
+        """Whether the demo data warehouse source files still need to be produced from a completed simulation.
+
+        Products with demo warehouse tables persist them once (keyed by ``source_team_id``) and let every
+        pre-saved project reference that same data, so the expensive simulation doesn't run per signup.
+        """
+        return False
+
+    def save_demo_data_warehouse_tables(self, source_team: Team) -> None:  # noqa: B027 — optional no-op hook, not abstract
+        """Persist the demo data warehouse source files, derived from the in-memory simulation."""
+
+    def register_demo_data_warehouse_tables(  # noqa: B027 — optional no-op hook, not abstract
+        self, team: Team, user: User, source_team_id: int
+    ) -> None:
+        """Register per-project warehouse tables pointing at ``source_team_id``'s source files (no simulation needed)."""
+
     def _update_group(self, group_type: str, group_key: str, set_properties: dict[str, Any]):
         if len(self.groups) == GROUP_TYPES_LIMIT and group_type not in self.groups:
             raise Exception(f"Cannot add group type {group_type} to simulation, limit of {GROUP_TYPES_LIMIT} reached!")

@@ -1,5 +1,4 @@
-import { renderHook, type RenderHookResult } from '@testing-library/react'
-import { act } from 'react'
+import { act, renderHook, type RenderHookResult } from '@testing-library/react'
 
 import { dimensions } from '../../testing'
 import type { ChartScales } from '../types'
@@ -70,6 +69,20 @@ function simulateMouseMove(
     handlers.onMouseMove(mockEvent)
 }
 
+function simulateClick(handlers: { onClick: (e: React.MouseEvent<HTMLDivElement>) => void }, target: Element): void {
+    handlers.onClick({ target } as unknown as React.MouseEvent<HTMLDivElement>)
+}
+
+/** An element inside a (simulated) portaled tooltip — carries the marker the guards check. */
+function makeTooltipChild(): { child: Element; cleanup: () => void } {
+    const tooltipEl = document.createElement('div')
+    tooltipEl.setAttribute('data-hog-charts-tooltip', '')
+    const child = document.createElement('span')
+    tooltipEl.appendChild(child)
+    document.body.appendChild(tooltipEl)
+    return { child, cleanup: () => document.body.removeChild(tooltipEl) }
+}
+
 describe('useChartInteraction — tooltip pinning', () => {
     let refs: ReturnType<typeof makeRefs>
 
@@ -116,7 +129,7 @@ describe('useChartInteraction — tooltip pinning', () => {
 
         // Click to pin
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     }
@@ -180,10 +193,10 @@ describe('useChartInteraction — tooltip pinning', () => {
             },
         ],
         [
-            'click outside',
+            'pointer-down outside',
             () => {
                 jest.runAllTimers()
-                document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+                document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
             },
         ],
     ])('clears pinned tooltip on %s', (_name, trigger) => {
@@ -263,10 +276,69 @@ describe('useChartInteraction — tooltip pinning', () => {
         hoverAndPin(result)
 
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
 
         expect(result.current.tooltipCtx).toBeNull()
+    })
+
+    it('keeps pinned tooltip when a click originates inside the portaled tooltip', () => {
+        // React portals bubble synthetic events through the React tree, so a click inside
+        // the tooltip reaches the wrapper's onClick — it must not unpin.
+        const { result } = renderInteraction()
+        hoverAndPin(result)
+
+        const { child, cleanup } = makeTooltipChild()
+        act(() => {
+            simulateClick(result.current.handlers, child)
+        })
+
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        cleanup()
+    })
+
+    it('does not start a zoom drag from a press inside the portaled tooltip', () => {
+        const onDateRangeZoom = jest.fn()
+        const { result } = renderHook(() =>
+            useChartInteraction({
+                scales,
+                dimensions,
+                labels,
+                series,
+                canvasRef: refs.canvasRef,
+                wrapperRef: refs.wrapperRef,
+                showTooltip: true,
+                pinnable: true,
+                resolveValue: (s, i) => s.data[i],
+                onDateRangeZoom,
+            })
+        )
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+        act(() => {
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
+        })
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+
+        // A text-selection drag starting inside the tooltip bubbles mousedown + mousemove to
+        // the wrapper; without the guard the drag activates and clears the pin mid-copy.
+        const { child, cleanup } = makeTooltipChild()
+        act(() => {
+            result.current.handlers.onMouseDown!({
+                target: child,
+                currentTarget: refs.wrapperRef.current!,
+                clientX: 200,
+                clientY: 100,
+                button: 0,
+            } as unknown as React.MouseEvent<HTMLDivElement>)
+        })
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 320, 100)
+        })
+
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        cleanup()
     })
 
     it('hover context does not have onUnpin', () => {
@@ -299,7 +371,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 200, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
 
         expect(onPointClick).not.toHaveBeenCalled()
@@ -320,7 +392,7 @@ describe('useChartInteraction — tooltip pinning', () => {
                 simulateMouseMove(result.current.handlers, refs, 200, cursorY)
             })
             act(() => {
-                result.current.handlers.onClick()
+                simulateClick(result.current.handlers, refs.wrapperRef.current!)
             })
 
             expect(onPointClick).toHaveBeenCalledTimes(1)
@@ -350,7 +422,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 200, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
         const initialIndex = result.current.tooltipCtx!.dataIndex
@@ -390,7 +462,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 200, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
         const initialCtx = result.current.tooltipCtx
@@ -425,7 +497,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 300, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
 

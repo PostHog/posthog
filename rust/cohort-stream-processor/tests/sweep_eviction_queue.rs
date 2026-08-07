@@ -1,7 +1,7 @@
-//! `EvictionQueue` driven against the real `Stage1Key` over a simulated day of events, through the
+//! `EvictionQueue` driven against the real `BehavioralKey` over a simulated day of events, through the
 //! crate's public sweep API (no Kafka, no clock — synthetic `now` stepped by hand).
 //!
-//! The deterministic oracle is the whole point: an independent `HashMap<Stage1Key, deadline>` of each
+//! The deterministic oracle is the whole point: an independent `HashMap<BehavioralKey, deadline>` of each
 //! key's *live* (post-reschedule) deadline. Stepping a fake `now` in 30 s increments and draining
 //! `pop_due(now − margin)` each step, we assert every key evicts **exactly once**, at the **first**
 //! step where `live_deadline + safety_margin < now`, never earlier, with the queue length equal to
@@ -9,7 +9,8 @@
 
 use std::collections::HashMap;
 
-use cohort_stream_processor::stage1::key::{LeafStateKey, Stage1Key};
+use cohort_stream_processor::stage1::key::LeafStateKey;
+use cohort_stream_processor::store::BehavioralKey;
 use cohort_stream_processor::sweep::{due_before_ms, EvictionQueue};
 use uuid::Uuid;
 
@@ -18,24 +19,24 @@ const DAY_MS: i64 = 86_400_000;
 const STEP_MS: i64 = 30_000; // the 30 s sweep cadence
 const MARGIN_MS: i64 = 300_000; // the 5 min safety margin
 
-/// A distinct `Stage1Key` per index. `person_id` alone guarantees distinctness; `team`, `partition`,
+/// A distinct `BehavioralKey` per index. `person_id` alone guarantees distinctness; `team`, `partition`,
 /// and `leaf_state_key` are varied too so the simulation looks like real `(team, leaf, person)` keys.
-fn key(i: usize) -> Stage1Key {
-    Stage1Key {
-        partition_id: (i % 64) as u16,
-        team_id: (i % 5) as u64 + 1,
-        leaf_state_key: LeafStateKey((i as u128).to_le_bytes()),
-        person_id: Uuid::from_u128(0x00C0_FFEE_0000_0000_u128 + i as u128),
-    }
+fn key(i: usize) -> BehavioralKey {
+    BehavioralKey::new(
+        (i % 64) as u16,
+        (i % 5) as u64 + 1,
+        Uuid::from_u128(0x00C0_FFEE_0000_0000_u128 + i as u128),
+        LeafStateKey((i as u128).to_le_bytes()),
+    )
 }
 
 #[test]
 fn one_day_of_events_evicts_each_key_once_at_its_deadline() {
     const N: usize = 300;
 
-    let mut queue: EvictionQueue<Stage1Key> = EvictionQueue::new();
+    let mut queue: EvictionQueue<BehavioralKey> = EvictionQueue::new();
     // The independent oracle: each key's *final* deadline after all reschedules.
-    let mut oracle: HashMap<Stage1Key, i64> = HashMap::new();
+    let mut oracle: HashMap<BehavioralKey, i64> = HashMap::new();
 
     // Pass 1 — initial deadlines spread evenly across the 24 h window, all at least `MARGIN_MS` past
     // `BASE_MS` so nothing is due at the first step.
@@ -70,7 +71,7 @@ fn one_day_of_events_evicts_each_key_once_at_its_deadline() {
     );
 
     // Step `now` forward in 30 s increments, draining everything due at each step.
-    let mut evicted: HashMap<Stage1Key, i64> = HashMap::new();
+    let mut evicted: HashMap<BehavioralKey, i64> = HashMap::new();
     let mut now = BASE_MS;
     let mut prev_due_before = i64::MIN; // the previous step's cutoff; -inf before the first step
     let mut steps = 0;
@@ -125,7 +126,7 @@ fn one_day_of_events_evicts_each_key_once_at_its_deadline() {
 
 #[test]
 fn cancelled_keys_never_evict() {
-    let mut queue: EvictionQueue<Stage1Key> = EvictionQueue::new();
+    let mut queue: EvictionQueue<BehavioralKey> = EvictionQueue::new();
     let deadline = BASE_MS + MARGIN_MS;
     for i in 0..10 {
         queue.schedule(key(i), deadline);

@@ -1,6 +1,6 @@
-import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
+import '../Nodes/NotebookNodeSQLV2'
 import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
@@ -20,10 +20,10 @@ import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
 import '../Nodes/NotebookNodePython'
+import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
 import '../Nodes/NotebookNodeRelatedGroups'
-import '../Nodes/NotebookNodeReplayTimestamp'
 import '../Nodes/NotebookNodeSupportTickets'
 import '../Nodes/NotebookNodeSurvey'
 import '../Nodes/NotebookNodeTaskCreate'
@@ -31,13 +31,27 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import clsx from 'clsx'
-import { BindLogic, useMountedLogic } from 'kea'
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
+import {
+    type CSSProperties,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+} from 'react'
 
-import { IconComment } from '@posthog/icons'
-import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { IconComment, IconImage } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
-import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
+import {
+    COMMON_INSERT_COMMAND_CATEGORY,
+    QUERY_SQL_INSERT_COMMAND_KEY,
+    createMarkdownNotebookRegistry,
+} from 'lib/components/MarkdownNotebook'
+import { NotebookComponentToolbarExtrasContext } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
@@ -49,6 +63,13 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -102,8 +123,10 @@ const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<st
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
     Query: NotebookNodeType.Query,
     Python: NotebookNodeType.Python,
+    PythonV2: NotebookNodeType.PythonV2,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
+    SQLV2: NotebookNodeType.SQLV2,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -142,9 +165,42 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
+    // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
+    // are always the revamped PythonV2 below, so it has no insertCommand.
     { tagName: 'Python', category: 'Code' },
+    // The revamped (sandbox-kernel) Python cell; insertion gated like SQLV2 in
+    // getMarkdownRegistryForFeatureFlags.
+    {
+        tagName: 'PythonV2',
+        category: 'Code',
+        label: 'Python',
+        insertCommand: {
+            aliases: ['python', 'py'],
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2), nodeId: uuid() }),
+        },
+    },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
+    // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
+    // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
+    {
+        tagName: 'SQLV2',
+        category: 'SQL',
+        // The single SQL node once the legacy SQL cells are deprecated (they render but
+        // are not insertable), so it reads as plain "SQL" in the insert menu.
+        label: 'SQL',
+        insertCommand: {
+            // Sits in the menu's top group, where the built-in SQL command it replaces used to be,
+            // so SQL stays where people already reach for it. Only the menu grouping moves; the
+            // definition's category still drives the node's SQL styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            aliases: ['data', 'sql'],
+            // New cells get a durable nodeId up front: parsed markdown block ids are content
+            // fingerprints, so without a persisted id every prop change (running the cell
+            // writes runId/result) would orphan the cell's run history and cross-cell refs.
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -193,6 +249,9 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
+            // Nodes with a Settings panel keep their filters toggle on read-only canvases
+            // (customer profiles), where the panel is the only way to configure them.
+            viewModeFilters: !!options?.Settings,
             insertCommand: definition.insertCommand,
             getTitle: (node: NotebookComponentBlockNode) =>
                 getMarkdownNotebookNodeTitle(node, nodeType, options, label),
@@ -221,6 +280,39 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
                 : (getUnknownStringProp(node.props.text) ?? 'Comment'),
     },
 ])
+
+// Node tags that only appear in the markdown insert menu when their feature flag is on.
+// Only insertion is gated — rendering of already-inserted nodes is never gated.
+export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
+    const hiddenTags: string[] = []
+    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
+        hiddenTags.push('SQLV2', 'PythonV2')
+    }
+
+    if (hiddenTags.length === 0) {
+        return NOTEBOOK_MARKDOWN_REGISTRY
+    }
+
+    // Dropping insertCommand hides the node from the insert menu (it filters falsy
+    // insertCommand), while the ViewComponent stays so existing nodes still render.
+    const components = { ...NOTEBOOK_MARKDOWN_REGISTRY.components }
+    for (const tagName of hiddenTags) {
+        const definition = components[tagName]
+        if (definition) {
+            components[tagName] = { ...definition, insertCommand: undefined }
+        }
+    }
+    return { components }
+}
+
+// The editor's built-in insert commands live outside the registry, so hiding a node's tag is not
+// enough to keep it out of the menu: a built-in that inserts the same tag has to be dropped by key.
+export function getHiddenInsertCommandKeysForFeatureFlags(featureFlags: FeatureFlagsSet): string[] {
+    // The built-in SQL command inserts a legacy `<Query>` HogQL cell, which SQLV2 replaces: it runs
+    // through the sandbox, names a dataframe other cells can reference, and keeps run history.
+    // Offering both would put two entries labeled "SQL" in the menu.
+    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? [QUERY_SQL_INSERT_COMMAND_KEY] : []
+}
 
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,
@@ -252,6 +344,8 @@ export function getMarkdownNotebookNodeTitle(
     }
     if (
         nodeType === NotebookNodeType.Python ||
+        nodeType === NotebookNodeType.PythonV2 ||
+        nodeType === NotebookNodeType.SQLV2 ||
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
@@ -476,6 +570,27 @@ export function MountedRealNotebookNodeComponent({
     )
 
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
+    const {
+        actions: nodeActions,
+        customMenuItems: nodeMenuItems,
+        settingsDisabledReason: nodeSettingsDisabledReason,
+    } = useValues(nodeLogic)
+    const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+
+    // The settings-panel instance (editOnly) shares the shell with the content instance;
+    // only the latter publishes, so a hidden panel doesn't clear the other's extras.
+    // No unmount cleanup on purpose: collapsing the node unmounts the component, and the
+    // toolbar menu must survive the collapse. The shell drops the state when IT unmounts.
+    useEffect(() => {
+        if (editOnly || !setToolbarExtras) {
+            return
+        }
+        setToolbarExtras({
+            actions: nodeActions,
+            menuItems: nodeMenuItems,
+            filtersDisabledReason: nodeSettingsDisabledReason,
+        })
+    }, [editOnly, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, setToolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings
@@ -552,7 +667,15 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
+                <div
+                    className={clsx(
+                        'MarkdownNotebook__real-node',
+                        // The settings-only (filters panel) instance sizes to its content — the
+                        // 8rem min-height is for node output, not a one-row filter bar.
+                        editOnly && 'MarkdownNotebook__real-node--settings-only'
+                    )}
+                    style={nodeStyle}
+                >
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />
@@ -587,9 +710,41 @@ export function MountedRealNotebookNodeComponent({
 export function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
     const src = typeof node.props.src === 'string' ? node.props.src : ''
     const alt = typeof node.props.alt === 'string' ? node.props.alt : ''
+    const formRef = useRef<HTMLDivElement | null>(null)
+    const { objectStorageAvailable } = useValues(preflightLogic)
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url, fileName) => {
+            updateProps({ src: url, ...(alt ? {} : { alt: fileName }) })
+            posthog.capture('notebook image uploaded', { name: fileName })
+        },
+        onError: (detail) => {
+            posthog.capture('notebook image upload failed', { error: detail })
+            lemonToast.error(`Error uploading image: ${detail}`)
+        },
+    })
 
     return (
-        <div className="MarkdownNotebook__component-form">
+        <div className="MarkdownNotebook__component-form" ref={formRef}>
+            <LemonFileInput
+                accept="image/*"
+                multiple={false}
+                value={filesToUpload}
+                onChange={setFilesToUpload}
+                loading={uploading}
+                showUploadedFiles={false}
+                alternativeDropTargetRef={formRef}
+                callToAction={
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={uploading ? <Spinner className="text-lg" textColored /> : <IconImage />}
+                        disabledReason={objectStorageAvailable ? undefined : 'Enable object storage to upload images'}
+                        tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload an image' : null}
+                    >
+                        Upload image
+                    </LemonButton>
+                }
+            />
             <LemonInput
                 value={src}
                 onChange={(value) => updateProps({ src: value })}
@@ -729,7 +884,7 @@ export function getSerializableAttributeInputValue(
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Normalize before validating, mirroring the legacy notebook flow(via useSyncedAttributes).
+        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
         // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
         // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
         // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped

@@ -20,8 +20,6 @@ FEATURE_FLAG_REQUEST_SCHEMA_EXCLUDED_RUNTIME_FIELDS: frozenset[str] = frozenset(
         "has_encrypted_payloads",  # server-managed, derived from payload encryption
         "has_enriched_analytics",  # internal analytics flag, not agent-facing
         "last_called_at",  # server-managed usage timestamp, not agent-facing
-        "performed_rollback",  # internal rollback state
-        "rollback_conditions",  # legacy rollback config, not agent-facing
         "version",  # server-managed optimistic-concurrency counter
     }
 )

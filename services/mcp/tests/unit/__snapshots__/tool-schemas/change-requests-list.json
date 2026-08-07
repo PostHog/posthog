@@ -22,7 +22,7 @@
             "type": "string"
         },
         "state": {
-            "description": "Multiple values may be separated by commas.",
+            "description": "Optional comma-separated filter by state. Use `pending` to see only requests still open for a decision. Values: pending, approved, applied, rejected, expired.",
             "items": {
                 "type": "string"
             },

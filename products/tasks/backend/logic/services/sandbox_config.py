@@ -11,6 +11,8 @@ SANDBOX_TTL_SECONDS = 15 * 60 if settings.TEST else 6 * 60 * 60
 BURSTABLE_REQUEST_CPU_CORES = 0.5
 BURSTABLE_REQUEST_MEMORY_MB = 1024
 
+VM_SANDBOX_CPU_CORES = 8.0
+
 # Upper bounds for per-task sandbox resource overrides. Override values are clamped
 # to these so a bad or hostile value can't provision an oversized/long-lived sandbox.
 MAX_SANDBOX_CPU_CORES = 16

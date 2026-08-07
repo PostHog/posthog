@@ -36,7 +36,7 @@ function quillTokensWatcher(): Plugin {
         }
         rebuildPending = false
         rebuilding = true
-        console.log('[quill-tokens-watcher] rebuilding tokens…')
+        console.info('[quill-tokens-watcher] rebuilding tokens…')
         const proc = spawn('pnpm', ['exec', 'tsx', 'src/build.ts'], {
             cwd: tokensRoot,
             stdio: 'inherit',
@@ -48,7 +48,7 @@ function quillTokensWatcher(): Plugin {
         proc.on('exit', (code) => {
             rebuilding = false
             if (code === 0) {
-                console.log('[quill-tokens-watcher] rebuild ok → reloading')
+                console.info('[quill-tokens-watcher] rebuild ok → reloading')
                 server.ws.send({ type: 'full-reload' })
             } else {
                 console.error('[quill-tokens-watcher] rebuild failed, exit', code)
@@ -80,7 +80,7 @@ function quillTokensWatcher(): Plugin {
                 rebuildTimer = setTimeout(() => rebuild(server), 100)
             })
             watcher.on('ready', () => {
-                console.log('[quill-tokens-watcher] watching', tokensSrc)
+                console.info('[quill-tokens-watcher] watching', tokensSrc)
             })
         },
         closeBundle() {

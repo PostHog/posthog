@@ -1,38 +1,10 @@
 import dataclasses
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional, cast
 
-import posthoganalytics
 from rest_framework import serializers
 
 from posthog.clickhouse.client.execute import sync_execute
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-
-    from posthog.models import Team
-
-
-WORKFLOW_EMAIL_ASSETS_UI_FLAG = "workflow-email-assets-ui"
-
-
-def workflow_email_assets_ui_enabled(team: "Team", user: "AbstractBaseUser | AnonymousUser") -> bool:
-    # DRF's `request.user` is User | AnonymousUser. Permissions reject anonymous before
-    # we get here, but typing it broadly lets callers pass `request.user` without casting.
-    distinct_id = getattr(user, "distinct_id", None)
-    if not distinct_id:
-        return False
-    return bool(
-        posthoganalytics.feature_enabled(
-            WORKFLOW_EMAIL_ASSETS_UI_FLAG,
-            str(distinct_id),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
-
 
 # `latest_` prefix on the argMax aliases prevents collision with the raw column
 # names in any outer WHERE — ClickHouse resolves the bare name to the aggregate
@@ -102,13 +74,20 @@ class MessageAssetSerializer(serializers.Serializer):
     parent_run_id = serializers.CharField(
         help_text="The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs."
     )
-    kind = serializers.CharField(help_text="Asset kind. Currently always 'email'.")
+    kind = serializers.CharField(
+        help_text="Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints "
+        "return one channel each."
+    )
     distinct_id = serializers.CharField(help_text="The recipient's distinct_id.")
     person_id = serializers.CharField(help_text="The recipient's person UUID, if resolved.")
-    recipient = serializers.CharField(help_text="The recipient email address.")
-    subject = serializers.CharField(help_text="The email subject line.")
-    status = serializers.CharField(help_text="Delivery status at capture time. Currently always 'sent'.")
-    sent_at = serializers.DateTimeField(help_text="When the email was sent.")
+    recipient = serializers.CharField(
+        help_text="Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'."
+    )
+    subject = serializers.CharField(help_text="The email subject line, or the push notification title.")
+    status = serializers.CharField(
+        help_text="Delivery status at capture time. Currently always 'sent' - only delivered messages are captured."
+    )
+    sent_at = serializers.DateTimeField(help_text="When the message was sent.")
 
 
 class MessageAssetsRequestSerializer(serializers.Serializer):
@@ -187,13 +166,13 @@ class PersonMessageAssetsRequestSerializer(serializers.Serializer):
         default=50,
         max_value=500,
         min_value=1,
-        help_text="Maximum number of emails to return (1-500, default 50).",
+        help_text="Maximum number of assets to return (1-500, default 50).",
     )
     offset = serializers.IntegerField(
         required=False,
         default=0,
         min_value=0,
-        help_text="Number of emails to skip, for pagination.",
+        help_text="Number of assets to skip, for pagination.",
     )
 
 
@@ -288,6 +267,7 @@ def fetch_message_assets_for_person(
     offset: int = 0,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
+    kind: str = "email",
 ) -> list[MessageAsset]:
     where = [
         "team_id = %(team_id)s",
@@ -295,10 +275,15 @@ def fetch_message_assets_for_person(
         # Standalone hog_function email destinations aren't surfaced anywhere yet,
         # so this endpoint only returns workflow-step rows.
         "function_kind = 'hog_flow'",
+        # One channel per call. The person view shows email and push in separate tabs, each with
+        # columns shaped for its channel, so returning both from one call would misrepresent whichever
+        # tab it landed in.
+        "kind = %(kind)s",
     ]
     kwargs: dict[str, Any] = {
         "team_id": team_id,
         "person_id": person_id,
+        "kind": kind,
         "limit": limit,
         "offset": offset,
     }

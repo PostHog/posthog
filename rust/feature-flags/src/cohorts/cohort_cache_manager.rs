@@ -271,6 +271,8 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         }
     }
 
@@ -767,6 +769,8 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
         cohort_cache.cache.insert(1, vec![test_cohort]).await;
         // Moka caches update internal stats lazily - sync ensures stats are current
@@ -1134,6 +1138,8 @@ mod tests {
                         cohort_type: None,
                         last_backfill_person_properties_at: None,
                         last_backfill_events_at: None,
+                        condition_type: None,
+                        last_realtime_cohort_calculation_at: None,
                     }])
                 }
             }

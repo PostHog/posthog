@@ -51,8 +51,11 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
-     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
-    bars?: { color?: string; label?: string; meta?: Meta }[]
+     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`).
+     *  `hatch` fills that bar with the diagonal-hatch pattern (in the bar's resolved color) instead
+     *  of a solid fill — for flagging individual not-final bars (e.g. a bucket still being
+     *  ingested) without the contiguous-range constraint of `stroke.partial`. */
+    bars?: { color?: string; label?: string; meta?: Meta; hatch?: boolean }[]
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
@@ -122,6 +125,10 @@ export interface Series<Meta = unknown> {
         excluded?: boolean
         /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
         tooltip?: boolean
+        /** Whether the series' value counts toward the built-in tooltip's total row — its own row
+         *  still renders. Use for series whose values don't sum meaningfully with the rest (e.g. a
+         *  percentage column alongside counts). Defaults to true. */
+        total?: boolean
         /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
         valueLabel?: boolean
     }
@@ -239,6 +246,8 @@ export interface ChartConfig {
 
     /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
     xTickFormatter?: (value: string, index: number) => string | null
+    /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
+    xTickLabelRotation?: number
     /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
@@ -301,6 +310,10 @@ export interface YAxis {
     tickFormatter?: (value: number) => string
     /** Axis title. */
     label?: string
+    /** Hide this axis's tick labels and margin gutter. The scale still applies to its series. */
+    hide?: boolean
+    /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
+    startAtZero?: boolean
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
@@ -380,9 +393,6 @@ export type ValueDomain =
 export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
 
 export interface BarsConfig {
-    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
-     *  segment. Defaults to 0 (square). */
-    cornerRadius?: number
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
@@ -404,6 +414,15 @@ export interface BarsConfig {
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
      *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
+    /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
+     *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
+     *  whose neighbours are in the thousands. Zero-valued bars are never floored: the point is to
+     *  keep small data readable, not to draw a bar where there is no data. On a stacked chart only
+     *  the outermost segment is floored: flooring an interior one would oversize a rect that the
+     *  segment above immediately overpaints, while still capturing the hover and clicks meant for
+     *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
+     *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
+    minBarSize?: number
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
@@ -423,7 +442,7 @@ export interface BarsConfig {
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
-     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  corners round at the full `barCornerRadius` even when the edge segment is a thin sliver (e.g.
      *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
      *  clamps the radius to the sliver's half-width. Defaults to `false`. */
     roundStackEnds?: boolean
@@ -432,8 +451,13 @@ export interface BarsConfig {
 export interface BarChartConfig extends ChartConfig {
     /** Defaults to `stacked`. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
-    /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
+    /** Bar appearance + band-layout details (track, shadow, padding, fill style…). */
     bars?: BarsConfig
+    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
+     *  segment (or the whole stack with {@link BarsConfig.roundStackEnds}). Defaults to 0 (square).
+     *  Same top-level key as the time-series/combo configs, so one config shape rounds every bar
+     *  chart and shared config defaults can target them all. */
+    barCornerRadius?: number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
 }
@@ -457,6 +481,10 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative bar values stack below the
+     *  zero baseline (positives above). Default `false` clamps negatives to 0. Mirrors
+     *  {@link BarsConfig.divergingStack}. */
+    divergingStack?: boolean
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
@@ -487,8 +515,9 @@ export interface ChartDrawArgs {
     /** Restart the hover-fade at progress 0; returns the new value to use this frame.
      *  Call when the chart type detects a visible-state change at the same hoverIndex. */
     resetHoverFade: () => number
-    /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
-     *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
+    /** Live pixel range of an in-progress selection: x-axis drag-to-zoom, plus the vertical
+     *  range on a 2D (`onAreaSelect`) brush. Null when no drag is active. Only the hover
+     *  overlay reads this — the static layer ignores it. */
     dragRect?: DragRect | null
 }
 
@@ -496,13 +525,31 @@ export interface ChartDrawArgs {
 export interface DragRect {
     x0: number
     x1: number
+    /** Present only during a 2D (`onAreaSelect`) drag — the vertical pixel range, unordered.
+     *  When absent the selection spans the full plot height. */
+    y0?: number
+    y1?: number
 }
 
-export interface DateRangeZoomData {
+/** An x-axis range resolved to labels — the shared shape of the drag-selection payloads. */
+export interface LabelRange {
     startLabel: string
     endLabel: string
     startIndex: number
     endIndex: number
+}
+
+export type DateRangeZoomData = LabelRange
+
+/** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
+ *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
+ *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
+ *  (e.g. the Heatmap converts it to row indices). */
+export interface AreaSelectData extends LabelRange {
+    /** Top of the dragged range in canvas pixels (always <= yPixel1). */
+    yPixel0: number
+    /** Bottom of the dragged range in canvas pixels. */
+    yPixel1: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */

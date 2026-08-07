@@ -5,8 +5,10 @@ package can take the inputs dataclass as their typed signature without
 creating an import cycle with the workflow modules.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from typing import Any, Literal
+
+from pydantic import BaseModel
 
 
 @dataclass
@@ -33,6 +35,99 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # cleanup), we must NOT fall through to the new-task path — the user never
     # tagged us, so kicking off a brand-new agent run would be wrong.
     untagged_followup: bool = False
+    # Slack sets this on the event envelope for Slack Connect channels. It is
+    # threaded through to task run state so customer-facing Slack replies remain
+    # approval-gated even when a user's internal-write tier is full-auto.
+    is_ext_shared_channel: bool = False
+
+
+def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:
+    """Normalise an activity's ``inputs`` back into the dataclass.
+
+    Temporal's default converter rebuilds the dataclass from the activity's type
+    hint, but during a rolling deploy workers can briefly disagree on the
+    activity signature and a payload arrives as a raw ``dict``. Reading
+    ``inputs.integration_id`` on a dict then raises an opaque ``AttributeError``
+    deep in the body. Rebuilding here keeps the flow working across version skew,
+    and unknown keys are dropped so a newer sender's extra field doesn't blow up
+    an older activity. A payload missing the required fields fails loudly with
+    context instead of surfacing as an ``AttributeError``.
+    """
+    if isinstance(inputs, PostHogCodeSlackMentionWorkflowInputs):
+        return inputs
+    if isinstance(inputs, dict):
+        known = {f.name for f in fields(PostHogCodeSlackMentionWorkflowInputs)}
+        try:
+            return PostHogCodeSlackMentionWorkflowInputs(**{k: v for k, v in inputs.items() if k in known})
+        except TypeError as e:
+            raise TypeError(
+                "Could not coerce activity inputs into PostHogCodeSlackMentionWorkflowInputs "
+                f"(keys={sorted(inputs)}): {e}"
+            ) from e
+    raise TypeError(
+        f"Unexpected activity inputs type {type(inputs).__name__}; "
+        "expected PostHogCodeSlackMentionWorkflowInputs or dict"
+    )
+
+
+@dataclass
+class SlackAppMentionWorkflowInputs:
+    """Conversation-level inputs for the per-thread queue workflow.
+
+    One workflow instance covers one Slack conversation (channel thread or DM
+    thread), identified entirely by its workflow ID; individual messages
+    arrive as ``new_message`` signals carrying
+    ``PostHogCodeSlackMentionWorkflowInputs``. These fields exist only to
+    carry state across ``continue_as_new`` — fresh starts leave them empty.
+    """
+
+    pending_messages: list[PostHogCodeSlackMentionWorkflowInputs] = field(default_factory=list)
+    processed_event_keys: list[str] = field(default_factory=list)
+
+
+# The queue reaction contract: the queue workflow adds the queued reaction to
+# a message that has to wait behind another, then swaps it for the processing
+# one when the message's turn starts. A message processed immediately gets
+# only the processing reaction. Both activities must agree, so the names live
+# here rather than as literals at each call site.
+SLACK_APP_QUEUED_REACTION = "hourglass"
+SLACK_APP_PROCESSING_REACTION = "eyes"
+
+
+class SlackAppMessageReactionInput(BaseModel):
+    """Single-argument input for the queue-reaction activities.
+
+    New Slack-app activities take one pydantic model instead of positional
+    arguments so the payload can grow fields without signature churn.
+    """
+
+    integration_id: int
+    slack_team_id: str
+    channel: str
+    message_ts: str
+
+
+class SlackAppModelOverrideInput(BaseModel):
+    """Single-argument input for the model-override classifier activity."""
+
+    integration_id: int
+    slack_team_id: str
+    event_text: str
+
+
+class SlackAppModelOverride(BaseModel):
+    """A per-task model choice read out of the mention text.
+
+    ``model`` is always a live catalogue id (the classifier picks from a list and
+    the activity drops anything that isn't on it); ``reasoning_effort`` is a known
+    effort value that still has to be checked against whichever model the task ends
+    up on. Either field may be absent — "run this with max effort" names no model,
+    "use fable" names no effort. The merge onto the resolved preferences happens at
+    the point of use, in ``resolve_run_preferences``.
+    """
+
+    model: str | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass
@@ -54,12 +149,11 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
 class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
-    `auto` → use `repository` directly. `no_repo` → create a task with no repo
-    (e.g. team has no GitHub integration connected). `agent_needed` → there are
-    multiple candidates and no explicit mention. `needs_user_github` → the team
-    has a GitHub install but the mentioning user has not connected their personal
-    GitHub yet, so the workflow should fire the connect-GitHub prompt rather than
-    silently creating a no-repo task.
+    `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
+    repos, so the workflow classifies the ask and only gates on a personal GitHub
+    install when it actually needs code. `agent_needed` → there are multiple
+    candidates and no explicit mention. `needs_user_github` is no longer emitted and
+    survives only so workflow executions that recorded it still replay.
     """
 
     mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]

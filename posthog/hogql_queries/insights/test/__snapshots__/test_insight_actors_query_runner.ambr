@@ -31,11 +31,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(lessOrEquals(length(x.4), 1), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                               and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                               and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(lessOrEquals(length(x.4), 1), equals(x.4, x_before.4), equals(x.4, x_after.4), equals(x.3, x_before.3), equals(x.3, x_after.3), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -131,7 +127,7 @@
            WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(events.timestamp, minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), less(events.timestamp, plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY actor_id)
         WHERE and(ifNull(equals(start_of_period, toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1))), isNull(start_of_period)
-                         and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), ifNull(equals(status, 'returning'), 0))) AS source
+                         and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), equals(status, 'returning'))) AS source
      INNER JOIN
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -164,7 +160,7 @@
                                                                                                             WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(events.timestamp, minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), less(events.timestamp, plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), equals(events.event, '$pageview'))
                                                                                                             GROUP BY actor_id)
                                                                                                          WHERE and(ifNull(equals(start_of_period, toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1))), isNull(start_of_period)
-                                                                                                                          and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), ifNull(equals(status, 'returning'), 0))) AS source)))
+                                                                                                                          and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), equals(status, 'returning'))) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,

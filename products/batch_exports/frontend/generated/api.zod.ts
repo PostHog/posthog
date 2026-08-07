@@ -21,6 +21,7 @@ export const batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefa
 export const batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
+export const batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault = `events`
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -31,11 +32,11 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().describe('Human-readable name for the batch export.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -185,9 +186,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['AwsS3']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -242,9 +242,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['S3Compatible']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -290,6 +289,37 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Snowflake']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                                type: zod.enum(['Snowflake']),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -593,6 +623,7 @@ export const batchExportsUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefa
 export const batchExportsUpdateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
 export const batchExportsUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
+export const batchExportsUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
 export const batchExportsUpdateBodyOffsetDayMin = 0
 export const batchExportsUpdateBodyOffsetDayMax = 6
 
@@ -603,11 +634,11 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().describe('Human-readable name for the batch export.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -757,9 +788,8 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['AwsS3']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -814,9 +844,8 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['S3Compatible']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -862,6 +891,37 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Snowflake']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneSevenConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                                type: zod.enum(['Snowflake']),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -918,6 +978,7 @@ export const batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedC
 export const batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
+export const batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -928,11 +989,11 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().optional().describe('Human-readable name for the batch export.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -1084,9 +1145,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['AwsS3']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1141,9 +1201,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['S3Compatible']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1189,6 +1248,37 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Snowflake']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                                type: zod.enum(['Snowflake']),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
@@ -1250,6 +1340,7 @@ export const batchExportsPauseCreateBodyDestinationOneConfigOneFourHasSelfSigned
 export const batchExportsPauseCreateBodyDestinationOneConfigOneFiveFileFormatDefault = `JSONLines`
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
+export const batchExportsPauseCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
 export const batchExportsPauseCreateBodyOffsetDayMin = 0
 export const batchExportsPauseCreateBodyOffsetDayMax = 6
 
@@ -1262,14 +1353,16 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -1488,20 +1581,40 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneSevenTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                                type: zod.enum(['Snowflake']),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1567,6 +1680,7 @@ export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneFourHasSelf
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneFiveFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
 export const batchExportsRunTestStepCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepCreateBodyOffsetDayMax = 6
 
@@ -1579,14 +1693,16 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -1819,20 +1935,42 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneSevenTableNameDefault
+                                    )
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                                type: zod.enum(['Snowflake']),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1901,6 +2039,7 @@ export const batchExportsUnpauseCreateBodyDestinationOneConfigOneFourHasSelfSign
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneFiveFileFormatDefault = `JSONLines`
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
 export const batchExportsUnpauseCreateBodyOffsetDayMin = 0
 export const batchExportsUnpauseCreateBodyOffsetDayMax = 6
 
@@ -1913,14 +2052,16 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -2143,20 +2284,40 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneSevenTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                                type: zod.enum(['Snowflake']),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -2222,6 +2383,7 @@ export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFourHasS
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFiveFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMax = 6
 
@@ -2234,14 +2396,16 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -2478,20 +2642,42 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSevenTableNameDefault
+                                    )
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                                type: zod.enum(['Snowflake']),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -2556,6 +2742,9 @@ export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
 export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
+
+export const fileDownloadBatchExportsCreateBodyFourFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
     zod
@@ -2662,6 +2851,43 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
             data_interval_end: zod.iso.datetime({ offset: true }),
         })
         .describe('Typed configuration for the sessions model.'),
+    zod
+        .object({
+            file: zod
+                .object({
+                    format: zod
+                        .enum(['Parquet', 'JSONLines'])
+                        .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
+                        .default(fileDownloadBatchExportsCreateBodyFourFileFormatDefault)
+                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
+                    compression: zod
+                        .union([
+                            zod
+                                .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                                .describe(
+                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
+                        ),
+                    max_size_mb: zod
+                        .number()
+                        .min(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin)
+                        .nullish()
+                        .describe('Split download into multiple files of at most this size in MB'),
+                })
+                .describe('Typed configuration for a FileDownload batch-export destination.'),
+            model: zod.enum(['hogql']),
+            hogql_query: zod
+                .string()
+                .describe(
+                    'HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet.'
+                ),
+        })
+        .describe('Typed configuration for the hogql model.'),
 ])
 
 /**
@@ -2700,11 +2926,20 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions'),
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions\n\* `hogql` - hogql'),
         include: zod.array(zod.string()).optional(),
         exclude: zod.array(zod.string()).optional(),
-        data_interval_start: zod.iso.datetime({ offset: true }),
-        data_interval_end: zod.iso.datetime({ offset: true }),
+        hogql_query: zod
+            .string()
+            .optional()
+            .describe(
+                'HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet.'
+            ),
+        data_interval_start: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe('Start of the data interval to export'),
+        data_interval_end: zod.iso.datetime({ offset: true }).optional().describe('End of the data interval to export'),
     })
     .describe('Request shape for a FileDownload batch export on demand.')

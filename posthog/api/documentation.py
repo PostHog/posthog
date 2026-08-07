@@ -22,6 +22,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+from posthog.products import is_product_module
 
 from products.feature_flags.backend.types import PropertyFilterType
 
@@ -241,7 +242,18 @@ class StringPropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        choices=[
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
+            "regex",
+            "not_regex",
+        ],
         default="exact",
         required=False,
         help_text="String comparison operator.",
@@ -339,6 +351,10 @@ class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropert
             "is_not",
             "icontains",
             "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
             "regex",
             "not_regex",
             "gt",
@@ -684,7 +700,7 @@ _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 def _get_product_from_module(module: str) -> str | None:
     """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
-    if module.startswith("products."):
+    if is_product_module(module):
         parts = module.split(".")
         if len(parts) >= 2:
             return parts[1]
@@ -925,6 +941,22 @@ def _fix_pydantic_schema_for_openapi(schema):
     ):
         return schema["allOf"][0]
 
+    return schema
+
+
+def _unrequire_deprecated_dashboards_field(schema):
+    """
+    The deprecated insight `dashboards` field is gated behind an opt-in query parameter, so it
+    can be absent from any insight payload — but drf-spectacular always marks read-only fields
+    as required, which would make strict generated clients reject gated responses. Un-require
+    it wherever it appears alongside its replacement, `dashboard_tiles`.
+    """
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    if not isinstance(properties, dict) or not {"dashboards", "dashboard_tiles"} <= properties.keys():
+        return schema
+    required = schema.get("required")
+    if isinstance(required, list) and "dashboards" in required:
+        schema["required"] = [field for field in required if field != "dashboards"]
     return schema
 
 
@@ -1179,7 +1211,8 @@ def custom_postprocessing_hook(result, generator, request, public):
     # Apply OpenAPI 3.1 schema cleanup to all component schemas.
     if "components" in result and "schemas" in result["components"]:
         result["components"]["schemas"] = {
-            name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
+            name: _unrequire_deprecated_dashboards_field(_fix_pydantic_schema_for_openapi(schema))
+            for name, schema in result["components"]["schemas"].items()
         }
 
     # Apply the same cleanup to parameter, requestBody, and response schemas at the operation

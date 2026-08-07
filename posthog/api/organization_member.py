@@ -31,12 +31,14 @@ from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     TrigramSearchField,
     apply_trigram_search,
+    drop_similar_when_exact_exists,
     normalize_search_term,
 )
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
+from posthog.rbac.user_access_control import get_project_scoped_visible_membership_ids
 from posthog.utils import posthoganalytics
 
 tracer = trace.get_tracer(__name__)
@@ -155,7 +157,7 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
+                description="Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
             ),
         ],
     ),
@@ -221,6 +223,19 @@ class OrganizationMemberViewSet(
         )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        organization = self.organization
+        if not organization.members_can_see_org_members:
+            requesting_membership = OrganizationMembership.objects.filter(
+                organization=organization, user_id=cast(User, self.request.user).id
+            ).first()
+            if requesting_membership is None:
+                queryset = queryset.filter(user_id=cast(User, self.request.user).id)
+            elif requesting_membership.level < OrganizationMembership.Level.ADMIN:
+                # Restricted members only see themselves and members of their projects
+                visible_membership_ids = get_project_scoped_visible_membership_ids(organization, requesting_membership)
+                if visible_membership_ids is not None:
+                    queryset = queryset.filter(id__in=visible_membership_ids)
+
         if self.action == "list":
             params = self.request.GET.dict()
 
@@ -248,6 +263,9 @@ class OrganizationMemberViewSet(
                     queryset = queryset.order_by(DEFAULT_ORDERING)
 
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)

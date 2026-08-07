@@ -17,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     FINNWORLDS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.source import FinnworldsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnworldsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
+    FinnworldsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -44,7 +46,6 @@ class TestFinnworldsSource:
         assert config.label == "Finnworlds"
         assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finnworlds"
 
         field_names = [f.name for f in config.fields]

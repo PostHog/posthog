@@ -13,6 +13,22 @@ def anthropic_text(message: Any) -> str:
     return "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
 
 
+def tracing_kwargs(trace_id: str, ticket_id: str) -> dict[str, Any]:
+    """Per-ticket gateway attribution to splat into a `create_message(...)` call.
+
+    `metadata.user_id` becomes the generation's `$ai_trace_id` (so every utility call for one
+    ticket shares a trace), and `x-posthog-property-ticket_id` is merged into the captured
+    `$ai_generation` properties. Each key is omitted when its value is empty so we never send a
+    null metadata/header; add another tracing property here and all callers pick it up.
+    """
+    kwargs: dict[str, Any] = {}
+    if trace_id:
+        kwargs["metadata"] = {"user_id": trace_id}
+    if ticket_id:
+        kwargs["extra_headers"] = {"x-posthog-property-ticket_id": ticket_id}
+    return kwargs
+
+
 async def create_message(client: Any, **kwargs: Any) -> Any:
     """Call the gateway Messages API with a bounded timeout, re-raising transient API errors
     as compact ApplicationErrors.

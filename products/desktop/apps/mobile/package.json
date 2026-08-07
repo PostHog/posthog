@@ -1,0 +1,117 @@
+{
+  "name": "@posthog/mobile",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "scripts": {
+    "start": "expo start",
+    "start:clear": "expo start --clear",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "ios:device": "expo run:ios --device",
+    "web": "expo start --web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean",
+    "build:dev": "eas build --profile development --platform ios",
+    "build:dev:local": "eas build --profile development --platform ios --local",
+    "build:preview": "eas build --profile preview --platform ios",
+    "build:production": "eas build --profile production --platform ios",
+    "testflight": "eas submit --platform ios",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "clean": "node ../../scripts/rimraf.mjs .turbo .expo"
+  },
+  "expo": {
+    "autolinking": {
+      "buildFromSource": [
+        "react-native-worklets"
+      ]
+    },
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "posthog-react-native-session-replay"
+        ]
+      }
+    },
+    "install": {
+      "exclude": [
+        "react",
+        "react-dom",
+        "typescript"
+      ]
+    }
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.7",
+    "@expo/ui": "57.0.7",
+    "@modelcontextprotocol/ext-apps": "^1.2.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@posthog/api-client": "workspace:*",
+    "@posthog/core": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/netinfo": "^12.0.1",
+    "@tanstack/react-query": "^5.90.12",
+    "date-fns": "^4.1.0",
+    "expo": "~57.0.8",
+    "expo-application": "~57.0.2",
+    "expo-audio": "~57.0.3",
+    "expo-auth-session": "^57.0.5",
+    "expo-camera": "^57.0.3",
+    "expo-clipboard": "^57.0.1",
+    "expo-constants": "~57.0.7",
+    "expo-crypto": "^57.0.1",
+    "expo-dev-client": "~57.0.9",
+    "expo-device": "~57.0.1",
+    "expo-document-picker": "~57.0.1",
+    "expo-file-system": "~57.0.1",
+    "expo-font": "^57.0.1",
+    "expo-glass-effect": "~57.0.1",
+    "expo-haptics": "^57.0.1",
+    "expo-image-picker": "~57.0.6",
+    "expo-linear-gradient": "^57.0.1",
+    "expo-linking": "~57.0.4",
+    "expo-localization": "~57.0.1",
+    "expo-notifications": "~57.0.7",
+    "expo-router": "~57.0.8",
+    "expo-secure-store": "^57.0.1",
+    "expo-speech-recognition": "^56.0.1",
+    "expo-splash-screen": "~57.0.5",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.1",
+    "expo-web-browser": "^57.0.2",
+    "highlight.js": "^11.11.1",
+    "nativewind": "^4.2.1",
+    "phosphor-react-native": "^3.0.2",
+    "posthog-react-native": "^4.18.0",
+    "posthog-react-native-session-replay": "^1.6.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-native": "0.86.0",
+    "react-native-keyboard-controller": "1.21.9",
+    "react-native-reanimated": "~4.5.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.2",
+    "react-native-svg": "^15.15.4",
+    "react-native-web": "^0.21.2",
+    "react-native-webview": "^13.16.1",
+    "react-native-worklets": "0.10.0",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^13.3.3",
+    "@types/react": "^19.2.0",
+    "@types/react-test-renderer": "^19.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "react-native-svg-transformer": "^1.5.3",
+    "react-test-renderer": "19.2.6",
+    "tailwindcss": "^3.4.18",
+    "typescript": "~5.9.2",
+    "vite": "^6.4.1",
+    "vitest": "^4.1.6"
+  },
+  "private": true
+}

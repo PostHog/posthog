@@ -4,10 +4,19 @@ import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
+import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
+import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { QUOTA_STATUS_STYLES, type QuotaStatus, projectQuota, splitProjectedPct } from '../../utils/quotaProjection'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import {
+    QUOTA_STATUS_STYLES,
+    type QuotaStatus,
+    hasCreditLimit,
+    projectQuota,
+    splitProjectedPct,
+} from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
 interface Props {
@@ -18,47 +27,66 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const { scanner, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
         replayScannerLogic({ id: scannerId })
     )
-    const { quota } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        showUsd,
+        onFreePlan,
+        startupCapCredits,
+        showStartupCapLine,
+    } = useValues(visionQuotaLogic)
 
     if (!scanner) {
         return null
     }
 
     const samplingRatio = Math.max(0, Math.min(scanner.sampling_rate, 1))
-    const projected = scannerEstimate?.estimated_observations_per_month ?? null
-    const hasCap = !!quota && quota.monthly_quota > 0
-    const used = quota?.usage_this_month ?? 0
-    const cap = quota?.monthly_quota ?? 0
+    // The estimate already applies the quality filter and sampling rate backend-side.
+    const projectedObservations = scannerEstimate?.estimated_observations_per_month ?? null
+    const projectedCredits = scannerEstimate?.estimated_credits_per_month ?? null
+    const hasCap = hasCreditLimit(quota)
+    const used = quota?.credits_used ?? 0
+    const cap = quota?.credit_limit ?? 0
 
-    // `other_enabled_scanners_monthly` comes from the same estimate response as `projected`, so the two are a
-    // consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would race the
-    // estimate-refresh cadence and double-count the scanner right after creating it.
-    const fleetMonthly = quota?.projected_monthly_observations ?? 0
-    const othersMonthly = scannerEstimate?.other_enabled_scanners_monthly ?? 0
+    // `other_enabled_scanners_monthly_credits` comes from the same estimate response as `projectedCredits`, so the
+    // two are a consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would
+    // race the estimate-refresh cadence and double-count the scanner right after creating it.
+    const fleetMonthly = quota?.projected_monthly_credits ?? 0
+    const othersMonthly = scannerEstimate?.other_enabled_scanners_monthly_credits ?? 0
     // projectQuota wants a delta off the stored fleet total, so compute the new fleet total (others + this) and pass the difference.
-    const newFleetMonthly = projected !== null ? othersMonthly + projected : fleetMonthly
+    const newFleetMonthly = projectedCredits !== null ? othersMonthly + projectedCredits : fleetMonthly
     const projection = projectQuota(quota, newFleetMonthly - fleetMonthly)
-    const { status, percentLabel, resetsOn, usedPct, projectedPct } = projection
+    const { status, percentLabel, resetsOn, usedPct, usedFreePct, projectedPct } = projection
 
-    const effectiveStatus: QuotaStatus = projected === null ? 'safe' : status
+    const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
 
-    const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projected ?? 0, othersMonthly)
+    const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)
+    const [freeWidth, billedWidth, othersWidth, thisWidth] = quotaMeterWidths(usedPct, usedFreePct, [
+        othersPct,
+        thisScannerPct,
+    ])
 
     const breakdown = (
         <div className="text-xs space-y-0.5">
             <div>
-                Used this month: <strong>{used.toLocaleString()}</strong>
+                Spent this period: <strong>{formatCreditCount(used)}</strong>
             </div>
             <div>
-                Projected from this scanner: <strong>~{(projected ?? 0).toLocaleString()}/month</strong>
+                Projected from this scanner: <strong>~{formatCreditCount(projectedCredits ?? 0)}/month</strong>
             </div>
             <div>
-                Projected from other scanners: <strong>~{othersMonthly.toLocaleString()}/month</strong>
+                Projected from other scanners: <strong>~{formatCreditCount(othersMonthly)}/month</strong>
             </div>
-            <div>
-                Monthly quota: <strong>{cap.toLocaleString()}</strong>
-            </div>
+            {hasCap && (
+                <div>
+                    Monthly limit: <strong>{formatCreditCount(cap)}</strong>
+                </div>
+            )}
+            {showStartupCapLine && (
+                <div>
+                    Startup program cap: <strong>{formatCreditCount(startupCapCredits ?? 0)}/month</strong>
+                </div>
+            )}
             {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
         </div>
     )
@@ -66,8 +94,8 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     return (
         <LemonCard hoverEffect={false} className="p-3 space-y-2">
             <div className="flex items-baseline justify-between gap-3">
-                <LemonLabel>Estimated impact</LemonLabel>
-                {hasCap && projected !== null && (
+                <LemonLabel>Estimated cost</LemonLabel>
+                {hasCap && projectedCredits !== null && (
                     <Tooltip title={breakdown}>
                         <span className={`text-xs tabular-nums ${styles.text}`}>
                             {percentLabel}%{' '}
@@ -77,15 +105,20 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 )}
             </div>
 
-            <div className="flex items-baseline justify-between gap-3">
-                {projected !== null ? (
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+                {projectedCredits !== null ? (
                     <div className="text-base font-semibold tabular-nums flex items-center gap-2">
                         <span>
-                            {projected.toLocaleString()}{' '}
-                            <span className="text-sm font-normal text-muted">observations/month</span>
+                            ~{formatCreditCount(projectedCredits)}
+                            <span className="text-sm font-normal text-muted">/month</span>{' '}
+                            <span className="text-sm font-normal text-muted">
+                                {showUsd ? `(≈ ${creditsToUsd(projectedCredits)}) · ` : ''}
+                                {(projectedObservations ?? 0).toLocaleString()} observations at{' '}
+                                {formatCreditCount(scannerEstimate?.credits_per_observation ?? 0)} each
+                            </span>
                         </span>
                         {scannerEstimateLoading && (
-                            <Tooltip title="Recomputing with the latest filters and sampling rate.">
+                            <Tooltip title="Recomputing with the latest filters, sampling rate, and model.">
                                 <Spinner className="text-muted text-sm" />
                             </Tooltip>
                         )}
@@ -93,32 +126,53 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 ) : (
                     <div className="text-sm text-muted">—</div>
                 )}
-                {hasCap && (
+                {/* The exhausted note below carries this status, so don't say it twice. */}
+                {hasCap && !projection.exhausted && (
                     <span className="text-xs tabular-nums">
-                        <QuotaStatusLine projection={projection} />
+                        <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
                     </span>
                 )}
             </div>
 
-            {hasCap && projected !== null && (
+            {/* `hasCap` is also false while quota is still loading, so require a resolved snapshot before
+                telling anyone their billing limit is missing. */}
+            {quota !== null && !hasCap && projectedCredits !== null && (
+                <Tooltip title={breakdown}>
+                    <div>
+                        <NoBillingLimitNote projectedCredits={newFleetMonthly} />
+                    </div>
+                </Tooltip>
+            )}
+
+            {hasCap && projection.exhausted && <QuotaExhaustedNote onFreePlan={onFreePlan} />}
+
+            {hasCap && projectedCredits !== null && (
                 <>
                     <Tooltip title={breakdown}>
                         <QuotaMeterBar
                             usedPct={usedPct}
+                            usedFreePct={usedFreePct}
                             projected={[
                                 { pct: othersPct, barClass: 'bg-accent' },
                                 { pct: thisScannerPct, barClass: styles.bar, striped: true },
                             ]}
                             valueNow={percentLabel}
-                            label={`Projected ${percentLabel}% of monthly observation quota by ${
+                            label={`Projected ${percentLabel}% of the monthly spend limit by ${
                                 resetsOn ?? 'period end'
                             }`}
                         />
                     </Tooltip>
-                    <div className="flex items-center gap-3 text-xs text-muted">
-                        <QuotaMeterLegendItem>Used</QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass="bg-accent">Projected (other scanners)</QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass={styles.bar} striped>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
+                            Free
+                        </QuotaMeterLegendItem>
+                        <QuotaMeterLegendItem width={billedWidth}>
+                            {freeWidth > 0 ? 'Billed' : 'Spent'}
+                        </QuotaMeterLegendItem>
+                        <QuotaMeterLegendItem barClass="bg-accent" width={othersWidth}>
+                            Projected (other scanners)
+                        </QuotaMeterLegendItem>
+                        <QuotaMeterLegendItem barClass={styles.bar} striped width={thisWidth}>
                             Projected (this scanner)
                         </QuotaMeterLegendItem>
                     </div>
@@ -139,7 +193,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     recordings in the last {scannerEstimate.window_days} days.
                 </div>
             ) : scannerEstimateError ? (
-                <div className="text-xs text-danger">Couldn't estimate impact: {scannerEstimateError}</div>
+                <div className="text-xs text-danger">Couldn't estimate cost: {scannerEstimateError}</div>
             ) : (
                 <div className="text-xs text-muted">Estimate unavailable. Try adjusting your filters.</div>
             )}

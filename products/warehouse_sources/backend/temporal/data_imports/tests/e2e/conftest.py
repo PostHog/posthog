@@ -31,14 +31,13 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
 )
+from products.warehouse_sources.backend.temporal.data_imports.post_import_job import PostImportWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
 
 BUCKET_NAME = "test-pipeline"
@@ -80,8 +79,18 @@ def _ensure_sourcebatch_tables(django_db_setup, django_db_blocker):
                     is_resume BOOLEAN NOT NULL DEFAULT FALSE,
                     is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
                     metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    latest_attempt SMALLINT NOT NULL DEFAULT 0,
+                    state_changed_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
+            """)
+            # Self-heal pre-existing test DBs where CREATE TABLE IF NOT EXISTS is a no-op.
+            cur.execute(f"""
+                ALTER TABLE {BATCH_TABLE}
+                    ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ
             """)
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
@@ -205,7 +214,7 @@ async def run_external_data_job_workflow(
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -216,7 +225,7 @@ async def run_external_data_job_workflow(
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, PostImportWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),

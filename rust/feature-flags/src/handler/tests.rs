@@ -4,10 +4,11 @@ use crate::{
         errors::FlagError,
         types::{
             Compression, FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue,
-            FlagsQueryParams, LegacyFlagsResponse,
+            FlagsQueryParams, FlagsResponse, LegacyFlagsResponse,
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_models::MembershipStampPolicy,
     cohorts::membership::{
         CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
     },
@@ -23,11 +24,12 @@ use crate::{
         flag_service::FlagService,
     },
     handler::{
-        decoding, evaluation::evaluate_feature_flags, flags::fetch_and_filter, properties,
-        FeatureFlagEvaluationContext,
+        apply_minimal_flag_called_events, decoding, evaluation::evaluate_feature_flags,
+        flags::fetch_and_filter, properties, FeatureFlagEvaluationContext,
     },
     mock,
     properties::property_models::PropertyType,
+    team::team_models::Team,
     utils::{
         mock::MockInto,
         test_utils::{
@@ -221,6 +223,7 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -306,6 +309,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -347,7 +351,9 @@ async fn test_evaluate_feature_flags_with_errors() {
 fn test_decode_request() {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
-    let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
+    let body = Bytes::from(
+        r#"{"token": "test_token", "distinct_id": "user123", "sent_at": "2023-11-14T22:13:20.000Z"}"#,
+    );
     let meta = FlagsQueryParams::default();
 
     let result = decoding::decode_request(&headers, body, &meta);
@@ -356,6 +362,10 @@ fn test_decode_request() {
     let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
+    assert_eq!(
+        request.sent_at.unwrap().timestamp_millis(),
+        1_700_000_000_000
+    );
 }
 
 #[test]
@@ -692,6 +702,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -775,6 +786,7 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -931,6 +943,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1013,6 +1026,7 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1620,6 +1634,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1651,6 +1666,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1743,6 +1759,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1780,6 +1797,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1814,5 +1832,31 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         provider_disabled.call_count(),
         0,
         "Provider should not be called when flags have no cohort dependencies"
+    );
+}
+
+#[test]
+fn test_apply_minimal_flag_called_events_sets_true_when_team_gated() {
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+    let team = Team {
+        minimal_flag_called_events: true,
+        ..Default::default()
+    };
+
+    apply_minimal_flag_called_events(&mut response, &team);
+
+    assert_eq!(response.minimal_flag_called_events, Some(true));
+}
+
+#[test]
+fn test_apply_minimal_flag_called_events_leaves_none_when_team_ungated() {
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+    let team = Team::default();
+
+    apply_minimal_flag_called_events(&mut response, &team);
+
+    assert_eq!(
+        response.minimal_flag_called_events, None,
+        "absence, not Some(false), is the full-events signal SDKs rely on"
     );
 }

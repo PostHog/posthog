@@ -1,0 +1,111 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Sourced from the Mistral AI OpenAPI spec (https://docs.mistral.ai/api/). Partial coverage is fine —
+# any column not described here falls back to LLM enrichment.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "models": {
+        "description": "Models available to the workspace: Mistral's base models plus any fine-tuned models you own.",
+        "docs_url": "https://docs.mistral.ai/api/#tag/models",
+        "columns": {
+            "id": "Unique identifier of the model.",
+            "object": 'The object type, always "model".',
+            "created": "The Unix timestamp (in seconds) for when the model was created.",
+            "owned_by": "The organization that owns the model.",
+            "name": "The name of the model.",
+            "description": "A description of the model.",
+            "max_context_length": "The maximum context length the model supports, in tokens.",
+            "type": 'The kind of model card ("base" or "fine-tuned").',
+        },
+    },
+    "files": {
+        "description": "Files uploaded to the workspace (fine-tuning datasets, batch inputs, OCR sources, etc.).",
+        "docs_url": "https://docs.mistral.ai/api/#tag/files",
+        "columns": {
+            "id": "The unique identifier of the file.",
+            "object": 'The object type, always "file".',
+            "bytes": "The size of the file, in bytes.",
+            "created_at": "The Unix timestamp (in seconds) for when the file was created.",
+            "filename": "The name of the uploaded file.",
+            "purpose": "The intended purpose of the file (e.g. fine-tune, ocr, audio, batch).",
+            "sample_type": "The sample type of the file.",
+            "num_lines": "The number of lines in the file.",
+            "mimetype": "The MIME type of the file.",
+            "source": "The source of the file.",
+        },
+    },
+    "fine_tuning_jobs": {
+        "description": "Fine-tuning jobs with status, hyperparameters, trained-token counts, and timestamps.",
+        "docs_url": "https://docs.mistral.ai/api/#tag/fine-tuning",
+        "columns": {
+            "id": "The ID of the fine-tuning job.",
+            "model": "The base model being fine-tuned.",
+            "status": "The current status of the fine-tuning job.",
+            "created_at": "The Unix timestamp (in seconds) for when the job was created.",
+            "modified_at": "The Unix timestamp (in seconds) for when the job was last modified.",
+            "fine_tuned_model": "The name of the fine-tuned model being created (null while the job runs).",
+            "suffix": "Optional user-provided string inserted into the fine-tuned model name.",
+            "trained_tokens": "Total number of tokens trained.",
+            "job_type": "The type of job (e.g. FT for fine-tuning).",
+            "hyperparameters": "The hyperparameters used for the fine-tuning job.",
+        },
+    },
+    "batch_jobs": {
+        "description": "Batch inference jobs with request counts and per-status progress.",
+        "docs_url": "https://docs.mistral.ai/api/#tag/batch",
+        "columns": {
+            "id": "The ID of the batch job.",
+            "object": "The object type.",
+            "input_files": "The IDs of the input files for the batch job.",
+            "endpoint": "The API endpoint the batch job targets.",
+            "model": "The model used for the batch job.",
+            "status": "The current status of the batch job.",
+            "created_at": "The Unix timestamp (in seconds) for when the job was created.",
+            "total_requests": "Total number of requests in the batch.",
+            "completed_requests": "Number of requests that have completed.",
+            "succeeded_requests": "Number of requests that succeeded.",
+            "failed_requests": "Number of requests that failed.",
+            "output_file": "The ID of the output file, when available.",
+        },
+    },
+    "agents": {
+        "description": "Agents defined in the workspace (beta), including model, instructions, and tools.",
+        "docs_url": "https://docs.mistral.ai/api/#tag/beta.agents",
+        "columns": {
+            "id": "The unique identifier of the agent.",
+            "name": "The name of the agent.",
+            "description": "A description of the agent.",
+            "model": "The model backing the agent.",
+            "object": 'The object type, always "agent".',
+            "version": "The version number of the agent.",
+            "created_at": "The ISO 8601 date-time for when the agent was created.",
+            "updated_at": "The ISO 8601 date-time for when the agent was last updated.",
+        },
+    },
+    "conversations": {
+        "description": "Conversations (beta) started against models or agents.",
+        "docs_url": "https://docs.mistral.ai/api/#tag/beta.conversations",
+        "columns": {
+            "id": "The unique identifier of the conversation.",
+            "object": 'The object type, always "conversation".',
+            "name": "The name of the conversation.",
+            "created_at": "The ISO 8601 date-time for when the conversation was created.",
+            "updated_at": "The ISO 8601 date-time for when the conversation was last updated.",
+        },
+    },
+    "libraries": {
+        "description": "Document libraries (beta) used as retrieval knowledge bases.",
+        "docs_url": "https://docs.mistral.ai/api/#tag/beta.libraries",
+        "columns": {
+            "id": "The unique identifier of the library.",
+            "name": "The name of the library.",
+            "created_at": "The ISO 8601 date-time for when the library was created.",
+            "updated_at": "The ISO 8601 date-time for when the library was last updated.",
+            "owner_id": "The identifier of the library owner.",
+            "owner_type": "The type of the library owner.",
+            "total_size": "The total size of the library, in bytes.",
+            "nb_documents": "The number of documents in the library.",
+        },
+    },
+}

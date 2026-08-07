@@ -4,10 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     McpAnalyticsFeedbackCreateBody,
+    McpAnalyticsIntentClustersRetrieveQueryParams,
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
     McpAnalyticsSessionsListQueryParams,
+    McpAnalyticsSessionsToolCallsParams,
+    McpAnalyticsSessionsToolCallsQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -32,7 +35,7 @@ const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
     },
 })
 
-const McpAnalyticsIntentClustersRetrieveSchema = z.object({})
+const McpAnalyticsIntentClustersRetrieveSchema = McpAnalyticsIntentClustersRetrieveQueryParams
 
 const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
     typeof McpAnalyticsIntentClustersRetrieveSchema,
@@ -40,12 +43,14 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
 > => ({
     name: 'mcp-analytics-intent-clusters-retrieve',
     schema: McpAnalyticsIntentClustersRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPIntentClusterSnapshot[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/`,
+            query: {
+                tool: params.tool,
+            },
         })
         return result
     },
@@ -94,6 +99,31 @@ const mcpAnalyticsSessionsList = (): ToolBase<
                 offset: params.offset,
                 order_by: params.order_by,
                 search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
+    },
+})
+
+const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
+    McpAnalyticsSessionsToolCallsQueryParams.shape
+)
+
+const mcpAnalyticsSessionsToolCalls = (): ToolBase<
+    typeof McpAnalyticsSessionsToolCallsSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
+> => ({
+    name: 'mcp-analytics-sessions-tool-calls',
+    schema: McpAnalyticsSessionsToolCallsSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsToolCallsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
+            query: {
+                date_from: params.date_from,
+                limit: params.limit,
+                offset: params.offset,
             },
         })
         return await withPostHogUrl(context, result, '/mcp-analytics')
@@ -190,6 +220,33 @@ const DateRange = z.object({
         .nullable()
         .describe('End of the date range. Same format as date_from. Omit or null for "now".')
         .optional(),
+    daysOfWeek: z
+        .union([
+            z.array(
+                z.union([
+                    z.literal(1),
+                    z.literal(2),
+                    z.literal(3),
+                    z.literal(4),
+                    z.literal(5),
+                    z.literal(6),
+                    z.literal(7),
+                ])
+            ),
+            z.null(),
+        ])
+        .describe(
+            'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+        )
+        .optional(),
+    excludeIncompletePeriods: z.coerce
+        .boolean()
+        .nullable()
+        .describe(
+            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
+        )
+        .default(false)
+        .optional(),
     explicitDate: z.coerce
         .boolean()
         .nullable()
@@ -205,6 +262,10 @@ const PropertyOperator = z.enum([
     'is_not',
     'icontains',
     'not_icontains',
+    'starts_with',
+    'not_starts_with',
+    'ends_with',
+    'not_ends_with',
     'regex',
     'not_regex',
     'gt',
@@ -237,7 +298,7 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
@@ -329,7 +390,7 @@ const LogEntryPropertyFilter = z.object({
 
 const GroupPropertyFilter = z.object({
     group_key_names: z.record(z.string(), z.string()).optional(),
-    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
+    group_type_index: z.union([z.number().int(), z.null()]).optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -353,7 +414,7 @@ const FlagPropertyFilter = z.object({
         .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
         .default('flag_evaluates_to'),
     type: z.literal('flag').describe('Feature flag dependency').default('flag'),
-    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+    value: z.union([z.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
 })
 
 const HogQLPropertyFilter = z.object({
@@ -401,6 +462,14 @@ const LogPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const MetricPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('metric_attribute').default('metric_attribute'),
+    value: PropertyFilterValue.optional(),
+})
+
 const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
 
 const SpanPropertyFilter = z.object({
@@ -416,6 +485,17 @@ const RevenueAnalyticsPropertyFilter = z.object({
     label: z.string().optional(),
     operator: PropertyOperator,
     type: z.literal('revenue_analytics').default('revenue_analytics'),
+    value: PropertyFilterValue.optional(),
+})
+
+const AccountCustomPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('account_custom_property')
+        .describe('Customer analytics account custom property — the key is the property definition id')
+        .default('account_custom_property'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -446,8 +526,10 @@ const AnyPropertyFilter = z.union([
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     SpanPropertyFilter,
     RevenueAnalyticsPropertyFilter,
+    AccountCustomPropertyFilter,
     WorkflowVariablePropertyFilter,
 ])
 
@@ -470,8 +552,13 @@ const MCPToolStatsQuery = z.object({
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
+const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+
 const MCPToolDailyStatsQuery = z.object({
     dateRange: DateRange.optional(),
+    interval: IntervalType.describe(
+        'Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day.'
+    ).optional(),
     kind: z.literal('MCPToolDailyStatsQuery').default('MCPToolDailyStatsQuery'),
     toolName: z
         .string()
@@ -481,7 +568,24 @@ const MCPToolDailyStatsQuery = z.object({
 const MCPToolFailuresQuery = z.object({
     dateRange: DateRange.optional(),
     kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
-    toolName: z.string().describe('The raw $mcp_tool_name to scope $exception events to.'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolFailureOccurrencesQuery = z.object({
+    dateRange: DateRange.optional(),
+    errorStatus: z
+        .string()
+        .describe('When set, only events with this HTTP status match; when unset, only events without a status match.')
+        .optional(),
+    errorType: z
+        .string()
+        .describe('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
+    kind: z.literal('MCPToolFailureOccurrencesQuery').default('MCPToolFailureOccurrencesQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
 const MCPToolTopUsersQuery = z.object({
@@ -524,6 +628,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
     'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
+    'mcp-analytics-sessions-tool-calls': mcpAnalyticsSessionsToolCalls,
     'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({
@@ -545,6 +650,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-tool-failures',
         schema: MCPToolFailuresQuery,
         kind: 'MCPToolFailuresQuery',
+    }),
+    'query-mcp-tool-failure-occurrences': createQueryWrapper({
+        name: 'query-mcp-tool-failure-occurrences',
+        schema: MCPToolFailureOccurrencesQuery,
+        kind: 'MCPToolFailureOccurrencesQuery',
     }),
     'query-mcp-tool-top-users': createQueryWrapper({
         name: 'query-mcp-tool-top-users',

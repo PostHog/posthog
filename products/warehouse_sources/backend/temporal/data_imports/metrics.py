@@ -43,6 +43,14 @@ def get_data_import_finished_metric(source_type: str | None, status: str) -> Met
     )
 
 
+def get_v3_lock_skipped_metric() -> MetricCounter:
+    # A skipped run leaves no job row and no schema-status change; without this
+    # counter a schema can silently miss every scheduled slot for days.
+    return workflow.metric_meter().create_counter(
+        "data_import_v3_lock_skipped", "Scheduled v3 runs skipped because the pipeline lock was not acquired."
+    )
+
+
 def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     """Emit app_metrics2 rows for a data import job that just reached terminal state.
 

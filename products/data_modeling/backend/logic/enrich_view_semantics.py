@@ -18,6 +18,7 @@ from typing import Any
 from django.conf import settings
 
 import structlog
+from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -30,7 +31,6 @@ from posthog.llm.semantic_enrichment import (
     MAX_PROMPT_CHARS,
     bound_prompt_over_columns,
     collapse_untrusted,
-    enrichment_enabled,
     generate_json_completion,
     get_team_business_context,
     upsert_column_annotation,
@@ -47,7 +47,6 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 
 logger = structlog.get_logger(__name__)
 
-VIEW_ENRICHMENT_FEATURE_FLAG = "data-modeling-semantic-enrichment"
 # Reuse the warehouse gateway product tag — no new llm-gateway config/deploy needed. Telemetry (below)
 # distinguishes the two surfaces, and billing can split later if it ever needs to.
 GATEWAY_PRODUCT: Product = "warehouse_semantic_enrichment"
@@ -156,16 +155,15 @@ def _get_row_sample(saved_query: DataWarehouseSavedQuery) -> list[dict[str, str]
     Only call this for materialized views — running the raw view query for an unmaterialized view is
     unbounded cost. `saved_query.name` is validated to a strict identifier, so it's safe to interpolate.
     """
-    from posthog.api.services.query import process_query_dict  # noqa: PLC0415 — heavy HogQL/query stack
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
-    from posthog.hogql_queries.query_runner import ExecutionMode  # noqa: PLC0415
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — heavy HogQL/query stack
 
-    query = {"kind": "HogQLQuery", "query": f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"}
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
+
+    query = f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"
     try:
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(
-                saved_query.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            )
+            # Safe to bypass: it only samples a view the team owns, to generate column descriptions.
+            response = execute_hogql_query(query, team=saved_query.team, bypass_warehouse_access_control=True)
     except Exception as e:
         capture_exception(e)
         return []
@@ -312,8 +310,6 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         log.info("view_enrichment.skipped", reason=reason)
         return {"status": "skipped", "reason": reason}
 
-    if not enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG):
-        return skip("flag_disabled")
     # Respect the org's AI data-processing opt-out: this ships view metadata and core memory to the LLM.
     if team.organization.is_ai_data_processing_approved is not True:
         return skip("ai_data_processing_not_approved")
@@ -444,40 +440,78 @@ def _upsert(saved_query: DataWarehouseSavedQuery, team_id: int, column_name: str
     )
 
 
-def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
-    """Dispatch view enrichment for a just-saved view, if it plausibly needs it.
+def enrichment_gates_pass(saved_query: DataWarehouseSavedQuery) -> bool:
+    """AI-processing-approval gate shared by the save- and materialization-dispatch paths.
 
-    Query-free gates plus a hash pre-check against the in-hand instance keep steady-state saves (status
-    flips, `last_run_at` updates) off Temporal entirely. The activity re-checks every gate, so this is a
-    cheap best-effort filter, not the source of truth.
+    Both paths use this so a team that hasn't approved AI processing never enqueues a workflow. The
+    activity re-checks the same gate as the source of truth.
+    """
+    return saved_query.team.organization.is_ai_data_processing_approved is True
+
+
+def view_ready_for_enrichment(saved_query: DataWarehouseSavedQuery) -> bool:
+    """The content half of the dispatch decision: enrichable view whose descriptions could have changed.
+
+    Not deleted/test/managed, has a query and columns, and its enrichment hash differs from the stored one.
+    The team half (AI consent) is `enrichment_gates_pass`. Split out so a backfill can check the
+    team gate once per team and this once per view.
     """
     if saved_query.deleted or saved_query.is_test or saved_query.managed_viewset_id:
-        return
+        return False
     query = saved_query.query or {}
     if not (isinstance(query, dict) and query.get("query")):
-        return
+        return False
     if not saved_query.columns:
-        return
-    if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
-        return
+        return False
+    return compute_enrichment_hash(saved_query) != saved_query.semantic_enrichment_hash
 
-    # The serializer saves inside transaction.atomic(), so dispatch must wait for commit; on_commit runs
-    # immediately when no transaction is open.
+
+def enrichment_dispatch_pending(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Whether a saved view passes every query-free gate + hash pre-check and should enqueue enrichment.
+
+    Shared by the save-signal dispatch path and the backfill command. The activity re-checks every gate,
+    so this is a cheap best-effort filter, not the source of truth.
+    """
+    return view_ready_for_enrichment(saved_query) and enrichment_gates_pass(saved_query)
+
+
+def dispatch_view_enrichment(team_id: int, saved_query_id: str) -> None:
+    """Enqueue the enrichment workflow once the current transaction commits (immediately when none is open).
+
+    The serializer saves inside transaction.atomic(), so dispatch must wait for commit; management commands
+    run outside a transaction, so on_commit fires the workflow start inline.
+    """
     from functools import partial  # noqa: PLC0415 — trivial, keep it next to the only use
 
     from django.db import transaction  # noqa: PLC0415
 
-    transaction.on_commit(partial(_start_enrichment_workflow, saved_query.team_id, str(saved_query.id)))
+    transaction.on_commit(partial(_start_enrichment_workflow, team_id, saved_query_id))
+
+
+def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Dispatch view enrichment for a just-saved view, if it plausibly needs it. Returns whether it did.
+
+    Query-free gates plus a hash pre-check against the in-hand instance keep steady-state saves (status
+    flips, `last_run_at` updates) off Temporal entirely.
+    """
+    if not enrichment_dispatch_pending(saved_query):
+        return False
+    dispatch_view_enrichment(saved_query.team_id, str(saved_query.id))
+    return True
 
 
 def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
     """Start the enrichment workflow on the metadata queue. Never breaks the caller's save."""
+    # Deferred: the activities module imports the facade, which imports this module — a module-level
+    # import would be circular.
+    from posthog.temporal.data_modeling.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
+
     try:
-        temporal = sync_connect()
+        temporal: Client = sync_connect()
         asyncio.run(
             temporal.start_workflow(
                 ENRICH_VIEW_WORKFLOW_NAME,
-                {"team_id": team_id, "saved_query_id": saved_query_id},
+                EnrichViewSemanticsInputs(team_id=team_id, saved_query_id=saved_query_id),
                 id=f"enrich-view-semantics-{saved_query_id}",
                 task_queue=str(settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

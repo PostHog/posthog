@@ -1,11 +1,21 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from products.approvals.backend.actions.feature_flags import UpdateFeatureFlagAction
+from posthog.models import Team
+
+from products.approvals.backend.actions.feature_flags import (
+    DisableFeatureFlagAction,
+    EnableFeatureFlagAction,
+    UpdateFeatureFlagAction,
+    _resolve_existing_flag,
+)
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -95,6 +105,96 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         view = self._mock_view(flag)
 
         result = UpdateFeatureFlagAction.detect(request, view)
+
+        assert result is False
+
+
+class TestDetectFromValidatedData(APIBaseTest):
+    """The gate decorates FeatureFlagSerializer.update(self, instance, validated_data), so the
+    actual change lives in validated_data — NOT the raw HTTP request body. Internal callers
+    (experiment toggles, ship_variant) drive update() from a POST whose body has no flag delta,
+    so detection must read validated_data."""
+
+    def _create_flag(self, *, active: bool = True, filters: dict[str, Any] | None = None) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key="vd-flag",
+            active=active,
+            filters=filters or {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+    def _serializer_view(self) -> MagicMock:
+        # Serializer-style view: _get_instance reads args[0] when "request" is in context.
+        view = MagicMock()
+        view.context = {"request": MagicMock(), "get_team": lambda: self.team}
+        return view
+
+    def _post_request(self) -> MagicMock:
+        # A POST whose body carries no flag delta — the failure mode the fix addresses.
+        request = MagicMock()
+        request.method = "POST"
+        request.data = {}
+        return request
+
+    def test_enable_detects_from_validated_data_when_request_body_empty(self):
+        flag = self._create_flag(active=False)
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, flag, {"active": True})
+
+        assert result is True
+
+    def test_disable_detects_from_validated_data_when_request_body_empty(self):
+        flag = self._create_flag(active=True)
+        view = self._serializer_view()
+
+        result = DisableFeatureFlagAction.detect(self._post_request(), view, flag, {"active": False})
+
+        assert result is True
+
+    def test_enable_does_not_fire_when_already_active(self):
+        flag = self._create_flag(active=True)
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, flag, {"active": True})
+
+        assert result is False
+
+    def test_update_detects_rollout_change_from_validated_data(self):
+        flag = self._create_flag(filters={"groups": [{"properties": [], "rollout_percentage": 50}]})
+        view = self._serializer_view()
+        # FeatureFlagSerializer puts the filters change under `get_filters` in validated_data.
+        validated_data = {"get_filters": {"groups": [{"properties": [], "rollout_percentage": 90}]}}
+
+        result = UpdateFeatureFlagAction.detect(self._post_request(), view, flag, validated_data)
+
+        assert result is True
+
+    def test_update_extract_intent_reads_get_filters_from_validated_data(self):
+        flag = self._create_flag(filters={"groups": [{"properties": [], "rollout_percentage": 50}]})
+        view = self._serializer_view()
+        validated_data = {"get_filters": {"groups": [{"properties": [], "rollout_percentage": 90}]}}
+
+        intent = UpdateFeatureFlagAction.extract_intent(self._post_request(), view, flag, validated_data)
+
+        assert intent["gated_changes"]["rollout_percentage"][0]["value"] == 90
+        # full_request_data is re-applied verbatim, so it must carry the input field name.
+        assert intent["full_request_data"]["filters"]["groups"][0]["rollout_percentage"] == 90
+        assert "get_filters" not in intent["full_request_data"]
+
+    def test_enable_fires_on_create_born_active(self):
+        # A brand-new flag born active is gated (create-as-single-arg, the production shape).
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, {"key": "f", "active": True})
+
+        assert result is True
+
+    def test_enable_does_not_fire_on_create_born_disabled(self):
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, {"key": "f", "active": False})
 
         assert result is False
 
@@ -252,6 +352,63 @@ class TestCheckStaleness(APIBaseTest):
         result = BaseAction.check_staleness({"preconditions": {"version": 1}}, {})
 
         assert result is False
+
+    def test_not_stale_for_create_type_request_with_no_instance(self):
+        # A create-type request has no flag row yet, so preconditions.version is None and
+        # context has no instance. That must not be treated as staleness, or every
+        # create-type change request would be marked stale before it's ever approved.
+        intent = {"preconditions": {"version": None}}
+
+        result = EnableFeatureFlagAction.check_staleness(intent, {})
+
+        assert result is False
+
+    def test_stale_when_instance_missing_but_version_was_stored(self):
+        # An update/enable/disable request whose flag can no longer be resolved
+        # (e.g. deleted) genuinely is stale, unlike the create-type case above.
+        intent = {"preconditions": {"version": 1}}
+
+        result = EnableFeatureFlagAction.check_staleness(intent, {})
+
+        assert result is True
+
+
+class TestResolveExistingFlag(APIBaseTest):
+    def _make_change_request(self, team: Team, flag_id: int | str | None) -> ChangeRequest:
+        return ChangeRequest.objects.create(
+            team=team,
+            organization=self.organization,
+            created_by=self.user,
+            action_key="feature_flag.enable",
+            resource_type="feature_flag",
+            resource_id=None,
+            state="pending",
+            intent={"flag_id": flag_id, "full_request_data": {}},
+            intent_display={"description": "Enable feature flag"},
+            policy_snapshot={"quorum": 1, "users": [self.user.id]},
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
+
+    def test_resolves_flag_owned_by_a_sibling_team_in_the_same_project(self):
+        # Multi-environment projects have one FeatureFlag row per team, but the change
+        # request can be created against a sibling environment of the same project.
+        # A team_id-scoped lookup misses the flag entirely and looks like a deleted
+        # resource — resolution must be project-scoped instead.
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        flag = FeatureFlag.objects.create(team=sibling_team, key="cross-env-flag", created_by=self.user)
+        change_request = self._make_change_request(self.team, flag.id)
+
+        resolved = _resolve_existing_flag(change_request)
+
+        assert resolved is not None
+        assert resolved.id == flag.id
+
+    def test_returns_none_when_flag_does_not_exist_in_the_project(self):
+        change_request = self._make_change_request(self.team, 999999999)
+
+        resolved = _resolve_existing_flag(change_request)
+
+        assert resolved is None
 
 
 class TestPolicyConditionEvaluation(APIBaseTest):

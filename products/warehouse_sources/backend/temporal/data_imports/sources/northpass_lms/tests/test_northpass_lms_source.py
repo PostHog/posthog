@@ -4,7 +4,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NorthpassLMSSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
+    NorthpassLMSSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
     NorthpassResumeConfig,
 )

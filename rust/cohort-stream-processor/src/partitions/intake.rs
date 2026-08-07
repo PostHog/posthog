@@ -1,11 +1,9 @@
-//! App-side intake backpressure: a per-partition ceiling on **events** resident in a worker's
-//! channel. The mpsc slots bound sub-batches; this bounds the events inside them. Over the cap, new
-//! events are refused (→ held → paused), never buffered.
+//! App-side intake backpressure: a per-partition ceiling on events and seed tiles resident in a
+//! worker's channel. Over the cap, new messages are refused (→ held → paused), never buffered.
 //!
-//! The counter cannot drift: [`PartitionIntake::try_admit`] reserves a batch's events (only the
-//! consume loop admits), [`MeteredReceiver`] releases them on the next `recv` and on `Drop`, and the
-//! router releases eagerly when an admitted batch fails to enter the channel. Both sides count events
-//! only, so maintenance ticks reserve and release 0.
+//! The counter cannot drift: [`PartitionIntake::try_admit`] reserves, [`MeteredReceiver`] releases
+//! on the next `recv` and on `Drop`, and the router releases eagerly on a failed send. Both sides
+//! share [`ShuffleMessage::counts_toward_intake`], so they can never disagree on what counts.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -16,11 +14,11 @@ use tokio::sync::mpsc;
 use super::shuffle_message::ShuffleMessage;
 use crate::observability::metrics::PARTITION_INTAKE_EVENTS;
 
-/// Event-carrying messages in a batch. Maintenance ticks carry no offset and count 0.
-pub fn count_events(batch: &[ShuffleMessage]) -> usize {
+/// Intake-counted messages in a batch; maintenance ticks count 0.
+pub fn count_intake(batch: &[ShuffleMessage]) -> usize {
     batch
         .iter()
-        .filter(|message| message.event_offset().is_some())
+        .filter(|message| message.counts_toward_intake())
         .count()
 }
 
@@ -134,7 +132,7 @@ impl MeteredReceiver {
     pub async fn recv(&mut self) -> Option<Vec<ShuffleMessage>> {
         self.release_outstanding();
         let batch = self.receiver.recv().await?;
-        self.outstanding = count_events(&batch);
+        self.outstanding = count_intake(&batch);
         Some(batch)
     }
 
@@ -150,7 +148,7 @@ impl MeteredReceiver {
     pub fn try_recv(&mut self) -> Result<Vec<ShuffleMessage>, mpsc::error::TryRecvError> {
         self.release_outstanding();
         let batch = self.receiver.try_recv()?;
-        self.outstanding = count_events(&batch);
+        self.outstanding = count_intake(&batch);
         Ok(batch)
     }
 }
@@ -184,6 +182,7 @@ mod tests {
                 redirect_hops: 0,
             }),
             cse_offset: 0,
+            broker_ts_ms: None,
         }
     }
 
@@ -192,14 +191,14 @@ mod tests {
     }
 
     #[test]
-    fn count_events_ignores_maintenance_messages() {
+    fn count_intake_counts_events_and_seeds_but_ignores_maintenance() {
         let batch = vec![
             event(),
             ShuffleMessage::Sweep { due_before_ms: 1 },
             event(),
             ShuffleMessage::RedrivePendingTransfers,
         ];
-        assert_eq!(count_events(&batch), 2);
+        assert_eq!(count_intake(&batch), 2);
     }
 
     #[test]
@@ -241,10 +240,10 @@ mod tests {
         tx.send(events(2)).await.unwrap();
         assert_eq!(intake.in_flight(), 5);
 
-        assert_eq!(count_events(&rx.recv().await.unwrap()), 3);
+        assert_eq!(count_intake(&rx.recv().await.unwrap()), 3);
         assert_eq!(intake.in_flight(), 5, "the in-hand batch stays counted");
 
-        assert_eq!(count_events(&rx.recv().await.unwrap()), 2);
+        assert_eq!(count_intake(&rx.recv().await.unwrap()), 2);
         assert_eq!(intake.in_flight(), 2, "recv released the previous batch");
 
         drop(rx);

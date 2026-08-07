@@ -172,7 +172,7 @@ async function queryStoredGenerationSentiments(
     )
 
     const sentimentByTargetId = new Map<string, GenerationSentiment>()
-    for (const row of response.results || []) {
+    for (const row of response?.results || []) {
         const [, generationId, label, score, scores, messages, messageCount] = row
         const normalized = normalizeSentimentResult({
             label,
@@ -279,7 +279,7 @@ async function queryGenerationInputs(
     )
 
     const inputs = new Map<string, unknown>()
-    for (const [uuid, , aiInput] of response.results || []) {
+    for (const [uuid, , aiInput] of response?.results || []) {
         if (uuid && hasUsableInput(aiInput)) {
             inputs.set(String(uuid), aiInput)
         }
@@ -338,7 +338,7 @@ export async function fetchSentimentGenerationsPage(
     }
 
     const response = await api.query(generationsQuery)
-    const generationRows = (response.results || [])
+    const generationRows = (response?.results || [])
         .map((row) => mapGenerationRow(row))
         .filter((row): row is SentimentGeneration => row !== null)
 
@@ -361,6 +361,6 @@ export async function fetchSentimentGenerationsPage(
                 sentiment: sentimentByGenerationKey[generation.uuid] ?? null,
             }))
             .filter((generation) => generation.sentiment !== null),
-        rawCount: response.results?.length ?? 0,
+        rawCount: response?.results?.length ?? 0,
     }
 }

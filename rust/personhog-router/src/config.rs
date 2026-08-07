@@ -2,6 +2,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use envconfig::Envconfig;
+use personhog_coordination::authority::AuthorityClock;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -143,14 +144,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
-    /// Maximum gRPC message size to encode (send), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
-    /// Defaults to 128 MiB.
-    #[envconfig(default = "134217728")]
-    pub grpc_max_send_message_size: usize,
-
-    /// Maximum gRPC message size to decode (receive), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    /// Maximum request body size the proxy will collect before forwarding,
+    /// in bytes. Oversized requests are rejected with RESOURCE_EXHAUSTED.
+    /// Responses stream through unbounded (see `response_size_warn_bytes`).
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
@@ -170,15 +166,56 @@ pub struct Config {
     #[envconfig(default = "router-0")]
     pub pod_name: String,
 
-    #[envconfig(default = "30")]
+    /// Registration lease TTL. A crashed router stays in every freeze
+    /// quorum until this expires, stalling any handoff frozen in that
+    /// window — keep it short. Graceful exits deregister immediately.
+    #[envconfig(default = "10")]
     pub lease_ttl: i64,
 
-    #[envconfig(default = "10")]
+    #[envconfig(default = "3")]
     pub heartbeat_interval_secs: u64,
 
-    /// Leader gRPC port used when resolving pod names to addresses
-    #[envconfig(default = "50053")]
-    pub leader_port: u16,
+    /// Fail the coordination run when the handoff watch loop makes no
+    /// progress for this long, so the router deregisters and restarts as
+    /// a healthy participant instead of wedging freeze quorums while its
+    /// lease stays alive. `0` disables the watchdog.
+    #[envconfig(default = "60")]
+    pub router_participant_stall_secs: u64,
+
+    /// How often the routing table re-derives stash, table, and drain
+    /// state from a fresh etcd snapshot, independent of watch events.
+    #[envconfig(default = "5")]
+    pub router_reconcile_secs: u64,
+
+    /// How many consecutive reconcile-pass failures the routing table
+    /// tolerates before failing the run. A failed pass only means the
+    /// router stays as stale as the previous tick — the watch-driven
+    /// steady state — so brief etcd blips must not be fatal; sustained
+    /// outage is already handled by lease self-fencing. The budget
+    /// bounds the partial-failure mode where snapshot reads fail while
+    /// the lease stays healthy, which would otherwise silently degrade
+    /// the liveness the reconcile provides.
+    #[envconfig(default = "12")]
+    pub router_reconcile_failure_budget: u32,
+
+    /// How many consecutive coordination-attempt failures the routing
+    /// table's run supervisor tolerates (rebuilding coordination in
+    /// place while the data plane keeps serving) before giving up and
+    /// letting the process restart. A healthy attempt resets the count.
+    #[envconfig(default = "10")]
+    pub router_run_retry_budget: u32,
+
+    /// Base backoff in milliseconds between coordination attempts;
+    /// doubles per consecutive failure up to a fixed cap.
+    #[envconfig(default = "500")]
+    pub router_run_retry_backoff_ms: u64,
+
+    /// How long a handoff may sit in Warming before the coordinator
+    /// cancels it by replacement. Warming replays the partition's
+    /// changelog, so its budget is far above the general handoff
+    /// deadline; `0` disables it.
+    #[envconfig(default = "1800")]
+    pub coordinator_warming_deadline_secs: u64,
 
     /// Maximum number of stashed write requests held per partition while
     /// a handoff is in progress. Excess requests return UNAVAILABLE and
@@ -214,21 +251,52 @@ pub struct Config {
     pub stash_drain_concurrency: usize,
 
     // ── coordinator (leader election among router-leader pods) ───
-    /// Lease TTL for the coordinator leader election
-    #[envconfig(default = "15")]
+    /// Whether this leader-mode router campaigns for the coordinator
+    /// election. Disabled, the router still registers in the routing
+    /// table, serves traffic, and acks freezes — it just never
+    /// coordinates. Production leaves this on everywhere; the test
+    /// harness disables it on its traffic router so chaos targeting
+    /// "the coordinator" can never land on the traffic path.
+    #[envconfig(default = "true")]
+    pub coordinator_enabled: bool,
+
+    /// Lease TTL for the coordinator leader election. A crashed leader
+    /// blocks every handoff until this expires and a survivor's campaign
+    /// fires, so the worst-case coordinator outage is roughly this plus
+    /// the election retry interval. Graceful exits revoke the lease and
+    /// fail over immediately.
+    #[envconfig(default = "5")]
     pub coordinator_lease_ttl: i64,
 
-    /// Keepalive interval for the coordinator lease
-    #[envconfig(default = "5")]
+    /// Keepalive interval for the coordinator lease. Several attempts
+    /// must fit inside the TTL; a keepalive that reports the lease gone
+    /// makes the leader abdicate.
+    #[envconfig(default = "1")]
     pub coordinator_keepalive_secs: u64,
 
-    /// Retry interval when coordinator fails to acquire leadership
-    #[envconfig(default = "5")]
+    /// Retry interval between a standby candidate's election campaigns.
+    #[envconfig(default = "1")]
     pub coordinator_election_retry_secs: u64,
 
     /// Debounce interval (ms) for batching pod events before rebalancing
     #[envconfig(default = "1000")]
     pub coordinator_rebalance_debounce_ms: u64,
+
+    /// How often the coordinator re-evaluates in-flight handoffs
+    /// regardless of watch events — the liveness backstop for state
+    /// changes that fire no event (e.g. router departures) and for
+    /// events missed before a watch attaches.
+    #[envconfig(default = "5")]
+    pub coordinator_reconcile_secs: u64,
+
+    /// How long a handoff may run before the coordinator cancels it so a
+    /// later plan can retry. The backstop for a handoff that can never
+    /// satisfy its quorum: nothing else removes one whose new owner is
+    /// alive, and an in-flight handoff pins its partition, so without
+    /// this it waits for a human. Sized well above healthy handoffs,
+    /// which complete in seconds.
+    #[envconfig(default = "120")]
+    pub coordinator_handoff_deadline_secs: u64,
 
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
@@ -245,6 +313,55 @@ pub struct Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn leased(lease_ttl: i64, heartbeat_interval_secs: u64) -> Config {
+        let mut config = Config::init_from_env().expect("defaults");
+        config.lease_ttl = lease_ttl;
+        config.heartbeat_interval_secs = heartbeat_interval_secs;
+        config
+    }
+
+    /// The keepalive uses the heartbeat as the timeout for each renewal
+    /// round, so a zero one times out instantly and the router fences
+    /// itself against healthy etcd for as long as it runs — taking every
+    /// handoff that needs its freeze ack with it.
+    #[test]
+    fn a_zero_heartbeat_is_refused() {
+        assert!(leased(10, 0).validate_lease_timescales().is_err());
+    }
+
+    /// A heartbeat past the renewal margin exhausts the lease by sleeping,
+    /// with the same result.
+    #[test]
+    fn a_heartbeat_the_lease_cannot_fit_is_refused() {
+        assert!(leased(10, 30).validate_lease_timescales().is_err());
+    }
+
+    #[test]
+    fn a_heartbeat_well_inside_the_margin_is_accepted() {
+        assert!(leased(10, 2).validate_lease_timescales().is_ok());
+    }
+
+    /// The coordinator election lease runs the same keepalive on its own
+    /// pair of knobs; a misconfigured pair reproduces the same
+    /// self-fencing loop, stalling every handoff behind the coordinator.
+    #[test]
+    fn a_coordinator_keepalive_the_lease_cannot_fit_is_refused() {
+        let mut config = leased(10, 2);
+        config.coordinator_lease_ttl = 10;
+        config.coordinator_keepalive_secs = 30;
+        assert!(config.validate_lease_timescales().is_err());
+        config.coordinator_keepalive_secs = 0;
+        assert!(config.validate_lease_timescales().is_err());
+        config.coordinator_keepalive_secs = 2;
+        assert!(config.validate_lease_timescales().is_ok());
+
+        // A disabled coordinator never reads these knobs, so they must
+        // not be able to refuse startup.
+        config.coordinator_keepalive_secs = 0;
+        config.coordinator_enabled = false;
+        assert!(config.validate_lease_timescales().is_ok());
+    }
 
     // ── ReplicaDiscoveryMode ──────────────────────────────────────────────────
 
@@ -409,6 +526,66 @@ impl Config {
         Duration::from_secs(self.heartbeat_interval_secs)
     }
 
+    /// Refuse a heartbeat the lease cannot survive.
+    ///
+    /// The router holds an etcd lease and votes in the freeze quorum,
+    /// on the same keepalive the leader runs — which uses this interval
+    /// as the timeout for each renewal round. A zero one times out
+    /// instantly and a slow one sleeps through the margin, and either
+    /// exhausts the lease against healthy etcd. The router then
+    /// deregisters and starts over for as long as it runs, and every
+    /// handoff that needs its freeze ack waits on a participant that
+    /// keeps leaving.
+    ///
+    /// The coordinator election lease runs the same keepalive with its
+    /// own pair of knobs, so it gets the same refusal: a coordinator
+    /// that keeps fencing itself stalls every handoff behind it.
+    pub fn validate_lease_timescales(&self) -> Result<(), String> {
+        Self::validate_keepalive_pair(
+            "HEARTBEAT_INTERVAL_SECS",
+            self.heartbeat_interval(),
+            "LEASE_TTL",
+            self.lease_ttl,
+        )?;
+        // Only where a coordinator can actually run: refusing startup
+        // over knobs a disabled coordinator never reads would turn dead
+        // config into an outage.
+        if !self.coordinator_enabled {
+            return Ok(());
+        }
+        Self::validate_keepalive_pair(
+            "COORDINATOR_KEEPALIVE_SECS",
+            self.coordinator_keepalive_interval(),
+            "COORDINATOR_LEASE_TTL",
+            self.coordinator_lease_ttl,
+        )
+    }
+
+    fn validate_keepalive_pair(
+        interval_name: &str,
+        interval: Duration,
+        ttl_name: &str,
+        ttl: i64,
+    ) -> Result<(), String> {
+        let margin = AuthorityClock::renewal_margin(ttl);
+        if interval.is_zero() {
+            return Err(format!(
+                "{interval_name} must be greater than zero: the keepalive uses it as the \
+                 timeout for each renewal round, so a zero interval fences the holder \
+                 against healthy etcd in a loop it cannot leave"
+            ));
+        }
+        if interval >= margin {
+            return Err(format!(
+                "{interval_name} ({interval:?}) must be well under the keepalive renewal \
+                 margin ({margin:?} = 2/3 of {ttl_name} {ttl}s): the sleep between renewals \
+                 would exhaust the margin on its own, and the holder would fence itself \
+                 against healthy etcd"
+            ));
+        }
+        Ok(())
+    }
+
     pub fn coordinator_keepalive_interval(&self) -> Duration {
         Duration::from_secs(self.coordinator_keepalive_secs)
     }
@@ -419,6 +596,27 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn coordinator_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_reconcile_secs)
+    }
+
+    pub fn coordinator_handoff_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_handoff_deadline_secs)
+    }
+
+    pub fn router_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.router_reconcile_secs)
+    }
+
+    pub fn coordinator_warming_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_warming_deadline_secs)
+    }
+
+    pub fn participant_stall_threshold(&self) -> Option<Duration> {
+        (self.router_participant_stall_secs > 0)
+            .then(|| Duration::from_secs(self.router_participant_stall_secs))
     }
 
     pub fn stash_max_wait(&self) -> Duration {

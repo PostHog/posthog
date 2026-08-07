@@ -16,13 +16,15 @@ def _steps(*counts: int) -> list[dict]:
     return [{"order": i, "count": c, "breakdown_value": None} for i, c in enumerate(counts)]
 
 
-def _query(viz: str | None = None) -> dict:
+def _query(viz: str | None = None, exclude_incomplete: bool = False) -> dict:
     query: dict = {
         "kind": "FunnelsQuery",
         "series": [{"kind": "EventsNode", "event": "step_a"}, {"kind": "EventsNode", "event": "step_b"}],
     }
     if viz is not None:
         query["funnelsFilter"] = {"funnelVizType": viz}
+    if exclude_incomplete:
+        query["dateRange"] = {"date_from": "-7d", "excludeIncompletePeriods": True}
     return query
 
 
@@ -34,11 +36,18 @@ def _alert(config: dict | None = None, condition_type: str = AlertConditionType.
 
 
 def _extract(
-    result, *, config: dict | None = None, viz: str | None = None, condition_type=AlertConditionType.ABSOLUTE_VALUE
+    result,
+    *,
+    config: dict | None = None,
+    viz: str | None = None,
+    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+    exclude_incomplete: bool = False,
 ):
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=result)
-        return FunnelsExtractor().extract(_alert(config, condition_type), MagicMock(), _query(viz), IF_STALE)
+        return FunnelsExtractor().extract(
+            _alert(config, condition_type), MagicMock(), _query(viz, exclude_incomplete), IF_STALE
+        )
 
 
 def _config(
@@ -112,23 +121,31 @@ def _trends_series(data: list[float], *, breakdown_value=None) -> dict:
 
 
 @pytest.mark.parametrize(
-    "condition_type,check_ongoing,expected_index,expected_value",
+    "condition_type,check_ongoing,exclude_incomplete,expected_index,expected_value",
     [
         # Default: the latest period is in progress, so anchor the last *complete* one.
-        (AlertConditionType.ABSOLUTE_VALUE, False, 1, 20.0),
+        (AlertConditionType.ABSOLUTE_VALUE, False, False, 1, 20.0),
         # check_ongoing_interval anchors the latest (in-progress) period instead.
-        (AlertConditionType.ABSOLUTE_VALUE, True, 2, 40.0),
+        (AlertConditionType.ABSOLUTE_VALUE, True, False, 2, 40.0),
         # Relative conditions use the same anchor (then diff it against the period before it).
-        (AlertConditionType.RELATIVE_INCREASE, False, 1, 20.0),
-        (AlertConditionType.RELATIVE_INCREASE, True, 2, 40.0),
+        (AlertConditionType.RELATIVE_INCREASE, False, False, 1, 20.0),
+        (AlertConditionType.RELATIVE_INCREASE, True, False, 2, 40.0),
+        # A clipped query (excludeIncompletePeriods) already excludes the in-progress period, so the
+        # last returned point is complete and must be the anchor: skipping back one more would
+        # evaluate a period-stale value.
+        (AlertConditionType.ABSOLUTE_VALUE, False, True, 2, 40.0),
+        (AlertConditionType.RELATIVE_INCREASE, False, True, 2, 40.0),
     ],
 )
-def test_trends_funnel_anchor_selection(condition_type, check_ongoing, expected_index, expected_value):
+def test_trends_funnel_anchor_selection(
+    condition_type, check_ongoing, exclude_incomplete, expected_index, expected_value
+):
     result = _extract(
         [_trends_series([10.0, 20.0, 40.0])],
         viz="trends",
         condition_type=condition_type,
         config=_config(check_ongoing_interval=check_ongoing),
+        exclude_incomplete=exclude_incomplete,
     )
     assert result.subject == "The funnel conversion rate"
     assert result.unit == "%"
@@ -136,6 +153,18 @@ def test_trends_funnel_anchor_selection(condition_type, check_ongoing, expected_
     series = result.series[0]
     assert series.current_index == expected_index
     assert series.points[series.current_index].value == expected_value
+
+
+def test_check_ongoing_interval_conflicts_with_clipped_query():
+    # The clip removes the ongoing interval from the results, so an alert asking to check it can
+    # never do what it says — reject the conflicting configuration instead of silently degrading.
+    with pytest.raises(AlertExtractionError, match="excludes incomplete periods"):
+        _extract(
+            [_trends_series([10.0, 20.0])],
+            viz="trends",
+            config=_config(check_ongoing_interval=True),
+            exclude_incomplete=True,
+        )
 
 
 def test_trends_funnel_breakdown_yields_one_series_per_value():

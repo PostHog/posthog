@@ -375,7 +375,7 @@ class TestEvaluationStatusCoercion(BaseTest):
     def test_flipping_enabled_true_on_errored_row_transitions_to_active_and_clears_reason(self):
         evaluation = self._create(enabled=False)
         evaluation.status = EvaluationStatus.ERROR
-        evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        evaluation.status_reason = EvaluationStatusReason.PROVIDER_KEY_REQUIRED
         evaluation.save()
         self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
 
@@ -394,17 +394,17 @@ class TestEvaluationStatusCoercion(BaseTest):
     def test_setting_status_error_with_reason_forces_enabled_false(self):
         evaluation = self._create(enabled=True)
         evaluation.status = EvaluationStatus.ERROR
-        evaluation.status_reason = EvaluationStatusReason.MODEL_NOT_ALLOWED
+        evaluation.status_reason = EvaluationStatusReason.PROVIDER_KEY_REQUIRED
         evaluation.save()
         self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
         self.assertFalse(evaluation.enabled)
-        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.MODEL_NOT_ALLOWED)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.PROVIDER_KEY_REQUIRED)
 
     def test_paused_status_clears_any_stale_status_reason(self):
         evaluation = self._create(enabled=True)
         evaluation.status = EvaluationStatus.ERROR
-        evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
-        evaluation.status_reason_detail = "The trial limit was reached."
+        evaluation.status_reason = EvaluationStatusReason.PROVIDER_KEY_REQUIRED
+        evaluation.status_reason_detail = "No provider API key configured."
         evaluation.save()
 
         evaluation.status = EvaluationStatus.PAUSED
@@ -432,7 +432,7 @@ class TestEvaluationStatusCoercion(BaseTest):
         evaluation = self._create(enabled=True)
         # Simulate a system transition happening elsewhere (another worker, another request, etc.).
         Evaluation.objects.filter(id=evaluation.id).update(
-            enabled=False, status=EvaluationStatus.ERROR, status_reason=EvaluationStatusReason.TRIAL_LIMIT_REACHED
+            enabled=False, status=EvaluationStatus.ERROR, status_reason=EvaluationStatusReason.PROVIDER_KEY_REQUIRED
         )
 
         evaluation.refresh_from_db()

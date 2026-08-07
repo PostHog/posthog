@@ -20,7 +20,6 @@ import { FeatureFlagBasicType } from '~/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP, UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
@@ -121,12 +120,6 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
     resizeable: false,
     attributes: {
         id: {},
-    },
-    pasteOptions: {
-        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.survey(UUID_REGEX_MATCH_GROUPS),
-        getAttributes: async (match) => {
-            return { id: match[1] }
-        },
     },
 })
 

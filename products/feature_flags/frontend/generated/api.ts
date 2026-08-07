@@ -16,6 +16,8 @@ import type {
     BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyFlagsDependencyRequirementsRequestApi,
+    CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
@@ -33,6 +35,10 @@ import type {
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsMyFlagsRetrieveParams,
+    FeatureFlagsStaffCacheEntryRetrieveParams,
+    FeatureFlagsStaffCacheListParams,
+    FeatureFlagsStaffTeamConfigListParams,
+    FeatureFlagsStaffTeamsListParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
     MyFlagsResponseApi,
@@ -45,6 +51,16 @@ import type {
     PatchedScheduledChangeApi,
     ScheduledChangeApi,
     ScheduledChangesListParams,
+    StaffCacheEntryResponseApi,
+    StaffCacheMutationApi,
+    StaffCacheMutationResponseApi,
+    StaffCacheStatusResponseApi,
+    StaffTeamConfigApi,
+    StaffTeamConfigListResponseApi,
+    StaffTeamConfigMutationApi,
+    StaffTeamSearchResponseApi,
+    StaffWarmRunCancelResponseApi,
+    StaffWarmRunResponseApi,
     UserBlastRadiusRequestApi,
     UserBlastRadiusResponseApi,
 } from './api.schemas'
@@ -65,6 +81,264 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getFeatureFlagsStaffCacheListUrl = (params: FeatureFlagsStaffCacheListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_cache/?${stringifiedParams}`
+        : `/api/feature_flags_staff_cache/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheList = async (
+    params: FeatureFlagsStaffCacheListParams,
+    options?: RequestInit
+): Promise<StaffCacheStatusResponseApi> => {
+    return apiMutator<StaffCacheStatusResponseApi>(getFeatureFlagsStaffCacheListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheClearCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/clear/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheClearCreate = async (
+    staffCacheMutationApi: StaffCacheMutationApi,
+    options?: RequestInit
+): Promise<StaffCacheMutationResponseApi> => {
+    return apiMutator<StaffCacheMutationResponseApi>(getFeatureFlagsStaffCacheClearCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffCacheEntryRetrieveUrl = (params: FeatureFlagsStaffCacheEntryRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_cache/entry/?${stringifiedParams}`
+        : `/api/feature_flags_staff_cache/entry/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheEntryRetrieve = async (
+    params: FeatureFlagsStaffCacheEntryRetrieveParams,
+    options?: RequestInit
+): Promise<StaffCacheEntryResponseApi> => {
+    return apiMutator<StaffCacheEntryResponseApi>(getFeatureFlagsStaffCacheEntryRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheRebuildCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/rebuild/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheRebuildCreate = async (
+    staffCacheMutationApi: StaffCacheMutationApi,
+    options?: RequestInit
+): Promise<StaffCacheMutationResponseApi> => {
+    return apiMutator<StaffCacheMutationResponseApi>(getFeatureFlagsStaffCacheRebuildCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunRetrieveUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/`
+}
+
+/**
+ * Status of the most recent warm-all run, published by the Rust warmer.
+ */
+export const featureFlagsStaffCacheWarmRunRetrieve = async (
+    options?: RequestInit
+): Promise<StaffWarmRunResponseApi> => {
+    return apiMutator<StaffWarmRunResponseApi>(getFeatureFlagsStaffCacheWarmRunRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunCancelCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/cancel/`
+}
+
+/**
+ * Request cancellation of the active warm-all run.
+ *
+ * Sets the cancel key the warmer polls between status heartbeats; the run winds down after
+ * in-flight teams finish. Cancelling a stale run is allowed (the key is scoped to the run id,
+ * so a dead process simply never reads it).
+ */
+export const featureFlagsStaffCacheWarmRunCancelCreate = async (
+    options?: RequestInit
+): Promise<StaffWarmRunCancelResponseApi> => {
+    return apiMutator<StaffWarmRunCancelResponseApi>(getFeatureFlagsStaffCacheWarmRunCancelCreateUrl(), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffTeamConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_team_config/?${stringifiedParams}`
+        : `/api/feature_flags_staff_team_config/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
+ * minimal_flag_called_events).
+ *
+ * Single-team writes only, by design: this setting is meant to be flipped one team at a time
+ * after staff manually verify that team's SDK versions support the slim $feature_flag_called
+ * event shape, unlike the cache tools' bulk rebuild/clear.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigList = async (
+    params: FeatureFlagsStaffTeamConfigListParams,
+    options?: RequestInit
+): Promise<StaffTeamConfigListResponseApi> => {
+    return apiMutator<StaffTeamConfigListResponseApi>(getFeatureFlagsStaffTeamConfigListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffTeamConfigSetCreateUrl = () => {
+    return `/api/feature_flags_staff_team_config/set/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
+ * minimal_flag_called_events).
+ *
+ * Single-team writes only, by design: this setting is meant to be flipped one team at a time
+ * after staff manually verify that team's SDK versions support the slim $feature_flag_called
+ * event shape, unlike the cache tools' bulk rebuild/clear.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetCreate = async (
+    staffTeamConfigMutationApi: StaffTeamConfigMutationApi,
+    options?: RequestInit
+): Promise<StaffTeamConfigApi> => {
+    return apiMutator<StaffTeamConfigApi>(getFeatureFlagsStaffTeamConfigSetCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffTeamConfigMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffTeamsListUrl = (params: FeatureFlagsStaffTeamsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_teams/?${stringifiedParams}`
+        : `/api/feature_flags_staff_teams/`
+}
+
+/**
+ * Staff-only, unscoped team search across every organization.
+ *
+ * Unlike TeamViewSet (membership-scoped via TeamAndOrgViewSetMixin), staff need to look up
+ * teams they do not belong to in order to inspect and rebuild flag caches. Registered on the
+ * root router so it is not team-nested. Exposes the same fields Django admin's TeamAdmin
+ * already shows staff un-redacted, so no new data exposure.
+ */
+export const featureFlagsStaffTeamsList = async (
+    params: FeatureFlagsStaffTeamsListParams,
+    options?: RequestInit
+): Promise<StaffTeamSearchResponseApi> => {
+    return apiMutator<StaffTeamSearchResponseApi>(getFeatureFlagsStaffTeamsListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getOrgFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
     return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`
@@ -96,6 +370,26 @@ export const featureFlagsCopyFlagsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyFlagsRequestApi),
     })
+}
+
+export const getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/copy_flags/dependency_requirements/`
+}
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreate = async (
+    organizationId: string,
+    copyFlagsDependencyRequirementsRequestApi: CopyFlagsDependencyRequirementsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsDependencyRequirementsResponseApi> => {
+    return apiMutator<CopyFlagsDependencyRequirementsResponseApi>(
+        getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(copyFlagsDependencyRequirementsRequestApi),
+        }
+    )
 }
 
 export const getOrgFeatureFlagsKeysUrl = (organizationId: string, params?: OrgFeatureFlagsKeysParams) => {

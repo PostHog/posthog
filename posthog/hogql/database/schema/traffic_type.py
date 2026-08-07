@@ -5,21 +5,14 @@ from posthog.hogql.database.models import ExpressionField
 
 
 def user_agent_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:
+    # Intentionally no fallback to properties.$user_agent: that property has no materialized
+    # column, so referencing it forces a full properties-blob read on every query using these
+    # fields, and it only carries a value on a tiny fraction of events (SDKs that send it
+    # without $raw_user_agent). Those events classify via the empty-UA path instead, same as
+    # SDKs that send no user agent at all.
     if not properties_path:
         properties_path = ["properties"]
-    return ast.Call(
-        name="coalesce",
-        args=[
-            ast.Call(
-                name="nullIf",
-                args=[
-                    ast.Field(chain=[*properties_path, "$raw_user_agent"]),
-                    ast.Constant(value=""),
-                ],
-            ),
-            ast.Field(chain=[*properties_path, "$user_agent"]),
-        ],
-    )
+    return ast.Field(chain=[*properties_path, "$raw_user_agent"])
 
 
 def client_ip_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:

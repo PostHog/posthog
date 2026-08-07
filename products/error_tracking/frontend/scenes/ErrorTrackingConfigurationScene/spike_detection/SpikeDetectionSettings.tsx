@@ -9,7 +9,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
-import { ERROR_TRACKING_LOGIC_KEY } from '../../../utils'
+import { ERROR_TRACKING_LOGIC_KEY, errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { RecentSpikes } from './RecentSpikes'
 import { spikeDetectionConfigLogic } from './spikeDetectionConfigLogic'
 
@@ -111,7 +111,10 @@ export function SpikeDetectionSettings(): JSX.Element {
                     <LemonButton
                         type="primary"
                         htmlType="submit"
-                        disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                        disabledReason={
+                            errorTrackingEditAccessDisabledReason() ??
+                            (!configFormChanged ? 'No changes to save' : undefined)
+                        }
                         loading={isConfigFormSubmitting}
                     >
                         Save

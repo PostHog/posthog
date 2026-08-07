@@ -1,5 +1,5 @@
 import { InsertCommand } from './editorTypes'
-import { buildInsertCommands } from './InsertMenu'
+import { buildInsertCommands, groupInsertCommandsByCategory } from './InsertMenu'
 import { getMarkdownNotebookDefaultRegistry } from './registry'
 
 describe('buildInsertCommands', () => {
@@ -39,5 +39,27 @@ describe('buildInsertCommands', () => {
     it('omits caller-supplied commands when none are provided', () => {
         const { commands } = build()
         expect(commands.find((candidate) => candidate.key === 'custom')).toBeUndefined()
+    })
+
+    it('offers every insight type under the Insight category', () => {
+        const { commands } = build()
+        const insightLabels = commands
+            .filter((command) => command.category === 'Insight')
+            .map((command) => command.label)
+
+        expect(insightLabels).toEqual(['Trend', 'Funnel', 'Retention', 'Paths', 'Stickiness', 'Lifecycle'])
+    })
+
+    it('renders Products as the last category, merging caller-supplied product commands', () => {
+        // Grouping is first-occurrence order, so a command inserted in the wrong array
+        // silently pulls the Products group up the menu.
+        const { commands } = build([{ key: 'product-flag', label: 'Feature flag', category: 'Products', run: noop }])
+        const categories = Object.keys(groupInsertCommandsByCategory(commands))
+
+        expect(categories[categories.length - 1]).toEqual('Products')
+        expect(groupInsertCommandsByCategory(commands)['Products'].map((command) => command.label)).toEqual([
+            'Session recordings',
+            'Feature flag',
+        ])
     })
 })

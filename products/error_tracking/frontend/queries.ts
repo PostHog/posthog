@@ -6,7 +6,6 @@ import {
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
-    ErrorTrackingSimilarIssuesQuery,
     EventsQuery,
     InsightVizNode,
     NodeKind,
@@ -138,14 +137,14 @@ export const errorTrackingIssueQuery = ({
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    fingerprints,
+    issueId,
     filterTestAccounts,
     filterGroup,
     searchQuery,
     dateRange,
     columns,
 }: {
-    fingerprints: string[]
+    issueId: string
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     searchQuery: string
@@ -155,7 +154,7 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => escapeHogQLString(f)).join(', ')}] AND isNotNull(properties.$exception_issue_id)`
+    let where_string = `issue_id_v2 = toUUID(${escapeHogQLString(issueId)})`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery
@@ -193,24 +192,6 @@ export const errorTrackingIssueCorrelationQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
         events,
-        tags: { productKey: ProductKey.ERROR_TRACKING },
-    })
-}
-
-export const errorTrackingSimilarIssuesQuery = ({
-    issueId,
-    limit,
-    maxDistance,
-}: {
-    issueId: string
-    limit: number
-    maxDistance: number
-}): ErrorTrackingSimilarIssuesQuery => {
-    return setLatestVersionsOnQuery<ErrorTrackingSimilarIssuesQuery>({
-        kind: NodeKind.ErrorTrackingSimilarIssuesQuery,
-        issueId,
-        limit,
-        maxDistance,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }

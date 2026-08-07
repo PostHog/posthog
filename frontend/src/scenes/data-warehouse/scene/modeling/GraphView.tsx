@@ -20,20 +20,15 @@ import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingNodeType } from '~/types'
 
-import { dataModelingLogic, parseSearchTerm } from '../dataModelingLogic'
+import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+
+import { dataModelingLogic } from '../dataModelingLogic'
 import { REACT_FLOW_NODE_TYPES } from './Node'
 import { CreateModelNodeType, Edge, ElkDirection, Node } from './types'
 
 const FIT_VIEW_OPTIONS = {
     padding: 0.2,
     maxZoom: 1,
-}
-
-const NODE_TYPE_COLORS: Record<DataModelingNodeType, string> = {
-    table: 'var(--muted)',
-    view: 'var(--primary-3000)',
-    matview: 'var(--success)',
-    endpoint: 'var(--purple)',
 }
 
 const NODES_TO_SHOW: CreateModelNodeType[] = [
@@ -63,7 +58,7 @@ function NodeTypeButton({
     isActive: boolean
     onClick: () => void
 }): JSX.Element {
-    const color = NODE_TYPE_COLORS[node.type]
+    const color = NODE_TYPE_TAG_SETTINGS[node.type].color
 
     return (
         <div draggable>
@@ -162,8 +157,7 @@ export function NodeTypePanel(): JSX.Element {
 function GraphViewContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { enrichedNodes, enrichedEdges, highlightedNodeIds, debouncedSearchTerm, savedViewport } =
-        useValues(dataModelingLogic)
+    const { enrichedNodes, enrichedEdges, debouncedSearchTerm, savedViewport } = useValues(dataModelingLogic)
     const { onEdgesChange, onNodesChange, setReactFlowInstance, setReactFlowWrapper } = useActions(dataModelingLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -178,26 +172,15 @@ function GraphViewContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     useEffect(() => {
+        // enrichedNodes is already filtered down to the search matches, so fit to whatever remains
         if (debouncedSearchTerm.length > 0 && enrichedNodes.length > 0) {
-            const { baseName, mode } = parseSearchTerm(debouncedSearchTerm)
-            let matchingNodes: Node[]
-            if (mode !== 'search') {
-                const highlightedIds = highlightedNodeIds(baseName, mode)
-                matchingNodes = enrichedNodes.filter((n: Node) => highlightedIds.has(n.id))
-            } else {
-                matchingNodes = enrichedNodes.filter((n: Node) =>
-                    n.data.name.toLowerCase().includes(baseName.toLowerCase())
-                )
-            }
-            if (matchingNodes.length > 0) {
-                reactFlowInstance.fitView({
-                    nodes: matchingNodes,
-                    duration: 400,
-                    maxZoom: 1,
-                })
-            }
+            reactFlowInstance.fitView({
+                nodes: enrichedNodes,
+                duration: 400,
+                maxZoom: 1,
+            })
         }
-    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance, highlightedNodeIds])
+    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance])
 
     return (
         <div ref={reactFlowWrapper} className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-17rem)]">
@@ -226,6 +209,10 @@ function GraphViewContent(): JSX.Element {
     )
 }
 
+// TODO: fold this onto the shared <LineageGraph> (products/data_modeling/frontend/lineage) once the
+// DAG concept is removed from the UI and the backend resolves schedules per-node. A team then has a
+// single implicit graph, so dataModelingLogic can drop its multi-DAG selection/viewport machinery and
+// this canvas collapses to <LineageGraph variant="canvas"> with search/legend passed as `panels`.
 export function GraphView(): JSX.Element {
     return (
         <ReactFlowProvider>

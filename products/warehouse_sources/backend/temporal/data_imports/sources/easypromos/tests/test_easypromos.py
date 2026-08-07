@@ -1,216 +1,226 @@
-from typing import Any
+import json
+from collections.abc import Iterable
+from types import SimpleNamespace
+from typing import Any, cast
 
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos import easypromos
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.easypromos import (
     EASYPROMOS_BASE_URL,
     EasypromosResumeConfig,
-    _next_cursor,
     easypromos_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import EASYPROMOS_ENDPOINTS
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
-class _FakeResumableManager:
-    def __init__(self, state: EasypromosResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[EasypromosResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> EasypromosResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: EasypromosResumeConfig) -> None:
-        self.saved.append(data)
+PROMOS_URL = f"{EASYPROMOS_BASE_URL}/promotions"
 
 
-def _page(items: list[dict], next_cursor: int | None) -> dict:
+def _url(path: str) -> str:
+    return f"{EASYPROMOS_BASE_URL}{path}"
+
+
+def _body(items: list[dict[str, Any]], next_cursor: int | None) -> dict[str, Any]:
     return {"items": items, "paging": {"next_cursor": next_cursor, "items_page": 100}}
 
 
-def _install_fake_fetch(monkeypatch: Any, pages: dict[tuple[str, int | None], dict]) -> list[tuple[str, int | None]]:
-    """Patch `_fetch_page` to serve canned pages keyed by (url, next_cursor request param)."""
-    fetched: list[tuple[str, int | None]] = []
-
-    def fake_fetch(session: Any, url: str, params: dict[str, Any], headers: dict[str, str], logger: Any) -> dict:
-        key = (url, params.get("next_cursor"))
-        fetched.append(key)
-        return pages[key]
-
-    monkeypatch.setattr(easypromos, "_fetch_page", fake_fetch)
-    return fetched
+def _response(url: str, body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp.url = url
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _collect(endpoint: str, manager: _FakeResumableManager, monkeypatch: Any) -> list[dict]:
-    rows: list[dict] = []
-    for table in get_rows(
+class _FakeSession:
+    """Routes each prepared request to a canned page keyed by (url, next_cursor request param).
+
+    ``request.params`` is mutated in place across pages by the paginator, so the key is snapshotted
+    at prepare_request time (mirroring how the real session prepares each request).
+    """
+
+    def __init__(self, pages: dict[tuple[str, int | None], dict[str, Any]]) -> None:
+        self._pages = pages
+        self.headers: dict[str, str] = {}
+        self.requests: list[tuple[str, int | None]] = []
+        self._pending: tuple[str, int | None] | None = None
+
+    def prepare_request(self, request: Any) -> Any:
+        cursor = (request.params or {}).get("next_cursor")
+        self._pending = (request.url, cursor)
+        self.requests.append((request.url, cursor))
+        return SimpleNamespace(url=request.url)
+
+    def send(self, prepared: Any, **kwargs: Any) -> Response:
+        assert self._pending is not None
+        return _response(prepared.url, self._pages[self._pending])
+
+
+def _make_manager(state: EasypromosResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = state is not None
+    manager.load_state.return_value = state
+    manager.saved = []
+    manager.save_state.side_effect = manager.saved.append
+    return manager
+
+
+def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
+    response = easypromos_source(
         access_token="tok",
         endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(table.to_pylist())
-    return rows
-
-
-class TestNextCursor:
-    @parameterized.expand(
-        [
-            ("has_next", {"items": [], "paging": {"next_cursor": 42, "items_page": 100}}, 42),
-            ("null_next", {"items": [], "paging": {"next_cursor": None, "items_page": 100}}, None),
-            ("no_paging", {"items": []}, None),
-            ("paging_not_dict", {"items": [], "paging": None}, None),
-        ]
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
     )
-    def test_next_cursor(self, _name: str, data: dict, expected: int | None) -> None:
-        assert _next_cursor(data) == expected
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden_plan", 403, False),
-            ("server_error", 500, False),
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Easypromos access token"),
+            ("forbidden_plan", 403, False, "does not have access to the REST API"),
+            ("server_error", 500, False, "returned status 500"),
         ]
     )
-    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        session = MagicMock()
-        session.__enter__.return_value = session
-        session.get.return_value = response
-        with patch.object(easypromos, "make_tracked_session", return_value=session):
+    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=status_code)
+        with mock.patch.object(easypromos, "make_tracked_session", return_value=session):
             ok, error = validate_credentials("tok")
         assert ok is expected_ok
-        assert (error is None) is expected_ok
+        if expected_msg is None:
+            assert error is None
+        else:
+            assert error is not None and expected_msg in error
 
     def test_request_exception_is_invalid(self) -> None:
-        session = MagicMock()
-        session.__enter__.return_value = session
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(easypromos, "make_tracked_session", return_value=session):
+        session = mock.MagicMock()
+        session.get.side_effect = Exception("boom")
+        with mock.patch.object(easypromos, "make_tracked_session", return_value=session):
             ok, error = validate_credentials("tok")
         assert ok is False
         assert error is not None
 
 
 class TestTopLevelPagination:
-    def test_follows_cursor_until_null(self, monkeypatch: Any) -> None:
-        url = f"{EASYPROMOS_BASE_URL}/promotions"
-        pages = {
-            (url, None): _page([{"id": 1}, {"id": 2}], 100),
-            (url, 100): _page([{"id": 3}], None),
-        }
-        _install_fake_fetch(monkeypatch, pages)
-        rows = _collect("promotions", _FakeResumableManager(), monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_cursor_until_null(self, mock_session) -> None:
+        mock_session.return_value = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 1}, {"id": 2}], 100),
+                (PROMOS_URL, 100): _body([{"id": 3}], None),
+            }
+        )
+        rows = _rows("promotions", _make_manager())
         assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
 
-    def test_does_not_inject_promotion_id_for_top_level(self, monkeypatch: Any) -> None:
-        url = f"{EASYPROMOS_BASE_URL}/organizing_brands"
-        pages: dict[tuple[str, int | None], dict] = {(url, None): _page([{"id": 7, "name": "Acme"}], None)}
-        _install_fake_fetch(monkeypatch, pages)
-        rows = _collect("organizing_brands", _FakeResumableManager(), monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_does_not_inject_promotion_id_for_top_level(self, mock_session) -> None:
+        url = _url("/organizing_brands")
+        mock_session.return_value = _FakeSession({(url, None): _body([{"id": 7, "name": "Acme"}], None)})
+        rows = _rows("organizing_brands", _make_manager())
         assert rows == [{"id": 7, "name": "Acme"}]
         assert "promotion_id" not in rows[0]
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        url = f"{EASYPROMOS_BASE_URL}/promotions"
-        # Only the resumed page is served; if the loop started at the first page this would KeyError.
-        pages: dict[tuple[str, int | None], dict] = {(url, 100): _page([{"id": 3}], None)}
-        fetched = _install_fake_fetch(monkeypatch, pages)
-        rows = _collect("promotions", _FakeResumableManager(EasypromosResumeConfig(cursor=100)), monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, mock_session) -> None:
+        # Only the resumed page is served; if the run started at the first page this would KeyError.
+        session = _FakeSession({(PROMOS_URL, 100): _body([{"id": 3}], None)})
+        mock_session.return_value = session
+        rows = _rows("promotions", _make_manager(EasypromosResumeConfig(cursor=100)))
         assert rows == [{"id": 3}]
-        assert fetched == [(url, 100)]
+        assert session.requests == [(PROMOS_URL, 100)]
 
-    def test_saves_current_page_cursor_after_yield(self, monkeypatch: Any) -> None:
-        # Force a yield per row so we can observe the checkpoint cursor.
-        monkeypatch.setattr(
-            easypromos,
-            "Batcher",
-            lambda **kw: Batcher(logger=kw["logger"], chunk_size=1, chunk_size_bytes=kw["chunk_size_bytes"]),
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_next_cursor_while_a_page_remains(self, mock_session) -> None:
+        mock_session.return_value = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 1}], 100),
+                (PROMOS_URL, 100): _body([{"id": 2}], None),
+            }
         )
-        url = f"{EASYPROMOS_BASE_URL}/promotions"
-        pages = {
-            (url, None): _page([{"id": 1}], 100),
-            (url, 100): _page([{"id": 2}], None),
-        }
-        _install_fake_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-        _collect("promotions", manager, monkeypatch)
-        # Checkpoints record the cursor that fetched the page being processed (None then 100).
-        assert [s.cursor for s in manager.saved] == [None, 100]
+        manager = _make_manager()
+        _rows("promotions", manager)
+        # Checkpoint saved once, after the first page, pointing at the next cursor; the final (null)
+        # page has no next cursor and is not checkpointed.
+        assert manager.saved == [EasypromosResumeConfig(cursor=100)]
 
 
 class TestFanOut:
-    def _promotions_url(self) -> str:
-        return f"{EASYPROMOS_BASE_URL}/promotions"
-
-    def test_fans_out_over_promotions_and_injects_promotion_id(self, monkeypatch: Any) -> None:
-        promos_url = self._promotions_url()
-        pages: dict[tuple[str, int | None], dict] = {
-            (promos_url, None): _page([{"id": 10}, {"id": 20}], None),
-            (f"{EASYPROMOS_BASE_URL}/users/10", None): _page([{"id": 1}, {"id": 2}], None),
-            (f"{EASYPROMOS_BASE_URL}/users/20", None): _page([{"id": 1}], None),
-        }
-        _install_fake_fetch(monkeypatch, pages)
-        rows = _collect("users", _FakeResumableManager(), monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_promotions_and_injects_promotion_id(self, mock_session) -> None:
+        mock_session.return_value = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 10}, {"id": 20}], None),
+                (_url("/users/10"), None): _body([{"id": 1}, {"id": 2}], None),
+                (_url("/users/20"), None): _body([{"id": 1}], None),
+            }
+        )
+        rows = _rows("users", _make_manager())
         assert rows == [
             {"id": 1, "promotion_id": 10},
             {"id": 2, "promotion_id": 10},
             {"id": 1, "promotion_id": 20},
         ]
 
-    def test_follows_child_pagination(self, monkeypatch: Any) -> None:
-        promos_url = self._promotions_url()
-        pages = {
-            (promos_url, None): _page([{"id": 10}], None),
-            (f"{EASYPROMOS_BASE_URL}/participations/10", None): _page([{"id": 1}], 5),
-            (f"{EASYPROMOS_BASE_URL}/participations/10", 5): _page([{"id": 2}], None),
-        }
-        _install_fake_fetch(monkeypatch, pages)
-        rows = _collect("participations", _FakeResumableManager(), monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_child_pagination(self, mock_session) -> None:
+        mock_session.return_value = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 10}], None),
+                (_url("/participations/10"), None): _body([{"id": 1}], 5),
+                (_url("/participations/10"), 5): _body([{"id": 2}], None),
+            }
+        )
+        rows = _rows("participations", _make_manager())
         assert rows == [{"id": 1, "promotion_id": 10}, {"id": 2, "promotion_id": 10}]
 
-    def test_resume_skips_completed_promotions_and_uses_child_cursor(self, monkeypatch: Any) -> None:
-        promos_url = self._promotions_url()
-        # Saved state: mid-way through promotion 20, child cursor 5. Promotion 10 must be skipped and
-        # promotion 20's children must resume at cursor 5 (the un-served cursor None pages would KeyError).
-        pages = {
-            (promos_url, None): _page([{"id": 10}, {"id": 20}, {"id": 30}], None),
-            (f"{EASYPROMOS_BASE_URL}/users/20", 5): _page([{"id": 9}], None),
-            (f"{EASYPROMOS_BASE_URL}/users/30", None): _page([{"id": 1}], None),
-        }
-        _install_fake_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager(EasypromosResumeConfig(cursor=None, promotion_id=20, child_cursor=5))
-        rows = _collect("users", manager, monkeypatch)
-        assert rows == [{"id": 9, "promotion_id": 20}, {"id": 1, "promotion_id": 30}]
-
-    def test_checkpoint_records_promotion_and_child_cursor(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(
-            easypromos,
-            "Batcher",
-            lambda **kw: Batcher(logger=kw["logger"], chunk_size=1, chunk_size_bytes=kw["chunk_size_bytes"]),
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_promotions_and_uses_child_cursor(self, mock_session) -> None:
+        # Saved fan-out state: promotion 10 fully synced, mid-way through promotion 20 at child
+        # cursor 5. Promotion 10's child endpoint must never be fetched (its page is not served, so
+        # a fetch would KeyError); promotion 20 resumes at cursor 5; promotion 30 runs fresh.
+        session = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 10}, {"id": 20}, {"id": 30}], None),
+                (_url("/users/20"), 5): _body([{"id": 9}], None),
+                (_url("/users/30"), None): _body([{"id": 1}], None),
+            }
         )
-        promos_url = self._promotions_url()
-        pages: dict[tuple[str, int | None], dict] = {
-            (promos_url, None): _page([{"id": 10}], None),
-            (f"{EASYPROMOS_BASE_URL}/prizes/10", None): _page([{"id": 1}], None),
-        }
-        _install_fake_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-        _collect("prizes", manager, monkeypatch)
-        assert manager.saved == [EasypromosResumeConfig(cursor=None, promotion_id=10, child_cursor=None)]
+        mock_session.return_value = session
+        manager = _make_manager(
+            EasypromosResumeConfig(
+                fanout_state={"completed": ["/users/10"], "current": "/users/20", "child_state": {"cursor": 5}}
+            )
+        )
+        rows = _rows("users", manager)
+        assert rows == [{"id": 9, "promotion_id": 20}, {"id": 1, "promotion_id": 30}]
+        assert (_url("/users/10"), None) not in session.requests
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoint_records_fanout_progress(self, mock_session) -> None:
+        mock_session.return_value = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 10}], None),
+                (_url("/prizes/10"), None): _body([{"id": 1}], None),
+            }
+        )
+        manager = _make_manager()
+        _rows("prizes", manager)
+        # The final checkpoint marks the promotion's child path complete so a restart skips it.
+        assert manager.saved[-1] == EasypromosResumeConfig(
+            fanout_state={"completed": ["/prizes/10"], "current": None, "child_state": None}
+        )
 
 
 class TestSourceResponse:
@@ -220,8 +230,9 @@ class TestSourceResponse:
         response = easypromos_source(
             access_token="tok",
             endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

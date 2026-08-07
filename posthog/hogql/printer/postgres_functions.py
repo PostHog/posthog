@@ -209,6 +209,7 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toFloat": _make_cast_handler("DOUBLE PRECISION"),
     "toFloatOrZero": _make_cast_handler("DOUBLE PRECISION"),
     "toIntOrZero": _make_cast_handler("BIGINT"),
+    "toIntOrDefault": _make_cast_handler("BIGINT"),
     "toBool": _make_cast_handler("BOOLEAN"),
     "toUUID": _make_cast_handler("UUID"),
     # Date extraction

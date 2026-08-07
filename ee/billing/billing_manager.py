@@ -1,5 +1,7 @@
+import hmac
 import json
 import time
+import hashlib
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -19,9 +21,13 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.team.event_retention import (
+    organization_events_retention_months,
+    reconcile_organization_events_retention,
+)
+from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.signature import compute_signature
 from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
@@ -44,6 +50,19 @@ class BillingServiceOpenInvoicesError(Exception):
         super().__init__(message)
 
 
+def _has_quota_limiting_markers(usage: dict | None) -> bool:
+    if not usage:
+        return False
+
+    for value in usage.values():
+        if isinstance(value, dict) and (
+            value.get("quota_limited_until") is not None or value.get("quota_limiting_suspended_until") is not None
+        ):
+            return True
+
+    return False
+
+
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
     """
     Get a user role display string in a given organization, if membership doesn't exist return None.
@@ -61,12 +80,17 @@ def build_billing_token(
     user: Optional[User] = None,
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
+    service_action: str | None = None,
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
 
     Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
     will be that of the user, but the role will be that of the authorizer_actor.
+
+    `service_action` marks a token minted by a backend job for one specific service-to-service
+    endpoint (e.g. "signals_pr_dispute"); billing rejects calls to such endpoints from tokens
+    without the matching claim, so tokens minted for user-initiated calls can't reach them.
 
     Raises NotAuthenticated if the authorizer_actor (or user in case there's no authorizer_actor) are not
     part of the organization.
@@ -113,6 +137,9 @@ def build_billing_token(
     if billing_provider:
         payload["billing_provider"] = billing_provider.value
 
+    if service_action:
+        payload["service_action"] = service_action
+
     encoded_jwt = jwt.encode(
         payload,
         license_secret,
@@ -122,13 +149,21 @@ def build_billing_token(
     return encoded_jwt
 
 
+def _compute_webhook_signature(secret: str, timestamp: int, body: bytes) -> str:
+    """HMAC-SHA256 over "<timestamp>.<body>", hex-encoded."""
+    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
+    mac.update(f"{timestamp}.".encode())
+    mac.update(body)
+    return mac.digest().hex()
+
+
 def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, str]:
     secret = getattr(settings, "BILLING_PROVIDER_WEBHOOK_SECRET", "")
     if not secret:
         raise ValueError("BILLING_PROVIDER_WEBHOOK_SECRET is not configured")
 
     timestamp = int(time.time())
-    digest = compute_signature(secret, timestamp, body)
+    digest = _compute_webhook_signature(secret, timestamp, body)
     return {
         BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER: f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={digest}",
         BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER: str(timestamp),
@@ -148,10 +183,12 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
 class BillingManager:
     license: License | None
     user: User | None
+    ip_address: str | None
 
-    def __init__(self, license, user: User | None = None):
+    def __init__(self, license, user: User | None = None, ip_address: str | None = None):
         self.license = license or get_cached_instance_license()
         self.user = user
+        self.ip_address = ip_address
 
     def get_billing(
         self,
@@ -231,8 +268,27 @@ class BillingManager:
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])
+        previous_feature_keys = {
+            feature.get("key") for feature in (organization.available_product_features or []) if feature
+        }
+        previous_retention_months = organization_events_retention_months(organization)
         organization.available_product_features = available_product_features
         organization.save()
+
+        if (
+            available_product_features
+            and organization_events_retention_months(organization) != previous_retention_months
+        ):
+            reconcile_organization_events_retention(organization)
+
+        # Only reset on a non-empty list: the retention reset is not self-healing, so an
+        # empty error-path response must not permanently downgrade team settings.
+        if available_product_features:
+            revoked_feature_keys = previous_feature_keys - {
+                feature.get("key") for feature in available_product_features if feature
+            }
+            if revoked_feature_keys:
+                reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         return available_product_features
 
@@ -416,6 +472,8 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
+        should_update_org_billing_quotas = False
+
         usage_summary = cast(dict, data.get("usage_summary"))
         if usage_summary:
             usage_info = OrganizationUsageInfo(
@@ -431,22 +489,45 @@ class BillingManager:
                 llm_events=usage_summary.get("llm_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
+                posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
+                posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
+                sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
+                sandbox_compute_cpu_millicore_seconds=usage_summary.get("sandbox_compute_cpu_millicore_seconds", {}),
+                sandbox_compute_memory_mib_seconds=usage_summary.get("sandbox_compute_memory_mib_seconds", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
+                workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
+                replay_vision_credits=usage_summary.get("replay_vision_credits", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
                 ],
             )
 
-            if set_org_usage_summary(organization, new_usage=usage_info):
+            had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
+            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+
+            if usage_changed:
                 org_modified = True
-                update_org_billing_quotas(organization)
+
+            should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
+        revoked_feature_keys: set[str] = set()
+        events_retention_changed = False
+        # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
+        # reports) and a partial or error-path billing response must not downgrade the org.
+        # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
+            previous_feature_keys = {
+                feature.get("key") for feature in (organization.available_product_features or []) if feature
+            }
+            new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
+            revoked_feature_keys = previous_feature_keys - new_feature_keys
+            previous_retention_months = organization_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
+            events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
 
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
@@ -456,26 +537,40 @@ class BillingManager:
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
-        product_key_to_usage_key = {
-            product["type"]: product["usage_key"]
-            for product in (
-                billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
-            )
-        }
-        org_customer_trust_scores = {}
-        for product_key in customer_trust_scores:
-            if product_key in product_key_to_usage_key:
-                org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
+        if customer_trust_scores:
+            product_key_to_usage_key = {
+                product["type"]: product["usage_key"]
+                for product in (
+                    billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
+                )
+            }
+            org_customer_trust_scores = {}
+            for product_key in customer_trust_scores:
+                if product_key in product_key_to_usage_key:
+                    org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[
+                        product_key
+                    ]
 
-        if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores = {
-                **(organization.customer_trust_scores or {}),
+            current_customer_trust_scores = organization.customer_trust_scores or {}
+            updated_customer_trust_scores = {
+                **current_customer_trust_scores,
                 **org_customer_trust_scores,
             }
-            org_modified = True
+            if updated_customer_trust_scores != current_customer_trust_scores:
+                organization.customer_trust_scores = updated_customer_trust_scores
+                org_modified = True
 
         if org_modified:
             organization.save()
+
+        if events_retention_changed:
+            reconcile_organization_events_retention(organization)
+
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
+
+        if should_update_org_billing_quotas:
+            update_org_billing_quotas(organization)
 
         return organization
 
@@ -484,13 +579,24 @@ class BillingManager:
         organization: Organization,
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
+        service_action: str | None = None,
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
         billing_service_token = build_billing_token(
-            self.license, organization, self.user, authorizer_actor=authorizer_actor, billing_provider=billing_provider
+            self.license,
+            organization,
+            self.user,
+            authorizer_actor=authorizer_actor,
+            billing_provider=billing_provider,
+            service_action=service_action,
         )
-        return {"Authorization": f"Bearer {billing_service_token}"}
+        headers = {"Authorization": f"Bearer {billing_service_token}"}
+        if self.ip_address:
+            # Billing is called server-to-server, so it only ever sees PostHog's egress IP.
+            # Forward the end-user's IP so billing can attach it to activity-log records.
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        return headers
 
     def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(
@@ -524,6 +630,28 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+        return res.json()
+
+    def dispute_signals_pr(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        """Ask billing to credit back a refunded Signals PR (idempotent on data['refund_id']).
+
+        Billing returns 200 for every handled business outcome, including $0 credits; any other
+        status means "not handled" and must raise so the caller retries. The default valid_codes
+        would swallow 404 (endpoint not deployed) and 401 (auth failure) as success and record an
+        error body as a synced credit, hence the explicit (200,).
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
+            # The service_action claim is required by billing: it distinguishes this
+            # backend-minted token from ones minted for user-initiated billing calls,
+            # which cannot reach the dispute endpoint.
+            headers=self.get_auth_headers(organization, service_action="signals_pr_dispute"),
+            json=data,
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
 

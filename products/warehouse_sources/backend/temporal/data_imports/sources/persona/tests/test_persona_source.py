@@ -5,7 +5,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersonaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.persona import (
+    PersonaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import PersonaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.source import PersonaSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -18,7 +20,6 @@ class TestPersonaSourceConfig:
     def test_config_is_alpha_and_unreleased(self) -> None:
         config = PersonaSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
 
     def test_api_key_field_is_a_secret_password(self) -> None:
         fields = PersonaSource().get_source_config.fields

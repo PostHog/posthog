@@ -41,14 +41,24 @@ export const AccountsEvents = {
     ViewSelected: 'customer analytics accounts view selected',
     ViewDeleted: 'customer analytics accounts view deleted',
     RoleAssigned: 'customer analytics account role assigned',
+    TagsUpdated: 'customer analytics account tags updated',
     LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
     NoteCreated: 'customer analytics accounts note created',
     NotesSearched: 'customer analytics accounts notes searched',
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
+    UsageSeriesToggled: 'customer analytics account usage series toggled',
+    UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
     RelatedUserClicked: 'customer analytics account related user clicked',
     OpportunityClicked: 'customer analytics account opportunity clicked',
+    SummaryCadenceChanged: 'customer analytics account summary cadence changed',
+    SummaryExpanded: 'customer analytics account summary expanded',
+    SummariesPageChanged: 'customer analytics account summaries page changed',
+    SupportTicketClicked: 'customer analytics account support ticket clicked',
+    EventStreamMembershipToggled: 'customer analytics account event stream toggled',
+    EventStreamConfigSaved: 'customer analytics event stream config saved',
+    EventStreamTestMessageSent: 'customer analytics event stream test message sent',
     NotesTabViewed: 'customer analytics notes tab viewed',
     NotesTabSearched: 'customer analytics notes tab searched',
     NotesTabFiltered: 'customer analytics notes tab filtered',
@@ -56,4 +66,4 @@ export const AccountsEvents = {
     NotesTabAccountClicked: 'customer analytics notes tab account clicked',
 } as const
 
-export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes'
+export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'
