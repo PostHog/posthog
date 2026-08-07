@@ -8,13 +8,15 @@ import type {
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
+export type TaskRunArtifactDTO = Schemas.TaskRunArtifactResponse & {
+  metadata?: unknown;
+};
+
 type TaskRunResponseDTO = Partial<
   Omit<Schemas.TaskRunDetail, "artifacts" | "status">
 > & {
   id: string;
-  artifacts?: Array<
-    Schemas.TaskRunArtifactResponse & { metadata?: unknown }
-  > | null;
+  artifacts?: Array<TaskRunArtifactDTO> | null;
   status?: Schemas.StatusA35Enum | "started" | null;
   team?: number | null;
 };
@@ -101,8 +103,8 @@ function normalizeArtifactMetadata(
   };
 }
 
-function normalizeTaskRunArtifact(
-  artifact: NonNullable<TaskRunResponseDTO["artifacts"]>[number],
+export function normalizeTaskRunArtifact(
+  artifact: TaskRunArtifactDTO,
 ): TaskRunArtifact {
   const metadata = normalizeArtifactMetadata(artifact.metadata);
 
@@ -126,6 +128,9 @@ function normalizeTaskRunArtifact(
     ...(artifact.uploaded_at === undefined
       ? {}
       : { uploaded_at: artifact.uploaded_at }),
+    ...(artifact.dismissed_at === undefined
+      ? {}
+      : { dismissed_at: artifact.dismissed_at }),
   };
 }
 

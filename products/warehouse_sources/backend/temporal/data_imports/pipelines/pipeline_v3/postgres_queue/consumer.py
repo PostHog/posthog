@@ -87,6 +87,9 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # the schema or job row was deleted mid-sync — no retry can bring it back
     "ExternalDataSchema matching query does not exist",
     "ExternalDataJob matching query does not exist",
+    # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
+    # refusing writes — every retry hits the same full disk until an operator frees space
+    "XMinioStorageFull",
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than

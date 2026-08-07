@@ -31,6 +31,8 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     DisplayType,
+    Meeting,
+    MeetingParticipant,
     TargetType,
 )
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
@@ -2662,3 +2664,31 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         self.client.force_login(viewer)
 
         self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
+
+
+class TestAccountMeetingViewSet(APIBaseTest):
+    def test_list_returns_the_accounts_meetings_newest_first_with_participants(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-1")
+        other = Account.objects.unscoped().create(team=self.team, name="Other", external_id="other-1")
+        older = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-old", start_time="2026-08-01T15:00:00Z", title="Kickoff"
+        )
+        newer = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-new", start_time="2026-08-03T15:00:00Z", title="Review"
+        )
+        Meeting.objects.unscoped().create(
+            team=self.team, account=other, ical_uid="uid-other", start_time="2026-08-02T15:00:00Z"
+        )
+        MeetingParticipant.objects.unscoped().create(
+            team=self.team, meeting=newer, email="jane@acme.com", response_status="accepted"
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual([m["id"] for m in data], [str(newer.id), str(older.id)])
+        self.assertEqual(
+            data[0]["participants"],
+            [{"email": "jane@acme.com", "display_name": "", "response_status": "accepted", "is_organizer": False}],
+        )
