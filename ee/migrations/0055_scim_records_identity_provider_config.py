@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("ee", "0054_backfill_llm_playground_access_control"),
-        ("posthog", "1293_alter_identityproviderconfig_saml_relay_state"),
+        ("posthog", "1226_identityproviderconfig_and_more"),
     ]
 
     operations = [
@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
                 blank=True,
                 db_index=False,
                 null=True,
-                on_delete=django.db.models.deletion.CASCADE,
+                on_delete=django.db.models.deletion.SET_NULL,
                 related_name="scim_request_logs",
                 to="posthog.identityproviderconfig",
             ),

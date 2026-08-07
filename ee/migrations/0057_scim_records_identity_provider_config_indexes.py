@@ -1,11 +1,11 @@
 from django.db import migrations, models
 
-from posthog.migration_helpers import SafeAddIndexConcurrently
+from posthog.migration_helpers import CreateIndexConcurrently, SafeAddIndexConcurrently
 
 
 class Migration(migrations.Migration):
-    # Concurrent index builds can't run in a transaction, and PostHog policy keeps them in their
-    # own migration away from regular DDL.
+    # CONCURRENTLY takes SHARE UPDATE EXCLUSIVE, so none of these block a reader or a writer, and
+    # PostgreSQL cannot run them inside a transaction.
     atomic = False
 
     dependencies = [("ee", "0056_scim_records_organization_domain_nullable")]
@@ -24,5 +24,13 @@ class Migration(migrations.Migration):
                 fields=["identity_provider_config", "-created_at"],
                 name="ee_scimrequ_identit_975d6d_idx",
             ),
+        ),
+        # The index behind the unique constraint 0059 attaches. Building it here rather than under
+        # ADD CONSTRAINT is what keeps that constraint off the table's readers and writers.
+        CreateIndexConcurrently(
+            index_name="unique_user_identity_provider_config",
+            table_name="ee_scimprovisioneduser",
+            columns="(user_id, identity_provider_config_id)",
+            unique=True,
         ),
     ]

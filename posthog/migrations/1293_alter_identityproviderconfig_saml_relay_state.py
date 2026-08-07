@@ -10,6 +10,9 @@ LIKE_INDEX = "posthog_identityproviderconfig_saml_relay_state_a35fb61b_like"
 
 
 class Migration(migrations.Migration):
+    # Named for the AlterField it started life as; that state change now lands in 1294, and this
+    # builds the indexes behind it. Renaming the file would strand every database that has already
+    # applied it, so the name stays.
     # `saml_relay_state` routes SAML logins, so this table is read on the auth path. Django's
     # AlterField would build both indexes under ACCESS EXCLUSIVE, and every read arriving behind it
     # would wait; CONCURRENTLY takes SHARE UPDATE EXCLUSIVE, which blocks neither. 1294 then
