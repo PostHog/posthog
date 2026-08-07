@@ -644,6 +644,17 @@ export interface dashboardLogicActions {
     resetUrlVariables: () => {
         value: true
     }
+    restoreTemporaryColorState: (
+        colors: BreakdownColorConfig[],
+        themeId: {
+            themeId: number | null
+        } | null
+    ) => {
+        colors: BreakdownColorConfig[]
+        themeId: {
+            themeId: number | null
+        } | null
+    }
     restoreUrlStateAtEditModeEntry: (
         snapshot: {
             filters?: unknown
@@ -1358,6 +1369,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
         setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
+        restoreTemporaryColorState: (colors: BreakdownColorConfig[], themeId: { themeId: number | null } | null) => ({
+            colors,
+            themeId,
+        }),
 
         setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
             loadLayoutFromServerOnPreview,
@@ -1842,6 +1857,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // and a failed save (which also fires saveEditModeChangesSuccess) must keep them.
                 setDashboardMode: (state, { source }) =>
                     source === DashboardEventSource.DashboardHeaderDiscardChanges ? [] : state,
+                restoreTemporaryColorState: (_, { colors }) => colors,
             },
         ],
         // Unsaved theme edit; null means untouched, so clearing the theme is distinguishable
@@ -1851,6 +1867,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDataColorThemeId: (_, { dataColorThemeId }) => ({ themeId: dataColorThemeId || null }),
                 setDashboardMode: (state, { source }) =>
                     source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
+                restoreTemporaryColorState: (_, { themeId }) => themeId,
             },
         ],
         layoutZoom: [
@@ -4057,9 +4074,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (
                 mode === null &&
                 (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
-                    source === DashboardEventSource.SceneCommonButtons)
+                    source === DashboardEventSource.SceneCommonButtons ||
+                    source === DashboardEventSource.DashboardInsightColorsModal)
             ) {
-                // save edit mode changes when exiting via Save button or E key/Edit layout button
+                // save edit mode changes when exiting via Save button, E key/Edit layout button,
+                // or the colors modal's Save button
                 // Pending name/description are included in the saveEditModeChanges PATCH
                 // to avoid a race between two concurrent PATCHes to the same endpoint.
                 actions.saveEditModeChanges()

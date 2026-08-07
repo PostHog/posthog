@@ -46,11 +46,18 @@ function BreakdownPropertyGroupTitle({ breakdownProperty }: { breakdownProperty?
 
 export function DashboardInsightColorsModal(): JSX.Element {
     const { isOpen, insightTilesLoading, breakdownValueGroups } = useValues(dashboardInsightColorsModalLogic)
-    const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
+    const { hideInsightColorsModal, cancelColorChanges } = useActions(dashboardInsightColorsModalLogic)
 
     const { themes: _themes, themesLoading } = useValues(dataColorThemesLogic)
 
-    const { effectiveBreakdownColors, dataColorThemeId, dashboardMode } = useValues(dashboardLogic)
+    const {
+        effectiveBreakdownColors,
+        dataColorThemeId,
+        dashboardMode,
+        dashboardLoading,
+        canEditDashboard,
+        hasUnsavedColorChanges,
+    } = useValues(dashboardLogic)
     const { setBreakdownColorConfig, setDataColorThemeId, setDashboardMode } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -153,6 +160,37 @@ export function DashboardInsightColorsModal(): JSX.Element {
             isOpen={isOpen}
             onClose={hideInsightColorsModal}
             maxWidth="42rem"
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        data-attr="dashboard-colors-cancel"
+                        onClick={cancelColorChanges}
+                        tooltip="Revert the changes made in this dialog"
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        data-attr="dashboard-colors-save"
+                        onClick={() => {
+                            hideInsightColorsModal()
+                            setDashboardMode(null, DashboardEventSource.DashboardInsightColorsModal)
+                        }}
+                        disabledReason={
+                            dashboardLoading
+                                ? 'Wait for dashboard to finish loading'
+                                : !canEditDashboard
+                                  ? 'Not privileged to edit this dashboard'
+                                  : !hasUnsavedColorChanges
+                                    ? 'No color changes to save'
+                                    : undefined
+                        }
+                    >
+                        Save
+                    </LemonButton>
+                </>
+            }
         >
             <LemonLabel info="Select a color theme for all insights on this dashboard. If a theme is selected, it will be applied to all series and breakdowns.">
                 Color theme
