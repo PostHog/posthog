@@ -383,198 +383,7 @@
             "description": "What kinds of controls people use. An icon click counts against the control around it."
         },
         {
-            "name": "Links, downloads and contact clicks",
-            "type": "INSIGHT",
-            "color": null,
-            "query": {
-                "kind": "DataVisualizationNode",
-                "source": {
-                    "kind": "HogQLQuery",
-                    "query": "-- The date range and any filter-bar properties come from the dashboard via {filters}.\n-- Every link click, with downloads and contact links called out.\n-- Autocapture records the href, so none of this needs its own tracking code.\nSELECT\n    multiIf(\n        match(elements_chain_href, '^(mailto|tel):'), 'Contact',\n        match(elements_chain_href, '\\\\.(pdf|csv|zip|xlsx?|docx?|pptx?|dmg|exe|pkg)($|\\\\?)'), 'Download',\n        'Link') AS link_type,\n    elements_chain_href AS destination,\n    count() AS clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event = '$autocapture'\n    AND {filters}\n    AND elements_chain_href != ''\nGROUP BY link_type, destination\nORDER BY clicks DESC\nLIMIT 30",
-                    "filters": {
-                        "dateRange": {
-                            "date_from": "-30d",
-                            "date_to": null
-                        },
-                        "properties": null,
-                        "filterTestAccounts": null
-                    },
-                    "variables": {}
-                },
-                "display": "ActionsTable",
-                "tableSettings": {
-                    "conditionalFormatting": []
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 8,
-                    "w": 12,
-                    "x": 0,
-                    "y": 9,
-                    "minH": 8,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 8,
-                    "w": 1,
-                    "x": 0,
-                    "y": 26,
-                    "minH": 8,
-                    "minW": 3
-                }
-            },
-            "description": "Every link click by destination, with documents and email or phone links called out. None of this needs its own tracking code."
-        },
-        {
-            "name": "Dead and rage clicks by page and element",
-            "type": "INSIGHT",
-            "color": null,
-            "query": {
-                "kind": "DataVisualizationNode",
-                "source": {
-                    "kind": "HogQLQuery",
-                    "query": "-- The date range and any filter-bar properties come from the dashboard via {filters},\n-- so this table matches the trend tiles instead of using its own fixed window.\n-- One row per thing people click, with both failure modes side by side.\n-- Element type walks to the first useful ancestor tag, so an icon click counts\n-- against the control around it rather than against the svg.\nSELECT\n    properties.$pathname AS page,\n    if(length(elements_chain_elements) > 0, toString(elements_chain_elements[1]), 'other') AS element_type,\n    nullIf(properties.$el_text, '') AS element_text,\n    countIf(event = '$dead_click') AS dead_clicks,\n    countIf(event = '$rageclick') AS rage_clicks,\n    countIf(event = '$autocapture') AS working_clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event IN ('$dead_click', '$rageclick', '$autocapture')\n    AND {filters}\nGROUP BY page, element_type, element_text\nHAVING dead_clicks + rage_clicks > 0\nORDER BY dead_clicks + rage_clicks DESC\nLIMIT 30",
-                    "filters": {
-                        "dateRange": {
-                            "date_from": "-30d",
-                            "date_to": null
-                        },
-                        "properties": null,
-                        "filterTestAccounts": null
-                    },
-                    "variables": {}
-                },
-                "display": "ActionsTable",
-                "tableSettings": {
-                    "conditionalFormatting": []
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 8,
-                    "w": 12,
-                    "x": 0,
-                    "y": 17,
-                    "minH": 8,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 8,
-                    "w": 1,
-                    "x": 0,
-                    "y": 34,
-                    "minH": 8,
-                    "minW": 3
-                }
-            },
-            "description": "One row per thing people click. A dead click changed nothing on the page; rage clicks are repeated fast clicks in one spot, which usually means slow rather than broken. Sort by either column to see the worst of each."
-        },
-        {
-            "name": "Rage clicks over time",
-            "type": "INSIGHT",
-            "color": "orange",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$rageclick",
-                            "name": "$rageclick",
-                            "math": "total"
-                        }
-                    ],
-                    "interval": "day",
-                    "dateRange": {
-                        "date_from": "-30d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsLineGraph",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
-                    "x": 0,
-                    "y": 25,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 42,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "A spike usually points at something that got slower, not something that broke."
-        },
-        {
-            "name": "Dead clicks by browser",
-            "type": "INSIGHT",
-            "color": "red",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$dead_click",
-                            "name": "$dead_click",
-                            "math": "total"
-                        }
-                    ],
-                    "interval": "day",
-                    "dateRange": {
-                        "date_from": "-30d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsBarValue",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false,
-                    "breakdownFilter": {
-                        "breakdown": "$browser",
-                        "breakdown_type": "event",
-                        "breakdown_limit": 15
-                    }
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
-                    "x": 6,
-                    "y": 25,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 47,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "If one browser stands out, the cause is probably browser specific rather than a broken component."
-        },
-        {
-            "name": "Interactions over time",
+            "name": "Interactions by device type",
             "type": "INSIGHT",
             "color": "blue",
             "query": {
@@ -596,10 +405,15 @@
                     },
                     "properties": [],
                     "trendsFilter": {
-                        "display": "ActionsLineGraph",
+                        "display": "ActionsBarValue",
                         "showLegend": false
                     },
-                    "filterTestAccounts": false
+                    "filterTestAccounts": false,
+                    "breakdownFilter": {
+                        "breakdown": "$device_type",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    }
                 }
             },
             "layouts": {
@@ -607,7 +421,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 0,
-                    "y": 30,
+                    "y": 9,
                     "minH": 5,
                     "minW": 3
                 },
@@ -615,12 +429,12 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 52,
+                    "y": 26,
                     "minH": 5,
                     "minW": 3
                 }
             },
-            "description": "Every click, form submission, and input change that autocapture recorded."
+            "description": "Desktop, mobile and tablet share of interactions. If a segment interacts far less than it visits, the experience there probably needs work."
         },
         {
             "name": "Most interacted pages",
@@ -661,6 +475,202 @@
                     "h": 5,
                     "w": 6,
                     "x": 6,
+                    "y": 9,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 31,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Where people are doing things, rather than just loading a page."
+        },
+        {
+            "name": "Links, downloads and contact clicks",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "-- The date range and any filter-bar properties come from the dashboard via {filters}.\n-- Every link click, with downloads and contact links called out.\n-- Autocapture records the href, so none of this needs its own tracking code.\nSELECT\n    multiIf(\n        match(elements_chain_href, '^(mailto|tel):'), 'Contact',\n        match(elements_chain_href, '\\\\.(pdf|csv|zip|xlsx?|docx?|pptx?|dmg|exe|pkg)($|\\\\?)'), 'Download',\n        'Link') AS link_type,\n    elements_chain_href AS destination,\n    count() AS clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event = '$autocapture'\n    AND {filters}\n    AND elements_chain_href != ''\nGROUP BY link_type, destination\nORDER BY clicks DESC\nLIMIT 30",
+                    "filters": {
+                        "dateRange": {
+                            "date_from": "-30d",
+                            "date_to": null
+                        },
+                        "properties": null,
+                        "filterTestAccounts": null
+                    },
+                    "variables": {}
+                },
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "conditionalFormatting": []
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 14,
+                    "minH": 8,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 8,
+                    "w": 1,
+                    "x": 0,
+                    "y": 36,
+                    "minH": 8,
+                    "minW": 3
+                }
+            },
+            "description": "Every link click by destination, with documents and email or phone links called out. None of this needs its own tracking code."
+        },
+        {
+            "name": "Dead and rage clicks by page and element",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "-- The date range and any filter-bar properties come from the dashboard via {filters},\n-- so this table matches the trend tiles instead of using its own fixed window.\n-- One row per thing people click, with both failure modes side by side.\n-- Element type walks to the first useful ancestor tag, so an icon click counts\n-- against the control around it rather than against the svg.\nSELECT\n    properties.$pathname AS page,\n    if(length(elements_chain_elements) > 0, toString(elements_chain_elements[1]), 'other') AS element_type,\n    nullIf(properties.$el_text, '') AS element_text,\n    countIf(event = '$dead_click') AS dead_clicks,\n    countIf(event = '$rageclick') AS rage_clicks,\n    countIf(event = '$autocapture') AS working_clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event IN ('$dead_click', '$rageclick', '$autocapture')\n    AND {filters}\nGROUP BY page, element_type, element_text\nHAVING dead_clicks + rage_clicks > 0\nORDER BY dead_clicks + rage_clicks DESC\nLIMIT 30",
+                    "filters": {
+                        "dateRange": {
+                            "date_from": "-30d",
+                            "date_to": null
+                        },
+                        "properties": null,
+                        "filterTestAccounts": null
+                    },
+                    "variables": {}
+                },
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "conditionalFormatting": []
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 22,
+                    "minH": 8,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 8,
+                    "w": 1,
+                    "x": 0,
+                    "y": 44,
+                    "minH": 8,
+                    "minW": 3
+                }
+            },
+            "description": "One row per thing people click. A dead click changed nothing on the page; rage clicks are repeated fast clicks in one spot, which usually means slow rather than broken. Sort by either column to see the worst of each."
+        },
+        {
+            "name": "Rage clicks by page",
+            "type": "INSIGHT",
+            "color": "orange",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$rageclick",
+                            "name": "$rageclick",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsBarValue",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false,
+                    "breakdownFilter": {
+                        "breakdown": "$pathname",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 30,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 52,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Which pages people hammer with repeated fast clicks. A trend by page, so you can see friction move as you ship fixes, next to the ranked table above."
+        },
+        {
+            "name": "Dead clicks by browser",
+            "type": "INSIGHT",
+            "color": "red",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$dead_click",
+                            "name": "$dead_click",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsBarValue",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false,
+                    "breakdownFilter": {
+                        "breakdown": "$browser",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
                     "y": 30,
                     "minH": 5,
                     "minW": 3
@@ -674,7 +684,105 @@
                     "minW": 3
                 }
             },
-            "description": "Where people are doing things, rather than just loading a page."
+            "description": "If one browser stands out, the cause is probably browser specific rather than a broken component."
+        },
+        {
+            "name": "Rage clicks over time",
+            "type": "INSIGHT",
+            "color": "orange",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$rageclick",
+                            "name": "$rageclick",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 35,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 62,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "A spike usually points at something that got slower, not something that broke."
+        },
+        {
+            "name": "Interactions over time",
+            "type": "INSIGHT",
+            "color": "blue",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$autocapture",
+                            "name": "$autocapture",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 35,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 67,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Every click, form submission, and input change that autocapture recorded."
         },
         {
             "name": "Form fields edited vs forms submitted",
@@ -736,9 +844,9 @@
             "layouts": {
                 "sm": {
                     "h": 5,
-                    "w": 6,
+                    "w": 12,
                     "x": 0,
-                    "y": 35,
+                    "y": 40,
                     "minH": 5,
                     "minW": 3
                 },
@@ -746,72 +854,13 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 62,
+                    "y": 72,
                     "minH": 5,
                     "minW": 3
                 }
             },
             "description": "The gap between these lines is people who started a form and never sent it."
-        },
-        {
-            "name": "People interacting with your key element",
-            "type": "INSIGHT",
-            "color": "blue",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        "{KEY_ELEMENT}"
-                    ],
-                    "interval": "week",
-                    "dateRange": {
-                        "date_from": "-90d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsLineGraph",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
-                    "x": 6,
-                    "y": 35,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 67,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "Narrow this to the one interaction you care about most, such as your main call to action."
         }
     ],
-    "variables": [
-        {
-            "id": "KEY_ELEMENT",
-            "name": "Key element",
-            "type": "element",
-            "default": {
-                "id": "$autocapture",
-                "math": "dau",
-                "name": "$autocapture",
-                "type": "events",
-                "order": 0
-            },
-            "required": false,
-            "description": "The interaction that matters most to you, such as a click on your main call to action. Leave it as it is to count every interaction."
-        }
-    ]
+    "variables": []
 }
