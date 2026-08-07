@@ -22,7 +22,6 @@ jobs:
               with:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
 
             - name: Extract version from tag
               id: version
@@ -39,10 +38,10 @@ jobs:
                   # into the same release. Without this, parallel jobs each create-if-missing
                   # at once, producing multiple releases for one tag and scattering assets
                   # (the orphans get left as drafts).
-                  if gh release view "v$APP_VERSION" --repo PostHog/code >/dev/null 2>&1; then
-                    echo "Release v$APP_VERSION already exists — reusing it"
+                  if gh release view "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                    echo "Release desktop-v$APP_VERSION already exists — reusing it"
                   else
-                    gh release create "v$APP_VERSION" --repo PostHog/code --draft \
+                    gh release create "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft \
                       --title "v$APP_VERSION" --notes "Release v$APP_VERSION (build in progress)"
                   fi
 
@@ -86,7 +85,6 @@ jobs:
               with:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -242,7 +240,7 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  gh release upload "v$APP_VERSION" --repo PostHog/code --clobber \
+                  gh release upload "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
                     apps/code/out/*.dmg \
                     apps/code/out/*-mac.zip \
                     apps/code/out/*.blockmap
@@ -313,7 +311,6 @@ jobs:
               with:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -419,7 +416,7 @@ jobs:
                   $items += Get-ChildItem $out -File -Filter "latest.yml"
                   $items += Get-ChildItem $out -File -Filter "*.blockmap"
                   $files = $items | Select-Object -ExpandProperty FullName
-                  gh release upload "v$env:APP_VERSION" --repo PostHog/code --clobber @files
+                  gh release upload "desktop-v$env:APP_VERSION" --repo $env:GITHUB_REPOSITORY --clobber @files
 
             - name: Configure AWS credentials for the update feed
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
@@ -497,7 +494,6 @@ jobs:
               with:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -599,7 +595,7 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  gh release upload "v$APP_VERSION" --repo PostHog/code --clobber \
+                  gh release upload "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
                     apps/code/out/*.AppImage \
                     apps/code/out/*.deb \
                     apps/code/out/*.rpm
@@ -660,7 +656,6 @@ jobs:
               with:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
 
             - name: Extract version from tag
               id: version
@@ -680,6 +675,8 @@ jobs:
                       products/desktop/apps/code/scripts/inject-release-notes.mjs
                       .github/scripts/desktop/generate-release-notes.mjs
                   sparse-checkout-cone-mode: false
+                  token: ${{ steps.app-token.outputs.token }}
+                  persist-credentials: false
 
             - name: Setup Node.js
               uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -714,7 +711,7 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  gh release upload "v$APP_VERSION" --repo PostHog/code --clobber /tmp/latest-mac.yml
+                  gh release upload "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --clobber /tmp/latest-mac.yml
 
             - name: Download checksum artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -730,8 +727,8 @@ jobs:
               run: |
                   CURRENT_TAG="desktop-v$APP_VERSION"
                   node .github/scripts/desktop/generate-release-notes.mjs "$CURRENT_TAG" > /tmp/release-notes.md
-                  node products/desktop/apps/code/scripts/generate-release-download-tables.mjs "$APP_VERSION" /tmp/checksums >> /tmp/release-notes.md
-                  gh release edit "v$APP_VERSION" --repo PostHog/code --draft=false --notes-file /tmp/release-notes.md
+                  node products/desktop/apps/code/scripts/generate-release-download-tables.mjs /tmp/checksums >> /tmp/release-notes.md
+                  gh release edit "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file /tmp/release-notes.md
 
             - name: Download windows manifest
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -739,12 +736,12 @@ jobs:
                   name: win-manifest
                   path: /tmp/win-manifest
 
-            # Built after the GitHub release is published so the new release (and its
-            # generated notes) is included; the in-app release notes read this file.
+            # Prepends this release's generated notes to the published S3 feed; the
+            # feed, not the GitHub release, is the source of truth for in-app notes.
             - name: Build releases feed manifest
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-              run: node products/desktop/apps/code/scripts/build-releases-feed.mjs /tmp/releases.json
+                  APP_VERSION: ${{ steps.version.outputs.version }}
+              run: node products/desktop/apps/code/scripts/build-releases-feed.mjs "$APP_VERSION" /tmp/release-notes.md /tmp/releases.json
 
             # The generic provider fetches nothing from GitHub, so the channel files
             # must carry the notes for electron-updater's UpdateInfo.releaseNotes.
