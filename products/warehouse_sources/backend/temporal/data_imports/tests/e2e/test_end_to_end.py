@@ -3368,21 +3368,32 @@ async def test_worker_shutdown_on_first_incremental_sync_keeps_pre_shutdown_rows
 
 
 def _dump_delta_log_for_debug(team_pk: int, resource_name: str, rows: list) -> str:
-    s3 = create_test_client()
+    # Best-effort: a broken dump must never replace the real assertion failure with its own error.
     lines = [f"table rows: {rows}"]
-    paginator = s3.get_paginator("list_objects_v2")
-    keys: list[str] = []
-    for page in paginator.paginate(Bucket=BUCKET_NAME):
-        for obj in page.get("Contents", []):
-            if f"team_{team_pk}_" in obj["Key"] and resource_name in obj["Key"]:
-                keys.append(obj["Key"])
-    log_keys = sorted(k for k in keys if "_delta_log" in k)
-    lines.append(f"data files: {sorted(k for k in keys if '_delta_log' not in k)}")
-    lines.append(f"delta log files: {log_keys}")
-    for key in log_keys[:10]:
-        body = s3.get_object(Bucket=BUCKET_NAME, Key=key)["Body"].read().decode(errors="replace")
-        ops = [line[:300] for line in body.splitlines() if "commitInfo" in line]
-        lines.append(f"--- {key}: {ops}")
+    try:
+        import boto3  # noqa: PLC0415 — debug-only helper, keep the dep off the module import path
+
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        )
+        paginator = s3.get_paginator("list_objects_v2")
+        keys: list[str] = []
+        for page in paginator.paginate(Bucket=BUCKET_NAME):
+            for obj in page.get("Contents", []):
+                if f"team_{team_pk}_" in obj["Key"] and resource_name in obj["Key"]:
+                    keys.append(obj["Key"])
+        log_keys = sorted(k for k in keys if "_delta_log" in k)
+        lines.append(f"data files: {sorted(k for k in keys if '_delta_log' not in k)}")
+        lines.append(f"delta log files: {log_keys}")
+        for key in log_keys[:10]:
+            body = s3.get_object(Bucket=BUCKET_NAME, Key=key)["Body"].read().decode(errors="replace")
+            ops = [line[:300] for line in body.splitlines() if "commitInfo" in line]
+            lines.append(f"--- {key}: {ops}")
+    except Exception as e:
+        lines.append(f"(delta log dump failed: {type(e).__name__}: {e})")
     return "\n".join(lines)
 
 
