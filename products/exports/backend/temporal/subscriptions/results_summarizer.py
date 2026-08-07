@@ -1,13 +1,21 @@
 import math
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from structlog import get_logger
 
+from posthog.bucket_completeness import Period, bucket_starts, incomplete_from_index
+from posthog.interval_specs import INTERVAL_SPECS, PERIOD_MAP
 from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, SERIES_LABEL_MAX_LEN, sanitize_user_text
 
 LOGGER = get_logger(__name__)
 
 MAX_SUMMARY_LENGTH = 2000
+
+# Both LLM prompt templates tell the model to look for this prefix, so it is a cross-module contract.
+INCOMPLETE_PERIOD_NOTE_PREFIX = "(Excluding"
 
 # Query kinds whose metric values map onto the insight's Y-axis format, so summary
 # numbers should be rendered the way the chart renders them (e.g. duration, currency).
@@ -31,29 +39,83 @@ def build_results_summary(
     results: list[Any] | None,
     columns: list[str] | None = None,
     value_format: dict[str, Any] | None = None,
+    query_ran_at: str | None = None,
+    timezone: str | None = None,
 ) -> str:
     if not results:
         return "No results"
 
     if query_kind in _TREND_SUMMARY_KINDS:
-        text = _summarize_trends(results, _sanitize_value_format(value_format))
+        text = _summarize_trend_kind(results, value_format, query_ran_at=query_ran_at, timezone=timezone)
     elif summarizer := _SUMMARIZERS.get(query_kind):
         text = summarizer(results)
     else:
         text = _summarize_generic(results, columns)
-    if len(text) > MAX_SUMMARY_LENGTH:
-        text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
-    return text
+    return _truncate(text, len(results))
 
 
-def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any] | None) -> str:
+def _summarize_trend_kind(
+    results: list[Any], value_format: dict[str, Any] | None, *, query_ran_at: Any, timezone: Any
+) -> str:
+    value_fmt = _sanitize_value_format(value_format)
     if _looks_like_boxplot_trend(results):
-        return _summarize_boxplot_trend(results, value_format)
+        # Boxplot rows carry one bucket each, so there is no shared trailing period to trim.
+        return _summarize_boxplot_trend(results, value_fmt)
 
+    coverage = _coverage(results, query_ran_at=query_ran_at, timezone=timezone)
+    if coverage is None or not _has_trimmable_series(results, coverage.excluded):
+        # Total-value displays carry `days` but report one figure over the whole range, so a note
+        # would describe a trim that never happened.
+        return _summarize_trends(results, value_fmt, 0, in_progress=False)
+
+    # in_progress= earns its place only if the section still fits; on a wide breakdown the budget is
+    # better spent on series than on repeating a figure the model will not reach.
+    with_context = _prepend(
+        coverage.note(with_in_progress=True), _summarize_trends(results, value_fmt, coverage.excluded, in_progress=True)
+    )
+    if len(with_context) <= MAX_SUMMARY_LENGTH:
+        return with_context
+    return _prepend(
+        coverage.note(with_in_progress=False),
+        _summarize_trends(results, value_fmt, coverage.excluded, in_progress=False),
+    )
+
+
+def _prepend(note: str, text: str) -> str:
+    # Prepended rather than appended so truncation cannot drop it.
+    return f"{note}\n{text}"
+
+
+def _truncate(text: str, series_count: int) -> str:
+    """Cut on a line boundary and say what was lost, so a mangled fragment cannot read as a series."""
+    if len(text) <= MAX_SUMMARY_LENGTH:
+        return text
+    kept: list[str] = []
+    used = 0
+    for line in text.split("\n"):
+        if used + len(line) + 1 > MAX_SUMMARY_LENGTH:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    shown = sum(1 for line in kept if line.startswith("- "))
+    return "\n".join(kept) + f"\n... (truncated: showing the {shown} largest of {series_count} series)"
+
+
+def _summarize_trends(
+    results: list[dict[str, Any]],
+    value_format: dict[str, Any] | None,
+    excluded: int,
+    *,
+    in_progress: bool,
+) -> str:
     lines: list[str] = []
     for series in results:
         label = _safe_label(series.get("label"), "Unknown")
         data = series.get("data", [])
+        partial: Any = None
+        if excluded and isinstance(data, list) and len(data) > excluded:
+            partial = data[-excluded]
+            data = data[:-excluded]
         aggregated_value = series.get("aggregated_value")
 
         if data and isinstance(data, list):
@@ -62,11 +124,14 @@ def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any
                 latest = numeric[-1]
                 avg = sum(numeric) / len(numeric)
                 trend = _trend_direction(numeric)
-                lines.append(
+                line = (
                     f"- {label}: latest={_fmt_value(latest, value_format)}, avg={_fmt_value(avg, value_format)}, "
                     f"min={_fmt_value(min(numeric), value_format)}, max={_fmt_value(max(numeric), value_format)}, "
                     f"trend={trend} ({len(numeric)} points)"
                 )
+                if in_progress and isinstance(partial, (int, float)) and math.isfinite(partial):
+                    line += f", in_progress={_fmt_value(partial, value_format)}"
+                lines.append(line)
                 continue
 
         if aggregated_value is not None:
@@ -77,6 +142,167 @@ def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any
             lines.append(f"- {label}: (no data)")
 
     return "\n".join(lines) if lines else "No trend series"
+
+
+def _has_trimmable_series(results: list[Any], excluded: int) -> bool:
+    return excluded > 0 and any(
+        isinstance(series, dict) and isinstance(series.get("data"), list) and len(series["data"]) > excluded
+        for series in results
+    )
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Coverage:
+    """Which trailing buckets were unfinished when the query ran, and how to describe them."""
+
+    total: int
+    first_incomplete: int
+    unit: str
+    elapsed_pct: int | None
+
+    @property
+    def excluded(self) -> int:
+        return self.total - self.first_incomplete
+
+    def note(self, *, with_in_progress: bool) -> str:
+        complete = self.first_incomplete
+        elapsed = f", {self.elapsed_pct}% elapsed" if self.elapsed_pct is not None else ""
+        # Only describe in_progress= when the fields are actually there, so the note cannot promise a
+        # figure the budget gate dropped.
+        context = (
+            f" in_progress= is the unfinished {self.unit}{elapsed}: context only, not comparable to latest=."
+            if with_in_progress
+            else ""
+        )
+        return (
+            f"{INCOMPLETE_PERIOD_NOTE_PREFIX} {self.excluded} {_plural(self.unit, self.excluded)} at the end of the "
+            f"range that had not completed when the query ran; the per-period figures below cover {complete} "
+            f"complete {_plural(self.unit, complete)}.{context})"
+        )
+
+
+def _plural(unit: str, count: int) -> str:
+    return unit if count == 1 else f"{unit}s"
+
+
+def _coverage(results: list[Any], *, query_ran_at: Any, timezone: Any) -> _Coverage | None:
+    """Locate the trailing buckets that had not finished when the query ran.
+
+    Returns None whenever completeness cannot be established, which leaves every figure exactly as
+    it was before this existed.
+    """
+    starts = bucket_starts(_first_days_list(results))
+    reference = _local_reference(query_ran_at, timezone)
+    period, unit = _period_and_unit(results, starts)
+    if starts is None or reference is None or period is None:
+        LOGGER.info(
+            "subscription_summary.coverage_skipped",
+            reason=_skip_reason(starts, reference, period),
+            bucket_count=len(starts) if starts else 0,
+        )
+        return None
+
+    first_incomplete = incomplete_from_index(starts, reference=reference, period=period)
+    if first_incomplete is None:
+        return None
+
+    coverage = _Coverage(
+        total=len(starts),
+        first_incomplete=first_incomplete,
+        unit=unit,
+        elapsed_pct=_elapsed_pct(starts[first_incomplete], reference, period),
+    )
+    # Over-trimming is the failure worth catching, and it is otherwise only visible in a wrong digest.
+    LOGGER.info(
+        "subscription_summary.coverage",
+        excluded=coverage.excluded,
+        total_buckets=coverage.total,
+        unit=unit,
+    )
+    return coverage
+
+
+def _first_days_list(results: list[Any]) -> Any:
+    """Every series in a trends response shares one bucket set, so the first usable `days` wins."""
+    for series in results:
+        if isinstance(series, dict) and isinstance(series.get("days"), list) and series["days"]:
+            return series["days"]
+    return None
+
+
+def _period_and_unit(results: list[Any], starts: list[datetime] | None) -> tuple[Period | None, str]:
+    """Prefer the query's own interval; fall back to the gap between buckets.
+
+    `dateRange.daysOfWeek` removes buckets mid-axis, so spacing alone would read a weekdays-only
+    daily trend as 3-day buckets. That only happens on trends, which is exactly where `interval` is
+    present — lifecycle and stickiness carry no `filter` block but also no holes.
+    """
+    interval = _query_interval(results)
+    if interval and interval in PERIOD_MAP:
+        return PERIOD_MAP[interval], interval
+    if starts and len(starts) >= 2:
+        width = starts[-1] - starts[-2]
+        for name, spec in INTERVAL_SPECS.items():
+            if spec.period == width:
+                return spec.period, name
+        return width, "interval"
+    return None, "interval"
+
+
+def _query_interval(results: list[Any]) -> str | None:
+    for series in results:
+        if isinstance(series, dict) and isinstance(series.get("filter"), dict):
+            interval = series["filter"].get("interval")
+            if isinstance(interval, str):
+                return interval
+    return None
+
+
+def _elapsed_pct(bucket_start: datetime, reference: datetime, period: Period) -> int | None:
+    """How far into the unfinished bucket the query ran, so the model can read its value in context."""
+    span = (bucket_start + period) - bucket_start
+    if span.total_seconds() <= 0:
+        return None
+    return max(0, min(100, round((reference - bucket_start).total_seconds() / span.total_seconds() * 100)))
+
+
+def _local_reference(query_ran_at: Any, timezone: Any) -> datetime | None:
+    """The query's run time as naive wall clock in the team's timezone.
+
+    Converting once here keeps DST out of the comparison: a spring-forward day is still one calendar
+    day wide when both sides are wall clock.
+    """
+    if not isinstance(query_ran_at, str) or not query_ran_at:
+        return None
+    try:
+        parsed = datetime.fromisoformat(query_ran_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(_resolve_timezone(timezone)).replace(tzinfo=None)
+
+
+def _skip_reason(starts: list[datetime] | None, reference: datetime | None, period: Period | None) -> str:
+    if reference is None:
+        return "unusable_run_timestamp"
+    if starts is None:
+        # Stickiness puts integer day-counts in `days`, so it lands here with nothing parsed.
+        return "no_parseable_bucket_starts"
+    return "no_period" if period is None else "unknown"
+
+
+def _resolve_timezone(timezone: Any) -> ZoneInfo:
+    if isinstance(timezone, str) and timezone:
+        try:
+            return ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            LOGGER.info("subscription_summary.unknown_timezone", timezone=timezone)
+            return ZoneInfo("UTC")
+    # A missing timezone reads team-local bucket starts as UTC, which for a team east of UTC drops a
+    # complete bucket — the one input whose absence produces a wrong trim rather than no trim.
+    LOGGER.info("subscription_summary.missing_timezone")
+    return ZoneInfo("UTC")
 
 
 def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:

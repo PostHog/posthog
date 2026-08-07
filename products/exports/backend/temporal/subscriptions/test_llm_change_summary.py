@@ -4,11 +4,14 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.exports.backend.temporal.subscriptions.llm_change_summary import (
+    INITIAL_USER_PROMPT_TEMPLATE,
+    USER_PROMPT_TEMPLATE,
     _attach_images_to_user_message,
     build_initial_prompt_messages,
     build_prompt_messages,
     generate_change_summary,
 )
+from products.exports.backend.temporal.subscriptions.results_summarizer import INCOMPLETE_PERIOD_NOTE_PREFIX
 
 
 def _make_state(
@@ -759,3 +762,8 @@ class TestAnnotationsSection:
 
         assert marker_text in messages[1]["content"]
         assert "Annotations during this period" in messages[1]["content"]
+
+
+@pytest.mark.parametrize("template", [INITIAL_USER_PROMPT_TEMPLATE, USER_PROMPT_TEMPLATE])
+def test_prompts_name_the_marker_the_summarizer_actually_emits(template):
+    assert INCOMPLETE_PERIOD_NOTE_PREFIX in template

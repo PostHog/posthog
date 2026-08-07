@@ -351,3 +351,182 @@ class TestBuildResultsSummaryEdgeCases:
         results = [{"label": "Metric", "data": [], "count": 0, "aggregated_value": float("inf")}]
         summary = build_results_summary("TrendsQuery", results)
         assert "N/A" in summary
+
+
+class TestBuildResultsSummaryIncompleteTrailingBuckets:
+    DAILY_DAYS = ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06"]
+    DAILY_FILTER = {"interval": "day"}
+
+    @classmethod
+    def daily_results(cls) -> list[dict]:
+        return [
+            {"label": "Signups", "days": cls.DAILY_DAYS, "data": [10, 12, 11, 13, 15, 1], "filter": cls.DAILY_FILTER}
+        ]
+
+    def test_in_progress_final_day_is_excluded_and_reported(self):
+        summary = build_results_summary(
+            "TrendsQuery", self.daily_results(), query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
+        )
+        assert "Excluding 1 day at the end of the range" in summary
+        assert "5 complete days" in summary
+        assert "latest=15" in summary
+        assert "in_progress=1" in summary
+        assert "(6 points)" not in summary
+
+    def test_future_buckets_are_excluded_but_not_reported_as_in_progress(self):
+        results = [
+            {
+                "label": "Signups",
+                "days": [*self.DAILY_DAYS, "2026-08-07", "2026-08-08"],
+                "data": [10, 12, 11, 13, 15, 1, 0, 0],
+                "filter": self.DAILY_FILTER,
+            }
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
+        )
+        assert "Excluding 3 days at the end of the range" in summary
+        assert "latest=15" in summary
+        # The in-progress figure is the bucket containing the run time, never an all-zero future one.
+        assert "in_progress=1" in summary
+
+    def test_bucket_completeness_uses_the_team_timezone(self):
+        # 2026-08-06 is complete in UTC by 02:00 on the 7th, but not in US/Pacific until 07:00 UTC.
+        summary = build_results_summary(
+            "TrendsQuery", self.daily_results(), query_ran_at="2026-08-07T02:00:00+00:00", timezone="US/Pacific"
+        )
+        assert "Excluding 1 day at the end of the range" in summary
+
+    def test_hourly_buckets_are_named_hours(self):
+        results = [
+            {
+                "label": "Signups",
+                "days": [f"2026-08-06 0{hour}:00:00" for hour in range(6)],
+                "data": [8, 9, 7, 10, 11, 1],
+                "filter": {"interval": "hour"},
+            }
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-06T05:30:00+00:00", timezone="UTC"
+        )
+        assert "Excluding 1 hour at the end of the range" in summary
+        assert "5 complete hours" in summary
+
+    @pytest.mark.parametrize(
+        "query_ran_at,reason",
+        [
+            ("2026-08-07T00:00:00+00:00", "final bucket already complete"),
+            ("2026-07-01T00:00:00+00:00", "every bucket looks incomplete"),
+            (None, "no run timestamp"),
+            ("2026-08-06T12:00:00", "naive run timestamp"),
+            ("not a timestamp", "unparseable run timestamp"),
+        ],
+    )
+    def test_nothing_is_trimmed(self, query_ran_at, reason):
+        summary = build_results_summary("TrendsQuery", self.daily_results(), query_ran_at=query_ran_at, timezone="UTC")
+        assert "Excluding" not in summary, reason
+        assert "latest=1" in summary, reason
+        assert "in_progress" not in summary, reason
+
+    # Extrapolating a calendar bucket's end from the previous gap kept partial periods and dropped complete ones.
+    @pytest.mark.parametrize(
+        "unit,days,query_ran_at,expect_excluded",
+        [
+            ("month", ["2026-01-01", "2026-02-01"], "2026-03-03T12:00:00+00:00", False),
+            ("month", ["2026-01-01", "2026-02-01", "2026-03-01"], "2026-03-30T12:00:00+00:00", True),
+            ("month", ["2026-01-01", "2026-02-01", "2026-03-01"], "2026-04-01T00:00:00+00:00", False),
+            ("quarter", ["2025-07-01", "2025-10-01", "2026-01-01"], "2026-02-15T00:00:00+00:00", True),
+            ("quarter", ["2025-07-01", "2025-10-01", "2026-01-01"], "2026-04-01T00:00:00+00:00", False),
+            ("year", ["2024-01-01", "2025-01-01", "2026-01-01"], "2026-06-01T00:00:00+00:00", True),
+            ("year", ["2024-01-01", "2025-01-01", "2026-01-01"], "2027-01-01T00:00:00+00:00", False),
+        ],
+    )
+    def test_calendar_intervals_step_by_their_own_period(self, unit, days, query_ran_at, expect_excluded):
+        results = [
+            {"label": "Signups", "days": days, "data": list(range(1, len(days) + 1)), "filter": {"interval": unit}}
+        ]
+        summary = build_results_summary("TrendsQuery", results, query_ran_at=query_ran_at, timezone="UTC")
+        assert summary.startswith(f"(Excluding 1 {unit}") is expect_excluded
+
+    # daysOfWeek removes buckets mid-axis, so spacing would read a weekdays-only daily trend as 3-day buckets.
+    def test_interval_beats_spacing_when_the_axis_has_holes(self):
+        results = [
+            {
+                "label": "Signups",
+                "days": ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10"],
+                "data": [10, 11, 12, 13, 14, 3],
+                "filter": self.DAILY_FILTER,
+            }
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-10T12:00:00+00:00", timezone="UTC"
+        )
+        assert "Excluding 1 day at the end of the range" in summary
+        assert "latest=14" in summary
+
+    # Total-value displays carry `days` but report one figure, so a note would describe a trim that never happened.
+    @pytest.mark.parametrize("figure", [{"aggregated_value": 99}, {"count": 42}])
+    def test_total_value_series_get_no_exclusion_note(self, figure):
+        results = [{"label": "Signups", "days": self.DAILY_DAYS, "data": [], "filter": self.DAILY_FILTER, **figure}]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
+        )
+        assert "Excluding" not in summary
+        assert str(next(iter(figure.values()))) in summary
+
+    @pytest.mark.parametrize("query_ran_at,timezone", [(12345, "UTC"), ({"a": 1}, "UTC"), (None, 99), (None, {"x": 1})])
+    def test_non_string_snapshot_values_trim_nothing(self, query_ran_at, timezone):
+        summary = build_results_summary(
+            "TrendsQuery", self.daily_results(), query_ran_at=query_ran_at, timezone=timezone
+        )
+        assert "Excluding" not in summary
+        assert "latest=1" in summary
+
+    def test_unknown_timezone_falls_back_to_utc(self):
+        results = self.daily_results()
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-07T00:00:00+00:00", timezone="Not/AZone"
+        )
+        assert summary == build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-07T00:00:00+00:00", timezone="UTC"
+        )
+
+    def test_series_without_bucket_starts_trims_nothing(self):
+        results = [{"label": "Signups", "data": [10, 12, 11, 13, 15, 1]}]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
+        )
+        assert "Excluding" not in summary
+        assert "latest=1" in summary
+
+    def test_exclusion_note_survives_truncation(self):
+        results = [
+            {"label": f"Prompt {i}", "days": self.DAILY_DAYS, "data": [1, 0, 1, 0, 1, 0], "filter": self.DAILY_FILTER}
+            for i in range(200)
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
+        )
+        assert summary.startswith("(Excluding 1 day at the end of the range")
+        assert "truncated" in summary
+
+    def test_truncation_lands_on_a_line_boundary_and_states_coverage(self):
+        results = [{"label": f"Prompt {i}", "data": [1, 2, 3]} for i in range(200)]
+        summary = build_results_summary("TrendsQuery", results)
+        body, marker = summary.rsplit("\n", 1)
+        assert marker.startswith("... (truncated: showing the ")
+        assert "of 200 series" in marker
+        # Every retained line is whole, so a fragment cannot read as a series with no data.
+        assert all(line.startswith("- Prompt ") and "latest=" in line for line in body.splitlines())
+
+    # A wide breakdown spends its budget on series rather than repeating a figure the model cannot reach.
+    def test_in_progress_is_dropped_when_it_would_not_fit(self):
+        results = [
+            {"label": f"Prompt {i}", "days": self.DAILY_DAYS, "data": [1, 0, 1, 0, 1, 9], "filter": self.DAILY_FILTER}
+            for i in range(200)
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
+        )
+        assert summary.startswith("(Excluding 1 day")
+        assert "in_progress=" not in summary
