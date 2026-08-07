@@ -25,6 +25,8 @@ Release CI uploads the binaries and blockmaps to the feed from each platform job
 
 **Linux**: No auto-update. AppImage, deb and rpm packages are manual downloads from the GitHub Release, also mirrored to the S3 feed.
 
+Remote announcements can drive this flow: a `required-update` announcement blocks apps below a version and reuses the updater; where the updater is unavailable it degrades to a manual download link. See [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md).
+
 ## How It Works
 
 1. A base tag like `v0.15.0` marks the start of a minor version
