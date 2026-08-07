@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -122,6 +124,29 @@ class TestDebugCHQuery(APIBaseTest):
             headers={"authorization": f"Bearer {token}"},
         )
         self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
+
+    def test_cache_growth_series_are_preseeded_and_bucket_aligned(self):
+        # The charts index series arrays by bucket position, so a table with no builds in the
+        # window must still return zero-filled arrays, and returned rows must land in the bucket
+        # matching their ISO key — not be appended positionally.
+        self.user.is_staff = True
+        self.user.save()
+        bucket = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00Z")
+
+        with patch(
+            "posthog.api.debug_ch_queries.sync_execute",
+            return_value=[(bucket, "exposures", 10, 100)],
+        ):
+            resp = self.client.get("/api/debug_ch_queries/cache_growth/?hours=336")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        i = data["buckets"].index(bucket)
+        for table in ("exposures", "metric_events"):
+            self.assertEqual(len(data["tables"][table]["written_rows"]), len(data["buckets"]))
+        self.assertEqual(data["tables"]["exposures"]["written_rows"][i], 10)
+        self.assertEqual(data["tables"]["exposures"]["written_bytes"][i], 100)
+        self.assertEqual(sum(data["tables"]["metric_events"]["written_rows"]), 0)
 
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
     def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):

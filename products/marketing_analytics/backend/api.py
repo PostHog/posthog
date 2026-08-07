@@ -1,6 +1,8 @@
 import uuid
 from dataclasses import asdict
-from typing import Any, cast
+from functools import reduce
+from operator import or_
+from typing import Any, Optional, cast
 
 from django.db import transaction
 
@@ -8,9 +10,12 @@ import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from pydantic import (
+    BaseModel,
+    ConfigDict,
     RootModel as PydanticRootModel,
     TypeAdapter,
     ValidationError as PydanticValidationError,
+    create_model,
 )
 from rest_framework import serializers, status
 from rest_framework.decorators import action
@@ -27,7 +32,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
+from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.models.user import User
@@ -45,7 +52,7 @@ from products.marketing_analytics.backend.services.data_source_health import get
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
-from products.marketing_analytics.backend.services.types import UTM_ISSUE_KIND_CHOICES
+from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UTM_ISSUE_KIND_CHOICES
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -103,6 +110,21 @@ class UtmIssueSerializer(serializers.Serializer):
     )
     missing_source_count = serializers.IntegerField(
         help_text="Pageviews that matched this campaign but carried no utm_source, on any issue kind"
+    )
+    suggested_actions = serializers.ListField(
+        child=serializers.ChoiceField(choices=SUGGESTED_ACTION_CHOICES),
+        help_text=(
+            "Recommended remediations, most-recommended first. fix_platform_urls cures the tagging "
+            "bug itself; the others are workarounds that leave the bad URLs in place."
+        ),
+    )
+    mapping_candidate = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "The orphaned utm_campaign value that looks like a typo of this campaign, when one was "
+            "found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, "
+            "including when several candidates tie and picking one could misattribute spend."
+        ),
     )
 
 
@@ -214,6 +236,42 @@ class ConversionGoal(PydanticRootModel):
     root: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
 
 
+def _partial_goal_model(model: type[BaseModel]) -> type[BaseModel]:
+    """The same goal shape with every field optional, for the update request body.
+
+    Update merges what you send into the stored goal, so the request is a patch, not a whole goal.
+    Annotating it with the full model generates a type whose members all require an id, a name and a
+    schema map, making the endpoint's own documented call — `{"goal": {"counts_as_customer": true}}` —
+    a type error that a client can only get past by casting. Derived from the real model so a new
+    field can't be forgotten here.
+    """
+    return create_model(  # type: ignore[call-overload]
+        f"Partial{model.__name__}",
+        __config__=ConfigDict(extra="forbid"),
+        __doc__=f"{model.__name__} with every field optional - the fields you send are merged into the stored goal.",
+        **{
+            name: (Optional[field.annotation], None if name != "kind" else field.default)
+            for name, field in model.model_fields.items()
+        },
+    )
+
+
+def _conversion_goal_patch_model() -> Any:
+    """Wrapper for OpenAPI schema generation - the fields to change on one existing goal.
+
+    Built rather than declared: the members are derived from the real goal models, which a class-body
+    annotation can't name.
+    """
+    partials = [
+        _partial_goal_model(model) for model in (ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3)
+    ]
+    union = reduce(or_, partials)
+    return create_model("ConversionGoalPatch", __base__=PydanticRootModel, root=(union, ...))
+
+
+ConversionGoalPatch = _conversion_goal_patch_model()
+
+
 @extend_schema_field(ConversionGoal)  # type: ignore[arg-type]
 class ConversionGoalField(serializers.JSONField):
     def to_internal_value(self, data: Any) -> dict:
@@ -224,15 +282,37 @@ class ConversionGoalField(serializers.JSONField):
         return value
 
 
+@extend_schema_field(ConversionGoalPatch)
+class ConversionGoalPatchField(ConversionGoalField):
+    pass
+
+
 @extend_schema_field(ConversionGoalWrittenList)  # type: ignore[arg-type]
 class ConversionGoalListField(serializers.JSONField):
     pass
 
 
-def _readable_pydantic_errors(error: PydanticValidationError) -> list[str]:
-    """Pydantic reports one error per union member, which is noise. Keep the field and the message."""
+_GOAL_MODEL_BY_KIND = {
+    model.model_fields["kind"].default: model.__name__
+    for model in (ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3)
+}
+
+
+def _normalized_goal_name(name: Any) -> str | None:
+    """Goal names as compared for uniqueness — they become SQL column aliases downstream."""
+    return name.strip().casefold() if isinstance(name, str) else None
+
+
+def _readable_pydantic_errors(error: PydanticValidationError, kind: Any = None) -> list[str]:
+    """Pydantic reports one error per union member, which is noise. Keep the field and the message.
+
+    Errors are preferred from the member matching the payload's `kind`: otherwise the first member
+    wins per field, so a data warehouse payload could be told about the events node's requirements
+    for a field it did send correctly.
+    """
+    preferred_model = _GOAL_MODEL_BY_KIND.get(kind)
     seen: dict[str, str] = {}
-    for detail in error.errors():
+    for detail in sorted(error.errors(), key=lambda d: str(d["loc"][:1]) != str((preferred_model,))):
         field = ".".join(str(part) for part in detail["loc"] if not str(part).startswith("ConversionGoalFilter"))
         seen.setdefault(field or "goal", detail["msg"])
     return [f"{field}: {message}" for field, message in seen.items()]
@@ -242,8 +322,22 @@ class ConversionGoalWriteSerializer(serializers.Serializer):
     goal = ConversionGoalField(
         help_text=(
             "The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions "
-            "node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value "
-            "sent is ignored. On update, only the fields you send are changed."
+            "node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent "
+            "is ignored."
+        )
+    )
+
+
+class ConversionGoalUpdateSerializer(serializers.Serializer):
+    """Separate from create: the body is a patch, so the documented partial has to type-check."""
+
+    goal = ConversionGoalPatchField(
+        help_text=(
+            "The fields to change, merged into the stored goal — anything you leave out is kept, and the goal "
+            "keeps its position in the list. schema_map is merged key by key. The merged result must still match "
+            "one of the ConversionGoalFilter shapes. Send `kind` only to change the goal's shape, in which case "
+            "the goal is replaced rather than merged and the whole new shape is required. conversion_goal_id "
+            "comes from the URL and any value sent is ignored."
         )
     )
 
@@ -423,6 +517,9 @@ class SourceMappingSuggestionSerializer(serializers.Serializer):
     suggested_target = serializers.CharField(help_text="Integration key it maps to")
     suggested_target_display_name = serializers.CharField(help_text="Human-readable name of the suggested integration")
     reason = serializers.CharField(help_text="Why this mapping is suggested")
+    event_count_30d = serializers.IntegerField(
+        help_text="Events carrying this raw utm_source in the window. Suggestions are ordered by it."
+    )
 
 
 class CampaignMappingSuggestionSerializer(serializers.Serializer):
@@ -435,6 +532,9 @@ class CampaignMappingSuggestionSerializer(serializers.Serializer):
     confidence = serializers.FloatField(help_text="Confidence score for the clustering (0-1)")
     method = serializers.CharField(help_text="Mapping method")
     reason = serializers.CharField(help_text="Why these campaign values were clustered together")
+    event_count_30d = serializers.IntegerField(
+        help_text="Events across every raw value folded into this suggestion. Suggestions are ordered by it."
+    )
 
 
 class RawUnmatchedSampleSerializer(serializers.Serializer):
@@ -471,7 +571,11 @@ class UtmMappingSuggestionsResponseSerializer(serializers.Serializer):
         many=True, help_text="Suggested custom_source_mappings entries"
     )
     campaign_suggestions = CampaignMappingSuggestionSerializer(
-        many=True, help_text="Suggested campaign-name clusters (empty in v1)"
+        many=True,
+        help_text=(
+            "campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real "
+            "campaign. Near-ties are withheld, so an absent campaign may still be mappable by hand."
+        ),
     )
     raw_unmatched_samples = RawUnmatchedSampleSerializer(
         many=True, help_text="All unmatched raw utm_source values worth reviewing"
@@ -648,9 +752,10 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         with transaction.atomic():
             config = self._locked_config()
-            goals = list(config.conversion_goals)
+            previous = list(config.conversion_goals)
+            goals = list(previous)
             goals.append(self._validated_goal(goal, existing=goals))
-            self._store_goals(config, goals)
+            self._store_goals(config, goals, previous=previous)
 
         return Response(
             {"goal": goals[-1], "conversion_goals": goals},
@@ -658,7 +763,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         )
 
     @validated_request(
-        request_serializer=ConversionGoalWriteSerializer,
+        request_serializer=ConversionGoalUpdateSerializer,
         responses={
             200: OpenApiResponse(response=ConversionGoalWriteResponseSerializer, description="The goal as updated"),
             400: OpenApiResponse(description="The resulting goal does not match any conversion goal shape"),
@@ -666,7 +771,11 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             404: OpenApiResponse(description="No goal with that conversion_goal_id"),
         },
         summary="Update conversion goal",
-        description="Change one conversion goal in place. Fields you send are merged into the stored goal, the rest are kept, and the goal keeps its position in the list.",
+        description=(
+            "Change one conversion goal in place. Fields you send are merged into the stored goal, the rest are "
+            "kept, and the goal keeps its position in the list. Sending a different `kind` replaces the goal "
+            "instead, since the shapes don't share their fields."
+        ),
     )
     @action(
         methods=["PATCH"],
@@ -681,12 +790,13 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         with transaction.atomic():
             config = self._locked_config()
-            goals = list(config.conversion_goals)
+            previous = list(config.conversion_goals)
+            goals = list(previous)
             index = self._index_of(goals, conversion_goal_id)
 
-            merged = {**goals[index], **patch, "conversion_goal_id": conversion_goal_id}
+            merged = self._merged_goal(goals[index], patch, conversion_goal_id)
             goals[index] = self._validated_goal(merged, existing=goals, ignore_index=index)
-            self._store_goals(config, goals)
+            self._store_goals(config, goals, previous=previous)
 
         return Response({"goal": goals[index], "conversion_goals": goals})
 
@@ -713,16 +823,23 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         with transaction.atomic():
             config = self._locked_config()
-            goals = list(config.conversion_goals)
+            previous = list(config.conversion_goals)
+            goals = list(previous)
             removed = goals.pop(self._index_of(goals, conversion_goal_id))
-            self._store_goals(config, goals)
+            self._store_goals(config, goals, previous=previous)
 
         return Response({"goal": removed, "conversion_goals": goals})
 
     def _require_project_admin(self) -> None:
-        # Conversion goals live on the team config, whose `_conversion_goals` field is gated to project
-        # admins on the settings PATCH path (field_access_control); these endpoints keep the same bar.
-        if not self.user_access_control.check_access_level_for_object(self.team, "admin"):
+        # The settings PATCH path puts these fields behind ADMIN, so these endpoints have to clear
+        # the same bar or they route around it. RBAC alone doesn't: `check_access_level_for_object`
+        # is permissive without the ACCESS_CONTROL feature. Either check satisfies.
+        if self.user_access_control.access_controls_supported:
+            if self.user_access_control.check_access_level_for_object(self.team, "admin"):
+                return
+
+        level = self.user_permissions.team(self.team).effective_membership_level
+        if level is None or level < OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("You need admin access to this project to modify conversion goals.")
 
     def _locked_config(self) -> TeamMarketingAnalyticsConfig:
@@ -734,27 +851,62 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         try:
             validated = _CONVERSION_GOAL_ADAPTER.validate_python(goal)
         except PydanticValidationError as e:
-            raise serializers.ValidationError({"goal": _readable_pydantic_errors(e)})
+            raise serializers.ValidationError({"goal": _readable_pydantic_errors(e, goal.get("kind"))})
 
         name = goal.get("conversion_goal_name")
+        # Normalized, because names differing only in case collide as SQL column aliases.
+        # Storage keeps the name as sent.
+        normalized = _normalized_goal_name(name)
         for index, other in enumerate(existing):
-            if index != ignore_index and other.get("conversion_goal_name") == name:
+            if index != ignore_index and _normalized_goal_name(other.get("conversion_goal_name")) == normalized:
                 raise serializers.ValidationError({"goal": f"A conversion goal named '{name}' already exists."})
 
-        return validated.model_dump(exclude_none=True, mode="json")
+        stored = validated.model_dump(exclude_none=True, mode="json")
+        # `name` is optional on the schema but required by the legacy full-config PATCH the settings
+        # UI still sends, and the UI never exposes it, so a goal stored without one can't be repaired
+        # from the product. Mirrored rather than defaulted, or a rename leaves a stale `name`.
+        stored["name"] = stored["conversion_goal_name"]
+        return stored
+
+    def _merged_goal(self, stored: dict, patch: dict, conversion_goal_id: str) -> dict:
+        """Apply a partial goal onto the stored one, per the endpoint's documented merge semantics."""
+        if not isinstance(stored, dict):
+            # `_index_of` tolerates a non-dict row via `.get`, so don't blow up with a TypeError here.
+            raise serializers.ValidationError(
+                {"goal": "The stored conversion goal is malformed and cannot be updated."}
+            )
+
+        # The models are `extra="forbid"`, so a merge leaves old-kind keys behind and pydantic
+        # rejects a field the client never sent.
+        if patch.get("kind") not in (None, stored.get("kind")):
+            return {**patch, "conversion_goal_id": conversion_goal_id}
+
+        merged = {**stored, **patch, "conversion_goal_id": conversion_goal_id}
+        # No key on `schema_map` is required, so a top-level merge drops what the patch omits and the
+        # query runner then skips the goal with a warning — a successful write that stops reporting.
+        if isinstance(patch.get("schema_map"), dict) and isinstance(stored.get("schema_map"), dict):
+            merged["schema_map"] = {**stored["schema_map"], **patch["schema_map"]}
+        return merged
 
     def _index_of(self, goals: list[dict], conversion_goal_id: str) -> int:
         for index, goal in enumerate(goals):
-            if goal.get("conversion_goal_id") == conversion_goal_id:
+            if isinstance(goal, dict) and goal.get("conversion_goal_id") == conversion_goal_id:
                 return index
         raise NotFound(f"No conversion goal with id '{conversion_goal_id}'.")
 
-    def _store_goals(self, config: TeamMarketingAnalyticsConfig, goals: list[dict]) -> None:
-        # Writes the column directly rather than going through the `conversion_goals` setter. Every goal here has
-        # already been validated against the schema models, while the setter's validator predates them and requires
-        # a `name` the schema treats as optional, so it would reject goals the schema considers valid.
+    def _store_goals(self, config: TeamMarketingAnalyticsConfig, goals: list[dict], *, previous: list[dict]) -> None:
+        # Direct, not through the `conversion_goals` setter: it would re-run the older validator on
+        # every sibling goal and fail this write for a pre-existing row it never touched.
         config._conversion_goals = goals
         config.save()
+        # Same trail the settings path produces, so an MCP-driven edit still records who did what.
+        capture_team_config_diff(
+            self.team,
+            "marketing_analytics_config",
+            {"conversion_goals": previous},
+            {"conversion_goals": goals},
+            context=self.get_serializer_context(),
+        )
 
     @validated_request(
         query_serializer=DataSourcesQuerySerializer,

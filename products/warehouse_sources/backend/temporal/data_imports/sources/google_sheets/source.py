@@ -51,7 +51,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
+            "the header row in the worksheet contains duplicates": "Import failed: two or more columns in the worksheet share the same header. Give each one a distinct name and resync.",
             # Raised by `_assert_unique_normalized_column_names`: two headers that look distinct
             # collapse to the same normalized column name. Deterministic — retrying can't recover, and
             # the message already names the offending headers, so keep it as-is.
@@ -143,6 +143,15 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None
+        except gspread.exceptions.NoValidUrlKeyFound:
+            # gspread couldn't find a spreadsheet key in the value — it isn't a Sheets URL. Its
+            # str() is empty, so the generic fallback below would surface a bare "Invalid
+            # credentials" for what's really a URL-format problem. Guide the user instead.
+            return (
+                False,
+                "That doesn't look like a Google Sheets URL. Paste the full URL of your sheet, "
+                "for example https://docs.google.com/spreadsheets/d/<id>/edit.",
+            )
         except gspread.SpreadsheetNotFound:
             return False, "Spreadsheet not found at URL provided"
         except PermissionError:

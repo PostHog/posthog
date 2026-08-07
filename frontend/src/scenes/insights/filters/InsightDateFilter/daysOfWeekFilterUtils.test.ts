@@ -1,9 +1,11 @@
-import type { DateRange } from '~/queries/schema/schema-general'
+import { NodeKind, type DateRange } from '~/queries/schema/schema-general'
+import { FunnelVizType } from '~/types'
 
 import {
     computeDaysOfWeekUpdate,
     getExcludedDaysOfWeek,
     invertDaysOfWeek,
+    querySupportsDaysOfWeek,
     type IsoDayOfWeek,
 } from './daysOfWeekFilterUtils'
 
@@ -61,4 +63,23 @@ describe('daysOfWeekFilterUtils', () => {
         const update = computeDaysOfWeekUpdate([6, 7], { date_from: '-7d', date_to: null })
         expect(update.dateRange).toEqual({ date_from: '-7d', date_to: null, daysOfWeek: [1, 2, 3, 4, 5] })
     })
+
+    it.each([
+        [null, false],
+        [undefined, false],
+        [{ kind: NodeKind.TrendsQuery }, true],
+        [{ kind: NodeKind.StickinessQuery }, true],
+        [{ kind: NodeKind.LifecycleQuery }, false],
+        [{ kind: NodeKind.FunnelsQuery }, true],
+        [{ kind: NodeKind.FunnelsQuery, funnelsFilter: { funnelVizType: FunnelVizType.Steps } }, true],
+        [{ kind: NodeKind.FunnelsQuery, funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert } }, true],
+        [{ kind: NodeKind.FunnelsQuery, funnelsFilter: { funnelVizType: FunnelVizType.Trends } }, true],
+        [{ kind: NodeKind.RetentionQuery }, false],
+        [{ kind: NodeKind.PathsQuery }, false],
+    ] as [Record<string, any> | null | undefined, boolean][])(
+        'querySupportsDaysOfWeek(%j) → %s',
+        (querySource, expected) => {
+            expect(querySupportsDaysOfWeek(querySource)).toBe(expected)
+        }
+    )
 })

@@ -58,7 +58,7 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
                     Paste the recording's session ID below.
                 </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <LemonInput
                     value={sessionId}
                     onChange={setSessionId}

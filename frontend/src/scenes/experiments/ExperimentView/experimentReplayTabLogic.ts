@@ -1,8 +1,30 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    ExperimentRecordingsBucketFailedContext,
+    ExperimentRecordingsBucketLoadedContext,
+    ExperimentRecordingsFilterContext,
+    ExperimentRecordingsTabContext,
+    eventUsageLogic,
+} from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,9 +35,22 @@ import {
     ProductKey,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, UniversalFiltersGroupValue } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    RecordingUniversalFilters,
+    SessionRecordingSidebarTab,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
-import { experimentsSessionContextsCreate } from 'products/experiments/frontend/generated/api'
+import {
+    experimentsSessionBucketsCreate,
+    experimentsSessionContextsCreate,
+} from 'products/experiments/frontend/generated/api'
+import type {
+    ExperimentSessionBucketResponseApi,
+    ExperimentSessionBucketEnumApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
@@ -24,6 +59,7 @@ import {
     applySessionLinkability,
     getExperimentVariants,
     getExposureFallbackFilter,
+    getFunnelDropoffReason,
     getMetricSessionFilters,
     getViewRecordingFiltersForVariant,
     isUnlinkableEventFilter,
@@ -47,10 +83,68 @@ export interface ExperimentReplayMetricOption {
     unlinkable: boolean
     /** Why the metric can't narrow the playlist, shown alongside it. Null when it can. */
     unlinkableReason: string | null
+    /** Why drop-off can't be asked of this metric, shown alongside it. Null when it can. */
+    dropoffReason: string | null
+    /** The events the metric counts, deduped — a metric's name rarely says which they are. */
+    eventNames: string[]
+}
+
+/**
+ * How the selected metrics narrow the list.
+ *
+ * `fired_all` composes event filters client-side and is uncapped. The other three are server
+ * computed: the recordings query carries one operator for its whole filter tree, so an OR, an
+ * absence, and a drop-off can only come back as an explicit session-id list — which the endpoint
+ * bounds, so those modes show a capped, most-recent-first slice.
+ */
+export type ExperimentReplayMetricFilterMode = 'fired_all' | 'fired_any' | 'no_metric_activity' | 'funnel_dropoff'
+
+/** What the tab asks the bucket endpoint for, and the spec a loaded response belongs to. */
+export interface ExperimentSessionBucketRequest {
+    bucket: ExperimentSessionBucketEnumApi
+    metric_uuids: string[]
+    variant: string | null
+}
+
+export interface ExperimentSessionBucket {
+    request: ExperimentSessionBucketRequest
+    response: ExperimentSessionBucketResponseApi
 }
 
 // Mirrors the backend's MAX_SESSION_CONTEXT_BATCH — ids beyond it would 400 the whole batch.
 const SESSION_CONTEXT_PREFETCH_LIMIT = 20
+
+/**
+ * Sort metrics the way the experiment's metrics page lists them. The ordering arrays are that
+ * page's display order, and every metric uuid is meant to be in one of them — but only sorting
+ * on them, never filtering, so a metric missing from the arrays still shows up (last) rather
+ * than vanishing from the filter with no trace.
+ */
+function metricDisplayOrder(experiment: Experiment): (a: { uuid: string }, b: { uuid: string }) => number {
+    const order = [
+        ...(experiment.primary_metrics_ordered_uuids || []),
+        ...(experiment.secondary_metrics_ordered_uuids || []),
+    ]
+    const rank = (uuid: string): number => {
+        const index = order.indexOf(uuid)
+        // Not MAX_SAFE_INTEGER arithmetic on both sides — equal ranks must subtract to 0 so the
+        // sort stays stable and unlisted metrics keep their existing relative order.
+        return index === -1 ? order.length : index
+    }
+    return (a, b) => rank(a.uuid) - rank(b.uuid)
+}
+
+/**
+ * The distinct events a metric counts. A metric's name is free text ("Rageclicks per user"), so
+ * on its own it doesn't say what a session has to have fired to match.
+ */
+function metricSourceEventNames(metric: ExperimentMetric): string[] {
+    const names = getMetricSessionFilters(metric)
+        // Only entity filters name an event; a nested filter group (which the type allows) doesn't.
+        .flatMap((filter) => ('id' in filter ? [String(filter.name ?? filter.id ?? '')] : []))
+        .filter(Boolean)
+    return [...new Set(names)]
+}
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface experimentReplayTabLogicValues {
@@ -59,20 +153,95 @@ export interface experimentReplayTabLogicValues {
     linkabilityLoaded: boolean // viewRecordingsLinkabilityLogic
     seenTogetherMapLoading: boolean // viewRecordingsLinkabilityLogic
     unlinkableEventNames: Set<string> // viewRecordingsLinkabilityLogic
+    bucketSessionIds: string[] | undefined
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
     exposureUnlinkable: boolean
     loadedSessionIds: string[]
+    metricFilterMode: ExperimentReplayMetricFilterMode
     metricOptions: ExperimentReplayMetricOption[]
     recordingsFilters: RecordingUniversalFilters
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
+    sessionBucket: ExperimentSessionBucket | null
+    sessionBucketError: string | null
+    sessionBucketLoading: boolean
+    sessionBucketRequest: ExperimentSessionBucketRequest | null
     usingExposureFallback: boolean
     variantKeys: string[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface experimentReplayTabLogicActions {
+    reportExperimentRecordingOpened: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsFilterContext
+    ) => {
+        context: ExperimentRecordingsFilterContext
+        experimentId: ExperimentIdType
+    } // eventUsageLogic
+    reportExperimentRecordingsBucketFailed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsBucketFailedContext
+    ) => {
+        context: ExperimentRecordingsBucketFailedContext
+        experimentId: ExperimentIdType
+    } // eventUsageLogic
+    reportExperimentRecordingsBucketLoaded: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsBucketLoadedContext
+    ) => {
+        context: ExperimentRecordingsBucketLoadedContext
+        experimentId: ExperimentIdType
+    } // eventUsageLogic
+    reportExperimentRecordingsTabViewed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsTabContext
+    ) => {
+        context: ExperimentRecordingsTabContext
+        experimentId: ExperimentIdType
+    } // eventUsageLogic
+    setDefaultTab: (tab: SessionRecordingSidebarTab) => {
+        tab: SessionRecordingSidebarTab
+    } // playerSidebarLogic
+    loadSeenTogetherFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // viewRecordingsLinkabilityLogic
+    loadSeenTogetherSuccess: (
+        seenTogetherMap: Record<string, boolean>,
+        payload?: any
+    ) => {
+        payload?: any
+        seenTogetherMap: Record<string, boolean>
+    } // viewRecordingsLinkabilityLogic
+    loadSessionBucket: (_?: unknown) => unknown
+    loadSessionBucketFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSessionBucketSuccess: (
+        sessionBucket: {
+            request: ExperimentSessionBucketRequest
+            response: ExperimentSessionBucketResponseApi
+        } | null,
+        payload?: unknown
+    ) => {
+        sessionBucket: {
+            request: ExperimentSessionBucketRequest
+            response: ExperimentSessionBucketResponseApi
+        } | null
+        payload?: unknown
+    }
+    playlistFiltersChanged: (filters: RecordingUniversalFilters) => {
+        filters: RecordingUniversalFilters
+    }
     prefetchSessionContexts: (sessionIds: string[]) => {
         sessionIds: string[]
     }
@@ -81,6 +250,12 @@ export interface experimentReplayTabLogicActions {
     }
     recordingsLoaded: (sessionIds: string[]) => {
         sessionIds: string[]
+    }
+    reportTabViewed: () => {
+        value: true
+    }
+    setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
+        mode: ExperimentReplayMetricFilterMode
     }
     setMetricSelected: (
         metricUuid: string,
@@ -107,13 +282,30 @@ export interface experimentReplayTabLogicMeta {
             unlinkableEventNames: Set<string>,
             arg: any
         ) => ExperimentReplayMetricOption[]
-        effectiveMetricUuids: (selectedMetricUuids: string[], metricOptions: ExperimentReplayMetricOption[]) => string[]
+        effectiveMetricUuids: (
+            selectedMetricUuids: string[],
+            metricOptions: ExperimentReplayMetricOption[],
+            metricFilterMode: ExperimentReplayMetricFilterMode
+        ) => string[]
+        sessionBucketRequest: (
+            metricFilterMode: ExperimentReplayMetricFilterMode,
+            effectiveMetricUuids: string[],
+            effectiveVariantKey: string | null,
+            exposureUnlinkable: boolean,
+            metricOptions: ExperimentReplayMetricOption[]
+        ) => ExperimentSessionBucketRequest | null
+        bucketSessionIds: (
+            sessionBucketRequest: ExperimentSessionBucketRequest | null,
+            sessionBucket: ExperimentSessionBucket | null,
+            sessionBucketError: string | null
+        ) => string[] | undefined
         recordingsFilters: (
             effectiveVariantKey: string | null,
             effectiveMetricUuids: string[],
             metricOptions: ExperimentReplayMetricOption[],
             unlinkableEventNames: Set<string>,
             seenTogetherMapLoading: boolean,
+            bucketSessionIds: string[] | undefined,
             arg: any
         ) => RecordingUniversalFilters
     }
@@ -144,14 +336,83 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             teamLogic,
             ['currentProjectId'],
         ],
+        // Mounts the sidebar singleton for this tab's lifetime, so the default below outlives the
+        // player remounting as the viewer moves between recordings in the playlist.
+        actions: [
+            playerSidebarLogic,
+            ['setDefaultTab'],
+            // The health of a tab view is only known once the linkability check resolves, so the
+            // view is reported off these rather than from `afterMount`.
+            viewRecordingsLinkabilityLogic({ experiment: props.experiment }),
+            ['loadSeenTogetherSuccess', 'loadSeenTogetherFailure'],
+            eventUsageLogic,
+            [
+                'reportExperimentRecordingsTabViewed',
+                'reportExperimentRecordingsBucketLoaded',
+                'reportExperimentRecordingsBucketFailed',
+                'reportExperimentRecordingOpened',
+            ],
+        ],
     })),
     actions({
         setSelectedVariantKey: (variantKey: string | null) => ({ variantKey }),
         setMetricSelected: (metricUuid: string, selected: boolean) => ({ metricUuid, selected }),
+        setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => ({ mode }),
+        playlistFiltersChanged: (filters: RecordingUniversalFilters) => ({ filters }),
         recordingsLoaded: (sessionIds: string[]) => ({ sessionIds }),
         recordingOpened: (sessionId: string) => ({ sessionId }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
+        reportTabViewed: true,
     }),
+    loaders(({ values, props, actions }) => ({
+        sessionBucket: [
+            null as ExperimentSessionBucket | null,
+            {
+                loadSessionBucket: async (_: unknown = null, breakpoint) => {
+                    const request = values.sessionBucketRequest
+                    if (!request) {
+                        return null
+                    }
+                    // Debounce the checkbox churn of picking several metrics in a row.
+                    await breakpoint(300)
+                    // Timed here rather than from the success and failure listeners, which would
+                    // have to read a start time off `cache` that a superseded request can overwrite.
+                    const startedAt = performance.now()
+                    let response: ExperimentSessionBucketResponseApi
+                    try {
+                        response = await experimentsSessionBucketsCreate(
+                            String(values.currentProjectId),
+                            Number(props.experiment.id),
+                            request
+                        )
+                    } catch (error) {
+                        const requestError = error as Error & { detail?: string }
+                        actions.reportExperimentRecordingsBucketFailed(props.experiment.id, {
+                            bucket: request.bucket,
+                            metric_count: request.metric_uuids.length,
+                            duration_ms: Math.round(performance.now() - startedAt),
+                            error: requestError?.detail || requestError?.message || 'unknown',
+                        })
+                        throw error
+                    }
+                    // Past this breakpoint the response is the one the list will show. A superseded
+                    // request throws here instead, so its load is never counted as one somebody saw.
+                    // Kept outside the `try`: a cancellation must not be reported as a failure.
+                    breakpoint()
+                    actions.reportExperimentRecordingsBucketLoaded(props.experiment.id, {
+                        bucket: request.bucket,
+                        metric_count: request.metric_uuids.length,
+                        session_count: response.session_ids.length,
+                        truncated: response.truncated,
+                        considered_metric_count: response.considered_metrics.length,
+                        excluded_metric_count: response.excluded_metrics.length,
+                        duration_ms: Math.round(performance.now() - startedAt),
+                    })
+                    return { request, response }
+                },
+            },
+        ],
+    })),
     reducers({
         // null = "All" (every exposed session, regardless of variant). Persisted (keyed per
         // experiment via the logic path) so the facet stays in step with the playlist across tab
@@ -177,12 +438,33 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         : state.filter((uuid) => uuid !== metricUuid),
             },
         ],
+        // Persisted with the facets it composes with. 'fired_all' keeps the client-side event
+        // filters; the other modes hand the list over to the bucket endpoint.
+        metricFilterMode: [
+            'fired_all' as ExperimentReplayMetricFilterMode,
+            { persist: true },
+            {
+                setMetricFilterMode: (_, { mode }) => mode,
+            },
+        ],
         // The playlist's most recently loaded page, kept so opening a recording can re-warm
         // the rest of the page's contexts.
         loadedSessionIds: [
             [] as string[],
             {
                 recordingsLoaded: (_, { sessionIds }) => sessionIds,
+            },
+        ],
+        // A failed bucket must not silently fall back to the unbucketed list: the label would
+        // then describe a population the list isn't showing. The message is kept because a
+        // rejected request is usually actionable ("takes exactly one funnel metric") — a generic
+        // failure line hides that from the user and the cause from us.
+        sessionBucketError: [
+            null as string | null,
+            {
+                loadSessionBucket: () => null,
+                loadSessionBucketSuccess: () => null,
+                loadSessionBucketFailure: (_, { error, errorObject }) => errorObject?.detail || error || 'unknown',
             },
         ],
     }),
@@ -256,6 +538,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                                       uuid: metric.uuid,
                                       name: metric.name || getDefaultMetricTitle(metric),
                                       filters: getMetricSessionFilters(metric),
+                                      dropoffReason: getFunnelDropoffReason(
+                                          metric,
+                                          linkabilityLoaded ? unlinkableEventNames : new Set<string>()
+                                      ),
+                                      eventNames: metricSourceEventNames(metric),
                                       noFilterReason: isExperimentRetentionMetric(metric)
                                           ? RETENTION_UNLINKABLE_REASON
                                           : DATA_WAREHOUSE_UNLINKABLE_REASON,
@@ -270,6 +557,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         seenUuids.add(option.uuid)
                         return true
                     })
+                    .sort(metricDisplayOrder(experiment))
                     .map(({ noFilterReason, ...option }) => {
                         const unlinkableReason =
                             option.filters.length === 0
@@ -285,12 +573,96 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         effectiveMetricUuids: [
-            (s) => [s.selectedMetricUuids, s.metricOptions],
-            (selectedMetricUuids: string[], metricOptions: ExperimentReplayMetricOption[]): string[] =>
-                selectedMetricUuids.filter((uuid) => {
+            (s) => [s.selectedMetricUuids, s.metricOptions, s.metricFilterMode],
+            (
+                selectedMetricUuids: string[],
+                metricOptions: ExperimentReplayMetricOption[],
+                metricFilterMode: ExperimentReplayMetricFilterMode
+            ): string[] => {
+                const selectable = selectedMetricUuids.filter((uuid) => {
                     const option = metricOptions.find((candidate) => candidate.uuid === uuid)
-                    return !!option && !option.unlinkable
-                }),
+                    if (!option || option.unlinkable) {
+                        return false
+                    }
+                    return metricFilterMode !== 'funnel_dropoff' || option.dropoffReason === null
+                })
+                // Selections persist across mode switches, so a mode that takes exactly one metric
+                // keeps the most recently picked rather than rejecting the whole selection.
+                return metricFilterMode === 'funnel_dropoff' ? selectable.slice(-1) : selectable
+            },
+        ],
+        /**
+         * Null whenever the client-side event filters express the question exactly, so the list
+         * keeps its uncapped path: no metric selected, and any "fired all" of several metrics
+         * (ANDing filters is the one thing a recordings query can do).
+         *
+         * One selected metric is the interesting case. "Fired all of it" and "fired any of it"
+         * are the same question, so both take the same path — the client filter when the metric
+         * counts a single event (exact and uncapped), the endpoint when it counts several. A
+         * recordings query can't OR within a metric, so on a ratio or funnel the client filter
+         * silently matches the primary event only.
+         */
+        sessionBucketRequest: [
+            (s) => [
+                s.metricFilterMode,
+                s.effectiveMetricUuids,
+                s.effectiveVariantKey,
+                s.exposureUnlinkable,
+                s.metricOptions,
+            ],
+            (
+                metricFilterMode: ExperimentReplayMetricFilterMode,
+                effectiveMetricUuids: string[],
+                effectiveVariantKey: string | null,
+                exposureUnlinkable: boolean,
+                metricOptions: ExperimentReplayMetricOption[]
+            ): ExperimentSessionBucketRequest | null => {
+                if (exposureUnlinkable) {
+                    return null
+                }
+                const request = (bucket: ExperimentSessionBucketEnumApi): ExperimentSessionBucketRequest => ({
+                    bucket,
+                    metric_uuids: effectiveMetricUuids,
+                    variant: effectiveVariantKey,
+                })
+                if (metricFilterMode === 'funnel_dropoff') {
+                    return effectiveMetricUuids.length === 1 ? request('funnel_dropoff') : null
+                }
+                if (metricFilterMode === 'no_metric_activity') {
+                    // Absence without a selection legitimately means every matchable metric.
+                    return request('no_metric_activity')
+                }
+                if (effectiveMetricUuids.length === 0) {
+                    // "Fired any of nothing" has no answer.
+                    return null
+                }
+                if (effectiveMetricUuids.length > 1) {
+                    return metricFilterMode === 'fired_any' ? request('fired_any') : null
+                }
+                const only = metricOptions.find((option) => option.uuid === effectiveMetricUuids[0])
+                return (only?.eventNames.length ?? 0) > 1 ? request('fired_any') : null
+            },
+        ],
+        // Undefined = no bucket, so the playlist keeps its own (uncapped) population. An empty
+        // list is a real answer: nothing matched, or the request is still in flight — never a
+        // silent widening to the unbucketed list.
+        bucketSessionIds: [
+            (s) => [s.sessionBucketRequest, s.sessionBucket, s.sessionBucketError],
+            (
+                sessionBucketRequest: ExperimentSessionBucketRequest | null,
+                sessionBucket: ExperimentSessionBucket | null,
+                sessionBucketError: string | null
+            ): string[] | undefined => {
+                if (!sessionBucketRequest) {
+                    return undefined
+                }
+                if (sessionBucketError !== null || !sessionBucket) {
+                    return []
+                }
+                // The last loaded set is kept while a new one loads, so changing a facet doesn't
+                // blank the list — it is replaced once the new answer arrives.
+                return sessionBucket.response.session_ids
+            },
         ],
         recordingsFilters: [
             (s) => [
@@ -299,6 +671,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.metricOptions,
                 s.unlinkableEventNames,
                 s.seenTogetherMapLoading,
+                s.bucketSessionIds,
                 (_, props) => props.experiment,
             ],
             (
@@ -307,6 +680,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 metricOptions: ExperimentReplayMetricOption[],
                 unlinkableEventNames: Set<string>,
                 seenTogetherMapLoading: boolean,
+                bucketSessionIds: string[] | undefined,
                 experiment: Experiment
             ): RecordingUniversalFilters => {
                 // A recordings query carries a single AND/OR operand across the whole flattened
@@ -324,23 +698,26 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // *fails*, loading ends with an empty unlinkable set and the filters apply — the
                 // fail-open posture every linkability consumer shares.
                 const seenFilters = new Set<string>()
-                const metricFilters = seenTogetherMapLoading
-                    ? []
-                    : effectiveMetricUuids
-                          .map((uuid) => {
-                              const linkable = (
-                                  metricOptions.find((option) => option.uuid === uuid)?.filters ?? []
-                              ).filter((filter) => !isUnlinkableEventFilter(filter, unlinkableEventNames))
-                              return linkable[0]
-                          })
-                          .filter((filter): filter is UniversalFiltersGroupValue => {
-                              // Two metrics can share a primary event; the duplicate filter adds nothing.
-                              if (!filter || seenFilters.has(JSON.stringify(filter))) {
-                                  return false
-                              }
-                              seenFilters.add(JSON.stringify(filter))
-                              return true
-                          })
+                const metricFilters =
+                    seenTogetherMapLoading || bucketSessionIds !== undefined
+                        ? // A bucket already encodes the metric condition in the session set it
+                          // returns, so also ANDing the event filters would narrow it a second time.
+                          []
+                        : effectiveMetricUuids
+                              .map((uuid) => {
+                                  const linkable = (
+                                      metricOptions.find((option) => option.uuid === uuid)?.filters ?? []
+                                  ).filter((filter) => !isUnlinkableEventFilter(filter, unlinkableEventNames))
+                                  return linkable[0]
+                              })
+                              .filter((filter): filter is UniversalFiltersGroupValue => {
+                                  // Two metrics can share a primary event; the duplicate filter adds nothing.
+                                  if (!filter || seenFilters.has(JSON.stringify(filter))) {
+                                      return false
+                                  }
+                                  seenFilters.add(JSON.stringify(filter))
+                                  return true
+                              })
                 // When the default exposure event can't match sessions, the fallback filter on
                 // `$feature/<flag_key>` takes its place (see `getExposureFallbackFilter`). While
                 // the check is in flight the unlinkable set is empty, so the exposure filter
@@ -352,6 +729,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 ).filters
                 return {
                     ...DEFAULT_RECORDING_FILTERS,
+                    // The exposure filter stays in place alongside the bucket: the returned ids are
+                    // a subset of the exposed sessions, so this only keeps the list's definition
+                    // visible in the filter UI.
+                    session_ids: bucketSessionIds,
                     date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
                     date_to: experiment.end_date ?? null,
                     filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
@@ -368,7 +749,37 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
+        // Every facet the bucket is keyed on re-asks for it. Listening to the actions rather than
+        // subscribing to the spec keeps this off the redux subscription path.
+        setMetricFilterMode: () => {
+            actions.loadSessionBucket()
+        },
+        setMetricSelected: () => {
+            if (values.sessionBucketRequest) {
+                actions.loadSessionBucket()
+            }
+        },
+        setSelectedVariantKey: () => {
+            if (values.sessionBucketRequest) {
+                actions.loadSessionBucket()
+            }
+        },
+        // The shared playlist renders its own "Showing N selected recordings · Show all" control
+        // whenever session_ids are set. Clearing it there is the same intent as leaving the
+        // bucket, so follow it instead of pushing the ids straight back. Only when the tab has
+        // ids of its own: a mode with nothing to filter on yet (no eligible metric selected)
+        // pushes no session_ids either, and reading that back as a clear would bounce the mode
+        // to 'fired_all' the moment it was picked.
+        playlistFiltersChanged: ({ filters }) => {
+            if (
+                values.metricFilterMode !== 'fired_all' &&
+                filters.session_ids === undefined &&
+                values.bucketSessionIds !== undefined
+            ) {
+                actions.setMetricFilterMode('fired_all')
+            }
+        },
         // Prefetch experiment context for the freshly loaded page of recordings, so opening
         // any of them renders the player's experiments box straight from the server-side
         // cache. A session's context is independent of the list filters (it's per
@@ -385,6 +796,36 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // the player is fetching it right now, and including it would compute it twice.
         recordingOpened: ({ sessionId }) => {
             actions.prefetchSessionContexts(values.loadedSessionIds.filter((id) => id !== sessionId))
+            actions.reportExperimentRecordingOpened(props.experiment.id, {
+                variant: values.effectiveVariantKey,
+                metric_filter_mode: values.metricFilterMode,
+                selected_metric_count: values.effectiveMetricUuids.length,
+                is_bucketed: values.bucketSessionIds !== undefined,
+            })
+        },
+        // Both outcomes of the linkability check report the view, since a failed check leaves the
+        // tab running on its fail-open defaults rather than leaving it unusable.
+        loadSeenTogetherSuccess: () => {
+            actions.reportTabViewed()
+        },
+        loadSeenTogetherFailure: () => {
+            actions.reportTabViewed()
+        },
+        reportTabViewed: () => {
+            // The linkability logic is shared with the metrics tab's "View recordings" buttons and
+            // reloads when the experiment's metrics change, so its success can arrive more than once
+            // while this tab is open. A view is per tab open, and the logic unmounts with the tab.
+            if (cache.reportedTabView) {
+                return
+            }
+            cache.reportedTabView = true
+            actions.reportExperimentRecordingsTabViewed(props.experiment.id, {
+                exposure_unlinkable: values.exposureUnlinkable,
+                using_exposure_fallback: values.usingExposureFallback,
+                variant_count: values.variantKeys.length,
+                metric_count: values.metricOptions.length,
+                linkable_metric_count: values.metricOptions.filter((option) => !option.unlinkable).length,
+            })
         },
         prefetchSessionContexts: async ({ sessionIds }, breakpoint) => {
             if (!values.featureFlags[FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT] || sessionIds.length === 0) {
@@ -413,12 +854,33 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             }
         },
     })),
-    afterMount(() => {
+    afterMount(({ values, actions }) => {
+        actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+
+        // The mode persists, so a tab reopened in a bucket needs its session set again.
+        if (values.sessionBucketRequest) {
+            actions.loadSessionBucket()
+        }
+
+        // The linkability check is shared with the metrics tab, so it can already have settled —
+        // loaded, or failed with no reload coming — before this tab is opened, in which case no
+        // load action follows to report the view off. A check started by this mount is already
+        // loading here, so it reports from the load listeners instead; a prior failure reports
+        // the fail-open defaults, the same posture as a failure that lands while the tab is open.
+        if (values.linkabilityLoaded || !values.seenTogetherMapLoading) {
+            actions.reportTabViewed()
+        }
+
         // Opening the tab is a session-replay cross-sell from experiments.
         void addProductIntentForCrossSell({
             from: ProductKey.EXPERIMENTS,
             to: ProductKey.SESSION_REPLAY,
             intent_context: ProductIntentContext.EXPERIMENT_VIEW_RECORDINGS,
         })
+    }),
+    // The sidebar singleton normally unmounts alongside this logic and resets itself; this covers the
+    // case where another player keeps it mounted, so the experiment default doesn't leak to it.
+    beforeUnmount(({ actions }) => {
+        actions.setDefaultTab(SessionRecordingSidebarTab.INSPECTOR)
     }),
 ])

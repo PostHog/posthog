@@ -13,7 +13,7 @@ mod tests {
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::{
             cohort_cache_manager::CohortCacheManager,
-            cohort_models::{CohortId, CohortType},
+            cohort_models::{CohortId, CohortType, MembershipStampPolicy},
             membership::{CohortMembershipError, CohortMembershipProvider},
         },
         flags::{
@@ -1656,6 +1656,126 @@ mod tests {
             .unwrap();
         assert!(!is_match);
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    /// Regression test: when person-property DB prep never ran (`PersonPropertyState::Pending`,
+    /// the matcher's default), a negative operator like `is_not` must not treat the missing
+    /// key as a match. Fetch misses are transient, so failing open here would let a flag
+    /// intermittently grant access to exactly the users a negative condition should exclude.
+    #[tokio::test]
+    async fn test_is_condition_match_is_not_fails_closed_when_person_properties_pending() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tenant".to_string(),
+                value: Some(json!("mecklenburgische")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        // Left at its default `Pending` state: DB prep never ran for this matcher.
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        // Mirrors what `get_person_properties` returns for a Pending state with no
+        // overrides: an empty map, since the fetch miss is swallowed into a default.
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(!is_match, "a missing property must not satisfy is_not");
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    /// Regression test: when DB prep is deliberately skipped because request overrides
+    /// cover every property the batch needs (`PersonPropertyState::Skipped`), a negative
+    /// operator must still evaluate normally against the override-supplied value — the
+    /// fail-closed handling for `Pending` must not make this legitimate path inconclusive.
+    #[tokio::test]
+    async fn test_is_condition_match_is_not_evaluates_normally_when_person_properties_skipped() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tenant".to_string(),
+                value: Some(json!("mecklenburgische")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        matcher.flag_evaluation_state.skip_person_properties();
+        assert!(!matcher.flag_evaluation_state.person_properties_pending());
+
+        // Mirrors what `get_person_properties` returns for a Skipped state: the
+        // override value is merged in and present under the filter's key.
+        let mut overridden_person = HashMap::new();
+        overridden_person.insert("tenant".to_string(), json!("acme"));
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&overridden_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            is_match,
+            "acme is not mecklenburgische, so is_not should match"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
@@ -3595,6 +3715,7 @@ mod tests {
                 Some(Utc::now()),
                 None,
                 Some(behavioral_condition_type()),
+                None,
             )
             .await
             .unwrap();
@@ -3661,6 +3782,7 @@ mod tests {
                 Some(Utc::now()),
                 None,
                 Some(behavioral_condition_type()),
+                None,
             )
             .await
             .unwrap();
@@ -3770,6 +3892,144 @@ mod tests {
             0,
             "Provider must not be consulted when realtime cohort evaluation is disabled"
         );
+    }
+
+    #[tokio::test]
+    async fn test_disambiguated_policy_person_stamp_only_falls_back_to_dynamic() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person satisfies the filters and the provider reports non-membership, so a
+        // match can only have come from dynamic evaluation.
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Person Stamp Only Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "person_stamp_only_user".to_string();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, false,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true)
+        .with_membership_stamp_policy(MembershipStampPolicy::EventsOrCalculationStamp);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "A person-stamp-only cohort must evaluate dynamically under the disambiguated policy"
+        );
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            0,
+            "Provider must not be consulted for a cohort only the overloaded person stamp vouches for"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_disambiguated_policy_calculation_stamp_consults_provider() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person's plan is free, so dynamic evaluation cannot match and a match proves
+        // both the provider was consulted and the stamp round-tripped through PG.
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Calc Stamp Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                None,
+                None,
+                Some(behavioral_condition_type()),
+                Some(Utc::now()),
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "calc_stamp_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, true,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true)
+        .with_membership_stamp_policy(MembershipStampPolicy::EventsOrCalculationStamp);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "A calculation-stamped cohort must route through the provider under the disambiguated policy"
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

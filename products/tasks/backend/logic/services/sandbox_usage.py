@@ -11,21 +11,29 @@ The write helpers swallow and log every failure: the ledger must never break
 sandbox provisioning, cleanup, or user-message delivery.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
 from functools import wraps
 from typing import ParamSpec, TypeVar
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, F, Q, Value, When
 from django.utils import timezone
 
 import structlog
 
 from products.tasks.backend.logic.services.sandbox import SandboxConfig
-from products.tasks.backend.models import SandboxSession, TaskRun
+from products.tasks.backend.logic.services.sandbox_pricing import (
+    COMPUTE_RATE_CARDS,
+    ComputeRateCard,
+    calculate_sandbox_compute_cost,
+    validate_compute_rate_cards,
+    validate_reporting_window,
+)
+from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +67,7 @@ def open_sandbox_session(
             run = (
                 TaskRun.objects.select_for_update(of=("self",))
                 .select_related("task")
-                .only("id", "team_id", "state", "task__origin_product")
+                .only("id", "team_id", "state", "task__origin_product", "task__client_provenance")
                 .get(id=run_id)
             )
             state = run.state or {}
@@ -84,6 +92,7 @@ def open_sandbox_session(
                 defaults=shape,
                 create_defaults={
                     **shape,
+                    "client_provenance": run.task.client_provenance,
                     "user_attributed_at": None if state.get("await_user_message") else timezone.now(),
                 },
             )
@@ -122,7 +131,16 @@ def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
     run_uuid = run_id if isinstance(run_id, UUID) else UUID(run_id)
     open_sessions = SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=True)
     open_sessions.update(last_user_activity_at=now)
-    open_sessions.filter(user_attributed_at__isnull=True).update(user_attributed_at=now)
+    client_provenance = (
+        TaskRun.objects.filter(id=run_uuid, team_id=team_id).values_list("task__client_provenance", flat=True).first()
+    )
+    open_sessions.filter(user_attributed_at__isnull=True).update(
+        user_attributed_at=now,
+        client_provenance=Case(
+            When(client_provenance__isnull=True, then=Value(client_provenance)),
+            default=F("client_provenance"),
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -132,6 +150,64 @@ class SandboxUsageByTeam:
     seconds: list[tuple[int, int]]
     cpu_core_seconds: list[tuple[int, int]]
     memory_gib_seconds: list[tuple[int, int]]
+
+
+@dataclass(frozen=True)
+class SandboxComputeUsageByTeam:
+    credits: list[tuple[int, int]]
+    cpu_millicore_seconds: list[tuple[int, int]]
+    memory_mib_seconds: list[tuple[int, int]]
+
+
+def get_billable_sandbox_compute_usage_by_team(
+    begin: datetime,
+    end: datetime,
+    *,
+    rate_cards: Sequence[ComputeRateCard] | None = None,
+) -> SandboxComputeUsageByTeam:
+    validate_reporting_window(begin, end)
+    rate_cards = COMPUTE_RATE_CARDS if rate_cards is None else rate_cards
+    if not rate_cards:
+        return SandboxComputeUsageByTeam([], [], [])
+
+    cards = validate_compute_rate_cards(rate_cards)
+    sessions = (
+        SandboxSession.objects.unscoped()
+        .filter(
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            user_attributed_at__isnull=False,
+            user_attributed_at__lt=end,
+        )
+        .filter(
+            Q(origin_product=Task.OriginProduct.USER_CREATED)
+            | Q(
+                origin_product=Task.OriginProduct.LOOP,
+                task_run__task__loop__isnull=False,
+                task_run__task__loop__internal=False,
+            )
+        )
+        .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
+    )
+
+    usage: dict[int, list[Decimal]] = {}
+    calculated_at = timezone.now()
+    for session in sessions.iterator():
+        cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=cards)
+        totals = usage.setdefault(session.team_id, [Decimal(0) for _ in range(3)])
+        totals[0] += cost.cpu_core_seconds
+        totals[1] += cost.memory_gib_seconds
+        totals[2] += cost.cpu_cost_usd + cost.memory_cost_usd
+
+    credits: list[tuple[int, int]] = []
+    cpu_millicore_seconds: list[tuple[int, int]] = []
+    memory_mib_seconds: list[tuple[int, int]] = []
+    for team_id, totals in usage.items():
+        cpu_quantity, memory_quantity, total_usd = totals
+        credits.append((team_id, int((total_usd * 100).to_integral_value(rounding=ROUND_HALF_EVEN))))
+        cpu_millicore_seconds.append((team_id, int((cpu_quantity * 1000).to_integral_value(rounding=ROUND_HALF_EVEN))))
+        memory_mib_seconds.append((team_id, int((memory_quantity * 1024).to_integral_value(rounding=ROUND_HALF_EVEN))))
+
+    return SandboxComputeUsageByTeam(credits, cpu_millicore_seconds, memory_mib_seconds)
 
 
 def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsageByTeam:

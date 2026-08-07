@@ -117,6 +117,10 @@ class BrokenTestState(StrEnum):
 
     - ``breaking_master``: has failed on the default branch and that job's latest completed run
       is still red — trunk is broken by this right now.
+    - ``blocking_merge_queue``: failed on a merge-queue gate branch and never on the default
+      branch — it stopped a merge on a commit that had already passed the PR's own CI, which is
+      the semantic-conflict class a merge queue exists to catch. Trunk is still green, so this
+      ranks below ``breaking_master``, but it is holding up landings right now.
     - ``novel_burst``: first seen within the last day and already spreading across several PR
       branches, not on the default branch yet — a new failure catching on.
     - ``potentially_resolved``: hit the default branch but that job's latest run is green again —
@@ -127,6 +131,7 @@ class BrokenTestState(StrEnum):
     """
 
     BREAKING_MASTER = "breaking_master"
+    BLOCKING_MERGE_QUEUE = "blocking_merge_queue"
     NOVEL_BURST = "novel_burst"
     POTENTIALLY_RESOLVED = "potentially_resolved"
     FLAKY = "flaky"
@@ -135,6 +140,8 @@ class BrokenTestState(StrEnum):
 
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
+    READY_FOR_REVIEW = "ready_for_review"
+    CONVERTED_TO_DRAFT = "converted_to_draft"
     CI_STARTED = "ci_started"
     CI_FINISHED = "ci_finished"
     MERGED = "merged"
@@ -762,6 +769,10 @@ class PullRequestListItem:
     merged_at: datetime | None
     # merged_at - created_at; coarse (fuses draft + ready-for-review time). None until merged.
     open_to_merge_seconds: int | None
+    # merged_at minus the LAST observed ready_for_review transition, falling back to created_at
+    # for a merged PR verifiably never drafted. None when unmerged, re-drafted, or not observed
+    # (the PR's life isn't fully inside the synced issue-event window); never "never drafted".
+    ready_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup
     # CI triggers attributed to this PR: distinct head SHAs across its workflow runs (a run
@@ -1054,6 +1065,10 @@ class RepoOverview:
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
+    # The slice of billable_minutes spent on merge-queue batch branches, broken out so queue-settings
+    # changes show up as their own delta instead of hiding inside the total.
+    merge_queue_billable_minutes: float | None
+    merge_queue_billable_minutes_prev: float | None
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str

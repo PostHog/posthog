@@ -82,4 +82,31 @@ describe('feature-flag-get-definition-by-key', () => {
         )
         expect(request).not.toHaveBeenCalled()
     })
+
+    // Agents reconstruct this call from the tool name in exec mode and send the
+    // key as `flagKey` / `flag_key` / `feature_flag_key`; production traces show
+    // that mismatch as the dominant validation failure. Every alias must
+    // normalize onto `key` (canonical wins on conflict) or those failures return.
+    describe('key aliases', () => {
+        it.each([
+            ['key', { key: 'new-checkout' }],
+            ['flagKey', { flagKey: 'new-checkout' }],
+            ['flag_key', { flag_key: 'new-checkout' }],
+            ['feature_flag_key', { feature_flag_key: 'new-checkout' }],
+            ['featureFlagKey', { featureFlagKey: 'new-checkout' }],
+            ['key over an alias on conflict', { key: 'new-checkout', flagKey: 'other' }],
+        ])('normalizes %s to `key`', (_label, input) => {
+            const result = tool.schema.safeParse(input)
+            expect(result.success).toBe(true)
+            const data = result.data as Record<string, unknown>
+            expect(data.key).toBe('new-checkout')
+            for (const alias of ['flagKey', 'flag_key', 'feature_flag_key', 'featureFlagKey']) {
+                expect(data).not.toHaveProperty(alias)
+            }
+        })
+
+        it('still rejects a call with no key under any accepted name', () => {
+            expect(tool.schema.safeParse({}).success).toBe(false)
+        })
+    })
 })

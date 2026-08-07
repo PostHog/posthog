@@ -1,7 +1,7 @@
 import datetime
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -96,6 +96,17 @@ SourceCredentialsValidationResult = tuple[bool, str | None]
 # Label used by sources whose vendor has no meaningful API versioning. Version strings are
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
 UNVERSIONED_API_VERSION = "v1"
+
+
+def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
+    """Case-insensitive match of `error_msg` against `get_non_retryable_errors`/`get_retryable_errors` patterns.
+
+    Vendors don't reliably return the reason phrase casing `requests.raise_for_status()`
+    assumes (e.g. Eventbrite sends "UNAUTHORIZED" where the library-generated wording is
+    "Unauthorized"), so an exact-case substring check can silently fail to match.
+    """
+    error_msg_lower = error_msg.lower()
+    return any(pattern.lower() in error_msg_lower for pattern in patterns)
 
 
 @dataclasses.dataclass(frozen=True)
