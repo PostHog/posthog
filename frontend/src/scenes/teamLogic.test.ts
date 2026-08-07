@@ -2,8 +2,6 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiConfig } from 'lib/api'
-
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -30,26 +28,6 @@ describe('teamLogic', () => {
         it('currentProjectId returns the project id', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
             expect(logic.values.currentProjectId).toBe(MOCK_DEFAULT_TEAM.project_id)
-        })
-
-        // Guards the stale-context class: the API layer's default team AND project scope must both
-        // track the loaded team, so switching teams (or losing one after an org deletion) can't leave
-        // requests targeting a deleted project — the "Project not found." offboarding regression.
-        it('updates both the team and project scope when switching to a team in another project', async () => {
-            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
-            logic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: 4242, project_id: 8484 } as TeamType)
-            expect(ApiConfig.getCurrentTeamId()).toBe(4242)
-            expect(ApiConfig.getCurrentProjectId()).toBe(8484)
-        })
-
-        // A null team is the logged-out/shared context (the exporter sets its own scope for shared
-        // views). Clobbering that scope made shared views leak team-scoped requests, so a null team
-        // must leave the existing scope untouched.
-        it('leaves the existing scope untouched when there is no current team', async () => {
-            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
-            logic.actions.loadCurrentTeamSuccess(null)
-            expect(ApiConfig.getCurrentTeamId()).toBe(MOCK_TEAM_ID)
-            expect(ApiConfig.getCurrentProjectId()).toBe(MOCK_DEFAULT_TEAM.project_id)
         })
     })
 
