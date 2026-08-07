@@ -160,8 +160,8 @@ export interface experimentReplayTabLogicValues {
     metricOptions: ExperimentReplayMetricOption[]
     recordingsFilters: RecordingUniversalFilters
     selectedMetricUuids: string[]
-    selectedWatchCard: ExperimentWatchCardApi | null
     selectedVariantKey: string | null
+    selectedWatchCard: ExperimentWatchCardApi | null
     sessionBucket: ExperimentSessionBucket | null
     sessionBucketError: string | null
     sessionBucketLoading: boolean
@@ -252,6 +252,7 @@ export interface experimentReplayTabLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
         variantKeys: (arg: any) => string[]
+        behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         exposureUnlinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         usingExposureFallback: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
@@ -284,7 +285,7 @@ export interface experimentReplayTabLogicMeta {
             unlinkableEventNames: Set<string>,
             seenTogetherMapLoading: boolean,
             bucketSessionIds: string[] | undefined,
-            selectedWatchCard: any,
+            selectedWatchCard: ExperimentWatchCardApi | null,
             arg: any
         ) => RecordingUniversalFilters
     }
