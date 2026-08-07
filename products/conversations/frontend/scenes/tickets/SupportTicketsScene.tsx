@@ -597,13 +597,13 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
                 {hasActiveFilters && (
                     <LemonButton
-                        type="tertiary"
+                        type="secondary"
                         size="small"
                         icon={<IconX />}
                         onClick={resetFilters}
                         data-attr="clear-ticket-filters"
                     >
-                        Clear filters
+                        Clear all filters
                     </LemonButton>
                 )}
             </div>
