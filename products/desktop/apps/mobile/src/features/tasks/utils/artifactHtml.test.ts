@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { removeAutomaticRedirects } from "./artifactHtml";
+import { denyMediaCapture, removeAutomaticRedirects } from "./artifactHtml";
 
 describe("removeAutomaticRedirects", () => {
   it.each([
@@ -39,5 +39,58 @@ describe("removeAutomaticRedirects", () => {
     expect(removeAutomaticRedirects(html)).toBe(
       '<head><meta charset="utf-8"></head>',
     );
+  });
+});
+
+describe("denyMediaCapture", () => {
+  // The guard is the whole output when there is no artifact markup to wrap.
+  const guardScript = () => {
+    const guard = denyMediaCapture("");
+    return guard.slice("<script>".length, guard.length - "</script>".length);
+  };
+
+  it("runs the guard ahead of the artifact's own markup", () => {
+    const result = denyMediaCapture("<body><script>ok()</script></body>");
+    expect(result.indexOf("mediaDevices")).toBeLessThan(
+      result.indexOf("<body>"),
+    );
+  });
+
+  it("keeps the doctype first so the document stays out of quirks mode", () => {
+    const result = denyMediaCapture("<!doctype html><html></html>");
+    expect(result.startsWith("<!doctype html><script>")).toBe(true);
+    expect(result.endsWith("<html></html>")).toBe(true);
+  });
+
+  it("removes the media capture entry points beyond recovery", () => {
+    const fakeNavigator: Record<string, unknown> = {
+      mediaDevices: { getUserMedia: () => undefined },
+      getUserMedia: () => undefined,
+      webkitGetUserMedia: () => undefined,
+      mozGetUserMedia: () => undefined,
+    };
+    new Function("navigator", guardScript())(fakeNavigator);
+
+    for (const key of [
+      "mediaDevices",
+      "getUserMedia",
+      "webkitGetUserMedia",
+      "mozGetUserMedia",
+    ]) {
+      expect(fakeNavigator[key]).toBeUndefined();
+      // Non-writable and non-configurable, so artifact scripts cannot put the
+      // API back once the guard has run.
+      const descriptor = Object.getOwnPropertyDescriptor(fakeNavigator, key);
+      expect(descriptor?.writable).toBe(false);
+      expect(descriptor?.configurable).toBe(false);
+    }
+  });
+
+  it("does not throw when an entry point is already missing", () => {
+    const fakeNavigator: Record<string, unknown> = {};
+    expect(() =>
+      new Function("navigator", guardScript())(fakeNavigator),
+    ).not.toThrow();
+    expect(fakeNavigator.mediaDevices).toBeUndefined();
   });
 });

@@ -102,7 +102,14 @@ describe("ArtifactPreview", () => {
     expect(rendered).toHaveLength(1);
     expect(rendered[0].props.javaScriptEnabled).toBe(true);
     expect(rendered[0].props.setSupportMultipleWindows).toBe(false);
-    expect(rendered[0].props.source).toEqual({ html: "csp:<h1>hello</h1>" });
+    const { html } = rendered[0].props.source;
+    expect(html.startsWith("csp:")).toBe(true);
+    expect(html).toContain("<h1>hello</h1>");
+    // The media capture guard runs ahead of the artifact's own markup, since
+    // mediaCapturePermissionGrantType below is an iOS-only prop.
+    expect(html.indexOf("mediaDevices")).toBeLessThan(
+      html.indexOf("<h1>hello</h1>"),
+    );
   });
 
   it("keeps the sandbox sealed around the enabled scripts", () => {

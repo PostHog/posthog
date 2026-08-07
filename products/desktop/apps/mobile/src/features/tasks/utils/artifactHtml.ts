@@ -59,3 +59,43 @@ export function removeAutomaticRedirects(html: string): string {
   }
   return stripped ? kept + html.slice(copiedUpTo) : html;
 }
+
+// mediaCapturePermissionGrantType is an iOS-only prop. On Android
+// react-native-webview's WebChromeClient grants a getUserMedia request whenever
+// the host app already holds CAMERA or RECORD_AUDIO, which this app does for QR
+// sign-in and voice input — so an artifact could otherwise reach the camera or
+// microphone. Removing the entry points from the document is the only lever
+// available without patching the library's native WebChromeClient, so treat it
+// as defence in depth: a script that builds a fresh realm (an about:blank
+// iframe, which frame-src 'none' does not cover) can still find an unpatched
+// navigator.
+const MEDIA_CAPTURE_GUARD = `<script>(function () {
+  var hide = function (target, key) {
+    try {
+      Object.defineProperty(target, key, {
+        value: undefined,
+        writable: false,
+        configurable: false,
+      });
+    } catch (error) {}
+  };
+  hide(navigator, "mediaDevices");
+  hide(navigator, "getUserMedia");
+  hide(navigator, "webkitGetUserMedia");
+  hide(navigator, "mozGetUserMedia");
+})();</script>`;
+
+// Inserted after the doctype, which must stay first or the document drops into
+// quirks mode. The parser hoists the script into <head>, ahead of the
+// artifact's own markup, so it runs before any of the artifact's scripts.
+export function denyMediaCapture(html: string): string {
+  const doctype = html.match(/^\s*<!doctype[^>]*>/i);
+  if (doctype) {
+    return (
+      html.slice(0, doctype[0].length) +
+      MEDIA_CAPTURE_GUARD +
+      html.slice(doctype[0].length)
+    );
+  }
+  return MEDIA_CAPTURE_GUARD + html;
+}

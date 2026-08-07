@@ -24,7 +24,10 @@ import { applyCspToHtml } from "@/features/mcp/sandbox/mcpAppCsp";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { useThemeColors } from "@/lib/theme";
 import { useCloudAttachmentPreview } from "../hooks/useCloudAttachmentPreview";
-import { removeAutomaticRedirects } from "../utils/artifactHtml";
+import {
+  denyMediaCapture,
+  removeAutomaticRedirects,
+} from "../utils/artifactHtml";
 import { artifactPreviewKind } from "../utils/artifactPreview";
 
 interface ArtifactPreviewProps {
@@ -81,7 +84,8 @@ export function ArtifactPreview({
       }
     : { label: "Stop preview", Icon: Stop, onPress: () => setStopped(true) };
   const html = useMemo(
-    () => applyCspToHtml(removeAutomaticRedirects(text ?? "")),
+    () =>
+      applyCspToHtml(denyMediaCapture(removeAutomaticRedirects(text ?? ""))),
     [text],
   );
 
@@ -160,9 +164,12 @@ export function ArtifactPreview({
             // process; keep it sealed. Do not add onMessage or injectedJavaScript
             // (a bridge back into the app). The rest of the props deny file and
             // device access, and the CSP applied above denies the network.
-            // onFileDownload is an iOS-only prop — Android keeps the library's
-            // own DownloadListener, so downloads there are suppressed by the
-            // navigation gate rejecting the http(s) request before it starts.
+            // Two props below are iOS-only, and Android is covered elsewhere:
+            // onFileDownload (Android keeps the library's own DownloadListener,
+            // so downloads there are suppressed by the navigation gate rejecting
+            // the http(s) request first) and mediaCapturePermissionGrantType
+            // (denyMediaCapture strips the getUserMedia entry points out of the
+            // document instead).
             <WebView
               originWhitelist={["*"]}
               source={{ html }}
