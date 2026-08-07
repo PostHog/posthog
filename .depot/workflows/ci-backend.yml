@@ -156,6 +156,8 @@ env:
 permissions:
     contents: read
     pull-requests: read
+    # Read the migrated-schema artifact from master runs (fetch-master-schema action).
+    actions: read
 jobs:
     # Sampling gate (full design in the file header). The `if` keeps the whole workflow
     # off when the percent is 0/unset; when >0 this job computes `sampled`, and `changes`
@@ -903,6 +905,9 @@ jobs:
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+            - name: Fetch master schema dump on cache miss
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: ./.depot/actions/fetch-master-schema
             - name: Prime test_posthog from cached schema
               # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
               if: ${{ github.event_name == 'pull_request' }}
@@ -1116,6 +1121,13 @@ jobs:
                   components: cargo
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
+            - name: Fetch master schema dump
+              # Must run before "Checkout master" switches the workspace tree: the
+              # local action resolves from the checked-out PR ref. The untracked
+              # dump survives the in-place checkout (clean: false), and an
+              # exact-key cache hit below overwrites it with an equivalent dump.
+              if: github.event_name != 'push'
+              uses: ./.depot/actions/fetch-master-schema
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1782,6 +1794,9 @@ jobs:
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+            - name: Fetch master schema dump on cache miss
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: ./.depot/actions/fetch-master-schema
             - name: Prime test_posthog from cached schema
               # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
               if: ${{ github.event_name == 'pull_request' }}

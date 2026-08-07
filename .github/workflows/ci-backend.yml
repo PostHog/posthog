@@ -1423,6 +1423,14 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
+            - name: Fetch master schema dump
+              # Must run before "Checkout master" switches the workspace tree: the
+              # local action resolves from the checked-out PR ref. The untracked
+              # dump survives the in-place checkout (clean: false), and an
+              # exact-key cache hit below overwrites it with an equivalent dump.
+              if: github.event_name != 'push'
+              uses: ./.github/actions/fetch-master-schema
+
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1464,12 +1472,6 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
-
-            - name: Fetch master schema dump on cache miss
-              # The "Run migrations up to master" step below applies any gap between
-              # the artifact's schema and master, so freshest-available is correct.
-              if: github.event_name != 'push'
-              uses: ./.github/actions/fetch-master-schema
 
             - name: Wait for Docker services
               env:
