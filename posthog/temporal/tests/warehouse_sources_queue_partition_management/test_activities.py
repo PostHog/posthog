@@ -393,6 +393,7 @@ class _StrandedQueryConn:
 @contextmanager
 def _patched_terminalize_collaborators():
     with (
+        patch("django.db.close_old_connections"),
         patch("products.warehouse_sources.backend.facade.pipelines.BatchQueue") as batch_queue,
         patch("products.warehouse_sources.backend.facade.pipelines.mark_job_failed_if_not_terminal") as mark_failed,
         patch("products.warehouse_sources.backend.facade.pipelines.release_v3_pipeline_lock") as release_lock,
