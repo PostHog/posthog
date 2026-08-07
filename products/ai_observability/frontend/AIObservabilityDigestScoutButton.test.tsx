@@ -14,7 +14,7 @@ import {
     getAIObservabilityDigestScoutInitialValues,
 } from './AIObservabilityDigestScoutButton'
 
-jest.mock('scenes/inbox/components/config/scouts/ScoutCreateButton', () => ({
+jest.mock('products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton', () => ({
     ScoutCreateButton: ({ children }: { children: ReactNode }) => <button>{children}</button>,
 }))
 

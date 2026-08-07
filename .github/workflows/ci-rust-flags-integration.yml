@@ -55,7 +55,7 @@ jobs:
 
         services:
             postgres:
-                image: postgres:16-alpine
+                image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
                 env:
                     POSTGRES_USER: posthog
                     POSTGRES_PASSWORD: posthog
@@ -69,7 +69,7 @@ jobs:
                     --health-retries 5
 
             redis:
-                image: redis:7-alpine
+                image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
                 ports:
                     - 6379:6379
                 options: >-

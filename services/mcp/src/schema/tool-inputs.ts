@@ -583,7 +583,13 @@ export const ExecuteSQLSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            "Optional id of a data warehouse connection (e.g. Postgres, MySQL, Snowflake, Redshift). When set, the query runs live against that source instead of the ClickHouse catalog, and may only reference that source's tables. Discover connection ids with external-data-sources-connections-list, then list a connection's tables by running `SELECT table_name FROM system.information_schema.tables` with that connectionId set."
+        ),
+    sendRawQuery: z
+        .boolean()
+        .optional()
+        .describe(
+            "Send `query` to the connection verbatim instead of compiling it from HogQL first. Use this for SQL only that connection's own engine understands, such as vendor-specific functions. Requires connectionId, and works only on a pure direct connection (access_method 'direct'), not on a synced source with live queries enabled. The connection is read-only and accepts a single statement."
         ),
 })
 

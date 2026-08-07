@@ -252,6 +252,53 @@ export interface OrganizationAIAccessRequestResponseApi {
 }
 
 /**
+ * * `never` - never
+ * * `live` - live
+ * * `stale` - stale
+ */
+export type FreshnessEnumApi = (typeof FreshnessEnumApi)[keyof typeof FreshnessEnumApi]
+
+export const FreshnessEnumApi = {
+    Never: 'never',
+    Live: 'live',
+    Stale: 'stale',
+} as const
+
+export interface DataFreshnessSourceApi {
+    /** The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). Not an enum: products declare their own data sources, so the set grows without an API change. */
+    data_source: string
+    /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+    last_data_at: string
+}
+
+export interface DataFreshnessProjectApi {
+    /** ID of the project this freshness verdict is for. */
+    team_id: number
+    /** `live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, `never` if the project has never ingested anything at all.
+     *
+     * * `never` - never
+     * * `live` - live
+     * * `stale` - stale */
+    freshness: FreshnessEnumApi
+    /**
+     * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+     * @nullable
+     */
+    last_data_at: string | null
+    /** Per-source breakdown, most recently active first. */
+    sources: DataFreshnessSourceApi[]
+}
+
+export interface OrganizationDataFreshnessApi {
+    /** One entry per project the requesting user can see. */
+    results: DataFreshnessProjectApi[]
+    /** How many days back the check looks. Data older than this is not visible to the check. */
+    lookback_days: number
+    /** How many days without data make a project or source count as quiet. */
+    quiet_after_days: number
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
