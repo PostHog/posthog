@@ -1,19 +1,22 @@
 import { useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
+import { ScatterChart, useChartTheme } from '@posthog/quill-charts'
 
-import { getSeriesColor } from 'lib/colors'
-import { useChart } from 'lib/hooks/useChart'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
 import { dataVisualizationLogic } from '../../../dataVisualizationLogic'
-import { ScatterPoint, buildScatterData, describeSkippedRows } from './scatterUtils'
+import { buildScatterData, describeSkippedRows } from './scatterUtils'
 
 const NO_ROWS: any[] = []
+const handleChartError = makeChartErrorHandler('sql-scatter-chart')
 
 export function ScatterPlot(): JSX.Element {
-    const { response, columns, chartSettings, isDarkModeOn } = useValues(dataVisualizationLogic)
+    const { response, columns, chartSettings } = useValues(dataVisualizationLogic)
+    const theme = useChartTheme()
 
     const scatterSettings = chartSettings.scatter ?? {}
     const { xAxisColumn, yAxisColumn, labelColumn, xLogScale, yLogScale } = scatterSettings
@@ -50,65 +53,10 @@ export function ScatterPlot(): JSX.Element {
     const xAxisLabel = scatterSettings.xAxisLabel || xAxisColumn || 'X-axis'
     const yAxisLabel = scatterSettings.yAxisLabel || yAxisColumn || 'Y-axis'
 
-    // useChart JSON.stringifies its deps on every render; a revision number keeps that O(1)
-    // instead of serializing every point
-    const chartRevisionRef = useRef(0)
-    const chartRevision = useMemo(() => ++chartRevisionRef.current, [scatterData])
-
-    const { canvasRef } = useChart<'scatter'>({
-        getConfig: () => {
-            return {
-                type: 'scatter',
-                data: {
-                    datasets: [
-                        {
-                            data: scatterData.points,
-                            backgroundColor: getSeriesColor(0),
-                            pointRadius: 4,
-                            pointHoverRadius: 6,
-                        },
-                    ],
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false,
-                        },
-                        tooltip: {
-                            callbacks: {
-                                title: (context) => (context[0]?.raw as ScatterPoint)?.label ?? '',
-                                label: (context) => {
-                                    const point = context.raw as ScatterPoint
-                                    return [`${xAxisLabel}: ${point.xDisplay}`, `${yAxisLabel}: ${point.yDisplay}`]
-                                },
-                            },
-                        },
-                    },
-                    scales: {
-                        x: {
-                            type: xLogScale ? 'logarithmic' : 'linear',
-                            position: 'bottom',
-                            title: {
-                                display: true,
-                                text: xAxisLabel,
-                            },
-                        },
-                        y: {
-                            type: yLogScale ? 'logarithmic' : 'linear',
-                            title: {
-                                display: true,
-                                text: yAxisLabel,
-                            },
-                        },
-                    },
-                },
-            }
-        },
-        // isDarkModeOn: getSeriesColor reads theme CSS variables, so a theme change must rebuild the chart
-        deps: [chartRevision, xAxisLabel, yAxisLabel, xLogScale, yLogScale, isDarkModeOn],
-    })
+    const config = useMemo(
+        () => ({ xLogScale, yLogScale, xAxisLabel, yAxisLabel }),
+        [xLogScale, yLogScale, xAxisLabel, yAxisLabel]
+    )
 
     if (!hasValidColumns) {
         return (
@@ -135,7 +83,7 @@ export function ScatterPlot(): JSX.Element {
         <div className="flex flex-col flex-1 gap-2 p-2 h-full">
             {skippedRowsMessage && <LemonBanner type="warning">{skippedRowsMessage}</LemonBanner>}
             <div className="relative flex-1 min-h-[300px]">
-                <canvas ref={canvasRef} />
+                <ScatterChart points={scatterData.points} theme={theme} config={config} onError={handleChartError} />
             </div>
         </div>
     )
