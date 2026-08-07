@@ -1038,12 +1038,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
-                        // An aborted request is a non-event: a newer load superseded it, or the query was
-                        // cancelled. If its rejection lands after the newer load already succeeded, breakpoint()
-                        // above no longer throws, so rethrowing here would strand an error banner over a table
-                        // that actually loaded. Keep the current response instead of failing. Timeouts (504) still
-                        // fall through to a real failure.
-                        if (isAbortedRequest(error)) {
+                        // A request superseded by a newer load (e.g. the next debounced search keystroke) or
+                        // torn down on unmount is a non-event. Its rejection can land after the newer load
+                        // already succeeded, when breakpoint() above no longer throws, so rethrowing here would
+                        // strand an error banner over a table that actually loaded. Keep the current response
+                        // instead of failing. An explicit user cancel (queryCancelled) still falls through so the
+                        // "query was cancelled" state shows, and timeouts (504) still surface a real failure.
+                        if (isAbortedRequest(error) && !values.queryCancelled) {
                             return values.response
                         }
                         throw error
