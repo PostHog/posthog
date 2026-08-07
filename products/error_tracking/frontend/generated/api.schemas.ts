@@ -711,7 +711,7 @@ export interface ErrorTrackingIssueReadApi {
     /** @nullable */
     first_seen: string | null
     assignee: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues: ErrorTrackingExternalReferenceCreateApi[]
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
 }
 
@@ -795,7 +795,7 @@ export interface PatchedErrorTrackingIssueReadApi {
     /** @nullable */
     first_seen?: string | null
     assignee?: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues?: ErrorTrackingExternalReferenceCreateApi[]
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     cohort?: ErrorTrackingIssueCohortReadApi | null
 }
 
