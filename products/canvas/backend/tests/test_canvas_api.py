@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend import build_service
+from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.models import Channel
@@ -565,3 +565,36 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
         response = self.client.patch(f"{base}/", {"name": "Renamed"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert len(self._activity("updated")) == 1
+
+
+class TestCanvasActivityVisibility(CanvasAPIBaseTest):
+    """Personal-channel canvases are owner-only, so their team-scoped activity rows must
+    not leak to other members through the team- or org-wide activity feed."""
+
+    def _personal_canvas(self, owner) -> Canvas:
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=owner
+            )
+            return Canvas.objects.create(team_id=self.team.id, channel=channel, name="Private", created_by=owner)
+
+    def test_team_visible_ids_include_public_but_hide_others_personal_canvas(self):
+        other = self._create_user("teammate-vis@example.com")
+        private = self._personal_canvas(self.user)
+        public_id = self._create_canvas(name="Public")
+
+        owner_visible = activity_visibility.visible_canvas_ids(self.team.id, self.user)
+        other_visible = activity_visibility.visible_canvas_ids(self.team.id, other)
+
+        assert {public_id, str(private.id)} <= owner_visible
+        assert public_id in other_visible
+        assert str(private.id) not in other_visible
+
+    def test_org_hidden_ids_exclude_owner_but_include_other_members(self):
+        other = self._create_user("teammate-org@example.com")
+        private = self._personal_canvas(self.user)
+
+        assert str(private.id) not in activity_visibility.hidden_personal_canvas_ids_for_org(
+            self.organization.id, self.user
+        )
+        assert str(private.id) in activity_visibility.hidden_personal_canvas_ids_for_org(self.organization.id, other)

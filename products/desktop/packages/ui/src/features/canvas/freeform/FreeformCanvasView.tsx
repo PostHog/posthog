@@ -98,6 +98,15 @@ import { usePinnedArtifact } from "./usePinnedArtifact";
 // history), and an edit composer. Generation runs as a dedicated task; while
 // one is in flight the empty canvas shows a "Generating…" state with the run's
 // chat panel open by default (in view mode too), so the work is watchable.
+// The canvas runtime error string is user/agent-authored and can carry source
+// fragments, query results, or secrets. Reduce it to the leading error class name
+// (e.g. "TypeError") for analytics, so no interpolated content crosses the boundary.
+function canvasErrorType(message: string): string {
+  return (
+    message.match(/^([A-Z][A-Za-z0-9]*(?:Error|Exception))\b/)?.[1] ?? "unknown"
+  );
+}
+
 export function FreeformCanvasView({
   threadId,
   interactive,
@@ -442,7 +451,7 @@ export function FreeformCanvasView({
         lastRuntimeErrorRef.current = message;
         track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
           ...canvasTrackProps,
-          error_message: message.slice(0, 512),
+          error_type: canvasErrorType(message),
         });
       }
       setRuntimeError(threadId, message);

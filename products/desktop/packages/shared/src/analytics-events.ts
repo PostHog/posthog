@@ -1059,8 +1059,12 @@ export interface CanvasRuntimeErrorProperties {
   dashboard_id?: string;
   /** The published build whose artifact threw; absent for head-source renders. */
   build_id?: string;
-  /** Truncated to keep the payload bounded. */
-  error_message: string;
+  /**
+   * The error's class name (e.g. "TypeError"), or "unknown". Deliberately not the
+   * raw message: canvas source is user/agent-authored and its exceptions can carry
+   * source fragments, query results, or secrets that must not cross into analytics.
+   */
+  error_type: string;
 }
 
 export type ContextActionType = "save_version" | "generate_started" | "discard";
