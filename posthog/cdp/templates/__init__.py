@@ -8,7 +8,6 @@ from .avo.template_avo import (
     TemplateAvoMigrator,
     template as avo,
 )
-from .discord.template_discord import template as discord
 from .engage.template_engage import (
     TemplateEngageMigrator,
     template as engage,
@@ -80,7 +79,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     avo,
-    discord,
     engage,
     gleap,
     google_cloud_storage,
