@@ -56,12 +56,15 @@ class TestCleanOrganization:
             ("https://myorg.gladly.com", "myorg"),
             ("myorg.gladly.com/api/v1", "myorg"),
             ("my-org", "my-org"),
+            ("myorg.us-1", "myorg.us-1"),
+            ("https://myorg.us-1.gladly.com", "myorg.us-1"),
+            ("MYORG.GLADLY.COM", "MYORG"),
         ],
     )
     def test_valid_organizations(self, value, expected):
         assert _clean_organization(value) == expected
 
-    @pytest.mark.parametrize("value", ["", "my org", "org?x=1"])
+    @pytest.mark.parametrize("value", ["", "my org", "org?x=1", "myorg.us-1.extra"])
     def test_invalid_organizations_raise(self, value):
         with pytest.raises(ValueError):
             _clean_organization(value)

@@ -14,7 +14,7 @@ import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
 
 interface TooltipContext {
-    showTooltip: (rect: [number, number, number], stepIndex: number, series: any, hasSessionData?: boolean) => void
+    showTooltip: (rect: [number, number, number], stepIndex: number, series: any) => void
     hideTooltip: () => void
 }
 
