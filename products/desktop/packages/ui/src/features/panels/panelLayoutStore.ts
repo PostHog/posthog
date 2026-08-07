@@ -30,8 +30,8 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 import { createWithEqualityFn } from "zustand/traditional";
-import { createPersistOptions } from "../../shell/rendererStorage";
 import { track } from "../../shell/analytics";
+import { createPersistOptions } from "../../shell/rendererStorage";
 import { updateTaskLayout } from "./panelStoreHelpers";
 import type { PanelNode, Tab } from "./panelTypes";
 

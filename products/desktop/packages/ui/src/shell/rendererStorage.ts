@@ -202,8 +202,11 @@ export function createPersistOptions<S, PersistedState = S>(
     resetState?: () => PersistedState;
   },
 ): PersistOptions<S, PersistedState> {
-  const { resetState = () => ({}) as PersistedState, migrate, ...rest } =
-    options;
+  const {
+    resetState = () => ({}) as PersistedState,
+    migrate,
+    ...rest
+  } = options;
 
   const reset = (
     level: "warn" | "error",
