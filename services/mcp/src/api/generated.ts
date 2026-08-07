@@ -24913,6 +24913,15 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    export interface DynamicCohortReference {
+      id: number;
+      name: string;
+    }
+
+    export interface DynamicCohortExposureRisk {
+      cohorts: DynamicCohortReference[];
+    }
+
     /**
      * Feature flag payload for this early access feature
      */
@@ -29625,6 +29634,7 @@ export namespace Schemas {
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      dynamic_cohort_risk?: DynamicCohortExposureRisk | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
@@ -62933,6 +62943,7 @@ export namespace Schemas {
     export interface QueryResponseAlternative19 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      dynamic_cohort_risk?: DynamicCohortExposureRisk | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
