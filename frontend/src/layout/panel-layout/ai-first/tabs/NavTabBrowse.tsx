@@ -190,7 +190,8 @@ export function NavTabBrowse(): JSX.Element {
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        const isOpening = activePanelIdentifier !== item
+        // Match the tooltip's notion of "open" (visible AND selected); a hidden panel reopens rather than firing a no-op close.
+        const isOpening = !isLayoutPanelVisible || activePanelIdentifier !== item
         posthog.capture('nav panel trigger clicked', { panel: item, is_open: isOpening })
         if (isOpening) {
             setActivePanelIdentifier(item)
