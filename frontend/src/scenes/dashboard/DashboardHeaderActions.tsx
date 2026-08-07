@@ -162,6 +162,9 @@ export function DashboardEditSaveCancelButtons({
             size="small"
             tooltip="Save dashboard"
             tooltipPlacement="bottom"
+            // hasUnsavedEditModeChanges covers everything a save persists — filters, variables,
+            // colors/theme, and layout — so this bar (shared with layout edit mode) stays enabled
+            // whenever any of them differ from what's saved, not just filters.
             disabledReason={
                 dashboardLoading
                     ? 'Wait for dashboard to finish loading'
