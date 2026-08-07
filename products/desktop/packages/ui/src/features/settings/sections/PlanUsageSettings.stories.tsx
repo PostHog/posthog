@@ -69,7 +69,7 @@ const PersonalSpendPreview = () => (
 );
 
 const meta: Meta<typeof PlanUsageContent> = {
-  title: "Settings/Plan and usage",
+  title: "Billing/Plan and usage",
   component: PlanUsageContent,
   decorators: [
     (Story) => (
@@ -91,7 +91,7 @@ const meta: Meta<typeof PlanUsageContent> = {
 export default meta;
 type Story = StoryObj<typeof PlanUsageContent>;
 
-export const OrganizationAndPersonalSpend: Story = {};
+export const WithComponentBreakdown: Story = {};
 
 export const BreakdownAwaitingData: Story = {
   args: {
