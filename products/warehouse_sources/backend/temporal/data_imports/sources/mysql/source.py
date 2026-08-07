@@ -342,7 +342,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # "Too many connections" (MySQL error 1040) shares the same contract: `_connect_with_transient_retry`
         # retries it in-process too (see `_is_transient_too_many_connections`) — a slot frees the moment
         # another connection closes, mirroring the Postgres source's connection-limit handling.
-        return {"Lost connection to MySQL server during query", "Too many connections"}
+        #
+        # "Can't create a new thread" (MySQL error 1135) is the same class of transient host-capacity
+        # condition — the server hit its OS thread/process limit rather than `max_connections` — and is
+        # retried in-process the same way (see `_is_transient_cant_create_thread`).
+        return {"Lost connection to MySQL server during query", "Too many connections", "Can't create a new thread"}
 
     def reconcile_schema_metadata(
         self,

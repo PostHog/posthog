@@ -537,6 +537,24 @@ def _is_transient_too_many_connections(e: BaseException) -> bool:
     return code == _TOO_MANY_CONNECTIONS_CODE
 
 
+# MySQL/MariaDB error 1135 (ER_CANT_CREATE_THREAD): the server accepted the TCP connection but the
+# OS refused to spawn the thread that would service it (`errno 11`, EAGAIN — "Resource temporarily
+# unavailable"). Like `_TOO_MANY_CONNECTIONS_CODE` above, this is a transient capacity condition on
+# the customer's database host (it's hit its process/thread ulimit, not out of memory), not a
+# misconfiguration — it clears as other connections close and free up OS threads — so a fresh
+# attempt after a short backoff usually succeeds. Kept out of `get_non_retryable_errors` (see
+# `MySQLSource.get_retryable_errors`).
+_CANT_CREATE_THREAD_CODE = 1135
+
+
+def _is_transient_cant_create_thread(e: BaseException) -> bool:
+    """Return True if the server couldn't spawn an OS thread to service the new connection."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    return code == _CANT_CREATE_THREAD_CODE
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -561,6 +579,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
                 or _is_transient_too_many_connections(e)
+                or _is_transient_cant_create_thread(e)
             ):
                 raise
             structlog.get_logger().warning(
