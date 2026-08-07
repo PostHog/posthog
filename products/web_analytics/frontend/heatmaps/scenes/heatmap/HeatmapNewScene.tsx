@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonLabel, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -275,13 +275,13 @@ function PublicBackgroundChoice(): JSX.Element {
                         label: 'Screenshot',
                         value: 'screenshot',
                         description:
-                            'A headless browser captures the public page. Pages that require login may show the login screen.',
+                            'Best for a public page you just want a stable picture of. A headless browser captures the page, so pages that require login may show the login screen instead.',
                     },
                     {
                         label: 'Iframe',
                         value: 'iframe',
                         description:
-                            'Loads the page live. It must allow embedding and cannot use your signed-in browser session.',
+                            'Best when you want the live page and control its embedding headers. It loads the page live, so the page must allow embedding and cannot use your signed-in browser session.',
                     },
                 ]}
                 value={type}
@@ -350,8 +350,17 @@ function ChooseBackgroundStep(): JSX.Element {
             <div className="flex flex-col gap-6">
                 <div>
                     <h2 className="mb-1">Choose a background</h2>
-                    <p className="text-muted mb-0">
-                        Tell us whether visitors need to sign in before they can see this page.
+                    <p className="text-muted mb-2">
+                        The background is the page image your heatmap data is drawn on top of. First, tell us whether
+                        visitors need to sign in before they can see this page.
+                    </p>
+                    <p className="text-muted text-sm mb-0">
+                        Heatmaps plot where visitors move and click by position on the page. Clickmaps count autocapture
+                        clicks on specific elements, which is more precise but captures less.{' '}
+                        <Link to="https://posthog.com/docs/toolbar/heatmaps" target="_blank">
+                            Learn more about backgrounds and heatmaps
+                        </Link>
+                        .
                     </p>
                 </div>
 
@@ -365,7 +374,8 @@ function ChooseBackgroundStep(): JSX.Element {
                         {
                             label: 'Yes, this page requires login',
                             value: 'login',
-                            description: 'Use a session recording so the signed-in page state is available.',
+                            description:
+                                'Best when the page sits behind a login. We use a session recording to capture the signed-in page state as the background.',
                         },
                     ]}
                     value={pageAccess ?? undefined}
