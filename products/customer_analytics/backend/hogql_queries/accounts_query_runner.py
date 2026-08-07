@@ -14,10 +14,6 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.customer_analytics.backend.logic.accounts_saved_view_usage import (
-    capture_accounts_saved_view_unsupported_column_usage,
-)
-
 NAME_COLUMN = "name"
 
 DEFAULT_COLUMNS = (NAME_COLUMN, "created_at")
@@ -30,7 +26,6 @@ DEFAULT_ORDER_BY = "created_at DESC"
 PERF_QUERY_SETTINGS = HogQLGlobalSettings(max_threads=16)
 
 PERF_FLAG = "customer-analytics-accounts-perf"
-ACCOUNTS_LIST_QUERY_NAME = "customer_analytics_accounts_list"
 
 
 def _normalize_order_clause(raw: str) -> str:
@@ -218,9 +213,6 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
 
     def _calculate(self) -> AccountsQueryResponse:
-        if not self._metrics_only and self.query.tags and self.query.tags.name == ACCOUNTS_LIST_QUERY_NAME:
-            capture_accounts_saved_view_unsupported_column_usage(self.team)
-
         metrics_results = self._compute_metrics_results(self.query.metrics) if self.query.metrics else None
 
         if self._metrics_only:
