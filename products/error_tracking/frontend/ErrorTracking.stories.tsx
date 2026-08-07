@@ -52,6 +52,43 @@ const listPageMocks = {
 }
 
 export const ListPage: Story = { decorators: [mswDecorator(listPageMocks)] }
+
+// An unresolved source maps recommendation renders the wizard banner above the
+// issue list without the sticky filters bar overlapping its bottom edge
+export const ListPageWithSourceMapsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                ...listPageMocks.get,
+                'api/environments/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 62,
+                                    unresolved_pct: 0.62,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
 // Autocapture must be on for the issue list to render instead of the full setup prompt,
 // and it comes from the bootstrap app context, so an msw override isn't enough
 function IngestionWarningStory(): JSX.Element | null {
