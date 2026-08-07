@@ -4,6 +4,8 @@
 set -u
 cd "$(dirname "$0")"
 CHART=../../chart/posthog-metrics-agent
+# Read from the chart so a version bump doesn't have to touch this file.
+APP_VERSION=$(awk '/^appVersion:/{print $2}' "$CHART/Chart.yaml")
 PASS=0
 FAIL=0
 
@@ -57,7 +59,7 @@ assert_contains default-secret-checksum 'checksum/secret:' "$out"
 assert_contains default-health-probe '13133' "$out"
 assert_contains default-ingest-route '/i/v1/metrics' "$out"
 # The default image tag is the pinned appVersion, never a floating tag.
-assert_contains default-pinned-image "image: 'posthog/metrics-agent:0.1.0'" "$out"
+assert_contains default-pinned-image "image: 'posthog/metrics-agent:$APP_VERSION'" "$out"
 assert_not_contains default-no-latest-tag ':latest' "$out"
 # Restricted Pod Security Standard: these fields are required for admission.
 assert_contains default-run-as-nonroot 'runAsNonRoot: true' "$out"

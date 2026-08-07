@@ -20,7 +20,7 @@ from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.exceptions_capture import capture_exception
-from posthog.storage.hypercache_verifier import _run_verification_for_cache
+from posthog.storage.hypercache_verifier import TeamBatchFetchError, _run_verification_for_cache
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.local_evaluation import (
@@ -43,6 +43,17 @@ LOCK_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 
 FLAG_DEFINITIONS_CACHE_TYPE = "flag_definitions"
+
+
+def _log_batch_fetch_exhausted(cache_type: str, start_time: float, error: TeamBatchFetchError) -> None:
+    # Not a code failure: Postgres stayed unreachable across retries, so the run
+    # winds down. Unverified teams are picked up on the next scheduled cycle.
+    logger.warning(
+        "Cache verification wound down early, database unreachable",
+        cache_type=cache_type,
+        duration_seconds=time.time() - start_time,
+        error=str(error),
+    )
 
 
 def _log_soft_time_limit_exceeded(cache_type: str, start_time: float) -> None:
@@ -85,6 +96,9 @@ def _run_flag_definitions_verification() -> None:
             )
         except SoftTimeLimitExceeded:
             _log_soft_time_limit_exceeded(FLAG_DEFINITIONS_CACHE_TYPE, start_time)
+            return
+        except TeamBatchFetchError as e:
+            _log_batch_fetch_exhausted(FLAG_DEFINITIONS_CACHE_TYPE, start_time, e)
             return
         except Exception as e:
             logger.exception("Failed cache verification", cache_type=FLAG_DEFINITIONS_CACHE_TYPE, error=str(e))
@@ -142,6 +156,9 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
             )
         except SoftTimeLimitExceeded:
             _log_soft_time_limit_exceeded(cache_type, start_time)
+            return
+        except TeamBatchFetchError as e:
+            _log_batch_fetch_exhausted(cache_type, start_time, e)
             return
         except Exception as e:
             logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))

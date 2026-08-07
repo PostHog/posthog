@@ -41,8 +41,9 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
+from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_file_in_s3, assert_no_files_in_s3
 
@@ -191,7 +192,7 @@ async def assert_clickhouse_records_in_s3(
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
 
     Arguments:
-        s3_compatible_client: An S3 client used to read records; can be MinIO if doing local testing.
+        s3_compatible_client: An S3 client used to read records; can point at local object storage if doing local testing.
         clickhouse_client: A ClickHouseClient used to read records that are expected to be exported.
         team_id: The ID of the team that we are testing for.
         bucket_name: S3 bucket name where records are exported to.
@@ -260,9 +261,9 @@ async def assert_clickhouse_records_in_s3(
 
     queue = RecordBatchQueue()
     if model_name == "sessions":
-        producer = Producer(model=SessionsRecordBatchModel(team_id))
+        producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
     else:
-        producer = Producer()
+        producer = ClickHouseTestProducer()
     producer_task = await producer.start(
         queue=queue,
         model_name=model_name,
@@ -332,7 +333,7 @@ async def run_s3_batch_export_workflow(
 ):
     """Run the S3 batch export workflow and assert it completes successfully.
 
-    This is a shared helper function used by tests for S3, GCS, and MinIO buckets.
+    This is a shared helper function used by tests for S3, GCS, and local object storage buckets.
 
     `destination_type` selects which input dataclass is constructed and passed
     to the workflow — exercising the per-destination → canonical-inputs adaptation

@@ -318,7 +318,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         loadSuggestionHistory,
     } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { quota } = useValues(visionQuotaLogic)
+    // `quota` gates the test button (enforcement), `displayQuota` renders spend copy (startup cap applied).
+    const { quota, displayQuota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // Scorer and summarizer have no discrete outcome, so they preview raw before/after instead of a verdict.
     const previewEvaluation = scanner?.scanner_type === 'scorer' || scanner?.scanner_type === 'summarizer'
@@ -396,7 +397,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {currentSuggestion.status === 'pending' && evaluationSupported && (
                             <LemonButton
                                 size="small"
@@ -466,8 +467,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             of your {Math.min(evaluationSessionCap, ratedCount)} rated result
                             {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, thumbs down first. Costs{' '}
                             {formatCreditCount(plannedTestCredits)}
-                            {quota && quota.remaining !== null && quota.credit_limit !== null
-                                ? `, ${formatCreditsRange(quota.remaining, quota.credit_limit)} left this period`
+                            {displayQuota && displayQuota.remaining !== null && displayQuota.credit_limit !== null
+                                ? `, ${formatCreditsRange(displayQuota.remaining, displayQuota.credit_limit)} left this period`
                                 : ''}
                             .
                         </span>
@@ -712,7 +713,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                 <Tooltip
                                     key={badge.version}
                                     title={
-                                        <div className="space-y-1 max-w-100">
+                                        <div className="space-y-1 max-w-[90vw] sm:max-w-100">
                                             <div className="font-semibold">
                                                 Prompt v{badge.version} · active from {badge.label}
                                             </div>
@@ -941,7 +942,7 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
             <RatingsOverTimePanel scannerId={scannerId} />
 
             <div className="space-y-3">
-                <div className="flex items-start gap-3">
+                <div className="flex flex-wrap items-start gap-3">
                     <div>
                         <h3 className="font-semibold text-base m-0">Rate results</h3>
                         <p className="text-muted text-xs m-0 mt-0.5">

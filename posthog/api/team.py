@@ -42,7 +42,7 @@ from posthog.schema import (
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, validate_authorized_url_wildcards
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -183,6 +183,65 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the experiments_config action — exposed under both the
+    team/environment and project routers so both surfaces stay in parity."""
+    # Keeps the products app import off this module's import path.
+    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig  # noqa: PLC0415
+
+    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+        class Meta:
+            model = TeamExperimentsConfig
+            fields = [
+                "experiment_recalculation_time",
+                "default_experiment_confidence_level",
+                "default_experiment_stats_method",
+                "experiment_precomputation_enabled",
+                "default_only_count_matured_users",
+                "default_cuped_enabled",
+                "default_cuped_lookback_days",
+                "default_minimum_detectable_effect",
+                "default_sequential_testing_enabled",
+                "default_sequential_tuning_parameter",
+                "flag_cleanup_repository",
+            ]
+
+        def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
+            # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
+            # request import path.
+            from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
+
+            if not value:
+                return None
+            parts = value.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise serializers.ValidationError("Repository must be in the format organization/repository")
+            value = value.lower()
+            # Reject repos outside the team's GitHub installation now rather than storing a
+            # default the cleanup resolution would silently ignore.
+            github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
+            cached = {
+                full_name.lower()
+                for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
+                if (full_name := repo.get("full_name"))
+            }
+            if value not in cached:
+                raise serializers.ValidationError(
+                    "This repository is not connected to the project's GitHub integration."
+                )
+            return value
+
+    config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamExperimentsConfigSerializer(config).data)
+
+
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
     """Shared handler for the logs_config action — exposed under both the team/environment
     and project routers so the canonical /api/projects/ URL resolves alongside the legacy
@@ -242,6 +301,11 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
     """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
     first one is blocked once the team has access to project secret API keys."""
     if team.secret_api_token or team.secret_api_token_backup:
+        return
+    if team.conversations_enabled:
+        # Support signs widget identity hashes with the raw token and authenticates its external
+        # API against it. Project secret API keys are only ever stored hashed, so they cannot
+        # replace it, which would leave Support with no way to verify identity at all.
         return
     if posthoganalytics.feature_enabled(
         "project-secret-api-keys",
@@ -465,10 +529,10 @@ class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
     """A conversion goal counted from events."""
 
     # `validate_conversion_goals` rejects a goal without a string name or an explicit kind, so the
-    # documented schema has to require both. `conversion_goal_id` is server-assigned on create.
+    # documented schema has to require both. `conversion_goal_id` stays required like the query
+    # schema: nothing here assigns one, and a goal stored without it fails to rebuild for queries.
     kind: Literal["EventsNode"]
     name: str
-    conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
     fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
@@ -478,7 +542,6 @@ class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
 
     kind: Literal["ActionsNode"]
     name: str
-    conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
     fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
@@ -488,7 +551,6 @@ class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
 
     kind: Literal["DataWarehouseNode"]
     name: str
-    conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
     fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
@@ -1083,7 +1145,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
             )
 
-        return value
+        # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
+        # makes the flag-delete guard miss this row and delete a flag the team still advertises.
+        # A numeric string is normalized instead of rejected, so a client sending "123" stores a
+        # usable row rather than a broken one. Bools and floats are excluded because
+        # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
+        flag_id = value["id"]
+        if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
+        try:
+            return {**value, "id": int(flag_id)}
+        except ValueError:
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -1379,7 +1452,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
-        return [url for url in value if url]
+        urls = [url for url in value if url]
+        validate_authorized_url_wildcards(urls)
+        return urls
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -1392,6 +1467,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+            validate_authorized_url_wildcards(value["widget_domains"])
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
@@ -2129,11 +2205,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
         # requires deprovisioning the warehouse (or deleting the organization) instead.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
-        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
         if warehouse_block_reason:
             raise exceptions.ValidationError(warehouse_block_reason)
 
@@ -2229,36 +2303,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this environment."""
-        from rest_framework import serializers
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-            class Meta:
-                model = TeamExperimentsConfig
-                fields = [
-                    "experiment_recalculation_time",
-                    "default_experiment_confidence_level",
-                    "default_experiment_stats_method",
-                    "experiment_precomputation_enabled",
-                    "default_only_count_matured_users",
-                    "default_cuped_enabled",
-                    "default_cuped_lookback_days",
-                    "default_minimum_detectable_effect",
-                    "default_sequential_testing_enabled",
-                    "default_sequential_tuning_parameter",
-                ]
-
-        team = self.get_object()
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-        if request.method == "PATCH":
-            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return response.Response(serializer.data)
-
-        return response.Response(TeamExperimentsConfigSerializer(config).data)
+        return handle_experiments_config(request, self.get_object())
 
     @extend_schema(
         methods=["POST"],

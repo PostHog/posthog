@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
+    _ORG_PERMISSION_REASON,
     ORG_SCOPED_ENDPOINTS,
     GithubEgressIdentity,
     GithubResumeConfig,
@@ -64,8 +65,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.nam
     split_schema_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
+    ENDPOINT_REQUIRED_PERMISSION,
     ENDPOINTS,
     GITHUB_ENDPOINTS,
+    GRANT_DENIAL_PREFIX,
+    GRANT_NAMES,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -242,8 +246,31 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid GitHub credentials. Please reconnect your account.",
-            "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
-            "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
+            # None deliberately: _fetch_page already raises these denials with a message naming the
+            # exact grant, and the job finalizer only overwrites latest_error when the value here is
+            # not None. Curated copy would replace that grant name with a vaguer sentence. Matched
+            # ahead of the generic 403 keys below, because the first match in this dict wins.
+            "Resource not accessible by integration": None,
+            "Resource not accessible by personal access token": None,
+            # GitHub's wording for the tables behind the administration grant (traffic, self-hosted
+            # runners). The picker only offers these on a token connection, so the reader is already
+            # on a token and needs the access level, not a route they are on.
+            "Must have push access to repository": "This table needs push access to the repository. Use a personal access token from an account with push access, then sync again.",
+            "Must have admin rights": "This table needs admin access to the repository. Use a personal access token from an account with admin access, then sync again.",
+            # Catch-all for the denial wordings GitHub phrases per endpoint ("Must have push access
+            # to view repository collaborators"), which the keys above can't enumerate.
+            GRANT_DENIAL_PREFIX: None,
+            "SAML enforcement": "Your GitHub organization requires single sign-on for this connection. Authorize it on GitHub, then reconnect your GitHub account.",
+            "OAuth App access restrictions": "Your GitHub organization hasn't approved this connection. Ask an organization owner to approve it, then reconnect your GitHub account.",
+            # Rate-limited 403s never reach here: the sync classifies those as a rate limit and backs
+            # off until GitHub's reset. A 403 that lands in this map is a permission denial.
+            "GitHub denied access": "GitHub denied access to this repository. The connected account is missing a permission, or your organization hasn't approved it. Check the connection on GitHub, then reconnect your GitHub account.",
+            "403 Client Error": "GitHub denied access to this repository. The connected account is missing a permission, or your organization hasn't approved it. Check the connection on GitHub, then reconnect your GitHub account.",
+            # Raised only after a probe confirms the repository itself no longer resolves. A renamed
+            # or transferred repository still resolves through GitHub's redirect, so this is a
+            # deleted repository or one the connection can no longer see.
+            "GitHub repository is not accessible": "This repository is no longer available on GitHub. It may have been deleted, or your connection may have lost access to it. Update the source with a repository you can still reach, or reconnect your GitHub account.",
+            "404 Client Error": "GitHub couldn't find this repository. Check that it still exists and that your connection can access it.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.
@@ -430,6 +457,36 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
+    def _installation_permissions(self, config: GithubSourceConfig, team_id: int) -> dict[str, str] | None:
+        """The permission set the App installation holds, or None when it can't be known (a token
+        connection, a broken integration, a row connected before permissions were persisted — the
+        hourly token-refresh sweep backfills those). None fails open: the picker shows the table,
+        and a real denial still fails the sync with the grant named."""
+        if config.auth_method.selection == "pat" or not config.auth_method.github_integration_id:
+            return None
+        try:
+            integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
+            held = integration.config.get("permissions")
+            return held if isinstance(held, dict) else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _missing_permission_reason(required_permission: str) -> str:
+        # Rendered inside SchemaForm's tooltip wrapper ("Source credentials cannot read this
+        # table: {reason}. ..."), so this must stay a sentence fragment with no trailing period,
+        # like _ORG_PERMISSION_REASON.
+        fine_grained, classic_scope = GRANT_NAMES.get(required_permission, (required_permission, "repo"))
+        # The administration endpoints also gate on the account's own access level, so scope alone
+        # isn't enough there.
+        account_needs = (
+            " from an account with admin access to the repository" if required_permission == "administration" else ""
+        )
+        return (
+            f'Requires the "{fine_grained}" permission, which this GitHub app installation does not hold; '
+            f"use a personal access token with the {classic_scope} scope{account_needs} instead"
+        )
+
     def get_endpoint_permissions(
         self, config: GithubSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
@@ -439,9 +496,22 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # unique owner and fan the reason back per input name, so a repo-scoped connection sees
         # exactly which tables need the extra grant and can deselect them.
         result: dict[str, str | None] = dict.fromkeys(endpoints)
+        # An installation can only hold permissions the App requests, so a table whose grant is
+        # absent from the held set can never sync on this connection, however often the user
+        # reconnects. A token connection returns None here (token grants aren't introspectable), so
+        # its denials surface at sync time instead, where the error names the grant.
+        held_permissions = self._installation_permissions(config, team_id)
         org_endpoints: dict[str, str] = {}  # input name -> repository to probe through
         for name in endpoints:
             repository, endpoint = split_schema_name(name)
+            required = ENDPOINT_REQUIRED_PERMISSION.get(endpoint)
+            if held_permissions is not None and required is not None and required not in held_permissions:
+                # The org tables keep their existing reason: it carries the org-owned-repository
+                # caveat this generic wording lacks, and the two surfaces should not diverge.
+                result[name] = (
+                    _ORG_PERMISSION_REASON if required == "members" else self._missing_permission_reason(required)
+                )
+                continue
             if endpoint not in ORG_SCOPED_ENDPOINTS:
                 continue
             org_endpoints[name] = (repository or config.repository or "").strip().lower()

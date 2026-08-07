@@ -945,6 +945,11 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
             : notedExpression
     }
 
+    // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
+    // but not when the template continues with a query string (e.g. '?tab=alerts&alert_id={id}')
+    // or fragment (e.g. '#runs').
+    const joinerFor = (prefix: string): string => (/^[?#]/.test(prefix) ? '' : '/')
+
     if (config.list && config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         // For list endpoints, 'params.x' is not meaningful (items come from the response
@@ -954,10 +959,11 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
                 `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
             )
         }
+        const joiner = joinerFor(prefix)
         const enriched = [
             `await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}${joiner}${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
         ].join('\n')
         return `        return ${wrapped(enriched)}\n`
@@ -970,8 +976,9 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     if (config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
+        const joiner = joinerFor(prefix)
 
-        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}${joiner}${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
     }
 
     return `        return ${wrapped(resultVar)}\n`
@@ -1412,6 +1419,7 @@ ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmed
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
+            stash: __runtime.stash,
 ${prepareScopeField}        })
 `
 
@@ -1424,6 +1432,7 @@ ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never

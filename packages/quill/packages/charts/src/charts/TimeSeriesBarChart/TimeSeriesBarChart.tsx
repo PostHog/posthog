@@ -6,6 +6,7 @@ import type {
     BarChartConfig,
     BarFillStyle,
     ChartLegendConfig,
+    ChartMargins,
     ChartTheme,
     DateRangeZoomData,
     PointClickData,
@@ -50,6 +51,13 @@ export interface TimeSeriesBarChartConfig {
     divergingStack?: boolean
     /** Bar fill treatment — `flat` (default), `gradient`, or `gloss`. */
     fillStyle?: BarFillStyle
+    /** Inner gap between bars as a fraction of the band slot (0–1). See {@link BarsConfig.bandPadding}. */
+    bandPadding?: number
+    /** Px floor on a bar's thickness along the value axis, so a tiny non-zero value stays visible.
+     *  See {@link BarsConfig.minBarSize}. */
+    minBarSize?: number
+    /** Per-side overrides on the computed chart margins — see {@link ChartConfig.margins}. */
+    margins?: Partial<ChartMargins>
     /** Ease the hover highlight in over this many ms (`true` = default duration). Omit to snap. */
     animateHover?: boolean | number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -101,6 +109,9 @@ export function TimeSeriesBarChart<Meta = unknown>({
         tooltip: tooltipConfig,
         divergingStack,
         fillStyle,
+        bandPadding,
+        minBarSize,
+        margins,
         animateHover,
         legend,
         trendLines,
@@ -125,8 +136,10 @@ export function TimeSeriesBarChart<Meta = unknown>({
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const barChartConfig: BarChartConfig = {
+        margins,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
+        xTickLabelRotation: xAxis?.tickLabelRotation,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
@@ -146,6 +159,8 @@ export function TimeSeriesBarChart<Meta = unknown>({
             divergingStack,
             valueDomain,
             fillStyle,
+            bandPadding,
+            minBarSize,
         },
     }
 

@@ -205,7 +205,16 @@ const subscriptionsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['invite_message'])),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/subscriptions')
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/subscriptions/${item.id}`))
+                ),
+            },
+            '/subscriptions'
+        )
     },
 })
 

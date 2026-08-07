@@ -48,7 +48,8 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
 def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOutput:
     # team__organization is prefetched for the AI-consent check below.
     scanner = (
-        ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
+        # `all_origins`: this is the persistence step for every scan, inline ones included.
+        ReplayScanner.all_origins.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
         .select_related("team", "team__organization")
         .first()
     )
@@ -79,6 +80,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
                 f"User {inputs.triggered_by_user_id} is not a member of scanner {inputs.scanner_id}'s organization"
             )
 
+    # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
+    # overshoot by at most the in-flight caps allow, which is accepted.
     if compute_quota_snapshot(scanner.team.organization_id).would_exceed(observation_credits_for_model(scanner.model)):
         record_quota_exhausted_skip(scanner.scanner_type)
         activity.logger.info(

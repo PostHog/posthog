@@ -37,9 +37,16 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
+    'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
+    'loadDataset', // Dataset scenes render their own retry state
+    'loadDatasetItems', // Dataset scenes render their own retry state
+    'loadDatasetRevisions', // Dataset scenes render their own retry state
+    'loadDatasetItemDetails', // Dataset item modals render their own retry state
+    'loadDatasetItemVersions', // Dataset item modals render their own retry state
+    'exportDataset', // Dataset scenes render their own retry state
 ]
 
 /*
@@ -145,6 +152,10 @@ export function initKea({
                     const isTwoFactorError =
                         error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
                     const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
+                    // Only the 403 access-block gets the dedicated toast in apiStatusLogic; a 400
+                    // with this code is form validation (e.g. inviting an outside-domain email)
+                    // and must keep the generic error toast.
+                    const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -157,7 +168,8 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError) {
+                    if (isTwoFactorError || isSensitiveActionError || isVerifiedDomainError) {
+                        // These get their own dedicated toast in apiStatusLogic.
                         errorMessage = null
                     }
                     if (errorMessage) {
