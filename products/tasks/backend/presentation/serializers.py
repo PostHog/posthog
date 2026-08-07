@@ -304,6 +304,13 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
         ),
     )
 
+    def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        for field_name in ("uploaded_by", "uploaded_by_user_id"):
+            if field_name not in instance:
+                data.pop(field_name, None)
+        return data
+
 
 class TaskRunDetailSerializer(DataclassSerializer):
     """Detail response for a task run.

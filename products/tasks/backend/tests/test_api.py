@@ -6697,8 +6697,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         artifact = response.json()["artifacts"][0]
         self.assertEqual(artifact["id"], "legacy-artifact")
-        self.assertIsNone(artifact["uploaded_by"])
-        self.assertIsNone(artifact["uploaded_by_user_id"])
+        self.assertNotIn("uploaded_by", artifact)
+        self.assertNotIn("uploaded_by_user_id", artifact)
 
     @patch("posthog.storage.object_storage.head_object")
     def test_finalize_artifact_uploads_rejects_invalid_storage_path(self, mock_head_object):
