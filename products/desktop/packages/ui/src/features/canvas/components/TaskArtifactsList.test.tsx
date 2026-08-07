@@ -55,7 +55,7 @@ vi.mock("@posthog/ui/features/pr-review/usePrReviewThreads", () => ({
   usePrReviewThreads: () => ({ data: undefined }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
-  useCommentsForTargetsQuery: () => ({
+  useTaskCommentsQuery: () => ({
     isError: mocks.commentsError,
     data: [
       {

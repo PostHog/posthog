@@ -219,6 +219,8 @@ export interface TaskSessionStorageAccess {
  */
 export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
 
+const MAX_COMMENT_PAGES = 50;
+
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
  * real JSON value despite the generated serializer's historically narrow type. */
@@ -3251,19 +3253,21 @@ export class PostHogAPIClient {
     return data.url;
   }
 
-  async getResourceComments(
-    scope: CommentScope,
-    itemId: string,
-    taskId: string,
-  ): Promise<ResourceComment[]> {
-    const MAX_COMMENT_PAGES = 50;
+  async getTaskComments(taskId: string): Promise<ResourceComment[]> {
     const teamId = await this.getTeamId();
     const comments: ResourceComment[] = [];
     let cursor: string | undefined;
     for (let pageIndex = 0; pageIndex < MAX_COMMENT_PAGES; pageIndex++) {
+      const query = {
+        scope: "task",
+        task_id: taskId,
+        include_task_resources: true,
+        exclude_emoji_reactions: true,
+        cursor,
+      };
       const page = await this.api.get("/api/projects/{project_id}/comments/", {
         path: { project_id: String(teamId) },
-        query: { scope, item_id: itemId, task_id: taskId, cursor },
+        query,
       });
       comments.push(...page.results);
       cursor = page.next
@@ -3272,8 +3276,8 @@ export class PostHogAPIClient {
       if (!cursor) return comments;
     }
     log.warn(
-      `getResourceComments hit MAX_PAGES (${MAX_COMMENT_PAGES}); returning partial results`,
-      { scope, itemId, returned: comments.length },
+      `getTaskComments hit MAX_PAGES (${MAX_COMMENT_PAGES}); returning partial results`,
+      { taskId, returned: comments.length },
     );
     return comments;
   }

@@ -2,14 +2,11 @@ import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import { describe, expect, it, vi } from "vitest";
 import { SessionService } from "./sessionService";
 
-describe("SessionService resource comments", () => {
-  it("keeps successful targets when one target fails", async () => {
+describe("SessionService task comments", () => {
+  it("loads all comments through the authenticated client", async () => {
     const service = Object.create(SessionService.prototype) as SessionService;
-    const successfulComment = { id: "comment-2" } as ResourceComment;
-    const getResourceComments = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("unavailable"))
-      .mockResolvedValueOnce([successfulComment]);
+    const comments = [{ id: "comment-1" }] as ResourceComment[];
+    const getTaskComments = vi.fn().mockResolvedValue(comments);
     vi.spyOn(
       service as unknown as {
         getAuthCredentialsStatus: () => Promise<unknown>;
@@ -17,17 +14,10 @@ describe("SessionService resource comments", () => {
       "getAuthCredentialsStatus",
     ).mockResolvedValue({
       kind: "ready",
-      auth: { client: { getResourceComments } },
+      auth: { client: { getTaskComments } },
     });
 
-    await expect(
-      service.getResourceCommentsForTargets(
-        [
-          { scope: "task_artifact", itemId: "artifact-1" },
-          { scope: "task_artifact", itemId: "artifact-2" },
-        ],
-        "task-1",
-      ),
-    ).resolves.toEqual([successfulComment]);
+    await expect(service.getTaskComments("task-1")).resolves.toEqual(comments);
+    expect(getTaskComments).toHaveBeenCalledWith("task-1");
   });
 });

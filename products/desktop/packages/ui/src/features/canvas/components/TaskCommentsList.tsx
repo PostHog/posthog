@@ -60,24 +60,18 @@ import { CommentThreadCard } from "@posthog/ui/features/sessions/components/Comm
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { readCommentContext } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
+  commentsForTarget,
   isOptimisticComment,
-  useCommentsForTargetsQuery,
-  useCommentsQuery,
   useCreateComment,
   useSetCommentResolved,
+  useTaskCommentsQuery,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
-/** The whole task's threads in one request; slower than a single artifact's own
- *  poll because this one fans out across every resource. */
-const POLL_INTERVAL_MS = 30_000;
 const PULSE_MS = 1_200;
 const ALL_SOURCES = "all";
-// Keep task comments live, but bound the artifact and canvas poll so generated
-// output cannot turn one Comments tab into an unbounded backend request.
-const MAX_RESOURCE_COMMENT_TARGETS = 20;
 // Each PR starts three GitHub-backed queries. Keep this cap at the source so a
 // task with generated output cannot fan out into an unbounded number of requests.
 const MAX_PR_COMMENT_SOURCES = 20;
@@ -180,7 +174,7 @@ function ResourceThreadRow({
   commentVersionLabel?: (versionId: string) => string | null;
 }) {
   const createComment = useCreateComment(source.target, taskId);
-  const setResolved = useSetCommentResolved(source.target);
+  const setResolved = useSetCommentResolved(source.target, taskId);
   const rootPending = isOptimisticComment(root);
 
   return (
@@ -335,29 +329,11 @@ export function TaskCommentsList({
     () => (onlySource ? [onlySource] : commentSources(task.id, rows)),
     [task.id, rows, onlySource],
   );
-  const targets = useMemo(
-    () =>
-      onlySource
-        ? sources.map((source) => source.target)
-        : [
-            ...sources.slice(0, 1),
-            ...sources.slice(1, MAX_RESOURCE_COMMENT_TARGETS + 1),
-          ].map((source) => source.target),
-    [onlySource, sources],
-  );
-  const singleSourceComments = useCommentsQuery(
-    onlySource?.target ?? null,
-    task.id,
-  );
-  const taskComments = useCommentsForTargetsQuery(
-    onlySource ? [] : targets,
-    task.id,
-    {
-      live: true,
-      intervalMs: POLL_INTERVAL_MS,
-    },
-  );
-  const commentsQuery = onlySource ? singleSourceComments : taskComments;
+  const commentsQuery = useTaskCommentsQuery(task.id, {
+    select: onlySource
+      ? (comments) => commentsForTarget(comments, onlySource.target)
+      : undefined,
+  });
   const prUrls = useMemo(
     () =>
       onlySource

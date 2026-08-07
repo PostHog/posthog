@@ -47,7 +47,10 @@ import {
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
-import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import {
+  commentsForTarget,
+  useTaskCommentsQuery,
+} from "@posthog/ui/features/sessions/components/useComments";
 import {
   MentionAvailabilityProvider,
   PRIVATE_SPACE_MENTIONS_DISABLED,
@@ -300,11 +303,10 @@ function CanvasBreadcrumb({
     dashboard?.generationTaskId,
     versions,
   );
-  const comments = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
-    commentTaskId ?? "",
-    { live: true },
-  );
+  const comments = useTaskCommentsQuery(commentTaskId ?? "", {
+    enabled: !!commentTaskId,
+    select: (taskComments) => commentsForTarget(taskComments, commentTarget),
+  });
   const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
     (thread) => !thread.resolved,
   ).length;

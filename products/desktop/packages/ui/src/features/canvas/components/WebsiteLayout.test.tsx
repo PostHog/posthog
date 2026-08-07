@@ -56,7 +56,8 @@ vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useCanvasVersions: () => ({ versions: [{ taskId: "version-task" }] }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
-  useCommentsQuery: () => ({
+  commentsForTarget: (comments: unknown[]) => comments,
+  useTaskCommentsQuery: () => ({
     data: [
       {
         id: "comment-1",

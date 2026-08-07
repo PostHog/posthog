@@ -96,7 +96,8 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("./useComments", () => ({
-  useCommentsQuery: () => ({
+  commentsForTarget: (comments: ResourceComment[]) => comments,
+  useTaskCommentsQuery: () => ({
     data: artifactComments.data,
     isLoading: false,
     isError: artifactComments.isError,

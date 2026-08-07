@@ -42,7 +42,11 @@ import {
   type CommentLocateRequest,
   type HighlightResolution,
 } from "./commentViewTypes";
-import { useCommentsQuery, useCreateComment } from "./useComments";
+import {
+  commentsForTarget,
+  useCreateComment,
+  useTaskCommentsQuery,
+} from "./useComments";
 
 const MARKDOWN_EXTENSIONS = new Set(["md", "mdx", "markdown"]);
 const HTML_EXTENSIONS = new Set(["html", "htm"]);
@@ -109,8 +113,9 @@ export function ArtifactPreview({
     () => ({ scope: "task_artifact", itemId: artifactId }),
     [artifactId],
   );
-  const commentsQuery = useCommentsQuery(commentTarget, taskId, {
+  const commentsQuery = useTaskCommentsQuery(taskId, {
     enabled: commentsEnabled,
+    select: (comments) => commentsForTarget(comments, commentTarget),
   });
   const { members } = useOrgMembers({ enabled: commentsEnabled });
   const createComment = useCreateComment(commentTarget, taskId);

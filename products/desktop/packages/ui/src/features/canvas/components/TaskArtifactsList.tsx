@@ -27,10 +27,7 @@ import {
 } from "@posthog/quill";
 import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
-import {
-  buildRows,
-  commentTargets,
-} from "@posthog/ui/features/canvas/components/taskArtifactRows";
+import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
@@ -39,7 +36,7 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
-import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import { useTaskCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -323,10 +320,7 @@ export function TaskArtifactsList({
     () => buildRows(task, timeline, runs),
     [task, timeline, runs],
   );
-  // One query for every row's badge, so N resources cost one request rather
-  // than one per row. The threads themselves live in the Comments tab.
-  const targets = useMemo(() => commentTargets(rows), [rows]);
-  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
+  const commentsQuery = useTaskCommentsQuery(task.id, {
     enabled: commentsEnabled,
   });
   const comments = commentsEnabled

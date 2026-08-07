@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   setResolved: vi.fn(),
   createdFor: [] as unknown[],
   resolvedFor: [] as unknown[],
-  queriedTargets: [] as unknown[],
+  queriedTaskIds: [] as string[],
   prCommentUrls: [] as string[],
   prReviewUrls: [] as string[],
   prTitleUrls: [] as string[],
@@ -113,21 +113,24 @@ vi.mock("@posthog/ui/features/code-review/hooks/usePrCommentActions", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
+  commentsForTarget: (
+    comments: ResourceComment[],
+    target: { scope: string; itemId: string },
+  ) =>
+    comments.filter(
+      (comment) =>
+        comment.scope === target.scope && comment.item_id === target.itemId,
+    ),
   isOptimisticComment: (comment: ResourceComment) =>
     comment.id.startsWith("optimistic-"),
-  useCommentsQuery: (target: unknown) => {
-    if (target) mocks.queriedTargets.push([target]);
+  useTaskCommentsQuery: (
+    taskId: string,
+    options?: { select?: (comments: ResourceComment[]) => ResourceComment[] },
+  ) => {
+    mocks.queriedTaskIds.push(taskId);
+    const comments = mocks.comments as ResourceComment[];
     return {
-      data: mocks.comments,
-      isLoading: false,
-    };
-  },
-  useCommentsForTargetsQuery: (targets: unknown) => {
-    if (Array.isArray(targets) && targets.length > 0) {
-      mocks.queriedTargets.push(targets);
-    }
-    return {
-      data: mocks.comments,
+      data: options?.select ? options.select(comments) : comments,
       isLoading: false,
     };
   },
@@ -244,7 +247,7 @@ describe("TaskCommentsList", () => {
     mocks.setResolved.mockReset();
     mocks.createdFor = [];
     mocks.resolvedFor = [];
-    mocks.queriedTargets = [];
+    mocks.queriedTaskIds = [];
     mocks.prCommentUrls = [];
     mocks.prReviewUrls = [];
     mocks.prTitleUrls = [];
@@ -308,9 +311,7 @@ describe("TaskCommentsList", () => {
       />,
     );
 
-    expect(mocks.queriedTargets.at(-1)).toEqual([
-      { scope: "desktop_canvas", itemId: "canvas-1" },
-    ]);
+    expect(mocks.queriedTaskIds.at(-1)).toBe("task-1");
     expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
     expect(screen.getByText("“important copy”")).toBeInTheDocument();
     expect(screen.getByText("V2 ·")).toBeInTheDocument();
@@ -386,10 +387,7 @@ describe("TaskCommentsList", () => {
 
     render(<TaskCommentsList task={task} timeline={timeline} />);
 
-    expect(mocks.queriedTargets.at(-1)).toContainEqual({
-      scope: "desktop_canvas",
-      itemId: "canvas-1",
-    });
+    expect(mocks.queriedTaskIds.at(-1)).toBe("task-1");
     expect(screen.getByText("Linked canvas feedback")).toBeInTheDocument();
   });
 
@@ -764,7 +762,7 @@ describe("TaskCommentsList", () => {
     );
   });
 
-  it("polls at most 20 artifact comment targets plus the task", () => {
+  it("shows comments beyond the first 20 artifacts from one task query", () => {
     mocks.runs = [
       run(
         Array.from({ length: 25 }, (_, index) =>
@@ -776,18 +774,19 @@ describe("TaskCommentsList", () => {
         ),
       ),
     ];
+    mocks.comments = [
+      comment({
+        item_id: "artifact-24",
+        content: "Feedback on the last artifact",
+      }),
+    ];
 
     render(<TaskCommentsList task={task} timeline={[]} />);
 
-    const queriedTargets = mocks.queriedTargets.at(-1) as Array<{
-      scope: string;
-      itemId: string;
-    }>;
-    expect(queriedTargets).toHaveLength(21);
-    expect(queriedTargets[0]).toEqual({
-      scope: "task",
-      itemId: "task-1",
-    });
+    expect(mocks.queriedTaskIds).toEqual(["task-1"]);
+    expect(
+      screen.getByText("Feedback on the last artifact"),
+    ).toBeInTheDocument();
   });
 
   it("loads GitHub comments for at most four PRs at once", () => {

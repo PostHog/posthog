@@ -2,10 +2,7 @@ import type {
   CreateResourceCommentRequest,
   ResourceComment,
 } from "@posthog/api-client/posthog-client";
-import {
-  type CommentTarget,
-  commentTargetKey,
-} from "@posthog/core/comments/anchors";
+import type { CommentTarget } from "@posthog/core/comments/anchors";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -17,89 +14,22 @@ import {
 } from "@posthog/ui/features/auth/store";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { toast } from "@posthog/ui/primitives/toast";
-import {
-  type QueryClient,
-  type QueryKey,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-function commentsQueryKey(
+function taskCommentsQueryKey(
   authIdentity: string | null,
-  target: CommentTarget | null,
   taskId: string,
-) {
-  return [
-    "comments",
-    authIdentity,
-    taskId,
-    target?.scope ?? "",
-    target?.itemId ?? "",
-  ] as const;
+): readonly ["comments", string | null, string] {
+  return ["comments", authIdentity, taskId];
 }
 
-/**
- * Whether a cached comment list contains the target's comments — true for the
- * target's own single-resource query and for any fan-out query whose set
- * includes it. Both key shapes spell the target out, so this needs no cache
- * contents. Matching per target rather than on the `["comments"]` prefix keeps
- * an optimistic write out of other resources' caches.
- */
-export function commentCacheCoversTarget(
-  queryKey: readonly unknown[],
+export function commentsForTarget(
+  comments: ResourceComment[],
   target: CommentTarget,
-): boolean {
-  if (queryKey[0] !== "comments") return false;
-  if (queryKey[1] === "targets") {
-    return String(queryKey[4] ?? "")
-      .split(",")
-      .includes(commentTargetKey(target));
-  }
-  return queryKey[3] === target.scope && queryKey[4] === target.itemId;
-}
-
-/** Filter for every cached comment list an optimistic write has to patch. */
-function commentCachesCoveringTarget(target: CommentTarget) {
-  return {
-    queryKey: ["comments"] as const,
-    predicate: (query: { queryKey: readonly unknown[] }) =>
-      commentCacheCoversTarget(query.queryKey, target),
-  };
-}
-
-type CommentCacheFilter = ReturnType<typeof commentCachesCoveringTarget>;
-type CommentCacheSnapshot = [QueryKey, ResourceComment[] | undefined][];
-
-/** Only patches lists that have already loaded: appending to a pending query
- *  would fabricate a result its own fetch is about to replace. */
-function appendOptimisticComment(
-  queryClient: QueryClient,
-  caches: CommentCacheFilter,
-  optimistic: ResourceComment,
-) {
-  queryClient.setQueriesData<ResourceComment[]>(caches, (current) =>
-    current ? [...current, optimistic] : current,
-  );
-}
-
-function restoreCommentCaches(
-  queryClient: QueryClient,
-  snapshot: CommentCacheSnapshot | undefined,
-) {
-  for (const [queryKey, comments] of snapshot ?? []) {
-    queryClient.setQueryData(queryKey, comments);
-  }
-}
-
-function replaceOptimisticComment(
-  queryClient: QueryClient,
-  caches: CommentCacheFilter,
-  optimisticId: string,
-  saved: ResourceComment,
-) {
-  queryClient.setQueriesData<ResourceComment[]>(caches, (current) =>
-    current?.map((comment) => (comment.id === optimisticId ? saved : comment)),
+): ResourceComment[] {
+  return comments.filter(
+    (comment) =>
+      comment.scope === target.scope && comment.item_id === target.itemId,
   );
 }
 
@@ -107,51 +37,24 @@ export function isOptimisticComment(comment: ResourceComment): boolean {
   return comment.id.startsWith("optimistic-");
 }
 
-export function useCommentsQuery(
-  target: CommentTarget | null,
+export function useTaskCommentsQuery<TData = ResourceComment[]>(
   taskId: string,
-  options: { enabled?: boolean; live?: boolean } = {},
+  options: {
+    enabled?: boolean;
+    refetchInterval?: number | false;
+    select?: (comments: ResourceComment[]) => TData;
+  } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   return useQuery({
-    queryKey: commentsQueryKey(authIdentity, target, taskId),
-    queryFn: () =>
-      target
-        ? service.getResourceComments(target, taskId)
-        : Promise.resolve([]),
-    enabled: options.enabled !== false && authIdentity !== null && !!target,
+    queryKey: taskCommentsQueryKey(authIdentity, taskId),
+    queryFn: () => service.getTaskComments(taskId),
+    enabled: options.enabled !== false && authIdentity !== null && !!taskId,
     staleTime: 3_000,
-    refetchInterval: options.live === false ? false : 5_000,
+    refetchInterval: options.refetchInterval ?? 15_000,
     refetchIntervalInBackground: false,
-    meta: AUTH_SCOPED_QUERY_META,
-  });
-}
-
-/**
- * One query for every comment across a set of resources. The service does the
- * fan-out, so this stays a single-query hook and the pane makes one request
- * instead of one per row. `live: false` by default — a list of N resources must
- * never turn into N polling loops, and `intervalMs` lets a live caller pick a
- * cadence that accounts for the fan-out rather than inheriting a per-row one.
- */
-export function useCommentsForTargetsQuery(
-  targets: CommentTarget[],
-  taskId: string,
-  options: { enabled?: boolean; live?: boolean; intervalMs?: number } = {},
-) {
-  const service = useService<SessionService>(SESSION_SERVICE);
-  const authIdentity = useAuthStateValue(getAuthIdentity);
-  // Sorted so key identity tracks the set, not row order.
-  const key = targets.map(commentTargetKey).sort().join(",");
-  return useQuery({
-    queryKey: ["comments", "targets", authIdentity, taskId, key] as const,
-    queryFn: () => service.getResourceCommentsForTargets(targets, taskId),
-    enabled:
-      options.enabled !== false && authIdentity !== null && targets.length > 0,
-    staleTime: 3_000,
-    refetchInterval: options.live ? (options.intervalMs ?? 5_000) : false,
-    refetchIntervalInBackground: false,
+    select: options.select,
     meta: AUTH_SCOPED_QUERY_META,
   });
 }
@@ -163,7 +66,8 @@ export function useCommentsForTargetsQuery(
 export function useCreateComment(target: CommentTarget, taskId?: string) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const queryClient = useQueryClient();
-  const caches = commentCachesCoveringTarget(target);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const queryKey = taskCommentsQueryKey(authIdentity, taskId ?? "");
   const contextWithTask = (context: unknown) =>
     taskId ? { ...(context as Record<string, unknown>), taskId } : context;
 
@@ -177,8 +81,8 @@ export function useCreateComment(target: CommentTarget, taskId?: string) {
         context: contextWithTask(request.context),
       }),
     onMutate: async (request) => {
-      await queryClient.cancelQueries(caches);
-      const previous = queryClient.getQueriesData<ResourceComment[]>(caches);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const previous = queryClient.getQueryData<ResourceComment[]>(queryKey);
       const optimistic: ResourceComment = {
         id: `optimistic-${crypto.randomUUID()}`,
         created_by: null,
@@ -190,31 +94,33 @@ export function useCreateComment(target: CommentTarget, taskId?: string) {
         source_comment: request.sourceCommentId ?? null,
         completed_at: null,
       };
-      appendOptimisticComment(queryClient, caches, optimistic);
+      queryClient.setQueryData<ResourceComment[]>(queryKey, (current) =>
+        current ? [...current, optimistic] : current,
+      );
       return { previous, optimisticId: optimistic.id };
     },
     onSuccess: (saved, _request, context) => {
-      replaceOptimisticComment(
-        queryClient,
-        caches,
-        context.optimisticId,
-        saved,
+      queryClient.setQueryData<ResourceComment[]>(queryKey, (current) =>
+        current?.map((comment) =>
+          comment.id === context.optimisticId ? saved : comment,
+        ),
       );
     },
     onError: (_error, _request, context) => {
-      restoreCommentCaches(queryClient, context?.previous);
+      queryClient.setQueryData(queryKey, context?.previous);
       toast.error("Couldn't save comment", {
         description: "Try again.",
       });
     },
-    onSettled: () => queryClient.invalidateQueries(caches),
+    onSettled: () => queryClient.invalidateQueries({ queryKey, exact: true }),
   });
 }
 
-export function useSetCommentResolved(target: CommentTarget) {
+export function useSetCommentResolved(target: CommentTarget, taskId: string) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const queryClient = useQueryClient();
-  const caches = commentCachesCoveringTarget(target);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const queryKey = taskCommentsQueryKey(authIdentity, taskId);
 
   return useMutation({
     mutationFn: ({
@@ -239,8 +145,8 @@ export function useSetCommentResolved(target: CommentTarget) {
       });
     },
     onMutate: async ({ root, resolved }) => {
-      await queryClient.cancelQueries(caches);
-      const previous = queryClient.getQueriesData<ResourceComment[]>(caches);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const previous = queryClient.getQueryData<ResourceComment[]>(queryKey);
       const rootContext =
         root.item_context && typeof root.item_context === "object"
           ? root.item_context
@@ -259,15 +165,17 @@ export function useSetCommentResolved(target: CommentTarget) {
         source_comment: root.id,
         completed_at: null,
       };
-      appendOptimisticComment(queryClient, caches, optimistic);
+      queryClient.setQueryData<ResourceComment[]>(queryKey, (current) =>
+        current ? [...current, optimistic] : current,
+      );
       return { previous };
     },
     onError: (_error, _variables, context) => {
-      restoreCommentCaches(queryClient, context?.previous);
+      queryClient.setQueryData(queryKey, context?.previous);
       toast.error("Couldn't update comment", {
         description: "Try again.",
       });
     },
-    onSettled: () => queryClient.invalidateQueries(caches),
+    onSettled: () => queryClient.invalidateQueries({ queryKey, exact: true }),
   });
 }

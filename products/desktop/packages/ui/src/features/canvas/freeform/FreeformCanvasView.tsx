@@ -55,7 +55,10 @@ import {
   buildCommentThreads,
   readCommentContext,
 } from "@posthog/ui/features/sessions/components/commentViewTypes";
-import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import {
+  commentsForTarget,
+  useTaskCommentsQuery,
+} from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
@@ -332,10 +335,10 @@ export function FreeformCanvasView({
     () => ({ scope: "desktop_canvas" as const, itemId: dashboardId }),
     [dashboardId],
   );
-  const commentsQuery = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
-    commentTaskId ?? "",
-  );
+  const commentsQuery = useTaskCommentsQuery(commentTaskId ?? "", {
+    enabled: !!commentTaskId,
+    select: (comments) => commentsForTarget(comments, commentTarget),
+  });
   const focusedCommentId = useCommentNavigationStore(
     (state) => state.focusByTask[commentTaskId ?? ""]?.threadId ?? null,
   );
