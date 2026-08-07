@@ -259,7 +259,10 @@ tools:
             source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live
             queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works.
             Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried.
-            Use this to discover valid connectionId values.
+            Use this to discover valid connectionId values. To then see what a connection holds, run execute-sql with
+            that connectionId and `SELECT table_name FROM system.information_schema.tables` (or
+            `system.information_schema.columns` for one table's columns) — a connection's tables are absent from the
+            default catalog, so this is the only way to list them.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
