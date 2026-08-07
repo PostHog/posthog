@@ -54,6 +54,10 @@ NON_RETRYABLE_ERRORS = [
     "InvalidNodeTypeException",
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
+    # An exposed HogQL error means the query itself is invalid (e.g. it references a Postgres-backed
+    # system table this environment can't reach). It fails identically on every attempt, so retrying
+    # only hides the message. materialize_view_activity re-raises these as QueryError.
+    "QueryError",
 ]
 
 

@@ -14,6 +14,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.resolver import ResolverFactory
 
 from posthog.sync import database_sync_to_async
@@ -844,6 +845,44 @@ class TestMaterializeViewActivity:
         with pytest.raises(InvalidNodeTypeException, match="Cannot materialize a TABLE node"):
             await activity_environment.run(materialize_view_activity, inputs)
         await database_sync_to_async(table_node.delete)()
+
+    async def test_exposed_hogql_error_is_wrapped_as_query_error_naming_view(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        # A deterministic HogQL error (e.g. a system table this environment can't reach) must surface
+        # as a QueryError naming the view, so the workflow retry policy treats it as non-retryable
+        # rather than looping over a query that can never succeed.
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+
+            async def async_generator():
+                raise QueryError("Cannot query the `dashboards` table here.")
+                yield  # unreachable, but makes this an async generator
+
+            return async_generator()
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            with pytest.raises(QueryError) as exc_info:
+                await activity_environment.run(materialize_view_activity, inputs)
+        message = str(exc_info.value)
+        assert anode.name in message
+        assert "dashboards" in message
 
     async def test_materializes_view_to_delta_table(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

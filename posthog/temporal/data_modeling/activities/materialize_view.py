@@ -17,7 +17,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ParsingError
+from posthog.hogql.errors import ExposedHogQLError, ParsingError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -523,33 +523,39 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         # batch (hogql_table yields ~100MB combined batches) and, because each write is a
         # brief to_thread released between batches, never pins a worker thread for the whole
         # read — which is what starved the shared executor that heartbeats/db/logging use.
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
-            batch = _transform_unsupported_decimals(batch)
-            batch = _transform_date_and_datetimes(batch, ch_types)
-            batch = _force_nullable(batch)
-            if delta_table is None:
-                pa_schema = batch.schema
-                await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=table_uri,
-                    data=batch,
-                    mode="overwrite",
-                    schema_mode="overwrite",
-                    storage_options=storage_options,
-                )
-                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-            else:
-                await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=delta_table,
-                    data=batch,
-                    mode="append",
-                    schema_mode="merge",
-                    storage_options=storage_options,
-                )
-            row_count = row_count + batch.num_rows
-            objects.job.rows_materialized = row_count
-            await database_sync_to_async_pool(objects.job.save)()
+        try:
+            async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+                batch = _transform_unsupported_decimals(batch)
+                batch = _transform_date_and_datetimes(batch, ch_types)
+                batch = _force_nullable(batch)
+                if delta_table is None:
+                    pa_schema = batch.schema
+                    await asyncio.to_thread(
+                        deltalake.write_deltalake,
+                        table_or_uri=table_uri,
+                        data=batch,
+                        mode="overwrite",
+                        schema_mode="overwrite",
+                        storage_options=storage_options,
+                    )
+                    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+                else:
+                    await asyncio.to_thread(
+                        deltalake.write_deltalake,
+                        table_or_uri=delta_table,
+                        data=batch,
+                        mode="append",
+                        schema_mode="merge",
+                        storage_options=storage_options,
+                    )
+                row_count = row_count + batch.num_rows
+                objects.job.rows_materialized = row_count
+                await database_sync_to_async_pool(objects.job.save)()
+        except ExposedHogQLError as e:
+            # A HogQL error the user can act on (invalid query, an unreachable system table). Name the
+            # view so the failure record is actionable, and re-raise as QueryError so the workflow's
+            # retry policy treats it as non-retryable instead of looping over a query that can't succeed.
+            raise QueryError(f"Could not materialize view `{objects.node.name}`: {e}") from e
 
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
         file_uris = []

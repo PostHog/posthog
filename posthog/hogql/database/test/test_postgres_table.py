@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 from django.apps import apps
 from django.db.models import ForeignKey, Model
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.urls import get_resolver
 
 from parameterized import parameterized
@@ -23,6 +23,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable, build_function_call
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -189,6 +190,15 @@ class TestPostgresTable(BaseTest):
         default_ctx = HogQLContext(team_id=self.team.pk)
         build_function_call("posthog_dashboard", default_ctx)
         assert not any(str(v).endswith("_persons") for v in default_ctx.values.values())
+
+    @override_settings(DEBUG=False, TEST=False, CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST="")
+    def test_missing_rdsproxy_settings_raise_query_error_naming_table(self):
+        # Outside DEBUG/TEST, a Postgres-backed table can't resolve without the proxy credentials.
+        # The failure must be an exposed QueryError naming the table (a 400, and non-retryable in the
+        # data modeling worker), not an opaque ValueError that gets retried and mentions only an env var.
+        with self.assertRaises(QueryError) as ctx:
+            build_function_call("posthog_dashboard", None, hogql_table_name="dashboards")
+        assert "`dashboards`" in str(ctx.exception)
 
     def test_select(self):
         self._init_database()

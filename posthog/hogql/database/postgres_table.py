@@ -8,6 +8,7 @@ from psycopg.conninfo import conninfo_to_dict
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
@@ -25,7 +26,11 @@ def _pk_column_for_pg_table(postgres_table_name: str) -> Optional[str]:
         return connection.introspection.get_primary_key_column(cursor, postgres_table_name)
 
 
-def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
+def build_function_call(
+    postgres_table_name: str,
+    context: Optional[HogQLContext] = None,
+    hogql_table_name: Optional[str] = None,
+):
     raw_params: dict[str, str] = {}
 
     def add_param(value: str, is_sensitive: bool = True) -> str:
@@ -73,7 +78,15 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
         password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
 
         if not host_var or not port_var or not database_var or not user_var or not password_var:
-            raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars missing to create postgresql link from clickhouse")
+            # Deterministic: without the proxy credentials this table can never resolve here, so raise
+            # an exposed QueryError (a 400, not a 500) that names the table. In the data modeling worker
+            # this also stops Temporal from retrying a materialization that cannot succeed.
+            table_ref = hogql_table_name or postgres_table_name
+            raise QueryError(
+                f"Cannot query the `{table_ref}` table here. This environment is missing the "
+                f"CLICKHOUSE_HOGQL_RDSPROXY_READ_* settings needed to reach Postgres-backed system tables. "
+                f"Configure those settings on this worker, or remove `{table_ref}` from the query."
+            )
 
         address = add_param(f"{host_var}:{port_var}")
         db = add_param(database_var)
@@ -114,4 +127,4 @@ class PostgresTable(FunctionCallTable):
         return escape_hogql_identifier(self.name)
 
     def to_printed_clickhouse(self, context):
-        return build_function_call(self.postgres_table_name, context)
+        return build_function_call(self.postgres_table_name, context, hogql_table_name=self.name)
