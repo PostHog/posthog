@@ -139,7 +139,7 @@ const PRODUCT_CAPTURE_OPTIONS: Record<string, CaptureOption[]> = {
         { label: 'Heatmaps', field: 'heatmaps_opt_in', get: (t) => !!t.heatmaps_opt_in },
         { label: 'Dead clicks', field: 'capture_dead_clicks', get: (t) => !!t.capture_dead_clicks },
     ],
-    Surveys: [{ label: 'Survey popups', field: 'surveys_opt_in', get: (t) => !!t.surveys_opt_in }],
+    Surveys: [{ label: 'Survey popups', field: 'surveys_opt_in', get: (t) => t.surveys_opt_in !== false }],
     Logs: [
         {
             label: 'Console log capture',
