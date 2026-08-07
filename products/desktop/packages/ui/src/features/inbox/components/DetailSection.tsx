@@ -1,11 +1,17 @@
 import type { IconProps } from "@phosphor-icons/react";
-import { Flex, Text } from "@radix-ui/themes";
-import type { ComponentType, ReactNode } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Text,
+} from "@posthog/quill";
+import type { ComponentType, ReactElement, ReactNode } from "react";
 
 interface DetailSectionProps {
   Icon: ComponentType<IconProps>;
   title: string;
   rightSlot?: ReactNode;
+  defaultOpen?: boolean;
   children: ReactNode;
 }
 
@@ -13,26 +19,31 @@ export function DetailSection({
   Icon,
   title,
   rightSlot,
+  defaultOpen = true,
   children,
-}: DetailSectionProps) {
+}: DetailSectionProps): ReactElement {
   return (
-    <Flex direction="column" gap="3">
-      <Flex
-        align="center"
-        justify="between"
-        gap="3"
-        className="min-w-0 cursor-default select-none"
-      >
-        <Flex align="center" gap="2" className="min-w-0">
-          <Icon size={15} weight="bold" className="shrink-0 text-gray-11" />
-          <Text className="truncate font-semibold text-[14px] text-gray-12 tracking-[-0.01em]">
+    <Collapsible
+      defaultOpen={defaultOpen}
+      variant="folder"
+      className="flex flex-col gap-3"
+    >
+      <div className="flex min-w-0 select-none items-center gap-3">
+        <CollapsibleTrigger className="min-w-0 flex-1 text-left">
+          <Icon weight="bold" aria-hidden />
+          <Text
+            render={<span />}
+            size="sm"
+            weight="semibold"
+            className="truncate tracking-[-0.01em]"
+          >
             {title}
           </Text>
-        </Flex>
-        <div className="h-px min-w-4 flex-1 bg-(--gray-5)" />
-        {rightSlot && <div className="shrink-0">{rightSlot}</div>}
-      </Flex>
-      <div>{children}</div>
-    </Flex>
+          <div className="h-px min-w-4 flex-1 bg-(--gray-5)" />
+        </CollapsibleTrigger>
+        {rightSlot != null && <div className="shrink-0">{rightSlot}</div>}
+      </div>
+      <CollapsibleContent>{children}</CollapsibleContent>
+    </Collapsible>
   );
 }

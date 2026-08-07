@@ -1,11 +1,17 @@
 import type { IconProps } from "@phosphor-icons/react";
-import { Flex, Text } from "@radix-ui/themes";
-import type { ComponentType, ReactNode } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Text,
+} from "@posthog/quill";
+import type { ComponentType, ReactElement, ReactNode } from "react";
 
 interface RightColumnSectionProps {
   Icon: ComponentType<IconProps>;
   title: string;
   rightSlot?: ReactNode;
+  defaultOpen?: boolean;
   children: ReactNode;
 }
 
@@ -19,25 +25,31 @@ export function RightColumnSection({
   Icon,
   title,
   rightSlot,
+  defaultOpen = true,
   children,
-}: RightColumnSectionProps) {
+}: RightColumnSectionProps): ReactElement {
   return (
-    <Flex direction="column" gap="2">
-      <Flex
-        align="center"
-        justify="between"
-        gap="2"
-        className="cursor-default select-none text-gray-10"
-      >
-        <Flex align="center" gap="2">
-          <Icon size={12} className="shrink-0" />
-          <Text className="font-medium text-[11px] uppercase tracking-[0.06em]">
+    <Collapsible
+      defaultOpen={defaultOpen}
+      variant="folder"
+      className="flex flex-col gap-2"
+    >
+      <div className="flex select-none items-center gap-2 text-gray-10">
+        <CollapsibleTrigger className="min-w-0 flex-1 text-left">
+          <Icon className="shrink-0" aria-hidden />
+          <Text
+            render={<span />}
+            size="xxs"
+            variant="muted"
+            weight="medium"
+            className="uppercase tracking-[0.06em]"
+          >
             {title}
           </Text>
-        </Flex>
-        {rightSlot && <div className="shrink-0">{rightSlot}</div>}
-      </Flex>
-      <div>{children}</div>
-    </Flex>
+        </CollapsibleTrigger>
+        {rightSlot != null && <div className="shrink-0">{rightSlot}</div>}
+      </div>
+      <CollapsibleContent>{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
