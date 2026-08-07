@@ -1,6 +1,6 @@
 # Migrating CDP hog function templates from Python to Node
 
-Status: proposed, not started.
+Status: in progress — 24 of the 42 destinations moved.
 Owner: #team-cdp.
 
 Working doc for moving the 52 hog function templates that still live in `posthog/cdp/templates/` over to
@@ -314,7 +314,7 @@ notice a template that stopped existing in Python.
 
 - [ ] 0.1 Normalize `mapping_templates` nulls in `sync_template_to_db`
 - [ ] 0.2 Site template harness in Node (decide transpile approach first)
-- [ ] 0.3 Decouple `hooks.py` from `template_zapier`
+- [x] 0.3 Decouple `hooks.py` from `template_zapier`
 - [ ] 0.4 Production check on the ten migrator plugin URLs, then delete the migrators
 - [ ] 0.5 Parity check test (Python and Node id sets disjoint)
 
@@ -322,47 +322,47 @@ notice a template that stopped existing in Python.
 
 | ✓ | sha? | Template | Python source | Status | Test LOC | Migrator |
 | --- | --- | --- | --- | --- | --- | --- |
-| ☐ | ☐ | `template-customerio` | `customerio/template_customerio.py` | stable | 240 | yes |
-| ☐ | ☐ | `template-slack` | `slack/template_slack.py` | stable | 62 | — |
-| ☐ | ☐ | `template-activecampaign` | `activecampaign/template_activecampaign.py` | beta | 51 | — |
-| ☐ | ☐ | `template-airtable` | `airtable/template_airtable.py` | beta | 61 | — |
-| ☐ | ☐ | `template-attio` | `attio/template_attio.py` | beta | 62 | — |
+| ✅ | ✅ | `template-customerio` | `customerio/template_customerio.py` | stable | 240 | yes |
+| ✅ | ✅ | `template-slack` | `slack/template_slack.py` | stable | 62 | — |
+| ✅ | ✅ | `template-activecampaign` | `activecampaign/template_activecampaign.py` | beta | 51 | — |
+| ✅ | ✅ | `template-airtable` | `airtable/template_airtable.py` | beta | 61 | — |
+| ✅ | ✅ | `template-attio` | `attio/template_attio.py` | beta | 62 | — |
 | ☐ | ☐ | `template-avo` | `avo/template_avo.py` | beta | 231 | yes |
-| ☐ | ☐ | `template-aws-kinesis` | `aws_kinesis/template_aws_kinesis.py` | beta | 44 | — |
-| ☐ | ☐ | `template-braze` | `braze/template_braze.py` | beta | 47 | — |
-| ☐ | ☐ | `template-brevo` | `brevo/template_brevo.py` | stable | 41 | — |
-| ☐ | ☐ | `template-clearbit` | `clearbit/template_clearbit.py` | beta | 91 | — |
-| ☐ | ☐ | `template-discord` | `discord/template_discord.py` | stable | 64 | — |
-| ☐ | ☐ | `template-engage-so` | `engage/template_engage.py` | beta | 32 | yes |
-| ☐ | ☐ | `template-gleap` | `gleap/template_gleap.py` | beta | 77 | — |
-| ☐ | ☐ | `template-google-cloud-storage` | `google_cloud_storage/template_google_cloud_storage.py` | beta | 107 | yes |
-| ☐ | ☐ | `template-google-pubsub` | `google_pubsub/template_google_pubsub.py` | beta | 119 | yes |
+| ✅ | ✅ | `template-aws-kinesis` | `aws_kinesis/template_aws_kinesis.py` | beta | 44 | — |
+| ✅ | ✅ | `template-braze` | `braze/template_braze.py` | beta | 47 | — |
+| ✅ | ✅ | `template-brevo` | `brevo/template_brevo.py` | stable | 41 | — |
+| ✅ | ✅ | `template-clearbit` | `clearbit/template_clearbit.py` | beta | 91 | — |
+| ✅ | ✅ | `template-discord` | `discord/template_discord.py` | stable | 64 | — |
+| ✅ | ✅ | `template-engage-so` | `engage/template_engage.py` | beta | 32 | yes |
+| ✅ | ✅ | `template-gleap` | `gleap/template_gleap.py` | beta | 77 | — |
+| ✅ | ✅ | `template-google-cloud-storage` | `google_cloud_storage/template_google_cloud_storage.py` | beta | 107 | yes |
+| ✅ | ✅ | `template-google-pubsub` | `google_pubsub/template_google_pubsub.py` | beta | 119 | yes |
 | ☐ | ☐ | `template-hubspot` | `hubspot/template_hubspot.py` | stable | 443 | yes |
 | ☐ | ☐ | `template-hubspot-event` | `hubspot/template_hubspot.py` | stable | ↑ | yes |
-| ☐ | ☐ | `template-intercom` | `intercom/template_intercom.py` | stable | 390 | — |
-| ☐ | ☐ | `template-intercom-event` | `intercom/template_intercom.py` | stable | ↑ | — |
-| ☐ | ☐ | `template-june` | `june/template_june.py` | stable | 330 | — |
+| ✅ | ✅ | `template-intercom` | `intercom/template_intercom.py` | stable | 390 | — |
+| ✅ | ✅ | `template-intercom-event` | `intercom/template_intercom.py` | stable | ↑ | — |
+| ✅ | ✅ | `template-june` | `june/template_june.py` | stable | 330 | — |
 | ☐ | ☐ | `template-klaviyo-event` | `klaviyo/template_klaviyo.py` | stable | 197 | — |
 | ☐ | ☐ | `template-klaviyo-user` | `klaviyo/template_klaviyo.py` | stable | ↑ | — |
-| ☐ | ☐ | `template-knock` | `knock/template_knock.py` | beta | 108 | — |
-| ☐ | ☐ | `template-kudosity-sms` | `kudosity/template_kudosity.py` | beta | 117 | — |
+| ✅ | ✅ | `template-knock` | `knock/template_knock.py` | beta | 108 | — |
+| ✅ | ✅ | `template-kudosity-sms` | `kudosity/template_kudosity.py` | beta | 117 | — |
 | ☐ | ☐ | `template-loops` | `loops/template_loops.py` | stable | 175 | yes |
 | ☐ | ☐ | `template-loops-event` | `loops/template_loops.py` | stable | ↑ | yes |
 | ☐ | ☐ | `template-mailgun-send-email` | `mailgun/template_mailgun.py` | beta | 103 | — |
 | ☐ | ☐ | `template-mailjet-create-contact` | `mailjet/template_mailjet.py` | beta | 50 | — |
 | ☐ | ☐ | `template-mailjet-update-contact-list` | `mailjet/template_mailjet.py` | beta | ↑ | — |
-| ☐ | ☐ | `template-make` | `make/template_make.py` | stable | 63 | — |
+| ✅ | ✅ | `template-make` | `make/template_make.py` | stable | 63 | — |
 | ☐ | ☐ | `template-meta-ads` | `meta_ads/template_meta_ads.py` | alpha | 169 | — |
-| ☐ | ☐ | `template-microsoft-teams` | `microsoft_teams/template_microsoft_teams.py` | stable | 98 | — |
-| ☐ | ☐ | `template-onesignal` | `onesignal/template_onesignal.py` | beta | 64 | — |
+| ✅ | ✅ | `template-microsoft-teams` | `microsoft_teams/template_microsoft_teams.py` | stable | 98 | — |
+| ✅ | ✅ | `template-onesignal` | `onesignal/template_onesignal.py` | beta | 64 | — |
 | ☐ | ☐ | `template-posthog-replicator` | `posthog/template_posthog.py` | stable | 110 | yes |
 | ☐ | ☐ | `template-rudderstack` | `rudderstack/template_rudderstack.py` | beta | 133 | yes |
 | ☐ | ☐ | `template-salesforce-create` | `salesforce/template_salesforce.py` | beta | 162 | dead |
 | ☐ | ☐ | `template-salesforce-update` | `salesforce/template_salesforce.py` | beta | ↑ | dead |
 | ☐ | ☐ | `template-sendgrid` | `sendgrid/template_sendgrid.py` | beta | 180 | yes |
 | ☐ | ☐ | `template-userlist` | `userlist/template_userlist.py` | beta | 290 | — |
-| ☐ | ☐ | `template-zapier` | `zapier/template_zapier.py` | stable | 59 | — (needs 0.3) |
-| ☐ | ☐ | `template-zendesk` | `zendesk/template_zendesk.py` | beta | 58 | — |
+| ✅ | ✅ | `template-zapier` | `zapier/template_zapier.py` | stable | 59 | — (needs 0.3) |
+| ✅ | ✅ | `template-zendesk` | `zendesk/template_zendesk.py` | beta | 58 | — |
 | ☐ | ☐ | `template-mailchimp` | `mailchimp/template_mailchimp.py` | deprecated | 103 | — (delete instead?) |
 
 ### Phase 2 — site templates (10), blocked on 0.2
