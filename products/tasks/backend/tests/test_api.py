@@ -1437,7 +1437,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
         self.assertEqual(task.create_run().state["repositories"], task.repositories)
-        mock_find_warm_run.assert_not_called()
+        mock_find_warm_run.assert_called_once_with(
+            self.team.id,
+            self.user.id,
+            repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
+            github_integration_id=integration.id,
+            branch="main",
+            runtime_adapter=None,
+            model=None,
+            reasoning_effort=None,
+            sandbox_environment_id=None,
+            custom_image_id=None,
+        )
 
         update = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",

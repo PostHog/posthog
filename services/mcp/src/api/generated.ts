@@ -76208,6 +76208,12 @@ export namespace Schemas {
          */
       repository?: string | null;
       /**
+         * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+         * @maxItems 3
+         * @items.maxLength 255
+         */
+      repositories?: string[];
+      /**
          * Primary key of the team's GitHub integration to clone with when a repository is selected.
          * @nullable
          */
