@@ -304,10 +304,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # agent-server release), at most once per new digest.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/10"),
+        crontab(minute="*/2"),
         refresh_dev_stack_image_task.s(),
         name="refresh prebaked dev-stack VM image on base change",
-        expires_seconds=10 * 60,
+        expires_seconds=2 * 60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25

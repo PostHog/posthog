@@ -52,6 +52,7 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'inbox-reports-set-state',
     'llma-prompt-label-set',
     'opt-outs-add',
+    'opt-outs-remove',
     'organization-enforce-2fa',
     'organization-enforce-2fa-execute',
     'posthog-connection-forward-execute',
