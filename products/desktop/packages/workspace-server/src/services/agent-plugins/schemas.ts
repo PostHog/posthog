@@ -44,6 +44,20 @@ export const agentPluginHttpMcpServer = z.object({
   headers: z.record(z.string(), z.string()).optional(),
 });
 
+export const agentPluginStdioMcpServer = z.object({
+  name: z.string(),
+  type: z.literal("stdio"),
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  cwd: z.string().optional(),
+});
+
+export const agentPluginMcpServer = z.discriminatedUnion("type", [
+  agentPluginHttpMcpServer,
+  agentPluginStdioMcpServer,
+]);
+
 export const agentPluginMcpServerSummary = z.object({
   name: z.string(),
   type: z.enum(["streamable-http", "stdio", "sse"]),
@@ -97,6 +111,10 @@ export type AgentPluginDiagnostic = z.infer<typeof agentPluginDiagnostic>;
 export type AgentPluginManifest = z.infer<typeof agentPluginManifest>;
 export type AgentPluginSkill = z.infer<typeof agentPluginSkill>;
 export type AgentPluginHttpMcpServer = z.infer<typeof agentPluginHttpMcpServer>;
+export type AgentPluginStdioMcpServer = z.infer<
+  typeof agentPluginStdioMcpServer
+>;
+export type AgentPluginMcpServer = z.infer<typeof agentPluginMcpServer>;
 export type AgentPluginMcpServerSummary = z.infer<
   typeof agentPluginMcpServerSummary
 >;
@@ -111,6 +129,6 @@ export interface LoadedAgentPlugin {
   sourcePath: string;
   manifest: AgentPluginManifest | null;
   skills: AgentPluginSkill[];
-  mcpServers: AgentPluginHttpMcpServer[];
+  mcpServers: AgentPluginMcpServer[];
   diagnostics: AgentPluginDiagnostic[];
 }

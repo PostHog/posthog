@@ -8,7 +8,9 @@ import {
   type AgentPluginDiagnostic,
   type AgentPluginHttpMcpServer,
   type AgentPluginManifest,
+  type AgentPluginMcpServer,
   type AgentPluginSkill,
+  type AgentPluginStdioMcpServer,
   type LoadedAgentPlugin,
 } from "./schemas";
 
@@ -38,6 +40,11 @@ const PLUGIN_DATA_PLACEHOLDER = `\${PLUGIN_DATA}`;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isReservedStdioEnvironmentName(name: string): boolean {
+  const normalized = process.platform === "win32" ? name.toUpperCase() : name;
+  return normalized === "PLUGIN_ROOT" || normalized === "PLUGIN_DATA";
 }
 
 export function isPathContained(root: string, candidate: string): boolean {
@@ -624,102 +631,116 @@ function isValidStdioCwd(pluginRoot: string, value: string): boolean {
   return false;
 }
 
-async function isValidUnsupportedMcpServer(
-  pluginRoot: string,
-  value: Record<string, unknown>,
-): Promise<boolean> {
-  if (value.type === "sse") {
-    if (!hasOnlyFields(value, REMOTE_MCP_FIELDS)) return false;
-    if (typeof value.url !== "string") return false;
-    const headers = parseHttpHeaders(value.headers);
-    if (!headers) return false;
-    try {
-      const url = new URL(value.url);
-      return (
-        (url.protocol === "http:" || url.protocol === "https:") &&
-        url.username === "" &&
-        url.password === "" &&
-        url.hash === "" &&
-        (url.protocol === "https:" || isLoopbackHostname(url.hostname))
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  if (value.type !== "stdio" || !hasOnlyFields(value, STDIO_MCP_FIELDS)) {
+function isValidUnsupportedSseServer(value: Record<string, unknown>): boolean {
+  if (value.type !== "sse" || !hasOnlyFields(value, REMOTE_MCP_FIELDS)) {
     return false;
   }
-  if (typeof value.command !== "string" || value.command.length === 0) {
-    return false;
-  }
-  const isPluginCommand = value.command.startsWith("./");
-  const isBareCommand =
-    !value.command.includes("/") &&
-    !value.command.includes("\\") &&
-    !/\s/.test(value.command);
-  if (!isPluginCommand && !isBareCommand) return false;
-  if (isPluginCommand) {
-    if (!isContainedPluginPath(pluginRoot, value.command)) return false;
-    try {
-      const resolvedCommand = await fs.promises.realpath(
-        path.resolve(pluginRoot, value.command),
-      );
-      if (!isPathContained(pluginRoot, resolvedCommand)) return false;
-      if (!(await fs.promises.stat(resolvedCommand)).isFile()) return false;
-    } catch {
-      return false;
-    }
-  }
-  if (
-    value.args !== undefined &&
-    (!Array.isArray(value.args) ||
-      !value.args.every((argument) => typeof argument === "string"))
-  ) {
-    return false;
-  }
-  if (value.env !== undefined) {
-    if (
-      !isObject(value.env) ||
-      Object.keys(value.env).some(
-        (name) => name === "PLUGIN_ROOT" || name === "PLUGIN_DATA",
-      ) ||
-      !Object.values(value.env).every(
-        (environmentValue) => typeof environmentValue === "string",
-      )
-    ) {
-      return false;
-    }
-  }
-  if (value.cwd === undefined) return true;
-  if (
-    typeof value.cwd !== "string" ||
-    !isValidStdioCwd(pluginRoot, value.cwd)
-  ) {
-    return false;
-  }
-  if (value.cwd.startsWith(PLUGIN_DATA_PLACEHOLDER)) return true;
-
-  const relativeCwd = value.cwd.startsWith(PLUGIN_ROOT_PLACEHOLDER)
-    ? `.${value.cwd.slice(PLUGIN_ROOT_PLACEHOLDER.length)}`
-    : value.cwd;
+  if (typeof value.url !== "string") return false;
+  const headers = parseHttpHeaders(value.headers);
+  if (!headers) return false;
   try {
-    const resolvedCwd = await fs.promises.realpath(
-      path.resolve(pluginRoot, relativeCwd),
-    );
+    const url = new URL(value.url);
     return (
-      isPathContained(pluginRoot, resolvedCwd) &&
-      (await fs.promises.stat(resolvedCwd)).isDirectory()
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.username === "" &&
+      url.password === "" &&
+      url.hash === "" &&
+      (url.protocol === "https:" || isLoopbackHostname(url.hostname))
     );
   } catch {
     return false;
   }
 }
 
+async function parseStdioMcpServer(
+  pluginRoot: string,
+  serverName: string,
+  value: Record<string, unknown>,
+): Promise<AgentPluginStdioMcpServer | null> {
+  if (value.type !== "stdio" || !hasOnlyFields(value, STDIO_MCP_FIELDS)) {
+    return null;
+  }
+  if (typeof value.command !== "string" || value.command.length === 0) {
+    return null;
+  }
+
+  const isPluginCommand = value.command.startsWith("./");
+  const isBareCommand =
+    !value.command.includes("/") &&
+    !value.command.includes("\\") &&
+    !/\s/.test(value.command);
+  if (!isPluginCommand && !isBareCommand) return null;
+  if (isPluginCommand) {
+    if (!isContainedPluginPath(pluginRoot, value.command)) return null;
+    try {
+      const commandPath = path.resolve(pluginRoot, value.command);
+      const commandLstat = await fs.promises.lstat(commandPath);
+      if (commandLstat.isSymbolicLink() || !commandLstat.isFile()) return null;
+      const resolvedCommand = await fs.promises.realpath(commandPath);
+      if (!isPathContained(pluginRoot, resolvedCommand)) return null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (
+    value.args !== undefined &&
+    (!Array.isArray(value.args) ||
+      !value.args.every((argument) => typeof argument === "string"))
+  ) {
+    return null;
+  }
+  if (
+    value.env !== undefined &&
+    (!isObject(value.env) ||
+      Object.keys(value.env).some(isReservedStdioEnvironmentName) ||
+      !Object.values(value.env).every(
+        (environmentValue) => typeof environmentValue === "string",
+      ))
+  ) {
+    return null;
+  }
+  if (
+    value.cwd !== undefined &&
+    (typeof value.cwd !== "string" || !isValidStdioCwd(pluginRoot, value.cwd))
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value.cwd === "string" &&
+    !value.cwd.startsWith(PLUGIN_DATA_PLACEHOLDER)
+  ) {
+    const relativeCwd = value.cwd.startsWith(PLUGIN_ROOT_PLACEHOLDER)
+      ? `.${value.cwd.slice(PLUGIN_ROOT_PLACEHOLDER.length)}`
+      : value.cwd;
+    try {
+      const cwdPath = path.resolve(pluginRoot, relativeCwd);
+      const cwdLstat = await fs.promises.lstat(cwdPath);
+      if (cwdLstat.isSymbolicLink() || !cwdLstat.isDirectory()) return null;
+      const resolvedCwd = await fs.promises.realpath(cwdPath);
+      if (!isPathContained(pluginRoot, resolvedCwd)) return null;
+    } catch {
+      return null;
+    }
+  }
+
+  return {
+    name: serverName,
+    type: "stdio",
+    command: value.command,
+    ...(value.args !== undefined ? { args: value.args as string[] } : {}),
+    ...(value.env !== undefined
+      ? { env: value.env as Record<string, string> }
+      : {}),
+    ...(value.cwd !== undefined ? { cwd: value.cwd } : {}),
+  };
+}
+
 async function loadMcpServers(
   pluginRoot: string,
   diagnostics: AgentPluginDiagnostic[],
-): Promise<AgentPluginHttpMcpServer[]> {
+): Promise<AgentPluginMcpServer[]> {
   const mcpPath = path.join(pluginRoot, "mcp.json");
   let resolvedMcpPath: string;
   try {
@@ -785,7 +806,7 @@ async function loadMcpServers(
     return [];
   }
 
-  const servers: AgentPluginHttpMcpServer[] = [];
+  const servers: AgentPluginMcpServer[] = [];
   for (const [serverName, rawServer] of Object.entries(rawMcp.mcpServers).sort(
     ([left], [right]) => left.localeCompare(right),
   )) {
@@ -819,12 +840,33 @@ async function loadMcpServers(
       continue;
     }
 
-    if (await isValidUnsupportedMcpServer(pluginRoot, rawServer)) {
+    if (rawServer.type === "stdio") {
+      const server = await parseStdioMcpServer(
+        pluginRoot,
+        serverName,
+        rawServer,
+      );
+      if (server) {
+        servers.push(server);
+      } else {
+        diagnostics.push(
+          diagnostic(
+            "error",
+            "invalid_mcp_server",
+            `Skipped MCP server ${serverName} because its stdio configuration is invalid.`,
+            serverPath,
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (isValidUnsupportedSseServer(rawServer)) {
       diagnostics.push(
         diagnostic(
           "warning",
           "unsupported_mcp_transport",
-          `Skipped MCP server ${serverName} because ${rawServer.type} transport is not supported yet.`,
+          `Skipped MCP server ${serverName} because sse transport is not supported.`,
           serverPath,
         ),
       );

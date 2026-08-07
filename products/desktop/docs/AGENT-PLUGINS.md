@@ -1,6 +1,6 @@
 # Agent Plugins
 
-PostHog Desktop supports skills from local [Agent Plugins 1.0.0](https://agent-plugins.org/).
+PostHog Desktop supports skills, Streamable HTTP MCP servers, and stdio MCP servers from local [Agent Plugins 1.0.0](https://agent-plugins.org/).
 
 ## Add a local plugin
 
@@ -12,7 +12,7 @@ PostHog Desktop supports skills from local [Agent Plugins 1.0.0](https://agent-p
 
 PostHog Desktop keeps a reference to the selected directory. When an agent session starts, it validates the plugin again and copies valid skill files into temporary app storage for that session. The temporary copy is removed when the session ends.
 
-You can disable a plugin without removing it. Removing a plugin only removes its registration from PostHog Desktop and does not delete the source directory.
+You can disable a plugin without removing it. Disabling a plugin stops its running stdio MCP servers but preserves its app-managed plugin data. Removing a plugin stops its stdio MCP servers and deletes its app-managed plugin data. It does not delete the source directory.
 
 ## Supported format
 
@@ -55,10 +55,37 @@ Streamable HTTP MCP servers use the canonical MCP schema:
 
 Invalid MCP configuration does not disable valid skills. Each server is validated independently, so one invalid or unsupported server does not disable its valid siblings. PostHog Desktop follows same-origin redirects only. Configured header values stay in the privileged plugin loader and are not stored in the installation registry or returned to the app UI.
 
+Stdio MCP servers can use a bare executable name or a bundled executable path beginning with `./`:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "local-tools": {
+      "type": "stdio",
+      "command": "./bin/server",
+      "args": ["--data", "${PLUGIN_DATA}"],
+      "env": {
+        "CONFIG": "${PLUGIN_ROOT}/config.json"
+      },
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}
+```
+
+PostHog Desktop starts stdio commands without a shell and makes them available to Claude and Codex through a local managed bridge. A server that fails to start is skipped without stopping sibling servers or skills. Running processes stop when the agent session ends, the plugin is disabled or removed, or the app shuts down.
+
+Every installed plugin gets a stable writable `PLUGIN_DATA` directory. Its contents persist across plugin source updates and while the plugin is disabled. Removing the plugin deletes this directory. `PLUGIN_ROOT` points to the resolved source directory.
+
+Only `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` are expanded, and only in `args`, `env` values, and `cwd`. Expansion is single-pass. The command is never expanded or interpreted as a shell command. Explicit working directories must remain within `PLUGIN_ROOT` or `PLUGIN_DATA`.
+
+Stdio processes receive a minimal host environment needed to find executables and basic user directories. Configured `env` values are applied next, then PostHog Desktop sets `PLUGIN_ROOT` and `PLUGIN_DATA`. Other app environment variables and PostHog credentials are not inherited. Do not place secrets directly in `mcp.json` because it is visible plugin data.
+
 ## Current limitations
 
 - Only local directory installation is available.
-- Agent Skills are supported in Claude and Codex sessions.
-- `mcp.json` is not loaded yet.
+- Agent Skills, Streamable HTTP MCP servers, and stdio MCP servers are supported in Claude and Codex sessions.
+- Legacy SSE MCP transport is skipped with a diagnostic.
 - Agent Plugins does not define portable commands, hooks, or agents. PostHog Desktop does not load those components from a portable plugin.
 - Plugin updates and registries are not supported. Edit or update the source directory directly.

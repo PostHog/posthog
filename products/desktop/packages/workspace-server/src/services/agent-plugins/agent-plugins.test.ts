@@ -15,6 +15,7 @@ import {
   AGENT_PLUGINS_MANIFEST_SCHEMA,
   AGENT_PLUGINS_MCP_SCHEMA,
 } from "./schemas";
+import type { AgentPluginStdioBridge } from "./stdio-bridge";
 
 let root: string;
 
@@ -125,10 +126,19 @@ function createDeferredHttpProxy(): {
   };
 }
 
+function createStdioBridge(): AgentPluginStdioBridge {
+  return {
+    register: vi.fn(async ({ id }: { id: string }) => `http://127.0.0.1/${id}`),
+    unregisterRun: vi.fn(async () => undefined),
+    unregisterInstallation: vi.fn(async () => undefined),
+  };
+}
+
 function createService(
   appDataPath: string,
   selectedPaths: string[] = [],
   httpProxy: AgentPluginHttpProxy = createHttpProxy(),
+  stdioBridge: AgentPluginStdioBridge = createStdioBridge(),
 ): AgentPluginsService {
   return new AgentPluginsService(
     {
@@ -144,6 +154,7 @@ function createService(
       },
     },
     httpProxy,
+    stdioBridge,
   );
 }
 
@@ -760,11 +771,13 @@ describe("Agent Plugins skills support", () => {
 
     const preview = await loadAgentPlugin(pluginDirectory);
 
-    expect(preview.mcpServers.map((server) => server.name)).toEqual(["valid"]);
+    expect(preview.mcpServers.map((server) => server.name)).toEqual([
+      "local",
+      "valid",
+    ]);
     expect(preview.diagnostics.map((item) => item.code)).toEqual(
       expect.arrayContaining([
         "invalid_mcp_server",
-        "unsupported_mcp_transport",
         "unsupported_mcp_transport",
       ]),
     );

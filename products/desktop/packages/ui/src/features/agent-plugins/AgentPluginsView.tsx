@@ -57,8 +57,8 @@ export function AgentPluginsView(): ReactElement {
           <div className="flex flex-col gap-1">
             <Text weight="semibold">Agent Plugins</Text>
             <Text size="sm" variant="muted">
-              Add local Agent Plugins that provide portable skills and
-              Streamable HTTP MCP servers.
+              Add local Agent Plugins that provide portable skills, Streamable
+              HTTP MCP servers, and stdio MCP servers.
             </Text>
           </div>
           <Button
@@ -104,16 +104,26 @@ export function AgentPluginsView(): ReactElement {
                     ))}
                   </div>
                   <Text size="xs" variant="muted">
-                    {preview.mcpServers.length} Streamable HTTP MCP server
+                    {preview.mcpServers.length} MCP server
                     {preview.mcpServers.length === 1 ? "" : "s"}
                   </Text>
                   <div className="flex flex-wrap gap-2">
                     {preview.mcpServers.map((server) => (
                       <Badge key={server.name} variant="info">
-                        {server.name}
+                        {server.name} ·{" "}
+                        {server.type === "stdio" ? "stdio" : "HTTP"}
                       </Badge>
                     ))}
                   </div>
+                  {preview.mcpServers.some(
+                    (server) => server.type === "stdio",
+                  ) && (
+                    <Text size="xs" variant="muted">
+                      Stdio MCP servers run local commands. Review their
+                      command, arguments, and environment in mcp.json before
+                      adding this plugin.
+                    </Text>
+                  )}
                 </div>
                 {preview.diagnostics.length > 0 && (
                   <div className="flex flex-col gap-2 rounded-md border border-border p-3">

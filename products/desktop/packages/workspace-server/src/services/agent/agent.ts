@@ -79,6 +79,10 @@ import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
 import type { AgentPluginsService } from "../agent-plugins/agent-plugins";
 import { AGENT_PLUGINS_SERVICE } from "../agent-plugins/identifiers";
+import {
+  STDIO_BRIDGE_MARKER_HEADER,
+  STDIO_BRIDGE_PROBE_HEADER,
+} from "../agent-plugins/stdio-bridge";
 import { POSTHOG_PLUGIN_SERVICE } from "../posthog-plugin/identifiers";
 import type { PosthogPluginService } from "../posthog-plugin/posthog-plugin";
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
@@ -1395,6 +1399,13 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       };
       for (const header of server.headers) {
         headers[header.name] = header.value;
+      }
+      if (
+        server.headers.some(
+          (header) => header.name.toLowerCase() === STDIO_BRIDGE_MARKER_HEADER,
+        )
+      ) {
+        headers[STDIO_BRIDGE_PROBE_HEADER] = "1";
       }
       const response = await fetch(server.url, {
         method: "POST",

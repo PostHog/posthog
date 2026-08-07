@@ -10,7 +10,10 @@ import type { McpServerConnection } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { isSafePathSegment } from "../skills/skill-discovery";
 import type { AgentPluginHttpProxy } from "./http-proxy";
-import { AGENT_PLUGIN_HTTP_PROXY } from "./identifiers";
+import {
+  AGENT_PLUGIN_HTTP_PROXY,
+  AGENT_PLUGIN_STDIO_BRIDGE,
+} from "./identifiers";
 import {
   isPathContained,
   loadAgentPlugin,
@@ -19,12 +22,17 @@ import {
 import {
   AGENT_PLUGIN_INSTALLATION_ID_PATTERN,
   type AgentPluginDiagnostic,
-  type AgentPluginHttpMcpServer,
   type AgentPluginInstallation,
+  type AgentPluginMcpServer,
   type AgentPluginMcpServerSummary,
   type AgentPluginPreview,
   agentPluginState,
 } from "./schemas";
+import {
+  type AgentPluginStdioBridge,
+  STDIO_BRIDGE_MARKER_HEADER,
+} from "./stdio-bridge";
+import { resolveStdioServer } from "./stdio-runtime";
 
 interface RuntimeAgentPlugin {
   pluginPath: string;
@@ -55,7 +63,7 @@ const MAX_PLUGIN_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 const SNAPSHOT_READ_CHUNK_BYTES = 64 * 1024;
 
 function summarizeMcpServers(
-  servers: AgentPluginHttpMcpServer[],
+  servers: AgentPluginMcpServer[],
 ): AgentPluginMcpServerSummary[] {
   return servers.map((server) => ({
     name: server.name,
@@ -94,6 +102,8 @@ export class AgentPluginsService {
     private readonly dialog: IDialog,
     @inject(AGENT_PLUGIN_HTTP_PROXY)
     private readonly httpProxy: AgentPluginHttpProxy,
+    @inject(AGENT_PLUGIN_STDIO_BRIDGE)
+    private readonly stdioBridge: AgentPluginStdioBridge,
   ) {}
 
   list(): Promise<AgentPluginInstallation[]> {
@@ -219,6 +229,7 @@ export class AgentPluginsService {
       if (!enabled) {
         this.runtimeDiagnostics.delete(id);
         this.httpProxy.unregisterInstallation(id);
+        await this.stdioBridge.unregisterInstallation(id);
       }
       return updated;
     });
@@ -237,6 +248,8 @@ export class AgentPluginsService {
       });
       this.runtimeDiagnostics.delete(id);
       this.httpProxy.unregisterInstallation(id);
+      await this.stdioBridge.unregisterInstallation(id);
+      await this.removeManagedPath(this.pluginDataPath(id));
     });
   }
 
@@ -305,24 +318,61 @@ export class AgentPluginsService {
         }
 
         try {
-          const url = await this.httpProxy.register({
+          if (server.type === "streamable-http") {
+            const url = await this.httpProxy.register({
+              id: `${taskRunId}:${runtimeName}`,
+              runId: taskRunId,
+              installationId: installation.id,
+              url: server.url,
+              headers: server.headers ?? {},
+            });
+            claimedServerNames.add(runtimeName);
+            runtimeServers.push({
+              type: "http",
+              name: runtimeName,
+              url,
+              headers: [],
+            });
+            continue;
+          }
+
+          const resolved = await resolveStdioServer(
+            preview.sourcePath,
+            this.pluginDataPath(installation.id),
+            server,
+          );
+          const url = await this.stdioBridge.register({
             id: `${taskRunId}:${runtimeName}`,
             runId: taskRunId,
             installationId: installation.id,
-            url: server.url,
-            headers: server.headers ?? {},
+            runtimeName,
+            command: resolved.command,
+            args: resolved.args,
+            env: resolved.env,
+            cwd: resolved.cwd,
+            onFailure: () => {
+              this.addRuntimeDiagnostic(installation.id, {
+                severity: "error",
+                code: "mcp_stdio_failed",
+                message: `MCP server ${server.name} stopped. Check its command and configuration, then start a new agent session.`,
+                path: `mcp.json/mcpServers/${server.name}`,
+              });
+            },
           });
           claimedServerNames.add(runtimeName);
           runtimeServers.push({
             type: "http",
             name: runtimeName,
             url,
-            headers: [],
+            headers: [{ name: STDIO_BRIDGE_MARKER_HEADER, value: "1" }],
           });
         } catch {
           this.addRuntimeDiagnostic(installation.id, {
             severity: "error",
-            code: "mcp_proxy_failed",
+            code:
+              server.type === "stdio"
+                ? "mcp_stdio_prepare_failed"
+                : "mcp_proxy_failed",
             message: `Skipped MCP server ${server.name} because its local connection could not be prepared.`,
             path: `mcp.json/mcpServers/${server.name}`,
           });
@@ -450,6 +500,7 @@ export class AgentPluginsService {
     if (!isSafePathSegment(taskRunId)) return Promise.resolve();
     return this.withStateTransaction(async () => {
       this.httpProxy.unregisterRun(taskRunId);
+      await this.stdioBridge.unregisterRun(taskRunId);
       await this.removeManagedPath(this.runtimeRoot(taskRunId));
     });
   }
@@ -497,6 +548,10 @@ export class AgentPluginsService {
     if (!AGENT_PLUGIN_INSTALLATION_ID_PATTERN.test(id)) {
       throw new Error("Invalid Agent Plugin installation ID.");
     }
+  }
+
+  private pluginDataPath(installationId: string): string {
+    return path.join(this.managedRoot(), "data", installationId);
   }
 
   private installationId(sourcePath: string): string {

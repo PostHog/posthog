@@ -4,3 +4,6 @@ export const AGENT_PLUGINS_SERVICE = Symbol.for(
 export const AGENT_PLUGIN_HTTP_PROXY = Symbol.for(
   "posthog.workspace.agentPluginHttpProxy",
 );
+export const AGENT_PLUGIN_STDIO_BRIDGE = Symbol.for(
+  "posthog.workspace.agentPluginStdioBridge",
+);

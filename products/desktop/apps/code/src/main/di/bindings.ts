@@ -147,8 +147,10 @@ import type { AgentPluginsService } from "@posthog/workspace-server/services/age
 import type { AgentPluginHttpProxy } from "@posthog/workspace-server/services/agent-plugins/http-proxy";
 import type {
   AGENT_PLUGIN_HTTP_PROXY,
+  AGENT_PLUGIN_STDIO_BRIDGE,
   AGENT_PLUGINS_SERVICE,
 } from "@posthog/workspace-server/services/agent-plugins/identifiers";
+import type { AgentPluginStdioBridge } from "@posthog/workspace-server/services/agent-plugins/stdio-bridge";
 import type {
   ARCHIVE_FILE_WATCHER,
   ARCHIVE_SESSION_CANCELLER,
@@ -522,6 +524,7 @@ export interface MainBindings {
 
   // Typed container.get-only tokens (bound via loaded modules)
   [AGENT_PLUGIN_HTTP_PROXY]: AgentPluginHttpProxy;
+  [AGENT_PLUGIN_STDIO_BRIDGE]: AgentPluginStdioBridge;
   [AGENT_PLUGINS_SERVICE]: AgentPluginsService;
   [AGENT_SERVICE]: AgentService;
   [OAUTH_SERVICE]: OAuthService;

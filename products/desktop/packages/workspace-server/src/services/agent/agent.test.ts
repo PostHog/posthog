@@ -618,6 +618,41 @@ describe("AgentService", () => {
       },
     );
 
+    it("uses a disposable stdio bridge probe before passing the server to Codex", async () => {
+      deps.agentPluginsService.prepareRuntimeMcpServers.mockResolvedValue([
+        {
+          name: "agent-plugin-example-12345678-abcdef12",
+          type: "http",
+          url: "http://127.0.0.1:4567/server",
+          headers: [
+            {
+              name: "x-posthog-agent-plugin-stdio-bridge",
+              value: "1",
+            },
+          ],
+        },
+      ]);
+      const fetchMock = vi.fn().mockResolvedValue({ body: null });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await service.startSession({ ...baseSessionParams, adapter: "codex" });
+
+      const pluginProbe = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes("127.0.0.1:4567"),
+      );
+      expect(pluginProbe?.[1]?.headers).toMatchObject({
+        "x-posthog-agent-plugin-stdio-bridge": "1",
+        "x-posthog-agent-plugin-stdio-probe": "1",
+      });
+      expect(mockNewSession.mock.calls[0][0].mcpServers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "agent-plugin-example-12345678-abcdef12",
+          }),
+        ]),
+      );
+    });
+
     it("drops an unreachable Agent Plugin proxy from Codex without dropping reachable servers", async () => {
       deps.agentPluginsService.prepareRuntimeMcpServers.mockResolvedValue([
         {
