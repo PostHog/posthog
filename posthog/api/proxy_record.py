@@ -1,6 +1,8 @@
 import time
 import asyncio
 import hashlib
+from math import ceil
+from typing import Optional
 
 from django.conf import settings
 from django.core.cache import cache
@@ -36,16 +38,21 @@ def generate_target_cname(organization_id, domain) -> str:
     return f"{digest}.{base_cname}"
 
 
-def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
+def _capture_proxy_event(
+    request, record: ProxyRecord, event_type: str, extra_properties: Optional[dict] = None
+) -> None:
     organization = Organization.objects.get(id=record.organization_id)
+    properties = {
+        "proxy_record_id": record.id,
+        "domain": record.domain,
+        "target_cname": record.target_cname,
+    }
+    if extra_properties:
+        properties.update(extra_properties)
     posthoganalytics.capture(
         distinct_id=str(request.user.distinct_id),
         event=f"managed reverse proxy {event_type}",
-        properties={
-            "proxy_record_id": record.id,
-            "domain": record.domain,
-            "target_cname": record.target_cname,
-        },
+        properties=properties,
         groups=groups(organization),
     )
 
@@ -299,17 +306,30 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         # against the customer's domain (DNS CAA walk, HTTP probes, TLS handshake) plus a
         # Cloudflare API call. Even gated to admins, repeated calls would amplify
         # network traffic toward the configured CNAME chain.
+        # Store the expiry timestamp so a rejected call can report exactly how long is left.
         cooldown_key = f"proxy_records:diagnose:cooldown:{record.id}:{request.user.id}"
-        if not cache.add(cooldown_key, "1", timeout=DIAGNOSE_COOLDOWN_SECONDS):
-            return Response(
-                {"detail": "A diagnostic was just run for this proxy. Please wait a few seconds before trying again."},
+        now = time.time()
+        if not cache.add(cooldown_key, now + DIAGNOSE_COOLDOWN_SECONDS, timeout=DIAGNOSE_COOLDOWN_SECONDS):
+            expires_at = cache.get(cooldown_key)
+            remaining = DIAGNOSE_COOLDOWN_SECONDS
+            if isinstance(expires_at, int | float):
+                remaining = max(1, ceil(expires_at - now))
+            unit = "second" if remaining == 1 else "seconds"
+            _capture_proxy_event(request, record, "diagnosed", {"outcome": "cooldown", "retry_after": remaining})
+            response = Response(
+                {"detail": f"A diagnostic just ran for this proxy. Wait {remaining} {unit} before trying again."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
+            response["Retry-After"] = str(remaining)
+            return response
 
         try:
             report = diagnose_proxy_record(record)
         except Exception as e:
             capture_exception(e, {"proxy_record_id": str(record.id), "domain": record.domain})
+            # A crashed diagnostic shouldn't cost the user a full cooldown — let them retry now.
+            cache.delete(cooldown_key)
+            _capture_proxy_event(request, record, "diagnosed", {"outcome": "error"})
             return Response(
                 {
                     "detail": (
@@ -320,6 +340,12 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        _capture_proxy_event(
+            request,
+            record,
+            "diagnosed",
+            {"outcome": "ran", "summary_status": report.summary.status, "primary_issue": report.summary.primary_issue},
+        )
         serializer = DiagnosticReportSerializer(report)
         return Response(serializer.data)
 

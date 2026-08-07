@@ -47,6 +47,7 @@ export function ManagedReverseProxy(): JSX.Element {
         proxyRecordsLoading,
         maxProxyRecords,
         diagnoseLoadingIds,
+        diagnoseCooldownIds,
         expandedRecordIds,
     } = useValues(proxyLogic)
     const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, setRecordExpanded, showForm } =
@@ -149,6 +150,7 @@ export function ManagedReverseProxy(): JSX.Element {
             className: 'flex justify-center',
             render: function Render(_, { id, status }) {
                 const isDiagnosing = diagnoseLoadingIds.includes(id)
+                const isCoolingDown = diagnoseCooldownIds.includes(id)
                 return (
                     status != 'deleting' &&
                     !restrictionReason && (
@@ -157,7 +159,11 @@ export function ManagedReverseProxy(): JSX.Element {
                                 {
                                     label: isDiagnosing ? 'Running diagnostics…' : 'Diagnose',
                                     onClick: () => diagnose(id),
-                                    disabledReason: isDiagnosing ? 'A diagnostic is already running' : undefined,
+                                    disabledReason: isDiagnosing
+                                        ? 'A diagnostic is already running'
+                                        : isCoolingDown
+                                          ? 'A diagnostic just ran. Try again in a moment'
+                                          : undefined,
                                 },
                                 ...(status === 'erroring' || status === 'timed_out'
                                     ? [

@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER, MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -29,7 +30,13 @@ const proxyRecordsResponse = (records: ProxyRecord[]): { results: ProxyRecord[];
     max_proxy_records: 2,
 })
 
-describe('proxyLogic — shouldShowCloudflareOptIn', () => {
+const healthyReport = {
+    ran_at: '2026-08-07T00:00:00Z',
+    summary: { status: 'healthy', primary_issue: null, next_action: null },
+    checks: [],
+}
+
+describe('proxyLogic', () => {
     let logic: ReturnType<typeof proxyLogic.build>
 
     beforeEach(() => {
@@ -132,5 +139,45 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
             cloudflareOptInAcknowledged: true,
             shouldShowCloudflareOptIn: false,
         })
+    })
+
+    it('arms a cooldown when a diagnostic runs so the menu item disables before a 429 can fire', async () => {
+        useMocks({
+            post: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/record-1/diagnose`]: () => [
+                    200,
+                    healthyReport,
+                ],
+            },
+        })
+        await mountLogic()
+
+        await expectLogic(logic, () => {
+            logic.actions.diagnose('record-1')
+        })
+            .toDispatchActions(['diagnose', 'startDiagnoseCooldown', 'diagnoseSuccess'])
+            .toMatchValues({ diagnoseCooldownIds: ['record-1'] })
+    })
+
+    it('does not surface an error toast when the server returns a 429 cooldown', async () => {
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => undefined) as any)
+        useMocks({
+            post: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/record-1/diagnose`]: () => [
+                    429,
+                    { detail: 'A diagnostic just ran for this proxy. Wait 30 seconds before trying again.' },
+                ],
+            },
+        })
+        await mountLogic()
+
+        await expectLogic(logic, () => {
+            logic.actions.diagnose('record-1')
+        })
+            .toDispatchActions(['diagnose', 'diagnoseFailure'])
+            .toMatchValues({ diagnoseLoadingIds: [] })
+
+        expect(toastSpy).not.toHaveBeenCalled()
+        toastSpy.mockRestore()
     })
 })

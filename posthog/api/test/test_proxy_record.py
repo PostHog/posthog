@@ -377,8 +377,9 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @patch("posthoganalytics.capture")
     @patch("posthog.api.proxy_record.diagnose_proxy_record")
-    def test_diagnose_returns_report(self, mock_diagnose):
+    def test_diagnose_returns_report(self, mock_diagnose, mock_capture):
         import datetime as dt
 
         from posthog.api.proxy_record_diagnostics import (
@@ -433,6 +434,19 @@ class TestProxyRecordAPI(APIBaseTest):
         # confirms the diagnose function was invoked with our specific record
         called_with = mock_diagnose.call_args[0][0]
         assert called_with.id == record.id
+
+        # A diagnose run must emit an analytics event — without it the 429 rate, crash rate, and
+        # run rate are all invisible, which is the whole reason this path was unmeasurable.
+        diagnose_events = [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "managed reverse proxy diagnosed"
+        ]
+        assert len(diagnose_events) == 1
+        props = diagnose_events[0].kwargs["properties"]
+        assert props["outcome"] == "ran"
+        assert props["summary_status"] == "fail"
+        assert props["primary_issue"] == "caa"
 
     def test_diagnose_returns_404_for_unknown_id(self):
         response = self.client.post(
@@ -498,7 +512,11 @@ class TestProxyRecordAPI(APIBaseTest):
 
         second = self.client.post(f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/")
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert "wait" in second.json()["detail"].lower()
+        # The message must name the real cooldown, not "a few seconds" — the frontend and the
+        # user both key off this number, so a vague copy sends users clicking back too early.
+        detail = second.json()["detail"]
+        assert "30 seconds" in detail
+        assert second.headers["Retry-After"] == "30"
 
         # Sanity: diagnose function only called once despite two requests.
         assert mock_diagnose.call_count == 1
@@ -522,13 +540,22 @@ class TestProxyRecordAPI(APIBaseTest):
                 f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
             )
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        body = response.json()
-        # Regression-pin: must not be DRF's default 500 message.
-        assert body["detail"] != "A server error occurred."
-        assert "try again" in body["detail"].lower()
-        assert "support" in body["detail"].lower()
-        cap_mock.assert_called_once()
-        _exc, props = cap_mock.call_args[0]
-        assert props["proxy_record_id"] == str(record.id)
-        assert props["domain"] == record.domain
+            assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            body = response.json()
+            # Regression-pin: must not be DRF's default 500 message.
+            assert body["detail"] != "A server error occurred."
+            assert "try again" in body["detail"].lower()
+            assert "support" in body["detail"].lower()
+            cap_mock.assert_called_once()
+            _exc, props = cap_mock.call_args[0]
+            assert props["proxy_record_id"] == str(record.id)
+            assert props["domain"] == record.domain
+
+            # A crashed diagnostic must not cost a full cooldown — the retry that would actually
+            # help is exactly the one the cooldown would otherwise block. An immediate second call
+            # runs again (another 500 here) rather than being rate-limited.
+            second = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
+            )
+            assert second.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert mock_diagnose.call_count == 2

@@ -7,6 +7,7 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -26,6 +27,11 @@ export type ProxyRecord = {
 }
 
 export type FormState = 'collapsed' | 'active'
+
+// Mirrors DIAGNOSE_COOLDOWN_SECONDS in posthog/api/proxy_record.py. The backend arms a
+// per-user cooldown when a diagnostic starts; we keep the menu item disabled for the same
+// window so the user never trips the 429 in the first place.
+const DIAGNOSE_COOLDOWN_MS = 30_000
 
 export type DiagnosticCheckStatus = 'passed' | 'warned' | 'failed' | 'skipped'
 export type DiagnosticSummaryStatus = 'healthy' | 'warn' | 'fail'
@@ -134,6 +140,7 @@ export interface proxyLogicValues {
         },
         ValidationErrorType
     >
+    diagnoseCooldownIds: string[]
     diagnoseLoadingIds: string[]
     diagnosticReports: Record<string, DiagnosticReport>
     expandedRecordIds: string[]
@@ -226,6 +233,9 @@ export interface proxyLogicActions {
         id: string
         report: DiagnosticReport
     }
+    endDiagnoseCooldown: (id: ProxyRecord['id']) => {
+        id: string
+    }
     loadRecords: () => any
     loadRecordsFailure: (
         error: string,
@@ -306,6 +316,9 @@ export interface proxyLogicActions {
     showForm: () => {
         value: true
     }
+    startDiagnoseCooldown: (id: ProxyRecord['id']) => {
+        id: string
+    }
     submitCreateRecord: () => {
         value: boolean
     }
@@ -361,6 +374,8 @@ export const proxyLogic = kea<proxyLogicType>([
         diagnose: (id: ProxyRecord['id']) => ({ id }),
         diagnoseSuccess: (id: ProxyRecord['id'], report: DiagnosticReport) => ({ id, report }),
         diagnoseFailure: (id: ProxyRecord['id'], error: string) => ({ id, error }),
+        startDiagnoseCooldown: (id: ProxyRecord['id']) => ({ id }),
+        endDiagnoseCooldown: (id: ProxyRecord['id']) => ({ id }),
         clearDiagnosticReport: (id: ProxyRecord['id']) => ({ id }),
         setRecordExpanded: (id: ProxyRecord['id'], expanded: boolean) => ({ id, expanded }),
         setRecordActiveTab: (id: ProxyRecord['id'], tab: string) => ({ id, tab }),
@@ -413,6 +428,13 @@ export const proxyLogic = kea<proxyLogicType>([
                 diagnose: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 diagnoseSuccess: (state, { id }) => state.filter((existingId) => existingId !== id),
                 diagnoseFailure: (state, { id }) => state.filter((existingId) => existingId !== id),
+            },
+        ],
+        diagnoseCooldownIds: [
+            [] as string[],
+            {
+                startDiagnoseCooldown: (state, { id }) => (state.includes(id) ? state : [...state, id]),
+                endDiagnoseCooldown: (state, { id }) => state.filter((existingId) => existingId !== id),
             },
         ],
         expandedRecordIds: [
@@ -501,7 +523,7 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
         retryRecordFailure: () => actions.loadRecords(),
@@ -517,15 +539,31 @@ export const proxyLogic = kea<proxyLogicType>([
                 actions.loadRecords()
             }
         },
-        diagnose: async ({ id }) => {
+        diagnose: async ({ id }, breakpoint) => {
+            // Disable the menu item for the cooldown window so the user can't trip the server 429.
+            actions.startDiagnoseCooldown(id)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => actions.endDiagnoseCooldown(id), DIAGNOSE_COOLDOWN_MS)
+                return () => clearTimeout(timerId)
+            }, `diagnoseCooldown:${id}`)
+
             try {
                 const report = (await api.create(
                     `api/organizations/${values.currentOrganizationId}/proxy_records/${id}/diagnose`
                 )) as DiagnosticReport
+                // Scope the outcome to this mounted scene — a response that lands after the user
+                // navigated away must not touch state or throw a toast over an unrelated page.
+                breakpoint()
                 actions.diagnoseSuccess(id, report)
             } catch (e) {
+                breakpoint()
                 const message = e instanceof Error ? e.message : String(e)
                 actions.diagnoseFailure(id, message)
+                // A 429 means the cooldown is still active (e.g. another tab or admin). The item is
+                // already disabled, so don't surface a red error the user can't act on.
+                if (e instanceof ApiError && e.status === 429) {
+                    return
+                }
                 lemonToast.error(`Diagnose failed: ${message}`)
             }
         },
