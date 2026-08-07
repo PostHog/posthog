@@ -718,7 +718,16 @@ impl PersonHogLeader for TestLeaderService {
     ) -> Result<Response<personhog_proto::personhog::types::v1::FoldPersonDocumentResponse>, Status>
     {
         require_partition_metadata(&request)?;
-        Err(Status::unimplemented("not exercised by router tests"))
+        // Mimics the real leader's fail-closed mark refusal: a definitive
+        // FAILED_PRECONDITION marked as semantic, which the router must
+        // deliver rather than bounce.
+        let mut status =
+            Status::failed_precondition("op holds no live target mark for this person");
+        status.metadata_mut().insert(
+            personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY,
+            "fold-unverified".parse().expect("static slug parses"),
+        );
+        Err(status)
     }
 
     async fn get_person(
