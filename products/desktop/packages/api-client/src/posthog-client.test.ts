@@ -3,6 +3,35 @@ import { ApiRequestError } from "./fetcher";
 import { CloudCommandError, PostHogAPIClient } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it("requests all task comments with the task-wide query parameters", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ next: null, previous: null, results: [] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await expect(client.getTaskComments("task-1")).resolves.toEqual([]);
+
+    const requestUrl = fetch.mock.calls[0][0] as URL;
+    expect(requestUrl.pathname).toBe("/api/projects/42/comments/");
+    expect(Object.fromEntries(requestUrl.searchParams)).toEqual({
+      exclude_emoji_reactions: "true",
+      include_task_resources: "true",
+      scope: "task",
+      task_id: "task-1",
+    });
+  });
+
   it.each([
     "user_message",
     "permission_response",

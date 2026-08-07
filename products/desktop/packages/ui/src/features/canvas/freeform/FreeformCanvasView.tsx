@@ -337,8 +337,11 @@ export function FreeformCanvasView({
   );
   const commentsQuery = useTaskCommentsQuery(commentTaskId ?? "", {
     enabled: !!commentTaskId,
-    select: (comments) => commentsForTarget(comments, commentTarget),
   });
+  const canvasComments = useMemo(
+    () => commentsForTarget(commentsQuery.data ?? [], commentTarget),
+    [commentTarget, commentsQuery.data],
+  );
   const focusedCommentId = useCommentNavigationStore(
     (state) => state.focusByTask[commentTaskId ?? ""]?.threadId ?? null,
   );
@@ -353,7 +356,7 @@ export function FreeformCanvasView({
     [commentTaskId, commentTarget],
   );
   const commentHighlights = useMemo<CanvasCommentHighlight[]>(() => {
-    const threads = buildCommentThreads(commentsQuery.data ?? []);
+    const threads = buildCommentThreads(canvasComments);
     return limitCanvasCommentHighlights(
       threads.flatMap((thread) => {
         if (thread.resolved) return [];
@@ -374,7 +377,7 @@ export function FreeformCanvasView({
         ];
       }),
     );
-  }, [commentsQuery.data, displayedVersionId, focusedCommentId]);
+  }, [canvasComments, displayedVersionId, focusedCommentId]);
   const selectionVersionRef = useRef(displayedVersionId);
   useEffect(() => {
     if (selectionVersionRef.current === displayedVersionId) return;
@@ -858,14 +861,16 @@ export function FreeformCanvasView({
         </ResizableSidebar>
       )}
 
-      <CanvasSelectionCommentAction
-        selection={textSelection}
-        taskId={commentTaskId}
-        dashboardId={dashboardId}
-        canvasName={dashboard?.name ?? "Canvas"}
-        versionId={displayedVersionId}
-        onDismiss={dismissTextSelection}
-      />
+      {commentTaskId && (
+        <CanvasSelectionCommentAction
+          selection={textSelection}
+          taskId={commentTaskId}
+          dashboardId={dashboardId}
+          canvasName={dashboard?.name ?? "Canvas"}
+          versionId={displayedVersionId}
+          onDismiss={dismissTextSelection}
+        />
+      )}
 
       {/* The empty-canvas landing: a centered composer with suggestions,
           overlaying the canvas area. On submit it slides down; once it's gone

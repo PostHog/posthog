@@ -36,6 +36,16 @@ export type ArtifactRow =
     }
   | { kind: "slack"; key: string; url: string };
 
+function targetForRow(row: ArtifactRow): CommentTarget | null {
+  if (row.kind === "file" && row.artifactId) {
+    return { scope: "task_artifact", itemId: row.artifactId };
+  }
+  if (row.kind === "canvas" && row.dashboardId) {
+    return { scope: "desktop_canvas", itemId: row.dashboardId };
+  }
+  return null;
+}
+
 /**
  * Somewhere a task's comment threads live. Artifacts and canvases come from the
  * task's rows; the task itself is always one, holding the threads that belong
@@ -96,32 +106,6 @@ function canvasDashboardId(url: string | null): string | null {
     return null;
   }
   return null;
-}
-
-/** Where a row's comments live, or null when the row can't carry any. */
-function targetForRow(row: ArtifactRow): CommentTarget | null {
-  if (row.kind === "file" && row.artifactId) {
-    return { scope: "task_artifact", itemId: row.artifactId };
-  }
-  if (row.kind === "canvas" && row.dashboardId) {
-    return { scope: "desktop_canvas", itemId: row.dashboardId };
-  }
-  return null;
-}
-
-/**
- * Every commentable resource this task produced, once each. Artifacts and
- * canvases share the generic comments API, differing only by scope, so a pane
- * can hold one query over all of them — and two timeline messages naming the
- * same canvas must not fetch it twice.
- */
-export function commentTargets(rows: ArtifactRow[]): CommentTarget[] {
-  const byKey = new Map<string, CommentTarget>();
-  for (const row of rows) {
-    const target = targetForRow(row);
-    if (target) byKey.set(commentTargetKey(target), target);
-  }
-  return [...byKey.values()];
 }
 
 function readRunOutputs(run: TaskRun): RunArtifact[] {

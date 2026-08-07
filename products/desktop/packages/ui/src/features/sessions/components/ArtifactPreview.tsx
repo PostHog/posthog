@@ -115,7 +115,6 @@ export function ArtifactPreview({
   );
   const commentsQuery = useTaskCommentsQuery(taskId, {
     enabled: commentsEnabled,
-    select: (comments) => commentsForTarget(comments, commentTarget),
   });
   const { members } = useOrgMembers({ enabled: commentsEnabled });
   const createComment = useCreateComment(commentTarget, taskId);
@@ -154,9 +153,13 @@ export function ArtifactPreview({
     () => (data instanceof Blob ? URL.createObjectURL(data) : null),
     [data],
   );
-  const comments = commentsEnabled
-    ? (commentsQuery.data ?? EMPTY_COMMENTS)
-    : EMPTY_COMMENTS;
+  const comments = useMemo(
+    () =>
+      commentsEnabled
+        ? commentsForTarget(commentsQuery.data ?? EMPTY_COMMENTS, commentTarget)
+        : EMPTY_COMMENTS,
+    [commentTarget, commentsEnabled, commentsQuery.data],
+  );
   const commentLoadError = commentsEnabled && commentsQuery.isError && (
     <div
       role="alert"

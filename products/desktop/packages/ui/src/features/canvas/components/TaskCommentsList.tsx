@@ -329,11 +329,17 @@ export function TaskCommentsList({
     () => (onlySource ? [onlySource] : commentSources(task.id, rows)),
     [task.id, rows, onlySource],
   );
-  const commentsQuery = useTaskCommentsQuery(task.id, {
-    select: onlySource
-      ? (comments) => commentsForTarget(comments, onlySource.target)
-      : undefined,
-  });
+  const commentsQuery = useTaskCommentsQuery(task.id);
+  const resourceComments = useMemo(
+    () =>
+      onlySource
+        ? commentsForTarget(
+            commentsQuery.data ?? EMPTY_COMMENTS,
+            onlySource.target,
+          )
+        : (commentsQuery.data ?? EMPTY_COMMENTS),
+    [commentsQuery.data, onlySource],
+  );
   const prUrls = useMemo(
     () =>
       onlySource
@@ -387,10 +393,7 @@ export function TaskCommentsList({
   const threads = useMemo(() => {
     const reviewByUrl = new Map(prReviews.byUrl);
     const conversationByUrl = new Map(prConversation.byUrl);
-    const resourceThreads = resourceCommentThreads(
-      commentsQuery.data ?? EMPTY_COMMENTS,
-      sources,
-    );
+    const resourceThreads = resourceCommentThreads(resourceComments, sources);
     const prThreads = loadedPrUrls.flatMap((prUrl) =>
       prCommentThreads(
         prUrl,
@@ -401,7 +404,7 @@ export function TaskCommentsList({
     );
     return [...resourceThreads, ...prThreads].sort(byNewestActivity);
   }, [
-    commentsQuery.data,
+    resourceComments,
     sources,
     loadedPrUrls,
     prTitles,

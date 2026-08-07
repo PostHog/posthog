@@ -15,7 +15,7 @@ export function CanvasSelectionCommentAction({
   onDismiss,
 }: {
   selection: CanvasTextSelection | null;
-  taskId: string | null;
+  taskId: string;
   dashboardId: string;
   canvasName: string;
   versionId: string | null;
@@ -24,7 +24,7 @@ export function CanvasSelectionCommentAction({
   const { members } = useOrgMembers();
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const target = { scope: "desktop_canvas" as const, itemId: dashboardId };
-  const createComment = useCreateComment(target, taskId ?? undefined);
+  const createComment = useCreateComment(target, taskId);
 
   const anchor: TextCommentAnchor | null = selection
     ? {
@@ -53,7 +53,7 @@ export function CanvasSelectionCommentAction({
             }
           : null
       }
-      open={!!selection && !!taskId}
+      open={!!selection}
       filePath={canvasName}
       actionLabel="Add comment"
       placeholder="Add a comment about this selection"
@@ -61,7 +61,7 @@ export function CanvasSelectionCommentAction({
       members={members}
       onDismiss={onDismiss}
       onSubmit={async (_start, _end, content, mentions) => {
-        if (!anchor || !taskId) return;
+        if (!anchor) return;
         const comment = await createComment.mutateAsync({
           content,
           context: {

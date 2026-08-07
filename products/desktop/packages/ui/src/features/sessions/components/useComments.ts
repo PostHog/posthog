@@ -37,12 +37,11 @@ export function isOptimisticComment(comment: ResourceComment): boolean {
   return comment.id.startsWith("optimistic-");
 }
 
-export function useTaskCommentsQuery<TData = ResourceComment[]>(
+export function useTaskCommentsQuery(
   taskId: string,
   options: {
     enabled?: boolean;
     refetchInterval?: number | false;
-    select?: (comments: ResourceComment[]) => TData;
   } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
@@ -54,7 +53,6 @@ export function useTaskCommentsQuery<TData = ResourceComment[]>(
     staleTime: 3_000,
     refetchInterval: options.refetchInterval ?? 15_000,
     refetchIntervalInBackground: false,
-    select: options.select,
     meta: AUTH_SCOPED_QUERY_META,
   });
 }
@@ -63,13 +61,15 @@ export function useTaskCommentsQuery<TData = ResourceComment[]>(
  * @param taskId Names the task the resource belongs to, so a mention on it reaches that
  * task's activity feed — the server can't resolve an artifact or canvas id back to a task.
  */
-export function useCreateComment(target: CommentTarget, taskId?: string) {
+export function useCreateComment(target: CommentTarget, taskId: string) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const queryClient = useQueryClient();
   const authIdentity = useAuthStateValue(getAuthIdentity);
-  const queryKey = taskCommentsQueryKey(authIdentity, taskId ?? "");
-  const contextWithTask = (context: unknown) =>
-    taskId ? { ...(context as Record<string, unknown>), taskId } : context;
+  const queryKey = taskCommentsQueryKey(authIdentity, taskId);
+  const contextWithTask = (context: unknown) => ({
+    ...(context as Record<string, unknown>),
+    taskId,
+  });
 
   return useMutation({
     mutationFn: (

@@ -68,7 +68,7 @@ import {
   useParams,
   useRouterState,
 } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the
@@ -295,19 +295,22 @@ function CanvasBreadcrumb({
   const { renameDashboard } = useDashboardMutations();
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
-  const commentTarget = {
-    scope: "desktop_canvas" as const,
-    itemId: dashboardId,
-  };
+  const commentTarget = useMemo(
+    () => ({ scope: "desktop_canvas" as const, itemId: dashboardId }),
+    [dashboardId],
+  );
   const commentTaskId = canvasCommentTaskId(
     dashboard?.generationTaskId,
     versions,
   );
   const comments = useTaskCommentsQuery(commentTaskId ?? "", {
     enabled: !!commentTaskId,
-    select: (taskComments) => commentsForTarget(taskComments, commentTarget),
   });
-  const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
+  const canvasComments = useMemo(
+    () => commentsForTarget(comments.data ?? [], commentTarget),
+    [commentTarget, comments.data],
+  );
+  const openCommentCount = buildCommentThreads(canvasComments).filter(
     (thread) => !thread.resolved,
   ).length;
 
