@@ -1359,6 +1359,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2025-12-16T11:00:00Z")
+    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_per_alert_results_match_single_query_across_random_inputs(self):
         # Generative property test: the batched query must produce the same
         # per-alert bucket counts as running each alert through `AlertCheckQuery`
@@ -1666,6 +1667,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("bucketed",), ("periods",), ("rolling",)])
     @freeze_time("2025-12-16T10:33:00Z")
+    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_heterogeneous_cohort_matches_single_alert_results(self, path: str):
         # Cohort mixing a match-everything alert (its predicate is ~always true),
         # a service alert, an attribute alert, and a zero-match alert. Guards the
@@ -1695,6 +1697,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             assert got == single, f"alert={alert.name} path={path}"
 
     @freeze_time("2025-12-16T13:30:00Z")
+    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_max_cohort_size_query_builds_and_matches(self):
         # A full-size cohort duplicates every predicate into the hoisted OR
         # chain on top of its countIf copy: guards the doubled predicate text
@@ -1737,6 +1740,15 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
     NCA = datetime(2026, 2, 3, 10, 5, 0, tzinfo=UTC)
 
     CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        # HOIST_BATCHED_ALERT_PREDICATES defaults off (staged rollout); these
+        # tests guard the hoisted behavior, so force it on. The kill-switch and
+        # planner tests re-patch it per assertion.
+        patcher = patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     @classmethod
     def setUpTestData(cls):

@@ -368,8 +368,9 @@ class BatchedAlertCheckQuery:
         )
 
         # Outer WHERE owns the pruning so CH can skip parts/granules before
-        # evaluating any countIf: the time bounds always, plus (behind the kill
-        # switch) the OR of every alert's predicate. The disjunction is
+        # evaluating any countIf: the time bounds always, plus (behind
+        # HOIST_BATCHED_ALERT_PREDICATES) the OR of every alert's predicate.
+        # The disjunction is
         # result-equivalent because a row matching no alert's predicate
         # contributes to no countIf, but it lets CH prune with the primary key
         # (service_name) and the attributes bloom-filter skip indexes, which
