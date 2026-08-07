@@ -3190,8 +3190,8 @@ class TestOAuthAPI(APIBaseTest):
     @parameterized.expand(["request_body", "http_basic"])
     def test_introspection_rejects_a_public_client_claiming_the_device_code_grant(self, transport: str):
         # oauth2_provider's `_authenticate_basic_auth` and `_authenticate_request_body` each
-        # return True for a public client presenting this grant type, before either one reaches
-        # `_check_secret` — so the blank-secret guard in `verify_client_secret` never sees it.
+        # return True for a public client presenting this grant type before either one reaches
+        # `_check_secret`, so the blank-secret guard in `verify_client_secret` never sees it.
         access_token, _ = self._create_access_and_refresh_tokens()
 
         body = {
