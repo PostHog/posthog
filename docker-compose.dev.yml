@@ -205,6 +205,9 @@ services:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
+            # The combined-mode AI consumer reads persons through PersonHog
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             kafka:
                 condition: service_started
@@ -212,6 +215,8 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+            personhog-router:
+                condition: service_started
         healthcheck:
             test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
             interval: 5s
@@ -542,6 +547,7 @@ services:
                     clickhouse_heatmap_events \
                     clickhouse_flag_evaluations \
                     clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_ai \
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
