@@ -2853,15 +2853,15 @@ snapshots:
     insights-retentionlinechart--realistic-curve--light:
         hash: v1.k794b7964.3e4141c2a16b3e2f47465433ef4a4c6465000255c97faec25f458a8c01fb8253.AVEwr4UWiTybgaqLQRr5pWoH814DvMPZPQ7UTz2XKAQ
     insights-sqlbargraph--grouped-bar-with-negative-values--dark:
-        hash: v1.k794b7964.283bee4c2dac75105174851eeb9a1fed0c9ca3d2205d786aafa39865a3fd8938.TeLLwxc-mWGsntqHxicMgtiRmsQjwaf4dDWUCLV1DO0
+        hash: v1.k794b7964.a0c116d0e59bc72623f0e6067cfc5f223195948f9a9c1f85e3793e7421854aac.cfTZ4-lxXfR8X0ENthfLBymWjzG107uUwdGU_7rr8dg
     insights-sqlbargraph--grouped-bar-with-negative-values--light:
         hash: v1.k794b7964.f650a19c898a1b45659a824ca56b78b832d3229e15216e775abf225c39fc76b7.0GEkJRi-qzoYtdTtlPgeJD1FLrEu4N19aOMCQ3eMdoA
     insights-sqlbargraph--stacked-bar--dark:
-        hash: v1.k794b7964.a45a9739957d0f9c5cb6159c17e23ed65d9264ba32351c15bccab429d5220155.f6ESGa5-PChPxWgHwSnCIGRPGxBSyIMkhZeR7DRVYjQ
+        hash: v1.k794b7964.d5b575f5dc271b3d517b82f4b79ad54c48f0087bf3e5faade810d07524e1347d.QlQa2pOQP3Byfq_W8lxnm7MazaJZxsRDX2sXl-rgmN8
     insights-sqlbargraph--stacked-bar--light:
         hash: v1.k794b7964.8d28e015206bd7370f1c78539f4e3aac265d28343ebea07514d541cebed112a8.hxrbzRFRPvexTuluONzSog2NGfd3aoRCKmwIprzP0nc
     insights-sqlbargraph--stacked-bar-with-negative-values--dark:
-        hash: v1.k794b7964.41a485724417c895fc08146a5f10648c76af2931f83b1113697017682c80835d.7bQIt1cXr2Nj8lu___2y9bKraj9zeYbtEGjg70mZcz0
+        hash: v1.k794b7964.f51f49483024b4565377c9987c54ab25620198a3900c4cf5fcc9605b0a38c69e.9pQprpsNOus-b00NlI6CAJ8qhmQjJ8vHevQE3mEmoJs
     insights-sqlbargraph--stacked-bar-with-negative-values--light:
         hash: v1.k794b7964.e9f32e35e60194c76df1aad0e7963ca99bc76d2b6099437c5e679c4959feb976.3DeROLuvQPwEHmWPIxoY7SxfXAcAgX6gufInnDLnBh0
     insights-sqlpiegraph--breakdown-colors--dark:
@@ -7519,11 +7519,11 @@ snapshots:
     scenes-other-billing--billing-without-icon-keys--light:
         hash: v1.k794b7964.6cb8c47887a0fa3fd3f81379090febcc05c3be3610cde5873d507766c595c191.YbRefpyPdf31OQpgZ1GTQTwADlF14qzTEzsk3uGAXNo
     scenes-other-billing-billinglinegraph--with-billing-period-marker--dark:
-        hash: v1.k794b7964.659ef2a9028cee6b7cce11fb4e474ec2150c73517c90bd58b2f52188a438f2d6.l9cj9-MUsCDWVTb3L3gnWa00mdyg6rS2skRWbP92TGY
+        hash: v1.k794b7964.04db65c8141094de545496249de51e33764319470b93d22b059315b7099e9b4d.53LSwqBZMX_gX2QZfl8epGnt1dVhkOVYy--LQfDY8a0
     scenes-other-billing-billinglinegraph--with-billing-period-marker--light:
         hash: v1.k794b7964.39589e33115d9b6e977d464c2656b0fc2e132017c469f1ad31c2c13cd12c2260.-YE5Bgc3uP4iB9JuUSvQEmgzwDjNWImvSqJg1YgVLuw
     scenes-other-billing-billinglinegraph--with-marker-at-range-start--dark:
-        hash: v1.k794b7964.5bcd95a5b7d58b483401ea42f0762bc1894ac406beebf5c8b45b89304b908ce9.Ox9Cw0TvU8tIvrVTgeAC92FRtCGjTaLnVOx8S9nRzCA
+        hash: v1.k794b7964.815c486f7f48d3eea7b553583bf744d743f65bcc8805ca61bb1578a81e019f49.IgMvxJFK699UjwEKZ5YDOURa2urIF_JL8OMNeo7yeS0
     scenes-other-billing-billinglinegraph--with-marker-at-range-start--light:
         hash: v1.k794b7964.5948fea6ef855d327f6d59f1ed10eb3fd55808540eda078bee5fed552523a4c0.FTXekbDFuL1YE5ad9VyyBtq5lOBiNalah41lHdISQOE
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--dark:
