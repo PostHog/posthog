@@ -42,13 +42,16 @@ describe('hasTrendsChartData', () => {
         ],
         ['non-finite aggregated value is ignored', [withMissingData({ count: 0, aggregated_value: NaN })], false],
         ['non-zero count with a missing data array', [withMissingData({ count: 5 })], false],
-        // Pins the union's current semantics for the ORed contracts (see hasTrendsChartData.ts):
-        // an aggregated-value-zero result with a non-zero count still counts as having data.
+        // The regression: a formula series whose ratio-of-sums total nets to zero still plots
+        // non-zero per-interval points, so the chart has data even though `count` is zero.
         [
-            'an aggregated-value-zero result with a non-zero count is still treated as having data',
-            [makeResult({ aggregated_value: 0, count: 5, data: [] })],
+            'non-zero data with a zero count (formula ratio-of-sums total)',
+            [makeResult({ data: [0, 3, 0], count: 0 })],
             true,
         ],
+        // `count` is not the has-data signal: an empty plotted array has nothing to show, regardless
+        // of a non-zero `count`.
+        ['non-zero count with an empty data array has nothing to plot', [makeResult({ count: 5, data: [] })], false],
         [
             'lifecycle dormant series carries a negative count and still counts as data',
             [makeResult({ data: [-3, -1, 0], count: -4 })],
