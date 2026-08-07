@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { ApiClient } from '@/api/client'
 import { ForwardingApiClient } from '@/lib/connection-forwarding'
 import { ExecCommandError, PostHogApiError } from '@/lib/errors'
+import { StateManager } from '@/lib/StateManager'
 import executeSqlTool from '@/tools/posthogAiTools/executeSql'
 import { createConnectionCallTool } from '@/tools/posthogConnections/call'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -19,6 +20,9 @@ const TARGET = {
 
 const FORWARD_PATH = '/api/projects/7/posthog_connections/99/forward/'
 const TARGET_PATH = '/api/projects/7/posthog_connections/99/target/'
+
+/** A catalogued tool carrying `requires_ai_consent`. */
+const AI_CONSENT_TOOL = 'web-analytics-path-cleaning-suggestions-generate'
 
 /** A local client whose only job is to answer the two connection endpoints. */
 function createLocalApi(request: ReturnType<typeof vi.fn>): ApiClient {
@@ -69,6 +73,8 @@ function fakeTool(name: string): ToolBase<ZodObjectAny> {
 describe('posthog connection forwarding', () => {
     afterEach(() => {
         vi.unstubAllGlobals()
+        // The AI-consent cases spy on StateManager's prototype, which outlives the test without this.
+        vi.restoreAllMocks()
     })
 
     describe('ForwardingApiClient', () => {
@@ -221,6 +227,42 @@ describe('posthog connection forwarding', () => {
             })
             expect(globalFetch).not.toHaveBeenCalled()
             expect(result.result).toBe('rows')
+        })
+
+        it.each([
+            ['the target has not approved it', false],
+            ['the target’s approval cannot be read', undefined],
+        ])('refuses an AI-consuming tool when %s', async (_case, consent) => {
+            // AI consent is filtered per session locally, but a tool named here comes from the
+            // registry, and it is the *other* organization's approval that governs. The API gates
+            // these endpoints on a feature flag and scopes only, so nothing downstream would stop it.
+            const request = createRequestMock({ status: 200, data: {} })
+            const tool = createConnectionCallTool(() => fakeTool(AI_CONSENT_TOOL))
+            const context = createContext(request)
+            vi.spyOn(StateManager.prototype, 'getAiConsentGiven').mockResolvedValue(consent)
+
+            const error: any = await tool
+                .handler(context, { connection_id: '99', tool: AI_CONSENT_TOOL, arguments: { query: 'x' } })
+                .catch((e) => e)
+
+            expect(error).toBeInstanceOf(ExecCommandError)
+            expect(error.message).toContain('has not approved AI data processing')
+            expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ path: FORWARD_PATH }))
+        })
+
+        it('runs an AI-consuming tool once the target has approved it', async () => {
+            // Guards the other direction: a gate that refused regardless would satisfy the cases above.
+            const request = createRequestMock({ status: 200, data: { ok: true } })
+            const tool = createConnectionCallTool(() => fakeTool(AI_CONSENT_TOOL))
+            vi.spyOn(StateManager.prototype, 'getAiConsentGiven').mockResolvedValue(true)
+
+            const result: any = await tool.handler(createContext(request), {
+                connection_id: '99',
+                tool: AI_CONSENT_TOOL,
+                arguments: { query: 'x' },
+            })
+
+            expect(result.result).toEqual({ ok: true })
         })
 
         it('rejects arguments the target tool would not accept, without contacting the connection', async () => {

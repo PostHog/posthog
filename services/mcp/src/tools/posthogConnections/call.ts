@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { buildForwardedContext, resolveConnectionTarget, seedForwardedContext } from '@/lib/connection-forwarding'
 import { ExecCommandError } from '@/lib/errors'
+import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const schema = z.object({
@@ -31,6 +32,36 @@ const UNSUPPORTED_TOOLS: Record<string, string> = {
     'switch-organization':
         'A connection points at one fixed project. Use a different connection to reach a different one.',
     'session-recording-summarize': 'This tool streams its response, which a connection cannot carry.',
+}
+
+/**
+ * Refuse a tool that feeds data to an LLM unless the *connected* organization approved AI
+ * processing.
+ *
+ * Locally this gate lives in the tool list, which is filtered per session — but a tool named here is
+ * looked up in the registry, and the approval that matters belongs to the other organization anyway.
+ * Several of these endpoints gate server-side on a feature flag and scopes only, so nothing further
+ * down would catch it. `getAiConsentGiven` resolves through the forwarded context, so it reads the
+ * target's setting, and it answers `undefined` for anything it cannot read — which stays refused.
+ */
+async function assertTargetApprovedAiProcessing(forwarded: Context, toolName: string): Promise<void> {
+    let requiresAiConsent: boolean
+    try {
+        requiresAiConsent = getToolDefinition(toolName).requires_ai_consent === true
+    } catch {
+        // No catalogued definition, so not one of the AI-consuming tools.
+        return
+    }
+    if (!requiresAiConsent) {
+        return
+    }
+
+    if ((await forwarded.stateManager.getAiConsentGiven()) !== true) {
+        throw new ExecCommandError(
+            `\`${toolName}\` sends data to an LLM, and the connected project's organization has not approved AI data processing. Approve it in that organization's settings, or use a tool that does not rely on AI.`,
+            'usage'
+        )
+    }
 }
 
 /**
@@ -84,6 +115,7 @@ export function createConnectionCallTool(
                 target: connectionTarget,
             })
             await seedForwardedContext(forwarded, connectionTarget)
+            await assertTargetApprovedAiProcessing(forwarded, params.tool)
 
             const result = await target.handler(forwarded, parsedArguments.data)
 
