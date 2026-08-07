@@ -38,6 +38,7 @@ from products.slack_app.backend.services.model_catalogue import (
     available_model_choices,
     describe_run_model,
     format_model_id,
+    group_by_runtime,
     label_for,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
@@ -140,24 +141,25 @@ class PickerAdapter:
 
 
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Group the model catalogue into the runtime → model → effort tree the modal's
-    linked dropdowns render. Adapters with no available models are omitted entirely."""
-    by_adapter: dict[str, list[PickerModel]] = {}
-    for choice in available_model_choices():
-        efforts = tuple(
-            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
-        )
-        by_adapter.setdefault(choice.runtime_adapter, []).append(
-            PickerModel(value=choice.model, label=choice.label, supported_efforts=efforts)
-        )
-
+    """Dress the catalogue's runtime → model tree in the effort labels the modal's linked
+    dropdowns render. Adapters with no available models are omitted entirely."""
     return tuple(
         PickerAdapter(
-            value=adapter_value,
-            label=label_for(adapter_value, RUNTIME_ADAPTER_DISPLAY_NAMES),
-            models=tuple(models),
+            value=group.runtime_adapter,
+            label=group.label,
+            models=tuple(
+                PickerModel(
+                    value=choice.model,
+                    label=choice.label,
+                    supported_efforts=tuple(
+                        PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
+                        for e in choice.supported_efforts
+                    ),
+                )
+                for choice in group.choices
+            ),
         )
-        for adapter_value, models in by_adapter.items()
+        for group in group_by_runtime(available_model_choices())
     )
 
 
@@ -1233,8 +1235,11 @@ def _selected_value(state: dict, block_id: str, action_id: str) -> str | None:
 # here.
 
 
-def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
+def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Integration) -> None:
     """Publish the Home tab for the user who just opened it.
+
+    The caller resolves the integration through the shared region gate, so this
+    region owns the workspace by the time we get here.
 
     Gated by the slack-app-home flag — when off, the publish is skipped so
     installs without the manifest changes (and workspaces that haven't opted
@@ -1246,11 +1251,13 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     if not slack_user_id:
         return
 
-    integration = _get_slack_integration(slack_team_id)
-    if integration is None:
-        return
-
     if not is_slack_app_home_enabled(integration):
+        logger.info(
+            "slack_app_home_publish_skipped",
+            reason="flag_off",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+        )
         return
 
     effective = resolve_ai_preferences(integration, slack_user_id)
@@ -1278,6 +1285,12 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     except Exception:
         logger.exception(
             "slack_app_home_publish_failed",
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+        )
+    else:
+        logger.info(
+            "slack_app_home_published",
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
