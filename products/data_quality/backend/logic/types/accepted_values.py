@@ -1,4 +1,6 @@
-from pydantic import Field
+import json
+
+from pydantic import Field, field_validator
 
 from posthog.hogql import ast
 
@@ -12,6 +14,15 @@ class AcceptedValuesConfig(CheckConfig):
     values: list[str | float | bool] = Field(
         min_length=1, description="The complete set of values the column is allowed to take."
     )
+
+    @field_validator("values")
+    @classmethod
+    def _canonical_set(cls, values: list[str | float | bool]) -> list[str | float | bool]:
+        # values is semantically a set: dedupe and order deterministically (by JSON representation,
+        # which totally orders across the mixed value types) so two configs differing only in
+        # ordering or repetition normalize identically and upsert instead of creating a twin.
+        by_repr = {json.dumps(value, sort_keys=True): value for value in values}
+        return [by_repr[key] for key in sorted(by_repr)]
 
 
 class AcceptedValuesSpec(CheckTypeSpec):

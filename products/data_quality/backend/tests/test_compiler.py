@@ -230,6 +230,15 @@ class TestCheckSerialization:
         assert fingerprint("status", ["paid", "refunded"]) != fingerprint("status", ["paid"])
         assert fingerprint("status", ["paid", "refunded"]) != fingerprint("total", ["paid", "refunded"])
 
+    def test_accepted_values_fingerprint_ignores_order_and_duplicates(self) -> None:
+        # accepted_values is a set: reordering or repeating a value must not create a twin check that
+        # slips past the fingerprint uniqueness constraint.
+        canonical = _normalized(CheckType.ACCEPTED_VALUES, "status", {"values": ["paid", "refunded"]})
+        shuffled = _normalized(CheckType.ACCEPTED_VALUES, "status", {"values": ["refunded", "paid", "paid"]})
+
+        assert canonical == shuffled
+        assert _fingerprint_for(canonical) == _fingerprint_for(shuffled)
+
     def test_configs_that_differ_only_in_json_type_share_a_fingerprint(self) -> None:
         # Normalizing through the type's model first is what makes this hold: an agent sending
         # max_age_minutes as "60" must upsert the check it already created with 60, not add a twin.

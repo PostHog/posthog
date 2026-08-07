@@ -528,8 +528,4 @@ class Migration(migrations.Migration):
             model_name="dataqualitycheckrun",
             index=models.Index(fields=["team", "created_at"], name="data_qualit_team_id_0f3f54_idx"),
         ),
-        migrations.AddIndex(
-            model_name="dataqualitycheckrun",
-            index=models.Index(fields=["suite_run"], name="data_qualit_suite_r_59d5ab_idx"),
-        ),
     ]

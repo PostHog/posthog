@@ -2,8 +2,8 @@
 Facade for data_quality.
 
 The only module this product's presentation layer (and external code) may import. It re-exports the
-logic surface and model classes so the isolation boundary stays clean: presentation never reaches
-into ``logic`` or ``models`` directly.
+logic surface -- capability functions and frozen contracts -- so the isolation boundary stays clean:
+presentation never reaches into ``logic`` directly, and ORM model classes never cross it.
 """
 
 from ..logic.compiler import compile_check, related_subject_ref
@@ -13,7 +13,6 @@ from ..logic.registry import UnknownCheckTypeError, all_specs, get_spec
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.spec import CheckConfig, CheckTypeSpec
 from ..logic.subjects import resolve_subject
-from .models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 __all__ = [
     "CheckConfig",
@@ -21,9 +20,6 @@ __all__ = [
     "CheckPlan",
     "CheckTypeSpec",
     "CompiledCheck",
-    "DataQualityCheck",
-    "DataQualityCheckRun",
-    "DataQualitySuiteRun",
     "Evaluation",
     "SubjectRef",
     "SubjectUnresolvableError",

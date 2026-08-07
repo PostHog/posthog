@@ -127,7 +127,6 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
         indexes = [
             models.Index(fields=["quality_check", "-created_at"]),
             models.Index(fields=["team", "created_at"]),
-            models.Index(fields=["suite_run"]),
         ]
 
     def __str__(self) -> str:

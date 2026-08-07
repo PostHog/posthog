@@ -215,7 +215,8 @@ def get_queryable_table(table_id: UUID, team_id: int) -> contracts.DataWarehouse
     None instead of raising, so a caller holding a stored table reference can tell "gone" from
     "something went wrong".
     """
-    table = _DataWarehouseTable.objects.queryable().filter(id=table_id, team_id=team_id).first()
+    # raw_objects skips the eager schema prefetch/joins objects does -- the mapper only reads scalars.
+    table = _DataWarehouseTable.raw_objects.queryable().filter(id=table_id, team_id=team_id).first()
     return _to_table(table) if table is not None else None
 
 
