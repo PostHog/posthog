@@ -139,7 +139,7 @@ export function DashboardEditSaveCancelButtons({
     /** The large-dashboard "Apply filters" preview button, rendered between Cancel and Save. */
     applyFiltersButton?: JSX.Element | null
 }): JSX.Element {
-    const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboardLoading, canEditDashboard, hasUnsavedEditModeChanges } = useValues(dashboardLogic)
     const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
 
     const cancelButton = (
@@ -165,9 +165,11 @@ export function DashboardEditSaveCancelButtons({
             disabledReason={
                 dashboardLoading
                     ? 'Wait for dashboard to finish loading'
-                    : canEditDashboard
-                      ? undefined
-                      : 'Not privileged to edit this dashboard'
+                    : !canEditDashboard
+                      ? 'Not privileged to edit this dashboard'
+                      : !hasUnsavedEditModeChanges
+                        ? 'No changes to save'
+                        : undefined
             }
         >
             Save

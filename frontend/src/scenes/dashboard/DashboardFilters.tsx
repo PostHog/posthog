@@ -13,6 +13,16 @@ import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
 
+// Placements that link out to the full dashboard to edit rather than showing the inline filter bar.
+const NON_INLINE_FILTER_PLACEMENTS = [
+    DashboardPlacement.Public,
+    DashboardPlacement.Export,
+    DashboardPlacement.FeatureFlag,
+    DashboardPlacement.Group,
+    DashboardPlacement.DataOps,
+    DashboardPlacement.Builtin,
+]
+
 /**
  * Edit-mode actions for the filter bar.
  *
@@ -22,11 +32,28 @@ import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
  * always safe to skip Apply and go straight to Save.
  */
 function DashboardEditActions(): JSX.Element | null {
-    const { dashboardMode, layoutEditMode, canEditDashboard, showApplyFiltersBanner, loadingPreview } =
-        useValues(dashboardLogic)
+    const {
+        placement,
+        dashboard,
+        dashboardMode,
+        layoutEditMode,
+        canEditDashboard,
+        showApplyFiltersBanner,
+        loadingPreview,
+        filtersDirty,
+    } = useValues(dashboardLogic)
     const { applyFilters } = useActions(dashboardLogic)
 
-    if (dashboardMode !== DashboardMode.Edit || layoutEditMode || !canEditDashboard) {
+    if (layoutEditMode || !canEditDashboard) {
+        return null
+    }
+
+    // Show the Save/Cancel bar in edit mode, but also whenever the filters on screen differ from
+    // what's saved — after a reload `dashboardMode` resets to null, yet URL overrides still differ
+    // from the saved dashboard, so the user needs a way to persist (or discard) them. The dirty-driven
+    // bar is scoped to placements that render the inline filter bar; embedded placements edit elsewhere.
+    const showForOverrides = filtersDirty && !!dashboard && !NON_INLINE_FILTER_PLACEMENTS.includes(placement)
+    if (dashboardMode !== DashboardMode.Edit && !showForOverrides) {
         return null
     }
 

@@ -9,7 +9,6 @@ import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { objectClean } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
@@ -440,11 +439,42 @@ export const parseURLFilters = (searchParams: Record<string, any>): DashboardFil
     return filters
 }
 
+/**
+ * Drop filter keys that carry no override. A dashboard filter only overrides the saved
+ * dashboard when it holds a value: `undefined`, `null`, an empty array (e.g. `properties: []`),
+ * and an empty object all mean "inherit the saved filter". `explicitDate` only qualifies a date
+ * range, so it isn't an override on its own. Keeping these normalizations in one place lets the
+ * URL, the overrides banner, and the dirty check all agree on what counts as an override.
+ */
+export function stripEmptyFilterValues(filters: DashboardFilter): DashboardFilter {
+    const cleaned: Record<string, unknown> = {}
+
+    for (const [key, value] of Object.entries(filters)) {
+        if (value === undefined || value === null) {
+            continue
+        }
+        if (Array.isArray(value) && value.length === 0) {
+            continue
+        }
+        if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
+            continue
+        }
+        cleaned[key] = value
+    }
+
+    if ('explicitDate' in cleaned && cleaned.date_from == null && cleaned.date_to == null) {
+        delete cleaned.explicitDate
+    }
+
+    return cleaned as DashboardFilter
+}
+
 export const encodeURLFilters = (filters: DashboardFilter): Record<string, string> => {
     const encodedFilters: Record<string, string> = {}
 
-    if (Object.keys(filters).length > 0) {
-        encodedFilters[SEARCH_PARAM_FILTERS_KEY] = JSON.stringify(objectClean(filters as Record<string, unknown>))
+    const cleaned = stripEmptyFilterValues(filters)
+    if (Object.keys(cleaned).length > 0) {
+        encodedFilters[SEARCH_PARAM_FILTERS_KEY] = JSON.stringify(cleaned)
     }
 
     return encodedFilters

@@ -813,6 +813,9 @@ describe('dashboardLogic', () => {
 
             it('discarding filter edit passes url snapshot into restore action', async () => {
                 const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
+                // The snapshot is re-encoded via encodeURLFilters, which drops empty values such as
+                // the null date_to, so the stored payload is the cleaned form.
+                const snapshotFilters = JSON.stringify({ date_from: '-7d' })
 
                 logic.unmount()
                 router.actions.push('/dashboard/5', {
@@ -833,7 +836,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         urlSearchParamsAtEditModeEntry: {
-                            filters: originalFilters,
+                            filters: snapshotFilters,
                             variables: undefined,
                         },
                     })
@@ -849,7 +852,7 @@ describe('dashboardLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(restoreSpy).toHaveBeenCalledWith({
-                    filters: originalFilters,
+                    filters: snapshotFilters,
                     variables: undefined,
                 })
 
@@ -1123,6 +1126,27 @@ describe('dashboardLogic', () => {
                     expect(logic.values.hasUnsavedLayoutChanges).toBe(expectedUnsaved)
                 }
             )
+        })
+    })
+
+    describe('filtersDirty selector', () => {
+        // Save/discard affordances derive from filtersDirty, not dashboardMode, so a reload (which
+        // resets the mode) still exposes Save when URL overrides genuinely differ from the saved
+        // dashboard, and an override that clears to nothing reads as "not dirty" (no phantom Save).
+        const cases: Array<[string, Record<string, string> | undefined, boolean]> = [
+            ['no url filters', undefined, false],
+            ['empty properties override', { query_filters: JSON.stringify({ properties: [] }) }, false],
+            ['null date override', { query_filters: JSON.stringify({ date_from: null, date_to: null }) }, false],
+            ['real date override differs from saved', { query_filters: JSON.stringify({ date_from: '-14d' }) }, true],
+        ]
+
+        it.each(cases)('%s -> filtersDirty=%s', async (_, searchParams, expected) => {
+            router.actions.push('/dashboard/5', searchParams ?? {})
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filtersDirty).toBe(expected)
         })
     })
 

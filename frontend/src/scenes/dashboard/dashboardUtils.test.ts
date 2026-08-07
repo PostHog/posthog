@@ -4,6 +4,7 @@ import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBa
 
 import {
     dashboardToSaveableTemplate,
+    encodeURLFilters,
     getDashboardTileDisplayName,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
@@ -129,6 +130,34 @@ describe('parseURLFilters', () => {
         }
         expect(parseURLFilters(searchParams)).toEqual({})
         consoleSpy.mockRestore()
+    })
+})
+
+describe('encodeURLFilters', () => {
+    // Empty overrides must not reach the URL: a leftover query_filters param (e.g. {"properties":[]})
+    // makes the overrides banner reappear on reload even though the user cleared every filter.
+    it('omits the param when every filter value is empty', () => {
+        expect(encodeURLFilters({ properties: [], date_from: null, date_to: null })).toEqual({})
+    })
+
+    it('omits the param for an empty object', () => {
+        expect(encodeURLFilters({})).toEqual({})
+    })
+
+    it('drops empty values but keeps meaningful ones', () => {
+        expect(encodeURLFilters({ date_from: '-7d', properties: [] })).toEqual({
+            [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+        })
+    })
+
+    it('drops explicitDate when there is no date range', () => {
+        expect(encodeURLFilters({ explicitDate: true })).toEqual({})
+    })
+
+    it('keeps a forced-off test-accounts override', () => {
+        expect(encodeURLFilters({ filterTestAccounts: false })).toEqual({
+            [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ filterTestAccounts: false }),
+        })
     })
 })
 
