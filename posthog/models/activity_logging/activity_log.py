@@ -101,6 +101,7 @@ ActivityScope = Literal[
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "DataQualityCheck",
     "Billing",
     "Loop",
 ]
@@ -507,6 +508,14 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+    ],
+    "DataQualityCheck": [
+        # Written by the runner and the scheduler, not by a person editing the check.
+        "last_run_at",
+        "last_status",
+        "next_run_at",
+        "subject_name",
+        "subject_status",
     ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason

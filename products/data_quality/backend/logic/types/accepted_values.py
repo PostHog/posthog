@@ -1,0 +1,46 @@
+from pydantic import Field
+
+from posthog.hogql import ast
+
+from ...facade.enums import CheckType
+from ..contracts import CheckPlan, SubjectRef
+from ..spec import CheckConfig, CheckTypeSpec
+from .common import column, one, subject_source
+
+
+class AcceptedValuesConfig(CheckConfig):
+    values: list[str | float | bool] = Field(
+        min_length=1, description="The complete set of values the column is allowed to take."
+    )
+
+
+class AcceptedValuesSpec(CheckTypeSpec):
+    type_name = CheckType.ACCEPTED_VALUES
+    config_model = AcceptedValuesConfig
+    requires_column = True
+    description = "Fails on rows whose column value is outside the allowed set. Nulls are ignored."
+
+    def build(
+        self, subject: SubjectRef, column_name: str, config: CheckConfig, related: SubjectRef | None = None
+    ) -> CheckPlan:
+        assert isinstance(config, AcceptedValuesConfig)
+        value = column(column_name)
+        return CheckPlan(
+            failing_rows=ast.SelectQuery(
+                select=[one()],
+                select_from=subject_source(subject),
+                where=ast.And(
+                    exprs=[
+                        ast.Call(name="isNotNull", args=[value]),
+                        ast.CompareOperation(
+                            left=value,
+                            op=ast.CompareOperationOp.NotIn,
+                            right=ast.Constant(value=list(config.values)),
+                        ),
+                    ]
+                ),
+            )
+        )
+
+
+SPEC = AcceptedValuesSpec()

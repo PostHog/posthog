@@ -28,3 +28,18 @@ class DataModelingJob:
     rows_expected: int | None
     error: str | None
     last_run_at: datetime
+
+
+@dataclass(frozen=True)
+class SavedQuerySummary:
+    """A saved query as other products need to see it: enough to name it and query it.
+
+    ``name`` is the HogQL identifier even when the view is materialized -- the physical backing
+    table is swapped in during resolution and is never the name a caller should query.
+    """
+
+    id: str
+    team_id: int
+    name: str
+    is_materialized: bool
+    last_run_at: datetime | None
