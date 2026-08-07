@@ -1,4 +1,4 @@
-import { MakeLogicType, connect, events, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, connect, events, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -34,6 +34,7 @@ export interface miniBreakdownsLogicValues {
         totalCount: number
     }
     response: ErrorTrackingBreakdownsQueryResponse | null
+    responseError: string | null
     responseLoading: boolean
 }
 
@@ -80,6 +81,16 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
     key(({ issueId }: MiniBreakdownsLogicProps) => issueId),
     connect(() => ({
         values: [breakdownFiltersLogic, ['dateRange', 'filterTestAccounts']],
+    })),
+    reducers(() => ({
+        responseError: [
+            null as string | null,
+            {
+                loadResponse: () => null,
+                loadResponseSuccess: () => null,
+                loadResponseFailure: (_, { error }) => error,
+            },
+        ],
     })),
     loaders(({ props, values }) => ({
         response: [

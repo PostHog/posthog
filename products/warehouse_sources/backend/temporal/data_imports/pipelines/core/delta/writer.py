@@ -472,6 +472,15 @@ class DeltaWriter:
                     mode="ignore",
                 )
 
+            if mode == "append":
+                # Each batch of a full_refresh (or first incremental sync) infers its own decimal
+                # types independently, same as the incremental-merge and append-continuation paths
+                # above. Without reconciling to the table's already-established type here, a later
+                # batch whose inferred scale is wider than an earlier one hits delta-rs's
+                # merge-schema SchemaMismatchError, since schema_mode="merge" can't widen a stored
+                # column's type in place.
+                data = align_incoming_decimals_to_delta(data, delta_table.schema())
+
             try:
                 await asyncio.to_thread(
                     _write_deltalake,
