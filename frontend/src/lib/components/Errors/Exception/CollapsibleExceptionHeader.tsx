@@ -95,7 +95,7 @@ export function CollapsibleExceptionHeader({
                         role={!truncate && isClamped ? 'button' : undefined}
                         tabIndex={!truncate && isClamped ? 0 : undefined}
                         aria-expanded={!truncate && isClamped ? expanded : undefined}
-                        className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
+                        className={cn('leading-6 whitespace-pre-wrap text-[var(--foreground)]', {
                             'line-clamp-1': truncate,
                             'line-clamp-3': !truncate && !expanded,
                             'cursor-pointer': !truncate && isClamped,

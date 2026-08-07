@@ -1,11 +1,12 @@
 import uuid
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, OperationalError, transaction
 from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -205,6 +206,54 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
 
+    def test_set_partitioning_enabled_save_skips_activity_log(self) -> None:
+        schema = self._create(sync_type_config={})
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.set_partitioning_enabled(
+                partitioning_keys=["id"],
+                partition_count=10,
+                partition_size=None,
+                partition_mode="md5",
+                partition_format=None,
+            )
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["partitioning_enabled"] is True
+
+    def test_stage_incremental_field_value_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.stage_incremental_field_value("run-1", 42)
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == 42
+
+    def test_promote_staged_incremental_values_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field_type": IncrementalFieldType.Integer,
+                "incremental_staged": {"run_uuid": "run-1", "last_value": 42},
+            },
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            assert schema.promote_staged_incremental_values("run-1")
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+
     def test_bookkeeping_save_raises_instead_of_resurrecting_deleted_row(self) -> None:
         # Source (and its schema, via CASCADE) deleted concurrently with a sync still holding a
         # stale in-memory schema reference. Without force_update, Django's UUID-pk insert fallback
@@ -226,6 +275,50 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         assert not ExternalDataSchema.objects.filter(pk=schema_id).exists()
 
 
+class TestSaveSyncTypeConfigRetriesOnConnectionDrop(BaseTest):
+    """A pgbouncer `query_wait_timeout` (surfaced as `OperationalError`) on this per-batch
+    bookkeeping write used to propagate straight past `record_partition_measurement` and get
+    swallowed by the caller's broad except, silently losing the write for that run."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _create(self, **kwargs) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self.source, name="users", **kwargs)
+
+    def test_retries_once_on_operational_error_then_succeeds(self) -> None:
+        schema = self._create()
+        real_save = ExternalDataSchema.save
+        calls = 0
+
+        def flaky_save(self: ExternalDataSchema, *args: Any, **kwargs: Any) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OperationalError("query_wait_timeout")
+            real_save(self, *args, **kwargs)
+
+        with patch.object(ExternalDataSchema, "save", flaky_save):
+            schema.record_partition_measurement(123)
+
+        assert calls == 2
+        schema.refresh_from_db()
+        assert schema.sync_type_config["max_partition_bytes"] == 123
+
+    def test_second_consecutive_operational_error_propagates(self) -> None:
+        schema = self._create()
+        with patch.object(ExternalDataSchema, "save", side_effect=OperationalError("query_wait_timeout")):
+            with self.assertRaises(OperationalError):
+                schema.record_partition_measurement(123)
+
+
 class TestExternalDataSchemaOOMEvent(BaseTest):
     def _source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -239,8 +332,18 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
     def _schema(self, name: str) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name)
 
-    def _oom(self, schema: ExternalDataSchema, *, age_days: float = 0) -> ExternalDataSchemaOOMEvent:
-        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(team_id=self.team.pk, schema=schema)
+    def _oom(
+        self,
+        schema: ExternalDataSchema,
+        *,
+        age_days: float = 0,
+        run_id: str | None = None,
+    ) -> ExternalDataSchemaOOMEvent:
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            schema=schema,
+            run_id=run_id,
+        )
         if age_days:
             # created_at is auto_now_add, so backdate via an update to place the row outside the window.
             ExternalDataSchemaOOMEvent.objects.unscoped().filter(pk=event.pk).update(
@@ -282,6 +385,16 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
         # real escalation the controller should act on.
         self._oom(schema)
         assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
+
+    def test_recent_count_counts_every_retry_attempt(self) -> None:
+        # Retries of one job are separate attempts at the same merge, each rescheduled onto whichever
+        # worker picks it up. A job that OOMs attempt after attempt is a table failing deterministically,
+        # so collapsing those into one occurrence would discard the clearest evidence this log carries.
+        schema = self._schema("orders")
+        for _ in range(5):
+            self._oom(schema, run_id="run-1")
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 5
 
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):

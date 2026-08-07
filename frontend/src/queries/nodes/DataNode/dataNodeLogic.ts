@@ -5,6 +5,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -1383,7 +1384,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const response = await performQuery(query)
                         breakpoint()
                         return response?.results?.[0]?.[0] || 0
-                    } catch (error) {
+                    } catch (error: any) {
+                        if (isBreakpoint(error)) {
+                            throw error
+                        }
                         posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
                         return null
                     }

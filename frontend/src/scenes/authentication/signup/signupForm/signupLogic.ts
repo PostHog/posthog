@@ -55,9 +55,6 @@ interface SignupEmailPrecheckResponse {
     pending_invite?: PendingInvite | null
 }
 
-// Keep SignupForm for backwards compatibility
-export interface SignupForm extends SignupPanelEmailForm, SignupPanelAuthForm, SignupPanelOnboardingForm {}
-
 export const emailRegex: RegExp =
     // oxlint-disable-next-line no-control-regex
     /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/
@@ -73,10 +70,6 @@ export interface signupLogicValues {
     error: string | null
     isPasskeyRegistering: boolean
     isPendingInviteResending: boolean
-    isSignupPanel1Submitting: boolean
-    isSignupPanel1Valid: boolean
-    isSignupPanel2Submitting: boolean
-    isSignupPanel2Valid: boolean
     isSignupPanelAuthSubmitting: boolean
     isSignupPanelAuthValid: boolean
     isSignupPanelEmailSubmitting: boolean
@@ -88,32 +81,11 @@ export interface signupLogicValues {
     panelTitle: string
     passkeyError: string | null
     passkeyRegistered: boolean
-    passkeySignupEnabled: boolean
     pendingInvite: PendingInvite | null
     pendingInviteResent: boolean
-    showSignupPanel1Errors: boolean
-    showSignupPanel2Errors: boolean
     showSignupPanelAuthErrors: boolean
     showSignupPanelEmailErrors: boolean
     showSignupPanelOnboardingErrors: boolean
-    signupPanel1: SignupForm
-    signupPanel1AllErrors: Record<string, any>
-    signupPanel1Changed: boolean
-    signupPanel1Errors: DeepPartialMap<SignupForm, ValidationErrorType>
-    signupPanel1HasErrors: boolean
-    signupPanel1ManualErrors: Record<string, any>
-    signupPanel1Touched: boolean
-    signupPanel1Touches: Record<string, boolean>
-    signupPanel1ValidationErrors: DeepPartialMap<SignupForm, ValidationErrorType>
-    signupPanel2: SignupForm
-    signupPanel2AllErrors: Record<string, any>
-    signupPanel2Changed: boolean
-    signupPanel2Errors: DeepPartialMap<SignupForm, ValidationErrorType>
-    signupPanel2HasErrors: boolean
-    signupPanel2ManualErrors: Record<string, any>
-    signupPanel2Touched: boolean
-    signupPanel2Touches: Record<string, boolean>
-    signupPanel2ValidationErrors: DeepPartialMap<SignupForm, ValidationErrorType>
     signupPanelAuth: SignupPanelAuthForm
     signupPanelAuthAllErrors: Record<string, any>
     signupPanelAuthChanged: boolean
@@ -163,12 +135,6 @@ export interface signupLogicActions {
     resetChallenge: () => {
         value: true
     }
-    resetSignupPanel1: (values?: SignupForm) => {
-        values?: SignupForm
-    }
-    resetSignupPanel2: (values?: SignupForm) => {
-        values?: SignupForm
-    }
     resetSignupPanelAuth: (values?: SignupPanelAuthForm) => {
         values?: SignupPanelAuthForm
     }
@@ -210,32 +176,6 @@ export interface signupLogicActions {
     }
     setPendingInviteResent: (resent: boolean) => {
         resent: boolean
-    }
-    setSignupPanel1ManualErrors: (errors: Record<string, any>) => {
-        errors: Record<string, any>
-    }
-    setSignupPanel1Value: (
-        key: FieldName,
-        value: any
-    ) => {
-        name: FieldName
-        value: any
-    }
-    setSignupPanel1Values: (values: DeepPartial<SignupForm>) => {
-        values: DeepPartial<SignupForm>
-    }
-    setSignupPanel2ManualErrors: (errors: Record<string, any>) => {
-        errors: Record<string, any>
-    }
-    setSignupPanel2Value: (
-        key: FieldName,
-        value: any
-    ) => {
-        name: FieldName
-        value: any
-    }
-    setSignupPanel2Values: (values: DeepPartial<SignupForm>) => {
-        values: DeepPartial<SignupForm>
     }
     setSignupPanelAuthManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -281,38 +221,6 @@ export interface signupLogicActions {
     }
     setTurnstileToken: (token: string | null) => {
         token: string | null
-    }
-    submitSignupPanel1: () => {
-        value: boolean
-    }
-    submitSignupPanel1Failure: (
-        error: Error,
-        errors: Record<string, any>
-    ) => {
-        error: Error
-        errors: Record<string, any>
-    }
-    submitSignupPanel1Request: (signupPanel1: SignupForm) => {
-        signupPanel1: SignupForm
-    }
-    submitSignupPanel1Success: (signupPanel1: SignupForm) => {
-        signupPanel1: SignupForm
-    }
-    submitSignupPanel2: () => {
-        value: boolean
-    }
-    submitSignupPanel2Failure: (
-        error: Error,
-        errors: Record<string, any>
-    ) => {
-        error: Error
-        errors: Record<string, any>
-    }
-    submitSignupPanel2Request: (signupPanel2: SignupForm) => {
-        signupPanel2: SignupForm
-    }
-    submitSignupPanel2Success: (signupPanel2: SignupForm) => {
-        signupPanel2: SignupForm
     }
     submitSignupPanelAuth: () => {
         value: boolean
@@ -362,12 +270,6 @@ export interface signupLogicActions {
     submitSignupPanelOnboardingSuccess: (signupPanelOnboarding: SignupPanelOnboardingForm) => {
         signupPanelOnboarding: SignupPanelOnboardingForm
     }
-    touchSignupPanel1Field: (key: string) => {
-        key: string
-    }
-    touchSignupPanel2Field: (key: string) => {
-        key: string
-    }
     touchSignupPanelAuthField: (key: string) => {
         key: string
     }
@@ -382,16 +284,10 @@ export interface signupLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface signupLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        validatedPassword: (signupPanelAuth: SignupPanelAuthForm, signupPanel1: SignupForm) => ValidatedPasswordResult
+        validatedPassword: (signupPanelAuth: SignupPanelAuthForm) => ValidatedPasswordResult
         emailCaseNotice: (emailWasNormalized: boolean) => string | undefined
         loginUrl: (searchParams: Record<string, any>) => string
-        passkeySignupEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        panelTitle: (
-            panel: number,
-            passkeySignupEnabled: boolean,
-            preflight: PreflightStatus | null,
-            pendingInvite: PendingInvite | null
-        ) => string
+        panelTitle: (panel: number, preflight: PreflightStatus | null, pendingInvite: PendingInvite | null) => string
     }
 }
 
@@ -681,158 +577,12 @@ export const signupLogic = kea<signupLogicType>([
                 }
             },
         },
-        // Legacy forms for backwards compatibility during transition
-        signupPanel1: {
-            alwaysShowErrors: true,
-            showErrorsOnTouch: true,
-            defaults: {
-                email: '',
-                password: '',
-            } as SignupForm,
-            errors: ({ email, password }) => ({
-                email: !email
-                    ? 'Please enter your email to continue'
-                    : !emailRegex.test(email)
-                      ? 'Please use a valid email address'
-                      : undefined,
-                password: !values.preflight?.demo
-                    ? !password
-                        ? 'Please enter your password to continue'
-                        : values.validatedPassword.feedback || undefined
-                    : undefined,
-            }),
-            submit: async ({ email }, breakpoint) => {
-                breakpoint()
-                actions.setSignupPanel1ManualErrors({})
-                let precheckResponse: SignupEmailPrecheckResponse
-                try {
-                    precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
-                        email,
-                    })
-                } catch (e: any) {
-                    if (e?.status === 409 || e?.code === 'account_exists') {
-                        actions.setSignupPanel1ManualErrors({
-                            email: 'There is already an account with this email address.',
-                        })
-                        actions.setPanel(0)
-                        return
-                    }
-                    const fieldError = e?.data?.email
-                    const emailErrorMessage = fieldError
-                        ? Array.isArray(fieldError)
-                            ? String(fieldError[0])
-                            : String(fieldError)
-                        : e?.detail || 'Could not verify your email. Please try again.'
-                    actions.setSignupPanel1ManualErrors({
-                        email: emailErrorMessage,
-                    })
-                    return
-                }
-                if (precheckResponse.email_exists || precheckResponse.code === 'account_exists') {
-                    actions.setSignupPanel1ManualErrors({
-                        email: precheckResponse.detail || 'There is already an account with this email address.',
-                    })
-                    actions.setPanel(0)
-                    return
-                }
-                const pendingInvite = precheckResponse.pending_invite ?? null
-                if (pendingInvite && (router.values.searchParams as Record<string, string>).skip_invite_check !== '1') {
-                    actions.setPendingInvite(pendingInvite)
-                    return
-                }
-                actions.setPendingInvite(null)
-                actions.setPanel(1)
-            },
-        },
-        signupPanel2: {
-            alwaysShowErrors: true,
-            showErrorsOnTouch: true,
-            defaults: {
-                name: '',
-                organization_name: '',
-                role_at_organization: '',
-                referral_source: '',
-                referral_source_ai_prompt: '',
-            } as SignupForm,
-            errors: ({ name, role_at_organization }) => ({
-                name: !name ? 'Please enter your name' : undefined,
-                role_at_organization: !role_at_organization ? 'Please select your role in the organization' : undefined,
-            }),
-            submit: async (payload, breakpoint) => {
-                breakpoint()
-                try {
-                    const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
-
-                    const signupData: Record<string, any> = {
-                        ...values.signupPanel1,
-                        ...payload,
-                        first_name: payload.name.split(' ')[0],
-                        last_name: payload.name.split(' ')[1] || undefined,
-                        organization_name: payload.organization_name || undefined,
-                        next_url: nextUrl ?? undefined,
-                    }
-
-                    if (values.turnstileToken && values.challengeNonce) {
-                        signupData.turnstile_token = values.turnstileToken
-                        signupData.challenge_nonce = values.challengeNonce
-                    }
-
-                    const res = await api.create('api/signup/', signupData)
-
-                    if (!payload.organization_name) {
-                        posthog.capture('sign up organization name not provided')
-                    }
-
-                    // it's ok to trust the url sent from the server
-                    // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                    location.href = res.redirect_url || '/'
-                } catch (e) {
-                    const error = e as Record<string, any>
-
-                    if (error.code === 'challenge_required') {
-                        actions.setTurnstileToken(null)
-                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
-                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
-                        actions.setChallengeRequired(true)
-                        return
-                    }
-
-                    actions.resetChallenge()
-
-                    const emailError = error.data?.email
-                    if (emailError) {
-                        const message = Array.isArray(emailError) ? String(emailError[0]) : String(emailError)
-                        actions.setSignupPanel1ManualErrors({ email: message })
-                        actions.setPanel(0)
-                        return
-                    }
-
-                    if (error.code === 'throttled') {
-                        actions.setSignupPanel2ManualErrors({
-                            generic: {
-                                code: error.code,
-                                detail: 'Too many signup attempts. Please try again later.',
-                            },
-                        })
-                    } else {
-                        actions.setSignupPanel2ManualErrors({
-                            generic: {
-                                code: error.code,
-                                detail: error.detail,
-                            },
-                        })
-                    }
-                    throw e
-                }
-            },
-        },
     })),
     selectors({
         validatedPassword: [
-            (s) => [s.signupPanelAuth, s.signupPanel1],
-            (signupPanelAuth: SignupPanelAuthForm, signupPanel1: SignupForm): ValidatedPasswordResult => {
-                // Use new form if available, fallback to legacy
-                return validatePassword(signupPanelAuth.password || signupPanel1.password)
+            (s) => [s.signupPanelAuth],
+            (signupPanelAuth: SignupPanelAuthForm): ValidatedPasswordResult => {
+                return validatePassword(signupPanelAuth.password)
             },
         ],
         emailCaseNotice: [
@@ -848,17 +598,10 @@ export const signupLogic = kea<signupLogicType>([
                 return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
             },
         ],
-        passkeySignupEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.PASSKEY_SIGNUP_ENABLED]
-            },
-        ],
         panelTitle: [
-            (s) => [s.panel, s.passkeySignupEnabled, s.preflight, s.pendingInvite],
+            (s) => [s.panel, s.preflight, s.pendingInvite],
             (
                 panel: number,
-                passkeySignupEnabled: boolean,
                 preflight: null | import('../../../../types').PreflightStatus,
                 pendingInvite: PendingInvite | null
             ): string => {
@@ -869,20 +612,14 @@ export const signupLogic = kea<signupLogicType>([
                     return 'Explore PostHog yourself'
                 }
 
-                if (passkeySignupEnabled) {
-                    switch (panel) {
-                        case 0:
-                            return 'Get started'
-                        case 1:
-                            return 'Choose how to sign in'
-                        case 2:
-                            return 'Tell us a bit about yourself'
-                        default:
-                            return 'Get started'
-                    }
+                switch (panel) {
+                    case 1:
+                        return 'Choose how to sign in'
+                    case 2:
+                        return 'Tell us a bit about yourself'
+                    default:
+                        return 'Get started'
                 }
-
-                return panel === 0 ? 'Get started' : 'Tell us a bit about yourself'
             },
         ],
     }),
@@ -908,23 +645,11 @@ export const signupLogic = kea<signupLogicType>([
 
             const hasUppercase = /[A-Z]/.test(email)
             if (hasUppercase) {
-                const normalizedEmail = email.toLowerCase()
-                // Normalize for both form systems
-                if (values.passkeySignupEnabled) {
-                    actions.setSignupPanelEmailValue('email', normalizedEmail)
-                } else {
-                    actions.setSignupPanel1Value('email', normalizedEmail)
-                }
+                actions.setSignupPanelEmailValue('email', email.toLowerCase())
                 actions.setEmailNormalized(true)
             }
         },
         setSignupPanelEmailValue: ({ name, value }) => {
-            if (name.toString() === 'email' && typeof value === 'string') {
-                actions.setEmailNormalized(false)
-                actions.normalizeEmailWithDelay(value)
-            }
-        },
-        setSignupPanel1Value: ({ name, value }) => {
             if (name.toString() === 'email' && typeof value === 'string') {
                 actions.setEmailNormalized(false)
                 actions.normalizeEmailWithDelay(value)
@@ -938,11 +663,7 @@ export const signupLogic = kea<signupLogicType>([
         },
         setTurnstileToken: ({ token }) => {
             if (token && values.challengeNonce) {
-                if (values.passkeySignupEnabled) {
-                    actions.submitSignupPanelOnboarding()
-                } else {
-                    actions.submitSignupPanel2()
-                }
+                actions.submitSignupPanelOnboarding()
             }
         },
         registerPasskey: async () => {
@@ -1029,14 +750,15 @@ export const signupLogic = kea<signupLogicType>([
                     // In demo mode no password is needed, so we can log in right away
                     // This allows us to give a quick login link in the `generate_demo_data` command
                     // X and Y are placeholders, irrelevant because the account should already exists
-                    actions.setSignupPanel1Values({ email })
-                    actions.setSignupPanel2Values({
+                    actions.setSignupPanelEmailValues({ email })
+                    actions.setSignupPanelOnboardingValues({
                         name: 'X',
                         organization_name: 'Y',
+                        role_at_organization: 'other',
                     })
-                    actions.submitSignupPanel2()
+                    actions.submitSignupPanelOnboarding()
                 } else {
-                    actions.setSignupPanel1Value('email', email)
+                    actions.setSignupPanelEmailValue('email', email)
                 }
             }
         },

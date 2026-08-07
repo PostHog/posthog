@@ -125,8 +125,9 @@ export const ProductIntroduction = ({
             )}
             data-attr={`product-introduction-${thingName}`}
         >
+            {/* Below md the copy starts in the top-right corner (no hog beside it), so only pull it up under the dismiss button from md on. */}
             {!isEmpty && (
-                <div className="flex justify-end -mb-6 -mt-2 -mr-2 relative z-10">
+                <div className="flex justify-end md:-mb-6 -mt-2 -mr-2 relative z-10">
                     <div>
                         <LemonButton
                             icon={<IconX />}

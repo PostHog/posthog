@@ -1457,4 +1457,15 @@ export class ApiClient {
         }
         return result.data
     }
+
+    /** Every third-party MCP tool the caller can reach, across all their gateway connections. */
+    async getGatewayTools(projectId: string): Promise<Schemas.AvailableToolsResponse> {
+        const result = await this.fetchJson<Schemas.AvailableToolsResponse>(
+            `${this.baseUrl}/api/projects/${projectId}/mcp_server_installations/available_tools/`
+        )
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data
+    }
 }

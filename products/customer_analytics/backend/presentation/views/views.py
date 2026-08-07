@@ -60,6 +60,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    MeetingSerializer,
     SupportTicketSerializer,
 )
 
@@ -404,6 +405,8 @@ class CustomPropertyDefinitionViewSet(
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.CanonicalCustomPropertyReadOnlyError as e:
+            raise ValidationError(str(e))
         except api.InvalidCustomPropertyOptions as e:
             raise ValidationError({"options": str(e)})
         if definition is None:
@@ -896,34 +899,11 @@ class AccountViewSet(
                 ),
             ),
             OpenApiParameter(
-                name="csm",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=("Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id."),
-            ),
-            OpenApiParameter(
-                name="account_executive",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter by account executive. Use 'unassigned' or an integer user id.",
-            ),
-            OpenApiParameter(
-                name="account_owner",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter by account owner. Use 'unassigned' or an integer user id.",
-            ),
-            OpenApiParameter(
                 name="all_roles_unassigned",
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description=(
-                    "When true, returns only accounts where CSM, account executive, and account owner are all unset."
-                ),
+                description="When true, returns only accounts where no user actively holds any relationship.",
             ),
             OpenApiParameter(
                 name="ordering",
@@ -948,9 +928,6 @@ class AccountViewSet(
                 limit=limit,
                 search=request.query_params.get("search", "").strip() or None,
                 tags=tags,
-                csm=request.query_params.get("csm"),
-                account_executive=request.query_params.get("account_executive"),
-                account_owner=request.query_params.get("account_owner"),
                 all_roles_unassigned=request.query_params.get("all_roles_unassigned", "").lower() == "true",
                 ordering=ordering,
             ),
@@ -986,6 +963,18 @@ class AccountViewSet(
         if tickets is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
+
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: MeetingSerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def meetings(self, request: Request, *args, **kwargs) -> Response:
+        meetings = api.get_account_meetings(
+            self.team_id,
+            self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if meetings is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(MeetingSerializer(instance=meetings, many=True).data)
 
     def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)

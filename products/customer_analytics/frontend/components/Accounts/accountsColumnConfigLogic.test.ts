@@ -26,6 +26,7 @@ function definition(
         name,
         display_type: 'text',
         is_big_number: false,
+        is_canonical: false,
         description: null,
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,

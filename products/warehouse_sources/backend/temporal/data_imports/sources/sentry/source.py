@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SentryResumeConfig,
+    _normalize_organization_slug,
     sentry_source,
     validate_credentials as validate_sentry_credentials,
 )
@@ -46,6 +47,15 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SENTRY
+
+    def parse_config(self, job_inputs: dict) -> SentrySourceConfig:
+        # Normalize before building the config so both the credential check and the stored
+        # job_inputs use the extracted slug. Normalizing only in validate_credentials would let a
+        # pasted URL pass validation but persist as the slug, breaking every later sync.
+        organization_slug = job_inputs.get("organization_slug")
+        if isinstance(organization_slug, str):
+            job_inputs = {**job_inputs, "organization_slug": _normalize_organization_slug(organization_slug)}
+        return self._config_class.from_dict(job_inputs)
 
     @property
     def get_source_config(self) -> SourceConfig:
