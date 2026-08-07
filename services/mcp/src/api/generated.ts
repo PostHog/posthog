@@ -15640,6 +15640,13 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    export interface CommentError {
+      /** Human-readable explanation of what went wrong. */
+      detail: string;
+      /** Stable machine-readable identifier for the failure. */
+      error_type?: string;
+    }
+
     export interface CommentSlackThread {
       readonly id: string;
       /** Resource type of the mirrored discussion (e.g. Insight). */
@@ -18100,6 +18107,38 @@ export namespace Schemas {
       overall_status: string;
       /** Short human-readable summary of detected issues */
       issues_summary: string[];
+    }
+
+    export interface DataWarehouseExpression {
+      readonly id: string;
+      /**
+         * Whether this expression has been soft-deleted.
+         * @nullable
+         */
+      deleted?: boolean | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Name of the table the expression field is added to, for example events.
+         * @maxLength 400
+         */
+      table_name: string;
+      /**
+         * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+         * @maxLength 400
+         * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+         */
+      field_name: string;
+      /**
+         * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+         * @maxLength 10000
+         */
+      expression: string;
+      /**
+         * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+         * @nullable
+         */
+      connection_id?: string | null;
     }
 
     export interface DataWarehouseModelPath {
@@ -46173,6 +46212,15 @@ export namespace Schemas {
       results: DataModelingJob[];
     }
 
+    export interface PaginatedDataWarehouseExpressionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataWarehouseExpression[];
+    }
+
     export interface PaginatedDataWarehouseModelPathList {
       count: number;
       /** @nullable */
@@ -50008,7 +50056,7 @@ export namespace Schemas {
       uploaded_at: string;
       /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
       dismissed_at?: string;
-      /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+      /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
       url?: string;
     }
 
@@ -52617,6 +52665,38 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at?: string | null;
       readonly created_by?: UserBasic;
+    }
+
+    export interface PatchedDataWarehouseExpression {
+      readonly id?: string;
+      /**
+         * Whether this expression has been soft-deleted.
+         * @nullable
+         */
+      deleted?: boolean | null;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /**
+         * Name of the table the expression field is added to, for example events.
+         * @maxLength 400
+         */
+      table_name?: string;
+      /**
+         * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+         * @maxLength 400
+         * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+         */
+      field_name?: string;
+      /**
+         * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+         * @maxLength 10000
+         */
+      expression?: string;
+      /**
+         * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+         * @nullable
+         */
+      connection_id?: string | null;
     }
 
     export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
@@ -79340,6 +79420,7 @@ export namespace Schemas {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -79433,6 +79514,7 @@ export namespace Schemas {
       Team: 'Team',
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseExpression: 'DataWarehouseExpression',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
@@ -79512,6 +79594,7 @@ export namespace Schemas {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -79593,6 +79676,7 @@ export namespace Schemas {
       Team: 'Team',
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseExpression: 'DataWarehouseExpression',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
@@ -87995,6 +88079,21 @@ export namespace Schemas {
      * Only return statistics for this data warehouse table.
      */
     table_id?: string;
+    };
+
+    export type WarehouseExpressionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type WarehouseModelPathsListParams = {
