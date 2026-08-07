@@ -168,9 +168,8 @@ publisher as posthog/posthog + that workflow, or agent releases fail at publish.
 - **hogli**: done 2026-08-01. `hogli.yaml` has a `desktop:*` category, `hogli test`
   routes desktop paths to Vitest and `hogli ci:preflight` validates the nested lockfile
   and runs desktop's Biome.
-- **Dual-publish retirement**: `desktop-release.yml` and `desktop-cleanup-draft-releases.yml`
-  still target PostHog/code for the legacy update feed. Retire once app-version telemetry
-  shows the old feed is quiet.
+- **Dual-publish retirement**: done. Desktop GitHub Releases and draft cleanup now use
+  `PostHog/posthog`; application updates continue to use the S3/CloudFront feed.
 - **Dependency tail**: the remaining transitive high/moderate advisories (minimatch,
   picomatch, js-yaml, form-data, svgo) are left for a dedicated dependency-hygiene sweep.
   Note automated patching does not cover this tree: see the standing security-patch

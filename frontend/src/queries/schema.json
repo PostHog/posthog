@@ -531,6 +531,9 @@
                             "$ref": "#/definitions/StickinessActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/PathsV2ActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -4110,6 +4113,11 @@
                 "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
+                "scan_replay_vision_sessions",
+                "retry_replay_vision_observation",
+                "get_replay_vision_quota",
+                "create_replay_vision_scanner",
+                "create_replay_vision_action",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -10798,6 +10806,103 @@
                         "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedPathsV2QueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/PathsV2Results"
                 },
                 "timezone": {
                     "type": "string"
@@ -24699,7 +24804,8 @@
                 "Raisely",
                 "WindsorAi",
                 "Wix",
-                "Sevalla"
+                "Sevalla",
+                "Motion"
             ],
             "type": "string"
         },
@@ -27549,6 +27655,9 @@
                         },
                         {
                             "$ref": "#/definitions/ExperimentActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsV2ActorsQuery"
                         }
                     ]
                 },
@@ -27691,6 +27800,9 @@
                     "$ref": "#/definitions/PathsFilter"
                 },
                 {
+                    "$ref": "#/definitions/PathsV2Filter"
+                },
+                {
                     "$ref": "#/definitions/StickinessFilter"
                 },
                 {
@@ -27710,6 +27822,7 @@
                 "funnelsFilter",
                 "retentionFilter",
                 "pathsFilter",
+                "pathsV2Filter",
                 "stickinessFilter",
                 "calendarHeatmapFilter",
                 "lifecycleFilter",
@@ -27723,6 +27836,7 @@
                 "FunnelsQuery",
                 "RetentionQuery",
                 "PathsQuery",
+                "PathsV2Query",
                 "StickinessQuery",
                 "LifecycleQuery",
                 "WebStatsTableQuery",
@@ -27756,6 +27870,9 @@
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsV2Query"
                 },
                 {
                     "$ref": "#/definitions/StickinessQuery"
@@ -35309,6 +35426,7 @@
                 "GroupsQuery",
                 "FunnelsActorsQuery",
                 "FunnelCorrelationActorsQuery",
+                "PathsV2ActorsQuery",
                 "SessionsTimelineQuery",
                 "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
@@ -35335,6 +35453,7 @@
                 "FunnelsQuery",
                 "RetentionQuery",
                 "PathsQuery",
+                "PathsV2Query",
                 "StickinessQuery",
                 "StickinessActorsQuery",
                 "LifecycleQuery",
@@ -36079,6 +36198,462 @@
             "required": ["results"],
             "type": "object"
         },
+        "PathsV2ActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "element": {
+                    "$ref": "#/definitions/PathsV2ElementSelector"
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "PathsV2ActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/PathsV2Query"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["element", "kind", "source"],
+            "type": "object"
+        },
+        "PathsV2Anchor": {
+            "additionalProperties": false,
+            "description": "The start or end point an anchored-mode chart is built around.",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The path item the chart anchors on. Its event must be one of the step sources."
+                },
+                "type": {
+                    "$ref": "#/definitions/PathsV2AnchorType",
+                    "description": "`start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the anchor item. Either way the anchor is the grid's single 100% node."
+                }
+            },
+            "required": ["type", "item"],
+            "type": "object"
+        },
+        "PathsV2AnchorType": {
+            "description": "Whether an anchored chart is built around the journeys' start or their end.",
+            "enum": ["start", "end"],
+            "type": "string"
+        },
+        "PathsV2Edge": {
+            "additionalProperties": false,
+            "description": "A displayed transition between path items at adjacent journey grid columns.",
+            "properties": {
+                "anyStepCount": {
+                    "description": "Unique actors who transition from source to target at any step of any of their whole journeys, the position-free count behind \"went source → target at any step\". Equals the two-step item-strict funnel's converted count. Only set in open mode on edges between two named items.",
+                    "type": "number"
+                },
+                "count": {
+                    "description": "Unique actors with a journey that transitions from source to target between these steps.",
+                    "type": "number"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/PathsV2Item"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Source path item, or null for the source column's \"other\" row."
+                },
+                "stepIndex": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based step index of the source column; the target sits at `stepIndex + 1`."
+                },
+                "target": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/PathsV2Item"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Target path item, or null for the target column's \"other\" row."
+                }
+            },
+            "required": ["stepIndex", "source", "target", "count"],
+            "type": "object"
+        },
+        "PathsV2ElementSelector": {
+            "additionalProperties": false,
+            "description": "Selects the journey grid element whose actors a PathsV2ActorsQuery returns. The same journeys that produced the grid produce these actor sets, so each element's modal equals its displayed number by construction.",
+            "properties": {
+                "anyStep": {
+                    "description": "Match the source → target transition at any step of any whole journey instead of at one step pair: the position-free set behind an edge's anyStepCount. Requires a named source and target and open mode. Edge elements only.",
+                    "type": "boolean"
+                },
+                "chain": {
+                    "description": "The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. Bounded by the step maximum: a longer chain can never match a displayed card.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Item"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                },
+                "elementType": {
+                    "$ref": "#/definitions/PathsV2ElementType"
+                },
+                "item": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The node card's path item. Node elements only."
+                },
+                "source": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The edge's source path item; omit for the source column's \"other\" row. Edge elements only."
+                },
+                "stepIndex": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based step index (column) of the element; for an edge, its source column. Required for node, other, dropOff, and positional edge elements."
+                },
+                "target": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The edge's target path item; omit for the target column's \"other\" row. Edge elements only."
+                }
+            },
+            "required": ["elementType"],
+            "type": "object"
+        },
+        "PathsV2ElementType": {
+            "description": "The kind of journey grid element a PathsV2ActorsQuery drills into.",
+            "enum": ["node", "edge", "dropOff", "other", "chain"],
+            "type": "string"
+        },
+        "PathsV2Filter": {
+            "additionalProperties": false,
+            "properties": {
+                "anchor": {
+                    "$ref": "#/definitions/PathsV2Anchor",
+                    "description": "Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead."
+                },
+                "applyTeamPathCleaning": {
+                    "default": true,
+                    "description": "Apply the team's path cleaning rules to naming property values before they become path items.",
+                    "type": "boolean"
+                },
+                "collapseRepeats": {
+                    "default": true,
+                    "description": "Merge immediate repeats of the same path item within a journey.",
+                    "type": "boolean"
+                },
+                "conversionWindowInterval": {
+                    "default": 30,
+                    "description": "Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap.",
+                    "type": "integer"
+                },
+                "conversionWindowIntervalUnit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "default": "minute"
+                },
+                "excludedItems": {
+                    "description": "Path items dropped from the item universe: events deriving to one of these items are ignored as if their event were not a step source, on both the paths side and the \"view as funnel\" side.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Item"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                },
+                "gapInterval": {
+                    "default": 30,
+                    "description": "Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds.",
+                    "type": "integer"
+                },
+                "gapIntervalUnit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "default": "minute"
+                },
+                "localPathCleaningFilters": {
+                    "description": "Path cleaning rules for this insight only, applied after the team's rules.",
+                    "items": {
+                        "$ref": "#/definitions/PathCleaningFilter"
+                    },
+                    "type": "array"
+                },
+                "maxRowsPerStep": {
+                    "default": 3,
+                    "description": "Number of path item rows per step; items beyond this go into the \"other\" row.",
+                    "maximum": 10,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "maxSteps": {
+                    "default": 5,
+                    "description": "Number of journey steps (columns) shown.",
+                    "maximum": 20,
+                    "minimum": 2,
+                    "type": "integer"
+                },
+                "stepSources": {
+                    "description": "Step sources defining which events can become path items. Defaults to the pageviews preset: `$pageview` named by `$pathname`.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2StepSource"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "PathsV2Item": {
+            "additionalProperties": false,
+            "description": "Identity of a journey grid node: the step source's event plus the label value.",
+            "properties": {
+                "event": {
+                    "description": "Event of the step source this item belongs to.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Label value from the source's naming property, after path cleaning. An empty string when the property is missing on the event. Null for sources without a naming property.",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["event"],
+            "type": "object"
+        },
+        "PathsV2Prefix": {
+            "additionalProperties": false,
+            "description": "A concrete anchored chain from the anchor and the unique actors whose single sequence begins with exactly these path items. Powers the hover funnel preview over the journey grid.",
+            "properties": {
+                "count": {
+                    "description": "Unique actors whose anchored sequence begins with exactly these items.",
+                    "type": "number"
+                },
+                "items": {
+                    "description": "The chain's path items in order, starting at the anchor.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Item"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["items", "count"],
+            "type": "object"
+        },
+        "PathsV2Query": {
+            "additionalProperties": false,
+            "properties": {
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "PathsV2Query",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "pathsV2Filter": {
+                    "$ref": "#/definitions/PathsV2Filter",
+                    "description": "Properties specific to the paths v2 insight"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "default": [],
+                    "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/PathsV2QueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "PathsV2QueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/PathsV2Results"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "PathsV2Results": {
+            "additionalProperties": false,
+            "properties": {
+                "edges": {
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Edge"
+                    },
+                    "type": "array"
+                },
+                "prefixes": {
+                    "description": "Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain. Only chains the grid displays in full are carried: chains through the other bucket are omitted, so the response never exposes labels the chart hides.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Prefix"
+                    },
+                    "type": "array"
+                },
+                "steps": {
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Step"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["steps", "edges", "prefixes"],
+            "type": "object"
+        },
+        "PathsV2Row": {
+            "additionalProperties": false,
+            "description": "One row of a journey grid column: a path item and its unique-actor count.",
+            "properties": {
+                "count": {
+                    "description": "Unique actors with a journey whose item at this step is this path item.",
+                    "type": "number"
+                },
+                "item": {
+                    "$ref": "#/definitions/PathsV2Item"
+                }
+            },
+            "required": ["item", "count"],
+            "type": "object"
+        },
+        "PathsV2Step": {
+            "additionalProperties": false,
+            "description": "One journey grid column: the top path items at a step, plus other-row and drop-off counts.",
+            "properties": {
+                "dropOffCount": {
+                    "description": "Unique actors whose journey ends at this step.",
+                    "type": "number"
+                },
+                "otherCount": {
+                    "description": "Unique actors at this step whose path item is beyond the top rows.",
+                    "type": "number"
+                },
+                "rows": {
+                    "description": "Top path items at this step, ordered by unique-actor count descending.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Row"
+                    },
+                    "type": "array"
+                },
+                "stepIndex": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based step index (column) in the journey grid."
+                }
+            },
+            "required": ["stepIndex", "rows", "otherCount", "dropOffCount"],
+            "type": "object"
+        },
+        "PathsV2StepSource": {
+            "additionalProperties": false,
+            "description": "A step source defines which events can become path items in a paths v2 query.",
+            "properties": {
+                "event": {
+                    "description": "Name of the event this source matches.",
+                    "type": "string"
+                },
+                "namingProperty": {
+                    "description": "Event property whose value labels the path item, e.g. `$pathname` for pageviews. Team path cleaning rules are applied to the value. Without a naming property, the event itself is the path item.",
+                    "type": "string"
+                }
+            },
+            "required": ["event"],
+            "type": "object"
+        },
         "PersistedFolder": {
             "additionalProperties": false,
             "properties": {
@@ -36348,6 +36923,9 @@
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsV2Query"
                 },
                 {
                     "$ref": "#/definitions/StickinessQuery"
@@ -41753,6 +42331,68 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
+                            "$ref": "#/definitions/PathsV2Results"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
                             "items": {
                                 "type": "object"
                             },
@@ -44733,6 +45373,9 @@
                     "$ref": "#/definitions/PathsQuery"
                 },
                 {
+                    "$ref": "#/definitions/PathsV2Query"
+                },
+                {
                     "$ref": "#/definitions/StickinessQuery"
                 },
                 {
@@ -47429,33 +48072,28 @@
         "SlackIntegrationScope": {
             "enum": [
                 "app_mentions:read",
+                "assistant:write",
+                "canvases:write",
                 "channels:history",
+                "channels:manage",
                 "channels:read",
                 "chat:write",
                 "chat:write.customize",
+                "commands",
+                "files:read",
+                "files:write",
                 "groups:history",
                 "groups:read",
+                "im:history",
                 "links:read",
                 "links:write",
+                "mpim:history",
+                "mpim:read",
                 "reactions:read",
                 "reactions:write",
                 "team:read",
                 "users:read",
                 "users:read.email"
-            ],
-            "type": "string"
-        },
-        "SlackIntegrationScopeInReview": {
-            "enum": [
-                "assistant:write",
-                "canvases:write",
-                "channels:manage",
-                "commands",
-                "files:read",
-                "files:write",
-                "im:history",
-                "mpim:history",
-                "mpim:read"
             ],
             "type": "string"
         },

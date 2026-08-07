@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -8508,7 +8508,10 @@ dependencies = [
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
+ "serde",
+ "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
  "tracing",

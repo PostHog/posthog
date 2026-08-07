@@ -45,6 +45,7 @@ from posthog.permissions import (
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
@@ -93,8 +94,13 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     StreamReadTokenResponseSerializer,
+    TaskArtifactsResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
+    TaskCommentDetailQuerySerializer,
+    TaskCommentDetailSerializer,
+    TaskCommentsQuerySerializer,
+    TaskCommentsResponseSerializer,
     TaskCreateSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
@@ -104,6 +110,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsDismissRequestSerializer,
+    TaskRunArtifactsDismissResponseSerializer,
     TaskRunArtifactsFinalizeUploadRequestSerializer,
     TaskRunArtifactsFinalizeUploadResponseSerializer,
     TaskRunArtifactsPrepareUploadRequestSerializer,
@@ -286,6 +294,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    def _sandbox_bound_task_id(self, request, task_id: str) -> UUID:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            raise PermissionDenied("Task comments are available only to the current task agent.")
+        application = authenticator.access_token.application
+        if application is None or application.client_id not in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS:
+            raise PermissionDenied("Task comments are available only to the current task agent.")
+        try:
+            parsed_task_id = UUID(task_id)
+        except ValueError:
+            raise NotFound()
+        if authenticator.access_token.sandbox_task_id is None:
+            raise PermissionDenied("This task uses a legacy sandbox token. Restart the task to read its comments.")
+        if authenticator.access_token.sandbox_task_id != parsed_task_id:
+            raise NotFound()
+        return parsed_task_id
+
     def _write_serializer(
         self,
         data,
@@ -338,6 +363,72 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
+
+    @extend_schema(operation_id="tasks_artifacts_list", responses=TaskArtifactsResponseSerializer)
+    @action(detail=True, methods=["get"], url_path="artifacts", required_scopes=["task:read"])
+    def artifacts(self, request, pk=None, **kwargs):
+        task_id = self._sandbox_bound_task_id(request, pk)
+        data = TaskArtifactsResponseSerializer(
+            {"artifacts": tasks_facade.list_task_artifacts(team_id=self.team_id, task_id=task_id)}
+        ).data
+        return Response(data)
+
+    @extend_schema(
+        operation_id="tasks_comments_list",
+        parameters=[TaskCommentsQuerySerializer],
+        responses=TaskCommentsResponseSerializer,
+    )
+    @action(detail=True, methods=["get"], url_path="comments", required_scopes=["comment:read"])
+    def comments(self, request, pk=None, **kwargs):
+        params = TaskCommentsQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        task_id = self._sandbox_bound_task_id(request, pk)
+        try:
+            page = tasks_facade.list_task_comments(
+                team_id=self.team_id,
+                task_id=task_id,
+                artifact_id=params.validated_data.get("artifact_id"),
+                include_resolved=params.validated_data["include_resolved"],
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        data = TaskCommentsResponseSerializer(page).data
+        return Response(data)
+
+    @extend_schema(
+        operation_id="tasks_comments_retrieve",
+        parameters=[OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH), TaskCommentDetailQuerySerializer],
+        responses=TaskCommentDetailSerializer,
+    )
+    @action(
+        detail=True, methods=["get"], url_path=r"comments/(?P<root_comment_id>[^/.]+)", required_scopes=["comment:read"]
+    )
+    def comment(self, request, pk=None, root_comment_id=None, **kwargs):
+        params = TaskCommentDetailQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        task_id = self._sandbox_bound_task_id(request, pk)
+        try:
+            parsed_comment_id = UUID(root_comment_id)
+        except (TypeError, ValueError):
+            raise NotFound()
+        try:
+            comment = tasks_facade.retrieve_task_comment(
+                team_id=self.team_id,
+                task_id=task_id,
+                comment_id=parsed_comment_id,
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+                content_comment_id=params.validated_data.get("comment_id"),
+                content_offset=params.validated_data["content_offset"],
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        if comment is None:
+            raise NotFound()
+        data = TaskCommentDetailSerializer(comment).data
+        return Response(data)
 
     @extend_schema(request=TaskCreateSerializer, responses={201: TaskSerializer})
     def create(self, request, **kwargs):
@@ -1573,6 +1664,46 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": 3600})
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsDismissRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsDismissResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Dismiss or restore task run artifacts",
+        description=(
+            "Hides artifacts from clients without deleting them from storage, so a file dismissed "
+            "by mistake can be restored."
+        ),
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/dismiss",
+        required_scopes=["task:write"],
+    )
+    def artifacts_dismiss(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        manifest, error = tasks_facade.set_task_run_artifacts_dismissed(
+            pk,
+            task_id,
+            self.team_id,
+            artifact_ids=request.validated_data["artifact_ids"],
+            dismissed=request.validated_data["dismissed"],
+        )
+        if error == "not_found":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if manifest is None:
+            raise NotFound()
+        return Response(TaskRunArtifactsDismissResponseSerializer({"artifacts": manifest}).data)
 
     @validated_request(
         request_serializer=TaskRunArtifactPresignRequestSerializer,

@@ -523,6 +523,8 @@ class OAuthAccessToken(AbstractAccessToken):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+    # Server-minted sandbox binding: task-scoped APIs must not trust a caller-supplied task header alone.
+    sandbox_task_id: models.UUIDField = models.UUIDField(null=True, blank=True)
 
     # When set, this token was minted by a staff user impersonating `user`. Used to revoke
     # tokens at impersonation end. SET_NULL so the customer's tokens survive admin deactivation.

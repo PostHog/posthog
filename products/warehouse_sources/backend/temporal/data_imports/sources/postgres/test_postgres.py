@@ -1256,6 +1256,30 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 53300: the source (or a pooler in front of it) refuses a new connection
+            # because only the superuser-reserved slots remain. `_connect_with_dropped_retry`
+            # already retries this in-process on the read/sync connect path; this is the
+            # whole-activity-retry fallback for when a sustained shortage outlasts that budget.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute",
+            "sorry, too many clients already",
+            "too many connections for role",
+        ],
+    )
+    def test_connection_limit_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg.lower() for pattern in retryable)
+        assert is_retryable, f"Connection-limit error should be classified retryable: {error_msg}"
+
+    def test_connection_limit_is_not_also_non_retryable(self, source):
+        error_msg = "remaining connection slots are reserved for roles with the SUPERUSER attribute"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-limit error should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
@@ -6024,6 +6048,24 @@ class TestGetTable:
                 i for i, q in enumerate(spy.executed) if "information_schema.columns" in q and "EXPLAIN" not in q
             )
             assert set_timeout_idx < first_probe_idx < info_schema_idx
+
+    @pytest.mark.django_db
+    def test_dropped_connection_on_statement_timeout_reraises_without_rollback(self):
+        # Before the fix, any `psycopg.Error` on the protective `SET statement_timeout` triggered a
+        # blind `cursor.connection.rollback()`. When the error meant the connection itself was
+        # dropped, rolling back a dead socket raised a fresh, misleading "the connection is lost"
+        # that buried the real cause instead of letting the caller retry on a fresh connection
+        # (mirrors the same fix already applied to `_schemas_from_conn`).
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        drop_error = psycopg.OperationalError("server closed the connection unexpectedly")
+        cursor.execute.side_effect = drop_error
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _get_table(cast(Any, cursor), "public", "test_get_table_dropped_conn", logger)
+
+        assert exc_info.value is drop_error
+        cursor.connection.rollback.assert_not_called()
 
     @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):

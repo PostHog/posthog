@@ -1889,6 +1889,12 @@ export interface SignalScoutConfigOptionsApi {
      */
     run_cron_schedule?: string | null
     /**
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * @maxLength 200
+     * @nullable
+     */
+    model?: string | null
+    /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
      */
@@ -2028,6 +2034,11 @@ export interface SignalScoutConfigApi {
      * * `full` - Full */
     readonly network_access: ScoutConfigNetworkAccessEnumApi
     /**
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * @nullable
+     */
+    readonly model: string | null
+    /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
      */
@@ -2092,6 +2103,12 @@ export interface SignalScoutConfigCreateApi {
      */
     run_cron_schedule?: string | null
     /**
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * @maxLength 200
+     * @nullable
+     */
+    model?: string | null
+    /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
      */
@@ -2146,6 +2163,12 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * * `trusted` - Trusted domains only
      * * `full` - Full */
     network_access?: ScoutConfigNetworkAccessEnumApi
+    /**
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * @maxLength 200
+     * @nullable
+     */
+    model?: string | null
     /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
     auto_pause_exempt?: boolean
     /**

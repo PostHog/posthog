@@ -1,9 +1,12 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
+from django.apps import apps
 from django.conf import settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -12,6 +15,8 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
@@ -20,6 +25,663 @@ from ee.models.rbac.access_control import AccessControl
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
+    def _sandbox_task_comment_client(
+        self, task_id=None, *, client_id=ARRAY_APP_CLIENT_ID_DEV, scopes="task:read comment:read"
+    ):
+        app = OAuthApplication.objects.create(
+            name="Task comments sandbox",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_task_comments",
+            scope=scopes,
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return self.client
+
+    def _task_artifact_target(self, *, public: bool = True, creator=None):
+        task_channel_model = apps.get_model("tasks", "Channel")
+        task_model = apps.get_model("tasks", "Task")
+        task_run_model = apps.get_model("tasks", "TaskRun")
+        channel = None
+        if public:
+            channel, _ = task_channel_model.objects.unscoped().get_or_create(
+                team=self.team,
+                name="comment-test",
+                defaults={"created_by": self.user},
+            )
+        task = task_model.objects.create(
+            team=self.team,
+            title="Comment target",
+            created_by=creator or self.user,
+            channel=channel,
+        )
+        task_run_model.objects.create(
+            team=self.team,
+            task=task,
+            artifacts=[{"id": "artifact-1", "name": "report.md", "type": "output"}],
+        )
+        return task
+
+    def test_task_artifact_comments_require_a_visible_owning_task(self) -> None:
+        task = self._task_artifact_target()
+        payload: dict[str, Any] = {
+            "content": "Review this",
+            "scope": "task_artifact",
+            "item_id": "artifact-1",
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+        assert created.status_code == status.HTTP_201_CREATED
+        without_task = self.client.get(f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1")
+        assert without_task.json()["results"] == []
+        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id=artifact-1")
+        assert unscoped.json()["results"] == []
+        with_task = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1&task_id={task.id}"
+        )
+        assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+
+    def test_task_comments_list_artifacts_comments_and_one_comment(self) -> None:
+        task = self._task_artifact_target()
+        task_run_model = apps.get_model("tasks", "TaskRun")
+        task_run_model.objects.create(
+            team=self.team,
+            task=task,
+            artifacts=[{"id": "artifact-1", "name": "latest-report.md", "type": "output"}],
+        )
+        canvas_id = "019fcbe9-839f-7571-ad42-31aa5f615112"
+        apps.get_model("tasks", "TaskThreadMessage").objects.for_team(self.team.id).create(
+            team=self.team,
+            task=task,
+            event="canvas_created",
+            content="Canvas created",
+            payload={
+                "canvas_name": "Research canvas",
+                "canvas_url": f"https://app.posthog.com/code/canvas/channel/{canvas_id}",
+            },
+        )
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={
+                "taskId": str(task.id),
+                "anchor": {"kind": "text", "quote": "important output", "start": 0, "end": 16},
+                "canvasVersionId": "version-2",
+            },
+            content="Please tighten this section",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id), "anchor": {"kind": "document"}},
+            source_comment=root,
+            content="Done",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id), "threadState": "unexpected"},
+            source_comment=root,
+            content="Malformed state is still a reply",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        artifacts = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/artifacts/")
+        assert artifacts.status_code == status.HTTP_200_OK
+        assert artifacts.json() == {
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "type": "artifact",
+                    "name": "latest-report.md",
+                },
+                {"id": canvas_id, "type": "canvas", "name": "Research canvas"},
+            ]
+        }
+
+        comments = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/?artifact_id=artifact-1",
+        )
+        assert comments.status_code == status.HTTP_200_OK
+        assert comments.json()["comments"] == [
+            {
+                "id": str(root.id),
+                "target": {"id": "artifact-1", "type": "artifact", "name": "latest-report.md"},
+                "content": "Please tighten this section",
+                "content_truncated": False,
+                "selected_text": "important output",
+                "created_at": root.created_at.isoformat().replace("+00:00", "Z"),
+                "reply_count": 2,
+                "resolved": False,
+            }
+        ]
+
+        detail = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert [comment["content"] for comment in detail.json()["comments"]] == [
+            "Please tighten this section",
+            "Done",
+            "Malformed state is still a reply",
+        ]
+        assert all(not comment["content_truncated"] for comment in detail.json()["comments"])
+        assert all(comment["content_next_offset"] is None for comment in detail.json()["comments"])
+        assert detail.json()["comments"][0]["anchor"] == {
+            "end": 16,
+            "kind": "text",
+            "quote": "important output",
+            "start": 0,
+        }
+        assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
+        assert detail.json()["next"] is None
+
+    def test_task_comment_retrieval_tolerates_malformed_stored_context(self) -> None:
+        task = self._task_artifact_target()
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(task.id),
+            item_context=[],
+            content="Legacy malformed context",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        response = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["comments"][0]["anchor"] is None
+
+    def test_task_comment_bodies_are_byte_bounded_and_continuable(self) -> None:
+        task = self._task_artifact_target()
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id), "anchor": {"kind": "document"}},
+            content="é" * 40_000,
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        listed = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/").json()["comments"][0]
+        assert len(listed["content"].encode("utf-8")) <= 1024
+        assert listed["content_truncated"] is True
+
+        detail = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/").json()
+        first_chunk = detail["comments"][0]
+        assert len(first_chunk["content"].encode("utf-8")) <= 64 * 1024
+        assert first_chunk["content_truncated"] is True
+        assert first_chunk["content_next_offset"] is not None
+
+        continuation = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/",
+            {"comment_id": str(root.id), "content_offset": first_chunk["content_next_offset"]},
+        ).json()["comments"][0]
+        assert continuation["content"]
+        assert continuation["content_truncated"] is False
+        assert continuation["content_next_offset"] is None
+
+    def test_task_comments_use_an_opaque_cursor(self) -> None:
+        task = self._task_artifact_target()
+        for content in ("First", "Second"):
+            Comment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                scope="task",
+                item_id=str(task.id),
+                content=content,
+            )
+        client = self._sandbox_task_comment_client(task.id)
+
+        first = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/?limit=1",
+        ).json()
+        second = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/?limit=1&cursor={first['next']}",
+        ).json()
+
+        assert [row["content"] for row in first["comments"]] == ["Second"]
+        assert [row["content"] for row in second["comments"]] == ["First"]
+        assert second["next"] is None
+
+    def test_task_comments_scan_past_resolved_roots(self) -> None:
+        task = self._task_artifact_target()
+        roots = []
+        for content in ("Open older", "Resolved newer"):
+            roots.append(
+                Comment.objects.create(
+                    team=self.team,
+                    created_by=self.user,
+                    scope="task",
+                    item_id=str(task.id),
+                    content=content,
+                )
+            )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(task.id),
+            source_comment=roots[1],
+            item_context={"threadState": "resolved"},
+            content="resolved",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        response = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/?limit=1",
+        ).json()
+
+        assert [row["content"] for row in response["comments"]] == ["Open older"]
+
+    def test_task_comment_replies_are_paginated(self) -> None:
+        task = self._task_artifact_target()
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(task.id),
+            content="Root",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(task.id),
+            source_comment=root,
+            content="Reply",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        first = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/?limit=1").json()
+        second = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/?limit=1&cursor={first['next']}",
+        ).json()
+
+        assert [row["content"] for row in first["comments"]] == ["Root"]
+        assert [row["content"] for row in second["comments"]] == ["Reply"]
+        assert second["next"] is None
+
+    def test_task_comments_cannot_read_another_task_comment(self) -> None:
+        current_task = self._task_artifact_target()
+        other_task = self._task_artifact_target()
+        other_comment = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(other_task.id),
+            item_context={"anchor": {"kind": "document"}},
+            content="Other task comment",
+        )
+        client = self._sandbox_task_comment_client(current_task.id)
+
+        response = client.get(
+            f"/api/projects/{self.team.id}/tasks/{current_task.id}/comments/{other_comment.id}/",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_task_comments_require_the_sandbox_task_binding(self) -> None:
+        task = self._task_artifact_target()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/artifacts/",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_task_comments_ask_legacy_sandboxes_to_restart(self) -> None:
+        task = self._task_artifact_target()
+        client = self._sandbox_task_comment_client()
+
+        response = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/artifacts/",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Restart the task" in str(response.json())
+
+    def test_task_comments_reject_an_alternate_task_url_for_the_same_user(self) -> None:
+        bound_task = self._task_artifact_target()
+        other_task = self._task_artifact_target()
+        client = self._sandbox_task_comment_client(bound_task.id)
+
+        response = client.get(
+            f"/api/projects/{self.team.id}/tasks/{other_task.id}/artifacts/",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_task_comments_reject_a_posthog_ai_sandbox_token(self) -> None:
+        task = self._task_artifact_target()
+        client = self._sandbox_task_comment_client(task.id, client_id=POSTHOG_AI_APP_CLIENT_ID_DEV)
+
+        response = client.get(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/artifacts/",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_task_comments_require_comment_read_scope(self) -> None:
+        task = self._task_artifact_target()
+        client = self._sandbox_task_comment_client(task.id, scopes="task:read")
+
+        response = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_task_artifact_comments_reject_mismatched_and_private_targets(self) -> None:
+        other = User.objects.create_and_join(self.organization, "private-task-owner@posthog.com", "password")
+        task = self._task_artifact_target(public=False, creator=other)
+        payload: dict[str, Any] = {
+            "content": "Should not land",
+            "scope": "task_artifact",
+            "item_id": "artifact-1",
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+        visible_task = self._task_artifact_target()
+        payload["item_context"]["taskId"] = str(visible_task.id)
+        payload["item_id"] = "not-on-visible-task"
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+    def test_private_task_comment_thread_is_invisible_to_other_users(self) -> None:
+        other = User.objects.create_and_join(self.organization, "private-thread-owner@posthog.com", "password")
+        task = self._task_artifact_target(public=False, creator=other)
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            scope="task",
+            item_id=str(task.id),
+            content="Private root",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            scope="task",
+            item_id=str(task.id),
+            source_comment=root,
+            content="Private reply",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/{root.id}/thread")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_canvas_comments_use_the_relational_canvas_owner(self) -> None:
+        task = self._task_artifact_target()
+        channel = task.channel
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team,
+            channel=channel,
+            name="Launch canvas",
+            created_by=self.user,
+        )
+        canvas_version_model = apps.get_model("canvas", "CanvasSourceVersion")
+        canvas_version_model.objects.unscoped().create(
+            team=self.team,
+            canvas=canvas,
+            source_hash="a" * 64,
+            source_object_key="canvases/test/source.json",
+            source_size=2,
+            task_id=task.id,
+            created_by=self.user,
+        )
+        mentioned = User.objects.create_and_join(self.organization, "canvas-mentioned@posthog.com", "password")
+        payload: dict[str, Any] = {
+            "content": "Review this canvas",
+            "scope": "desktop_canvas",
+            "item_id": str(canvas.id),
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            "mentions": [mentioned.id],
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+
+        assert created.status_code == status.HTTP_201_CREATED
+        with_task = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+        )
+        assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+        task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
+        assert (
+            task_activity_model.objects.unscoped()
+            .filter(
+                team=self.team,
+                user=mentioned,
+                task=task,
+                comment_id=created.json()["id"],
+            )
+            .exists()
+        )
+
+        other_task = self._task_artifact_target()
+        payload["item_context"]["taskId"] = str(other_task.id)
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+    def test_canvas_comments_respect_personal_channel_visibility(self) -> None:
+        task = self._task_artifact_target()
+        other = User.objects.create_and_join(self.organization, "private-canvas-owner@posthog.com", "password")
+        channel_model = apps.get_model("tasks", "Channel")
+        channel = channel_model.objects.unscoped().create(
+            team=self.team,
+            name="private-canvas",
+            channel_type="personal",
+            created_by=other,
+        )
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team,
+            channel=channel,
+            name="Private canvas",
+            created_by=other,
+            generation_task_id=task.id,
+        )
+        payload = {
+            "content": "Should not land",
+            "scope": "desktop_canvas",
+            "item_id": str(canvas.id),
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_comment_without_a_mention_notifies_the_task_owner(self) -> None:
+        task = self._task_artifact_target()
+        owner = User.objects.create_and_join(self.organization, "owner@posthog.com", "password")
+        task.created_by = owner
+        task.save(update_fields=["created_by"])
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Review when ready",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED
+        activity_model = apps.get_model("tasks", "TaskCommentActivity")
+        activity = activity_model.objects.unscoped().get(team=self.team, user=owner, comment_id=created.json()["id"])
+        assert activity.kind == "owned_item_comment"
+
+    @mock.patch("products.tasks.backend.tasks.tasks.project_task_comment_activity.delay")
+    @mock.patch("products.tasks.backend.facade.api.record_comment_activity", side_effect=RuntimeError("activity down"))
+    def test_activity_projection_failure_schedules_recovery(
+        self,
+        _record_activity: mock.Mock,
+        retry_projection: mock.Mock,
+    ) -> None:
+        task = self._task_artifact_target()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/comments",
+                {
+                    "content": "Still persist this",
+                    "scope": "task_artifact",
+                    "item_id": "artifact-1",
+                    "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+                },
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Comment.objects.filter(id=response.json()["id"], team=self.team).exists()
+        retry_projection.assert_called_once_with(
+            team_id=self.team.id,
+            comment_id=response.json()["id"],
+            mentioned_user_ids=[],
+            include_relationship_recipients=True,
+            target_owner_id=None,
+            activity_at=None,
+        )
+
+    def test_reply_inherits_its_root_comment_target(self) -> None:
+        task = self._task_artifact_target()
+        root = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Root",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Reply",
+                "scope": "Insight",
+                "item_id": "another-resource",
+                "item_context": {"taskId": "00000000-0000-4000-8000-000000000000", "is_emoji": True},
+                "source_comment": root["id"],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["source_comment"] == root["id"]
+        assert response.json()["scope"] == "task_artifact"
+        assert response.json()["item_id"] == "artifact-1"
+        assert response.json()["item_context"] == {
+            "anchor": {"kind": "document"},
+            "taskId": str(task.id),
+            "is_emoji": True,
+        }
+
+    @parameterized.expand(
+        [
+            ("resolved", True),
+            ("open", True),
+            ("unexpected", False),
+        ]
+    )
+    def test_reply_thread_state_survives_root_context_merge(self, thread_state: str, kept: bool) -> None:
+        task = self._task_artifact_target()
+        root = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Root",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Resolved this thread",
+                "item_context": {"threadState": thread_state},
+                "source_comment": root["id"],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        item_context = response.json()["item_context"]
+        if kept:
+            assert item_context["threadState"] == thread_state
+        else:
+            assert "threadState" not in item_context
+
+    @mock.patch("posthog.api.comments.send_mention_notifications")
+    def test_personal_channel_comments_ignore_mentions(self, send_notifications: mock.Mock) -> None:
+        task = self._task_artifact_target()
+        task.channel.channel_type = "personal"
+        task.channel.save(update_fields=["channel_type"])
+        mentioned = User.objects.create_and_join(self.organization, "private-mentioned@posthog.com", "password")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "This stays private @[Mentioned](private-mentioned@posthog.com)",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+                "mentions": [mentioned.id],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        send_notifications.assert_not_called()
+        task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
+        assert not task_activity_model.objects.unscoped().filter(team=self.team, user=mentioned, task=task).exists()
+
+    @mock.patch("posthog.api.comments._record_task_comment_activity")
+    def test_edit_mentions_do_not_repeat_relationship_notifications(self, record_activity: mock.Mock) -> None:
+        task = self._task_artifact_target()
+        mentioned = User.objects.create_and_join(self.organization, "mentioned@posthog.com", "password")
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Old comment",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+        record_activity.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{created.json()['id']}"
+            f"?scope=task_artifact&item_id=artifact-1&task_id={task.id}",
+            {"content": "Edited mention", "mentions": [mentioned.id]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert record_activity.call_args.kwargs["include_relationship_recipients"] is False
+        assert record_activity.call_args.kwargs["activity_at"] is not None
+
     def _create_comment(self, data: dict | None = None) -> Any:
         if data is None:
             data = {}
@@ -50,6 +712,15 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "attr": "scope",
         }
 
+    def test_rejects_non_object_comment_context(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "This is a comment", "scope": "Notebook", "item_context": []},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "item_context"
+
     def test_creates_comment_successfully(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/comments",
@@ -75,6 +746,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "is_task": False,
             "completed_at": None,
             "completed_by": None,
+            "slack_thread": None,
         }
 
     def test_updates_content_and_increments_version(self) -> None:
@@ -106,6 +778,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "is_task": False,
             "completed_at": None,
             "completed_by": None,
+            "slack_thread": None,
         }
 
     def test_empty_comments_list(self) -> None:
@@ -661,6 +1334,13 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_reserved_slack_sync_item_context_keys_are_stripped(self) -> None:
+        # Forged sync state would let a caller suppress mirroring or spoof Slack attribution.
+        created = self._create_comment(
+            {"item_context": {"from_slack": True, "slack_synced_ts": "123.456", "is_emoji": False}}
+        )
+        assert created["item_context"] == {"is_emoji": False}
+
     def test_ticket_scope_key_cannot_write_non_ticket_comment_via_body_scope(self) -> None:
         comment = Comment.objects.create(
             team=self.team, scope="Notebook", item_id="n1", content="note", created_by=self.user
@@ -1156,6 +1836,14 @@ class TestCommentHelperFunctions(APIBaseTest):
             ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
             ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature_flags/10#panel=discussion"),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
+            # item_id is client-supplied free text — mrkdwn/URL control chars must be encoded.
+            (
+                "item_id_with_mrkdwn_chars",
+                "Notebook",
+                "x|<!channel>y",
+                "",
+                "/notebooks/x%7C%3C%21channel%3Ey#panel=discussion",
+            ),
         ]
     )
     def test_build_comment_item_url(self, name: str, scope: str, item_id: str, slug: str, expected_suffix: str) -> None:

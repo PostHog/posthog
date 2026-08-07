@@ -14,8 +14,9 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
 import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
 import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
+import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
+import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { UsageBillingAnnouncementModal } from "@posthog/ui/features/billing/UsageBillingAnnouncementModal";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
 import { BlankTabView } from "@posthog/ui/features/browser-tabs/BlankTabView";
@@ -331,6 +332,7 @@ function RootLayout() {
     return (
       <Flex direction="column" height="100%">
         <ConnectivityBanner />
+        <AnnouncementBanner />
         <Outlet />
         <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />
         <GlobalFilePicker />
@@ -346,7 +348,7 @@ function RootLayout() {
             was stopping Cmd+W from closing the window. */}
         <TabShortcutFallback enabled />
         {billingEnabled && <UsageLimitModal />}
-        <UsageBillingAnnouncementModal />
+        <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
@@ -492,6 +494,9 @@ function RootLayout() {
               }`}
             >
               <Flex direction="column" height="100%">
+                {/* Inside the framed pane, not the app column: announcements
+                    overlay the content, never the sidebar. */}
+                <AnnouncementBanner />
                 {/* The /website space renders its own header (WebsiteLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
@@ -530,7 +535,7 @@ function RootLayout() {
         />
         <TourOverlay />
         {billingEnabled && <UsageLimitModal />}
-        <UsageBillingAnnouncementModal />
+        <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />

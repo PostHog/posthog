@@ -1,8 +1,3 @@
-import importlib
-import importlib.util
-
-from django.apps import apps
-
 from rest_framework import decorators, exceptions
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
@@ -15,6 +10,7 @@ from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
+from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -594,14 +590,7 @@ projects_router.register(
 # Accepted cost: routes are imported dynamically here, so the core->product import edges
 # are not statically visible to import tooling (tach/grimp). Accepted on purpose — it
 # removes the hand-maintained product list that duplicated PRODUCTS_APPS.
-for _app_config in apps.get_app_configs():
-    if not _app_config.name.startswith("products."):
-        continue
-    _routes_module = f"{_app_config.name}.routes"
-    # find_spec (not try/except ImportError) so a real ImportError inside a routes.py
-    # surfaces instead of being silently swallowed as "no routes module".
-    if importlib.util.find_spec(_routes_module) is None:
-        continue
-    _register_routes = getattr(importlib.import_module(_routes_module), "register_routes", None)
+for _routes_module in load_product_modules("routes"):
+    _register_routes = getattr(_routes_module, "register_routes", None)
     if callable(_register_routes):
         _register_routes(routers)

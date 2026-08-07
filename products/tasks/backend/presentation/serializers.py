@@ -280,6 +280,10 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    dismissed_at = serializers.CharField(
+        required=False,
+        help_text="Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
+    )
     url = serializers.URLField(
         required=False,
         help_text=(
@@ -687,7 +691,7 @@ class TaskWriteSerializer(serializers.Serializer):
             )
         return normalized
 
-    def validate(self, attrs: dict) -> dict:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if "repository" in attrs and "repositories" in attrs:
             legacy = attrs["repository"] or None
             repositories = attrs["repositories"]
@@ -1391,6 +1395,26 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        allow_empty=False,
+        max_length=100,
+        help_text=(
+            "Manifest ids of the artifacts to update. Pass every version of a file together so the "
+            "whole file is dismissed rather than a single upload of it."
+        ),
+    )
+    dismissed = serializers.BooleanField(
+        default=True,
+        help_text="True to hide the artifacts from clients, false to show them again.",
+    )
+
+
+class TaskRunArtifactsDismissResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
 TASK_SUMMARIES_MAX_IDS = 5000
 
 
@@ -1737,15 +1761,24 @@ class TaskActivitySerializer(DataclassSerializer):
         help_text="Author of the thread message tied to the latest activity, when one applies.",
     )
     activity_kind = serializers.ChoiceField(
-        choices=["awaiting_input", "completed", "mention", "message", "created"],
+        choices=[
+            "awaiting_input",
+            "completed",
+            "mention",
+            "thread_reply",
+            "owned_item_comment",
+            "message",
+            "created",
+        ],
         help_text=(
             "What the latest activity on this task was: an agent run waiting on the requester "
             "(awaiting_input), a completed run (completed), someone @-mentioning them (mention), "
-            "a thread reply (message), or their creating the task (created)."
+            "a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), "
+            "a task-thread reply (message), or their creating the task (created)."
         ),
     )
     snippet = serializers.CharField(
-        help_text="Content of the thread message tied to the latest activity; empty for task-creation rows."
+        help_text="Content of the thread message or resource comment tied to the latest activity."
     )
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
@@ -1764,6 +1797,9 @@ class TaskActivitySerializer(DataclassSerializer):
             "snippet",
             "latest_author",
             "latest_message_id",
+            "latest_comment_id",
+            "latest_comment_scope",
+            "latest_comment_item_id",
             "is_unread",
         ]
 
@@ -1793,6 +1829,11 @@ class TaskActivityPageSerializer(DataclassSerializer):
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    activity_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Comment activity row to mark read. Omit for collapsed task activity.",
+    )
     seen_before = serializers.DateTimeField(
         help_text="Mark activity at or before this timestamp read without clearing newer activity."
     )
@@ -1819,6 +1860,124 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
     )
+
+
+class TaskArtifactSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable artifact id used to filter task comments.")
+    type = serializers.CharField(help_text="Artifact type: artifact or canvas.")
+    name = serializers.CharField(help_text="Display name of the artifact.")
+
+
+class TaskArtifactsResponseSerializer(serializers.Serializer):
+    artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
+
+
+class TaskCommentsQuerySerializer(serializers.Serializer):
+    artifact_id = serializers.CharField(
+        required=False, max_length=72, help_text="Artifact id returned by the artifacts endpoint."
+    )
+    include_resolved = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to include resolved comment threads.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of root comments to return.",
+    )
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+
+
+class TaskCommentDetailQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of comments in the thread to return.",
+    )
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+    comment_id = serializers.UUIDField(
+        required=False,
+        help_text="Comment id whose truncated body should continue. Use with content_offset.",
+    )
+    content_offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Byte offset returned as content_next_offset for the selected comment.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("content_offset") and not attrs.get("comment_id"):
+            raise serializers.ValidationError({"comment_id": "This field is required with content_offset."})
+        if attrs.get("comment_id") and attrs.get("cursor"):
+            raise serializers.ValidationError({"cursor": "Do not combine cursor with comment_id."})
+        return attrs
+
+
+class TaskCommentTargetSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable target id.")
+    type = serializers.CharField(help_text="Target type: task, artifact, or canvas.")
+    name = serializers.CharField(help_text="Display name of the comment target.")
+
+
+class TaskCommentSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    content = serializers.CharField(help_text="Bounded excerpt of the root comment body.")
+    content_truncated = serializers.BooleanField(help_text="Whether the root comment body has more content.")
+    selected_text = serializers.CharField(allow_null=True, help_text="Text selected when the comment was created.")
+    created_at = serializers.DateTimeField(help_text="When the root comment was created.")
+    reply_count = serializers.IntegerField(help_text="Number of human replies.")
+    resolved = serializers.BooleanField(help_text="Whether the comment is resolved.")
+
+
+class TaskCommentsResponseSerializer(serializers.Serializer):
+    comments = TaskCommentSummarySerializer(many=True, help_text="Root comments, newest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
+
+
+class TaskCommentAnchorSerializer(serializers.Serializer):
+    kind = serializers.CharField(required=False, help_text="Anchor kind.")
+    quote = serializers.CharField(required=False, help_text="Selected text.")
+    prefix = serializers.CharField(required=False, help_text="Text immediately before the selection.")
+    suffix = serializers.CharField(required=False, help_text="Text immediately after the selection.")
+    start = serializers.IntegerField(required=False, min_value=0, help_text="Selection start offset.")
+    end = serializers.IntegerField(required=False, min_value=1, help_text="Selection end offset.")
+    x = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Horizontal region position.")
+    y = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Vertical region position.")
+    width = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region width.")
+    height = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region height.")
+
+
+class TaskCommentEntrySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Comment id.")
+    content = serializers.CharField(help_text="Byte-bounded comment body chunk.")
+    content_truncated = serializers.BooleanField(help_text="Whether this comment body has more content.")
+    content_next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Byte offset for the next body chunk, or null when complete.",
+    )
+    author = serializers.CharField(allow_null=True, help_text="Comment author's display name.")
+    created_at = serializers.DateTimeField(help_text="When the comment was created.")
+    anchor = TaskCommentAnchorSerializer(allow_null=True, help_text="Normalized text or document anchor.")
+    canvas_version_id = serializers.CharField(allow_null=True, help_text="Canvas version receiving the comment.")
+
+
+class TaskCommentDetailSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    resolved = serializers.BooleanField(help_text="Whether the comment is resolved.")
+    comments = TaskCommentEntrySerializer(many=True, help_text="Comments in this page, oldest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
 
 
 class PinnedTaskIdsResponseSerializer(serializers.Serializer):

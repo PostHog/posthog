@@ -38,6 +38,7 @@ import type {
     SchemaSceneTab,
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import {
@@ -206,6 +207,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/code-review': ['CodeReview', 'codeReview'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
+    '/inbox': ['Inbox', 'inbox'],
+    '/inbox/:tab': ['Inbox', 'inbox'],
+    '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
+    '/inbox/scouts/findings': ['Inbox', 'inbox'],
+    '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
+    '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
+    '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
@@ -840,6 +848,11 @@ export const productConfiguration: Record<string, any> = {
         description: 'View detailed session group summary.',
         iconType: 'notebook',
     },
+    Inbox: {
+        name: 'Inbox',
+        projectBased: true,
+        description: 'Actionable reports automatically generated from user session analysis and other signals.',
+    },
     Skills: {
         projectBased: true,
         name: 'Skills',
@@ -1378,6 +1391,14 @@ export const productUrls = {
     codeReview: (): string => '/code-review',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
+    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
+        const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
+        return `/inbox/scouts/${skillName}${segment}`
+    },
+    inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
+    inboxFindings: (): string => '/inbox/scouts/findings',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -1676,6 +1697,15 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.insightNew({ type: InsightType.FUNNELS }),
         iconType: 'insight/funnels',
         visualOrder: INSIGHT_VISUAL_ORDER.funnel,
+        sceneKeys: ['Insight'],
+    },
+    {
+        path: `Insight/Journeys`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.JOURNEYS }),
+        flag: FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2,
+        iconType: 'insight/paths',
+        visualOrder: INSIGHT_VISUAL_ORDER.journeys,
         sceneKeys: ['Insight'],
     },
     {

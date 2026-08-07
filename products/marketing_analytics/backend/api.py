@@ -35,7 +35,7 @@ from products.marketing_analytics.backend.services.data_source_health import get
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
-from products.marketing_analytics.backend.services.types import UTM_ISSUE_KIND_CHOICES
+from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UTM_ISSUE_KIND_CHOICES
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -93,6 +93,21 @@ class UtmIssueSerializer(serializers.Serializer):
     )
     missing_source_count = serializers.IntegerField(
         help_text="Pageviews that matched this campaign but carried no utm_source, on any issue kind"
+    )
+    suggested_actions = serializers.ListField(
+        child=serializers.ChoiceField(choices=SUGGESTED_ACTION_CHOICES),
+        help_text=(
+            "Recommended remediations, most-recommended first. fix_platform_urls cures the tagging "
+            "bug itself; the others are workarounds that leave the bad URLs in place."
+        ),
+    )
+    mapping_candidate = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "The orphaned utm_campaign value that looks like a typo of this campaign, when one was "
+            "found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, "
+            "including when several candidates tie and picking one could misattribute spend."
+        ),
     )
 
 
@@ -354,6 +369,9 @@ class SourceMappingSuggestionSerializer(serializers.Serializer):
     suggested_target = serializers.CharField(help_text="Integration key it maps to")
     suggested_target_display_name = serializers.CharField(help_text="Human-readable name of the suggested integration")
     reason = serializers.CharField(help_text="Why this mapping is suggested")
+    event_count_30d = serializers.IntegerField(
+        help_text="Events carrying this raw utm_source in the window. Suggestions are ordered by it."
+    )
 
 
 class CampaignMappingSuggestionSerializer(serializers.Serializer):
@@ -366,6 +384,9 @@ class CampaignMappingSuggestionSerializer(serializers.Serializer):
     confidence = serializers.FloatField(help_text="Confidence score for the clustering (0-1)")
     method = serializers.CharField(help_text="Mapping method")
     reason = serializers.CharField(help_text="Why these campaign values were clustered together")
+    event_count_30d = serializers.IntegerField(
+        help_text="Events across every raw value folded into this suggestion. Suggestions are ordered by it."
+    )
 
 
 class RawUnmatchedSampleSerializer(serializers.Serializer):
@@ -402,7 +423,11 @@ class UtmMappingSuggestionsResponseSerializer(serializers.Serializer):
         many=True, help_text="Suggested custom_source_mappings entries"
     )
     campaign_suggestions = CampaignMappingSuggestionSerializer(
-        many=True, help_text="Suggested campaign-name clusters (empty in v1)"
+        many=True,
+        help_text=(
+            "campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real "
+            "campaign. Near-ties are withheld, so an absent campaign may still be mappable by hand."
+        ),
     )
     raw_unmatched_samples = RawUnmatchedSampleSerializer(
         many=True, help_text="All unmatched raw utm_source values worth reviewing"

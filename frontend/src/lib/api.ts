@@ -18,18 +18,6 @@ import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import {
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalReportStateRequest,
-    SignalScoutEmission,
-    SignalScoutEmissionReportLink,
-    SignalScoutRunSummary,
-    SignalSourceConfig,
-    SignalTeamConfig,
-    SignalUserAutonomyConfig,
-} from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -247,6 +235,18 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
+import {
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStateRequest,
+    SignalScoutEmission,
+    SignalScoutEmissionReportLink,
+    SignalScoutRunSummary,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+} from 'products/signals/frontend/inbox/types'
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
@@ -3803,13 +3803,13 @@ const api = {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
         },
-        async listClickhouse(params: GroupListParams): Promise<GroupsQueryResponse> {
+        async listClickhouse(params: GroupListParams, options?: ApiMethodOptions): Promise<GroupsQueryResponse> {
             const groupsQuery: GroupsQuery = {
                 kind: NodeKind.GroupsQuery,
                 ...params,
             }
 
-            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
+            return await new ApiRequest().query().create({ ...options, data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })
@@ -5188,7 +5188,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+            data: Partial<
+                Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url' | 'assignee'>
+            > & {
                 rollout_to_all?: boolean
             }
         ): Promise<EarlyAccessFeatureType> {

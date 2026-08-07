@@ -176,6 +176,20 @@ services:
             timeout: 10s
             retries: 10
 
+    # Shadow store the CDP services dual-write to alongside redis7. Plain mode, unlike the
+    # dev stack's cluster-enabled valkey-cluster: reproducing the CROSSSLOT rejection of a
+    # cluster only earns its complexity where CDP changes get tested. Mirror data is
+    # disposable, so there's no volume and eviction under the cap is fine.
+    valkey:
+        image: valkey/valkey:8.1-alpine
+        restart: on-failure
+        command: valkey-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        healthcheck:
+            test: ['CMD', 'valkey-cli', 'ping']
+            interval: 3s
+            timeout: 10s
+            retries: 10
+
     clickhouse:
         image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.6.2.158}
         restart: on-failure

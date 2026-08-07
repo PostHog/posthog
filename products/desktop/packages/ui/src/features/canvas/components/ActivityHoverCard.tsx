@@ -15,12 +15,14 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useState } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
+  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -33,6 +35,7 @@ export function ActivityHoverCard({
   onClose,
   side = "right",
 }: ActivityHoverCardProps) {
+  const commentsEnabled = useCommentsEnabled();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
   const {
@@ -48,7 +51,8 @@ export function ActivityHoverCard({
     root: scrollRoot,
     rootMargin: "100px 0px",
   });
-  const unreadItems = getUnreadActivityItems(items);
+  const visibleItems = getVisibleActivityItems(items, commentsEnabled);
+  const unreadItems = getUnreadActivityItems(visibleItems);
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   useEffect(() => {
@@ -63,8 +67,8 @@ export function ActivityHoverCard({
     }
   }, [fetchNextPage, hasNextPage, loadMoreInView]);
 
-  const markRead = (taskId: string, activityAt: string) => {
-    markTasksRead([{ task_id: taskId, seen_before: activityAt }]);
+  const markRead = (item: (typeof items)[number]) => {
+    markTasksRead(activityReadPayload([item]));
   };
 
   const markAllRead = () => {
@@ -94,11 +98,11 @@ export function ActivityHoverCard({
         )}
       </div>
       <div ref={setScrollRoot} className="max-h-[480px] overflow-y-auto p-1.5">
-        {isLoading && items.length === 0 ? (
+        {isLoading && visibleItems.length === 0 ? (
           <div className="flex justify-center py-10">
             <Spinner />
           </div>
-        ) : items.length === 0 ? (
+        ) : visibleItems.length === 0 ? (
           <Empty className="border-0 py-8">
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -112,17 +116,13 @@ export function ActivityHoverCard({
           </Empty>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <ActivityRow
-                key={item.taskId}
+                key={item.id}
                 item={item}
                 channelId={item.channelId}
-                onOpen={(activity) =>
-                  markRead(activity.taskId, activity.activityAt)
-                }
-                onMarkRead={(activity) =>
-                  markRead(activity.taskId, activity.activityAt)
-                }
+                onOpen={markRead}
+                onMarkRead={markRead}
                 currentUser={currentUser}
                 surface="activity_panel"
                 onNavigate={onClose}
