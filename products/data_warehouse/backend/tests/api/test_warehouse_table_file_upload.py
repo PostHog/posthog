@@ -1,15 +1,18 @@
 import io
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 from rest_framework import status
 
 from products.warehouse_sources.backend.facade.api import FILE_FORMAT_READ_HINTS
+from products.warehouse_sources.backend.file_uploads import MAX_UPLOAD_FILENAME_LENGTH, sanitize_upload_filename
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -42,19 +45,46 @@ class _CapturingBuffer(io.BytesIO):
 class _FakeS3:
     """Captures what the endpoint writes, standing in for the object store boundary."""
 
-    def __init__(self, *, exists_result: bool = True) -> None:
+    def __init__(self, *, exists_result: bool = True, exists_error: BaseException | None = None) -> None:
         self.written: dict[str, bytes] = {}
         self.removed: list[str] = []
         self._exists_result = exists_result
+        self._exists_error = exists_error
 
     def open(self, path: str, mode: str) -> io.BytesIO:
         return _CapturingBuffer(self.written, path)
 
     def exists(self, path: str) -> bool:
+        if self._exists_error is not None:
+            raise self._exists_error
         return self._exists_result
 
     def rm(self, path: str) -> None:
         self.removed.append(path)
+
+
+class TestSanitizeUploadFilename(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain", "orders.csv", "orders.csv"),
+            ("spaces_and_symbols", "my file (1).csv", "my_file__1_.csv"),
+            ("at_length_cap", "a" * MAX_UPLOAD_FILENAME_LENGTH, "a" * MAX_UPLOAD_FILENAME_LENGTH),
+        ]
+    )
+    def test_accepts_and_sanitizes(self, _name: str, raw: str, expected: str) -> None:
+        assert sanitize_upload_filename(raw) == expected
+
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("none", None),
+            ("leading_dot", ".hidden"),
+            ("over_length_cap", "a" * (MAX_UPLOAD_FILENAME_LENGTH + 1)),
+        ]
+    )
+    def test_rejects(self, _name: str, raw: str | None) -> None:
+        with pytest.raises(ValueError):
+            sanitize_upload_filename(raw)
 
 
 @override_settings(DATAWAREHOUSE_BUCKET="test-bucket")
@@ -284,6 +314,59 @@ class TestCreateTableFromUpload(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found" in response.json()["message"]
+        assert DataWarehouseTable.objects.count() == 0
+
+    def test_rejects_an_overlong_filename_before_touching_storage(self) -> None:
+        # An unbounded filename is concatenated into the S3 key, where an over-long key makes S3
+        # answer HeadObject with a 400 rather than a clean 404. Validation must reject it up front,
+        # so storage is never reached at all.
+        upload_id = self._upload()
+        with patch(f"{VIEW_MODULE}.get_s3_client") as get_client:
+            response = self.client.post(
+                f"{self.create_url}?include_columns=false",
+                data={
+                    "upload_id": upload_id,
+                    "filename": "a" * (MAX_UPLOAD_FILENAME_LENGTH + 1) + ".csv",
+                    "file_format": "csv",
+                    "table_name": "orders",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert get_client.call_count == 0
+        assert DataWarehouseTable.objects.count() == 0
+
+    @parameterized.expand(
+        [
+            ("client_4xx_is_not_captured", 400, False),
+            ("server_5xx_is_captured", 500, True),
+        ]
+    )
+    def test_storage_verification_error_captures_only_infrastructure_faults(
+        self, _name: str, http_status: int, should_capture: bool
+    ) -> None:
+        # s3fs wraps a botocore failure into OSError and hangs the original ClientError off __cause__.
+        # A client-caused 4xx (a bad key) is the caller's problem and must stay out of error tracking;
+        # a genuine storage fault must still be captured.
+        upload_id = self._upload()
+        cause = ClientError(
+            {"Error": {"Code": str(http_status)}, "ResponseMetadata": {"HTTPStatusCode": http_status}},
+            "HeadObject",
+        )
+        wrapped = OSError(22, "Bad Request")
+        wrapped.__cause__ = cause
+        with (
+            patch(f"{VIEW_MODULE}.get_s3_client", return_value=_FakeS3(exists_error=wrapped)),
+            patch(f"{VIEW_MODULE}.capture_exception") as capture,
+        ):
+            response = self.client.post(
+                f"{self.create_url}?include_columns=false",
+                data={"upload_id": upload_id, "filename": "orders.csv", "file_format": "csv", "table_name": "orders"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "verify" in response.json()["message"]
+        assert capture.called is should_capture
         assert DataWarehouseTable.objects.count() == 0
 
     @parameterized.expand(["csv", "json", "parquet"])

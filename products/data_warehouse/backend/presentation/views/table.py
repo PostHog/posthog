@@ -6,6 +6,7 @@ from django.conf import settings
 
 import boto3
 import posthoganalytics
+from botocore.exceptions import ClientError
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
+    sanitize_upload_filename,
 )
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -83,6 +85,19 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
         get_s3_client().rm(path)
     except Exception as e:
         capture_exception(e)
+
+
+def _is_client_caused_s3_error(exc: BaseException) -> bool:
+    """True when an s3fs failure was caused by a client 4xx (a bad key or request), not a storage
+    fault. s3fs wraps botocore errors into OSError and hangs the original ``ClientError`` off
+    ``__cause__``, where the HTTP status still lives — so a client-caused 400 isn't captured as if
+    it were an infrastructure problem.
+    """
+    cause = exc.__cause__
+    if isinstance(cause, ClientError):
+        code = cause.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        return isinstance(code, int) and 400 <= code < 500
+    return False
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -336,6 +351,15 @@ class CreateTableFromUploadSerializer(serializers.Serializer):
     )
     table_name = serializers.CharField(help_text="Name the resulting table is queried by in HogQL.")
 
+    def validate_filename(self, filename: str) -> str:
+        # Re-run the upload endpoint's sanitizer so a malformed or over-long name comes back as a
+        # validation error rather than a bad S3 key that HeadObject rejects with a 400. For a name
+        # that already came from upload_file this is a no-op; a name that changes here just misses.
+        try:
+            return sanitize_upload_filename(filename)
+        except ValueError as e:
+            raise serializers.ValidationError(str(e))
+
     def validate_table_name(self, table_name: str) -> str:
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
             raise serializers.ValidationError(
@@ -583,11 +607,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 },
             )
 
-        # Django strips path separators via os.path.basename in UploadedFile._set_name; restricting
-        # further to safe characters is defense-in-depth for the S3 key.
-        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name or "")
-        if not safe_filename or safe_filename.startswith("."):
-            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Invalid filename"})
+        try:
+            safe_filename = sanitize_upload_filename(file.name)
+        except ValueError as e:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         upload_id = uuid.uuid4()
         path = build_file_upload_s3_path(self.team_id, str(upload_id), safe_filename)
@@ -660,7 +683,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     data={"message": "Uploaded file not found. Please upload the file again."},
                 )
         except Exception as e:
-            capture_exception(e)
+            # A client-caused 4xx (a bad key or request) is the caller's problem, not a storage
+            # fault, so don't log it to error tracking — only genuine storage failures are captured.
+            if not _is_client_caused_s3_error(e):
+                capture_exception(e)
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Could not verify the uploaded file. Please try uploading it again."},
@@ -720,15 +746,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         file = request.FILES["file"]
 
-        # Sanitize filename — Django strips path separators via os.path.basename
-        # in UploadedFile._set_name, but we further restrict to safe characters
-        # as defense-in-depth for the S3 key and url_pattern.
-        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name)
-        if not safe_filename or safe_filename.startswith("."):
-            return response.Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Invalid filename"},
-            )
+        try:
+            safe_filename = sanitize_upload_filename(file.name)
+        except ValueError as e:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         table_name = request.data.get("name", safe_filename)
         file_format = request.data.get("format", "CSVWithNames")

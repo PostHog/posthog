@@ -10,10 +10,18 @@ object: PostHog reads it in place from its own bucket, so there is no import pip
 recurring sync — the same shape as a linked S3/GCS bucket, just hosted by us.
 """
 
+import re
+
 from django.conf import settings
 
 # Top-level bucket folder for user-uploaded files.
 FILE_UPLOADS_FOLDER = "file_uploads"
+
+# Cap on the stored filename. It is concatenated straight into an S3 object key, and an over-long
+# or malformed key makes S3 reject HeadObject with a 400 rather than answering a clean 404. 255
+# keeps the whole key comfortably under S3's 1024-byte key limit and matches the common filesystem
+# filename length, so it never rejects a name a user could plausibly have uploaded.
+MAX_UPLOAD_FILENAME_LENGTH = 255
 
 # Formats a user can upload. Lowercase tokens accepted by the upload endpoint and mapped to a
 # ClickHouse read format (`FILE_FORMAT_TO_TABLE_FORMAT`) when the table is created.
@@ -45,6 +53,24 @@ FILE_FORMAT_READ_HINTS: dict[str, str] = {
 # Cap on uploads streamed through the web pod. Larger datasets belong on a self-managed S3/GCS
 # source, where PostHog reads the customer's bucket directly instead of hosting the bytes.
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+
+
+def sanitize_upload_filename(filename: str | None) -> str:
+    """Reduce a client-supplied filename to a safe S3 object-key segment, or raise ``ValueError``.
+
+    Django already strips path separators via ``os.path.basename`` in ``UploadedFile._set_name``;
+    restricting further to a safe character set and a length cap is defense-in-depth for the S3 key.
+    Shared by the upload endpoint and the table-create endpoint so the two can't drift on what a
+    stored filename may contain — a name that survives here can only ever miss as a clean 404, never
+    a malformed-key 400. Rejects an empty result, a leading dot (hidden/relative names), and anything
+    past the length cap.
+    """
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", filename or "")
+    if not safe_filename or safe_filename.startswith("."):
+        raise ValueError("Invalid filename")
+    if len(safe_filename) > MAX_UPLOAD_FILENAME_LENGTH:
+        raise ValueError(f"Filename must be at most {MAX_UPLOAD_FILENAME_LENGTH} characters.")
+    return safe_filename
 
 
 def build_file_upload_s3_prefix(team_id: int, upload_id: str) -> str:
