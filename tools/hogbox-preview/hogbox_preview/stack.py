@@ -489,10 +489,14 @@ class PostHogPreviewStack:
         # coherent with the built code. Postgres keeps its data in a named volume
         # that survives container recreation, so the volume must be removed by
         # name; ClickHouse is volume-less, so recreating its container is enough.
+        # temporal must be recreated too: its temporal/temporal_visibility DBs
+        # live in that same postgres volume, and only its auto-setup ENTRYPOINT
+        # recreates the schema — a surviving container would just error against
+        # the wiped postgres forever. The worker follows so it reconnects cleanly.
         cmd = (
             f"cd {self.repo_dir} && "
-            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} stop db clickhouse web ; "
-            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} rm -f db clickhouse web ; "
+            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} stop db clickhouse web temporal temporal-django-worker ; "
+            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} rm -f db clickhouse web temporal temporal-django-worker ; "
             "docker volume rm posthog_postgres-15-data || true"
         )
         self.backend.run_long(cmd, name="reset-db", timeout=300)
@@ -551,10 +555,21 @@ class PostHogPreviewStack:
         # mapping defined for search attribute PostHogDagId" — hit live
         # 2026-08-07). The bake registers them too, but run it here as well:
         # it's idempotent and ~seconds, it heals goldens baked before the bake
-        # learned to, and it re-registers after --reset-db (temporal keeps its
-        # DBs inside the same postgres volume reset_database removes).
+        # learned to, and it covers --reset-db (reset_database recreates the
+        # temporal container so auto-setup rebuilds the schema in the wiped
+        # postgres — this then re-registers the attributes in it).
+        #
+        # Retried (up_deps only gates on db healthy, so temporal can still be
+        # warming on a cold boot) and NON-fatal: a PR branch that predates the
+        # management command would otherwise hard-abort bring-up with "Unknown
+        # command". Such a preview still serves; it just can't materialize —
+        # same as before temporal existed here — so warn and move on.
+        register = self._compose("run --rm -T web python manage.py register_temporal_search_attributes")
         self.backend.run_long(
-            self._compose("run --rm -T web python manage.py register_temporal_search_attributes"),
+            f"ok=0; for _ in 1 2 3; do {register} && ok=1 && break; sleep 10; done; "
+            '[ "$ok" = 1 ] || echo "WARN: register_temporal_search_attributes failed'
+            " (temporal still starting, or the PR predates the command) —"
+            ' materialized views may not run in this preview" >&2',
             name="register-search-attrs",
             timeout=600,
         )

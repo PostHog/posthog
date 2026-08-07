@@ -177,6 +177,25 @@ class OverrideTemporalParityTest(unittest.TestCase):
         script = backend.long_runs[-1]
         self.assertIn("up -d --no-build web temporal-django-worker", script)
 
+    def test_migrate_registers_search_attributes_tolerantly(self):
+        # Fresh temporal namespaces lack PostHogDagId & co. and /materialize/
+        # 500s without them — migrate() must register them, but tolerantly: a
+        # PR branch predating the management command must not abort bring-up.
+        backend = _RecordingBackend()
+        PostHogPreviewStack(backend).migrate()
+        script = backend.long_runs[-1]
+        self.assertIn("register_temporal_search_attributes", script)
+        self.assertIn("WARN", script)  # non-fatal fallthrough, not a bare run
+
+    def test_reset_database_recreates_temporal(self):
+        # The wiped postgres volume held temporal's DBs, and only temporal's
+        # auto-setup ENTRYPOINT recreates that schema — so a reset that leaves
+        # the temporal container running strands it erroring forever.
+        backend = _RecordingBackend()
+        PostHogPreviewStack(backend).reset_database()
+        script = backend.long_runs[-1]
+        self.assertIn("rm -f db clickhouse web temporal temporal-django-worker", script)
+
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
 class DeepHealthTest(unittest.TestCase):
