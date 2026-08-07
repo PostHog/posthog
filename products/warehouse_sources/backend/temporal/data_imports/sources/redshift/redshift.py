@@ -13,6 +13,7 @@ from __future__ import annotations
 import collections
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date
 from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
@@ -72,6 +73,7 @@ __all__ = [
     "JsonAsStringLoader",
     "RedshiftColumn",
     "RedshiftImplementation",
+    "SafeDateLoader",
     "filter_redshift_incremental_fields",
 ]
 
@@ -195,6 +197,45 @@ class JsonAsStringLoader(Loader):
         if data is None:
             return None
         return bytes(data).decode("utf-8")
+
+
+class SafeDateLoader(Loader):
+    """Load Redshift dates, handling edge cases beyond Python's date range.
+
+    Redshift's `date` range (4713 BC to 294276 AD) is far wider than Python's `datetime.date`
+    (year 1 to year 9999). psycopg's default loader raises `DataError` on anything outside that
+    range — including a bare `0000-01-01` — which aborts the whole table sync. We clamp
+    out-of-range values to `date.min`/`date.max` instead, mirroring the equivalent Postgres fix.
+
+    A value we genuinely cannot parse raises rather than being clamped: silently mapping it onto
+    date.max fabricates a real-looking 9999-12-31 and corrupts the whole column, which is far
+    worse than a loud sync failure.
+    """
+
+    def load(self, data) -> date | None:
+        if data is None:
+            return None
+
+        s = bytes(data).decode("utf-8").strip()
+
+        if s in ("infinity", "-infinity"):
+            return date.max if s == "infinity" else date.min
+
+        # Handle negative years (BC dates)
+        if s.startswith("-") or "bc" in s.lower():
+            return date.min
+
+        try:
+            year, month, day = (int(part) for part in s.split("-"))
+        except ValueError as e:
+            raise ValueError(f"Unparseable Redshift date value: {s!r}") from e
+
+        if year > 9999:
+            return date.max
+        if year < 1:
+            return date.min
+
+        return date(year, month, day)
 
 
 def _redshift_select_clause(
@@ -597,6 +638,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 password=config.password,
                 **_REDSHIFT_CONNECT_OPTS,
             ) as conn:
+                conn.adapters.register_loader("date", SafeDateLoader)
                 yield conn
 
     # ------------------------------------------------------------------
@@ -1106,6 +1148,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return 0
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+            if "Remote request timeout" in str(e):
+                # Redshift's leader node lost internal RPC contact with a compute node mid-query
+                # (SQLSTATE-less `InternalError_`, code 29150) — a transient cluster-side hiccup,
+                # the same non-actionable class as a WLM/QMR abort (see `has_duplicate_primary_keys`).
+                # Row-count estimation is best-effort (already defaulting to 0 here), so skip
+                # reporting the expected error to error tracking.
+                return 0
             capture_exception(e)
             if "temporary file size exceeds temp_file_limit" in str(e):
                 raise TemporaryFileSizeExceedsLimitException(
