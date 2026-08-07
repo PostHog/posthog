@@ -1456,9 +1456,15 @@ class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
     """Client-credentials gate that only a confidential client can pass.
 
     A public client holds no secret to prove, so it must never satisfy an endpoint whose
-    only authentication is client credentials. Kept separate from `OAuthValidator` because
-    the token endpoint legitimately tolerates a public client presenting a secret it then
-    ignores (the grant is bound by PKCE instead).
+    only authentication is client credentials. The library does let it: both
+    `_authenticate_basic_auth` and `_authenticate_request_body` return True for a public
+    client whose request carries `grant_type=urn:ietf:params:oauth:grant-type:device_code`,
+    and they do so before reaching `_check_secret`, so the blank-secret guard in
+    `verify_client_secret` never runs on that path. `grant_type` is read from the request
+    body, so the application's own configured grant does not constrain it.
+
+    Kept separate from `OAuthValidator` because the token endpoint legitimately tolerates a
+    public client presenting a secret it then ignores (the grant is bound by PKCE instead).
     """
 
     def authenticate_client(self, request, *args, **kwargs):

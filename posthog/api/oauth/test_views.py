@@ -26,7 +26,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
-from posthog.api.oauth.cimd import _create_cimd_application
 from posthog.api.oauth.views import OAuthValidator
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -3104,43 +3103,25 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @parameterized.expand(["cimd_client", "public_client", "confidential_client"])
-    def test_introspection_rejects_client_credentials_with_a_blank_secret(self, app_kind: str):
+    @parameterized.expand(["request_body", "http_basic"])
+    def test_introspection_rejects_a_public_client_claiming_the_device_code_grant(self, transport: str):
+        # oauth2_provider's `_authenticate_basic_auth` and `_authenticate_request_body` each
+        # return True for a public client presenting this grant type, before either one reaches
+        # `_check_secret` — so the blank-secret guard in `verify_client_secret` never sees it.
         access_token, _ = self._create_access_and_refresh_tokens()
 
-        if app_kind == "cimd_client":
-            cimd_url = "https://partner.example.com/.well-known/oauth-client-metadata.json"
-            _create_cimd_application(
-                cimd_url,
-                {
-                    "client_id": cimd_url,
-                    "client_name": "Partner",
-                    "redirect_uris": ["https://partner.example.com/callback"],
-                    "token_endpoint_auth_method": "none",
-                },
-            )
-            client_id = cimd_url
-        else:
-            # A row already persisted with a blank secret — the creation-site fix can't reach these.
-            secretless_app = OAuthApplication.objects.create(
-                name=f"Secretless {app_kind}",
-                client_id=f"secretless_{app_kind}",
-                client_secret="",
-                client_type=(
-                    OAuthApplication.CLIENT_PUBLIC
-                    if app_kind == "public_client"
-                    else OAuthApplication.CLIENT_CONFIDENTIAL
-                ),
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://example.com/callback",
-                algorithm="RS256",
-            )
-            client_id = secretless_app.client_id
+        body = {
+            "token": access_token.token,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        }
+        headers = None
 
-        response = self.post(
-            "/oauth/introspect/",
-            {"token": access_token.token, "client_id": client_id, "client_secret": ""},
-        )
+        if transport == "request_body":
+            body["client_id"] = self.public_application.client_id
+        else:
+            headers = {"Authorization": self.get_basic_auth_header(self.public_application.client_id, "wrong-secret")}
+
+        response = self.post("/oauth/introspect/", body, headers=headers)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
