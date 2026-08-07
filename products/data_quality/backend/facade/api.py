@@ -1,34 +1,31 @@
 """
 Facade for data_quality.
 
-The only module this product's presentation layer (and external code) may import. It re-exports the
-logic surface -- capability functions and frozen contracts -- so the isolation boundary stays clean:
-presentation never reaches into ``logic`` directly, and ORM model classes never cross it.
+The only module this product's presentation layer (and external code) may import. It carries
+capability functions and frozen contracts, and nothing else: the check registry, the type specs and
+the AST-bearing ``CheckPlan`` stay inside ``logic``, since they are compiler internals rather than
+data. ORM model classes never cross here either -- ``facade/models.py`` is their one channel.
 """
 
 from ..logic.compiler import compile_check, related_subject_ref
-from ..logic.contracts import CheckPlan, CompiledCheck, Evaluation, SubjectRef
+from ..logic.contracts import CompiledCheck, SubjectRef
 from ..logic.errors import CheckConfigError, SubjectUnresolvableError
-from ..logic.registry import UnknownCheckTypeError, all_specs, get_spec
+from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
-from ..logic.spec import CheckConfig, CheckTypeSpec
 from ..logic.subjects import resolve_subject
+from .contracts import CheckTypeInfo
 
 __all__ = [
-    "CheckConfig",
     "CheckConfigError",
-    "CheckPlan",
-    "CheckTypeSpec",
+    "CheckTypeInfo",
     "CompiledCheck",
-    "Evaluation",
     "SubjectRef",
     "SubjectUnresolvableError",
     "UnknownCheckTypeError",
-    "all_specs",
     "compile_check",
     "compute_fingerprint",
     "from_config_entry",
-    "get_spec",
+    "list_check_types",
     "related_subject_ref",
     "resolve_subject",
     "to_config_entry",

@@ -9,6 +9,8 @@ from ..contracts import CheckPlan, Evaluation, SubjectRef
 from ..spec import CheckConfig, CheckTypeSpec
 from .common import one, subject_source
 
+ROW_COUNT_ALIAS = "row_count"
+
 
 class RowCountConfig(CheckConfig):
     min: int | None = Field(default=None, ge=0, description="Fail if the table has fewer rows than this.")
@@ -36,6 +38,12 @@ class RowCountSpec(CheckTypeSpec):
     ) -> CheckPlan:
         return CheckPlan(
             failing_rows=ast.SelectQuery(select=[one()], select_from=subject_source(subject)),
+            # No row is individually at fault here, so the diagnostic is the number the bounds were
+            # compared against rather than a projection of every row in the table.
+            diagnostic_rows=ast.SelectQuery(
+                select=[ast.Alias(alias=ROW_COUNT_ALIAS, expr=ast.Call(name="count", args=[]))],
+                select_from=subject_source(subject),
+            ),
             failed_count_expr=None,
             observed_value_expr=ast.Call(name="count", args=[]),
             evaluation=Evaluation.BOUNDS,

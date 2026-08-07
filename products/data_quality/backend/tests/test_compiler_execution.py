@@ -1,4 +1,4 @@
-from uuid import uuid4
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -9,7 +9,7 @@ from posthog.hogql.query import execute_hogql_query
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import CheckType, SubjectType
 from products.data_quality.backend.logic.compiler import compile_check
-from products.data_quality.backend.logic.contracts import SubjectRef
+from products.data_quality.backend.logic.contracts import CompiledCheck, SubjectRef
 
 _STRING = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"}
 _INT = {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}
@@ -24,17 +24,24 @@ _ORDERS_QUERY = (
     "UNION ALL SELECT 3, 'c9', 'shipped'"
 )
 
+_NULL_CUSTOMER_ROW = {"id": 3, "customer_id": None, "status": "paid"}
+_UNMATCHED_CUSTOMER_ROW = {"id": 3, "customer_id": "c9", "status": "shipped"}
+
 
 class TestCompiledCheckExecution(ClickhouseTestMixin, APIBaseTest):
-    def _view(self, name: str, query: str, columns: dict) -> None:
-        DataWarehouseSavedQuery.objects.create(
-            team=self.team, name=name, query={"kind": "HogQLQuery", "query": query}, columns=columns
-        )
+    """Compiled checks must run in ClickHouse and count what the data actually contains.
+
+    Views of constant rows, so the expected counts are exact and nothing has to be ingested. This
+    catches a query that prints but errors in ClickHouse, or returns the wrong number, neither of
+    which the printed-shape assertions in test_compiler can see.
+    """
 
     def setUp(self) -> None:
         super().setUp()
+        self._subjects: dict[str, SubjectRef] = {}
         self._view("orders", _ORDERS_QUERY, {"id": _INT, "customer_id": _STRING, "status": _STRING})
         self._view("customers", "SELECT 'c1' AS id UNION ALL SELECT 'c2'", {"id": _STRING})
+        self._view("all_customers", "SELECT 'c1' AS id UNION ALL SELECT 'c2' UNION ALL SELECT 'c9'", {"id": _STRING})
         self._view("fresh_orders", "SELECT now() AS created_at", {"created_at": _DATETIME})
         self._view("stale_orders", "SELECT toDateTime('2000-01-01 00:00:00') AS created_at", {"created_at": _DATETIME})
         self._view("empty_orders", "SELECT now() AS created_at LIMIT 0", {"created_at": _DATETIME})
@@ -44,32 +51,42 @@ class TestCompiledCheckExecution(ClickhouseTestMixin, APIBaseTest):
             {"created_at": _DATETIME},
         )
 
-    def _subject(self, view_name: str) -> SubjectRef:
-        return SubjectRef(SubjectType.VIEW, str(uuid4()), view_name, view_name, exists=True)
+    def _view(self, name: str, query: str, columns: dict[str, Any]) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name=name, query={"kind": "HogQLQuery", "query": query}, columns=columns
+        )
+        self._subjects[name] = SubjectRef(SubjectType.VIEW, str(saved_query.id), name, name, exists=True)
 
-    def _run(self, compiled) -> tuple:
+    def _compile(self, view_name, check_type, column_name, config, related_view=None) -> CompiledCheck:
+        return compile_check(
+            check_type=check_type,
+            subject=self._subjects[view_name],
+            column_name=column_name,
+            config=config,
+            related_subject=self._subjects[related_view] if related_view else None,
+        )
+
+    def _execute(self, query) -> Any:
         return execute_hogql_query(
-            query=compiled.query,
+            query=query,
             team=self.team,
             query_type="data_quality_check",
             bypass_warehouse_access_control=True,
-        ).results[0]
+        )
+
+    def _relationships_config(self) -> dict:
+        return {
+            "to_subject_type": "view",
+            "to_subject_uuid": self._subjects["customers"].subject_uuid,
+            "to_column": "id",
+        }
 
     @parameterized.expand(
         [
             ("not_null_pass", "orders", CheckType.NOT_NULL, "status", {}, None, 0),
             ("not_null_fail", "orders", CheckType.NOT_NULL, "customer_id", {}, None, 1),
-            ("unique_fail", "orders", CheckType.UNIQUE, "id", {}, None, 1),
             ("unique_pass", "orders", CheckType.UNIQUE, "customer_id", {}, None, 0),
-            (
-                "accepted_values_fail",
-                "orders",
-                CheckType.ACCEPTED_VALUES,
-                "status",
-                {"values": ["paid", "refunded"]},
-                None,
-                1,
-            ),
+            ("unique_fail", "orders", CheckType.UNIQUE, "id", {}, None, 1),
             (
                 "accepted_values_pass",
                 "orders",
@@ -79,7 +96,26 @@ class TestCompiledCheckExecution(ClickhouseTestMixin, APIBaseTest):
                 None,
                 0,
             ),
+            (
+                "accepted_values_fail",
+                "orders",
+                CheckType.ACCEPTED_VALUES,
+                "status",
+                {"values": ["paid", "refunded"]},
+                None,
+                1,
+            ),
+            ("relationships_pass", "orders", CheckType.RELATIONSHIPS, "customer_id", None, "all_customers", 0),
             ("relationships_fail", "orders", CheckType.RELATIONSHIPS, "customer_id", None, "customers", 1),
+            (
+                "custom_sql_pass",
+                "orders",
+                CheckType.CUSTOM_SQL,
+                "",
+                {"query": "SELECT id FROM orders WHERE id < 0"},
+                None,
+                0,
+            ),
             (
                 "custom_sql_fail",
                 "orders",
@@ -99,6 +135,9 @@ class TestCompiledCheckExecution(ClickhouseTestMixin, APIBaseTest):
                 None,
                 1,
             ),
+            # An empty table and an all-null column both leave the newest timestamp undefined. Freshness
+            # has to fail there: comparing null to the threshold would pass the dead pipeline it exists
+            # to catch.
             (
                 "freshness_empty_fail",
                 "empty_orders",
@@ -122,30 +161,40 @@ class TestCompiledCheckExecution(ClickhouseTestMixin, APIBaseTest):
     def test_failure_count_matches_the_data(
         self, _name, view_name, check_type, column_name, config, related_view, expected_failure_count
     ) -> None:
-        related = self._subject(related_view) if related_view else None
         merged_config = config if config is not None else self._relationships_config()
-        compiled = compile_check(
-            check_type=check_type,
-            subject=self._subject(view_name),
-            column_name=column_name,
-            config=merged_config,
-            related_subject=related,
-        )
-        failure_count = self._run(compiled)[0]
-        assert failure_count == expected_failure_count
+        compiled = self._compile(view_name, check_type, column_name, merged_config, related_view)
 
-    def _relationships_config(self) -> dict:
-        return {"to_subject_type": "view", "to_subject_uuid": str(uuid4()), "to_column": "id"}
+        assert self._execute(compiled.query).results[0][0] == expected_failure_count
 
     def test_row_count_observes_the_true_count(self) -> None:
         # row_count is the one BOUNDS check: it emits only observed_value, and the bound comparison is
         # the runner's job. What has to be right here is that the count it hands the runner is real.
-        compiled = compile_check(
-            check_type=CheckType.ROW_COUNT,
-            subject=self._subject("orders"),
-            column_name="",
-            config={"min": 1, "max": 10},
-            related_subject=None,
-        )
-        observed_value = self._run(compiled)[0]
-        assert observed_value == 4
+        compiled = self._compile("orders", CheckType.ROW_COUNT, "", {"min": 1, "max": 10})
+
+        assert self._execute(compiled.query).results[0][0] == 4
+
+    @parameterized.expand(
+        [
+            ("not_null", CheckType.NOT_NULL, "customer_id", {}, None, _NULL_CUSTOMER_ROW),
+            (
+                "accepted_values",
+                CheckType.ACCEPTED_VALUES,
+                "status",
+                {"values": ["paid", "refunded"]},
+                None,
+                _UNMATCHED_CUSTOMER_ROW,
+            ),
+            ("relationships", CheckType.RELATIONSHIPS, "customer_id", None, "customers", _UNMATCHED_CUSTOMER_ROW),
+        ]
+    )
+    def test_the_stored_query_returns_the_offending_row(
+        self, _name, check_type, column_name, config, related_view, expected_row
+    ) -> None:
+        # Failing rows are never persisted, so a human investigating re-runs this query by hand. It
+        # has to come back with the data that broke, not a column of 1s.
+        merged_config = config if config is not None else self._relationships_config()
+        compiled = self._compile("orders", check_type, column_name, merged_config, related_view)
+
+        response = self._execute(compiled.printed_failing_rows_query)
+
+        assert [dict(zip(response.columns, row)) for row in response.results] == [expected_row]

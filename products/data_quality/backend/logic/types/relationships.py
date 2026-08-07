@@ -8,7 +8,7 @@ from ...facade.enums import CheckType, SubjectType
 from ..contracts import CheckPlan, SubjectRef
 from ..errors import SubjectUnresolvableError
 from ..spec import CheckConfig, CheckTypeSpec
-from .common import column, one, subject_source
+from .common import column, diagnostic_of, one, subject_source
 
 
 class RelationshipsConfig(CheckConfig):
@@ -42,18 +42,17 @@ class RelationshipsSpec(CheckTypeSpec):
             select=[column(config.to_column)],
             select_from=subject_source(related),
         )
-        return CheckPlan(
-            failing_rows=ast.SelectQuery(
-                select=[one()],
-                select_from=subject_source(subject),
-                where=ast.And(
-                    exprs=[
-                        ast.Call(name="isNotNull", args=[value]),
-                        ast.CompareOperation(left=value, op=ast.CompareOperationOp.NotIn, right=referenced),
-                    ]
-                ),
-            )
+        failing_rows = ast.SelectQuery(
+            select=[one()],
+            select_from=subject_source(subject),
+            where=ast.And(
+                exprs=[
+                    ast.Call(name="isNotNull", args=[value]),
+                    ast.CompareOperation(left=value, op=ast.CompareOperationOp.NotIn, right=referenced),
+                ]
+            ),
         )
+        return CheckPlan(failing_rows=failing_rows, diagnostic_rows=diagnostic_of(failing_rows))
 
 
 SPEC = RelationshipsSpec()

@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from ..facade.enums import CheckRunStatus, CheckType, SubjectType, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import CheckRunStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
 
 
 class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -100,7 +100,8 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     subject_type = models.CharField(max_length=32, choices=[(t.value, t.value) for t in SubjectType])
     subject_uuid = models.UUIDField()
     subject_name = models.CharField(max_length=400)
-    check_type = models.CharField(max_length=32, choices=[(t.value, t.value) for t in CheckType])
+    # No choices, for the same reason as on the check itself: the registry owns the set of types.
+    check_type = models.CharField(max_length=32)
     check_fingerprint = models.CharField(max_length=64)
     column_name = models.CharField(max_length=400, blank=True)
 

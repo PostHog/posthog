@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from ...facade.enums import CheckType
 from ..contracts import CheckPlan, SubjectRef
 from ..spec import CheckConfig, CheckTypeSpec
-from .common import column, one, subject_source
+from .common import column, diagnostic_of, one, subject_source
 
 
 class AcceptedValuesConfig(CheckConfig):
@@ -36,22 +36,21 @@ class AcceptedValuesSpec(CheckTypeSpec):
     ) -> CheckPlan:
         assert isinstance(config, AcceptedValuesConfig)
         value = column(column_name)
-        return CheckPlan(
-            failing_rows=ast.SelectQuery(
-                select=[one()],
-                select_from=subject_source(subject),
-                where=ast.And(
-                    exprs=[
-                        ast.Call(name="isNotNull", args=[value]),
-                        ast.CompareOperation(
-                            left=value,
-                            op=ast.CompareOperationOp.NotIn,
-                            right=ast.Constant(value=list(config.values)),
-                        ),
-                    ]
-                ),
-            )
+        failing_rows = ast.SelectQuery(
+            select=[one()],
+            select_from=subject_source(subject),
+            where=ast.And(
+                exprs=[
+                    ast.Call(name="isNotNull", args=[value]),
+                    ast.CompareOperation(
+                        left=value,
+                        op=ast.CompareOperationOp.NotIn,
+                        right=ast.Constant(value=list(config.values)),
+                    ),
+                ]
+            ),
         )
+        return CheckPlan(failing_rows=failing_rows, diagnostic_rows=diagnostic_of(failing_rows))
 
 
 SPEC = AcceptedValuesSpec()

@@ -39,9 +39,14 @@ class CheckPlan:
     ``failing_rows`` selects the rows that violate the assertion; the compiler aggregates over it so
     nothing but counts ever leaves ClickHouse. A type whose headline number is not a row count
     (freshness) overrides ``failed_count_expr`` and ``observed_value_expr``.
+
+    ``diagnostic_rows`` is the form a human re-runs. It exists because the two jobs pull apart:
+    counting is cheapest over a constant projection, while investigating needs the offending values.
+    A type whose failing rows already show something useful leaves it unset.
     """
 
     failing_rows: "ast.SelectQuery"
+    diagnostic_rows: "ast.SelectQuery | None" = None
     failed_count_expr: "ast.Expr | None" = None
     observed_value_expr: "ast.Expr | None" = None
     evaluation: Evaluation = Evaluation.ZERO_ROWS_PASS

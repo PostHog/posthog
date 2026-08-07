@@ -40,7 +40,7 @@ def compile_check(
     return CompiledCheck(
         query=query,
         printed_query=_print(query),
-        printed_failing_rows_query=_print(plan.failing_rows),
+        printed_failing_rows_query=_print(plan.diagnostic_rows or plan.failing_rows),
         evaluation=plan.evaluation,
     )
 

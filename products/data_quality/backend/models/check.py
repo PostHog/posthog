@@ -1,22 +1,48 @@
 import uuid
+from typing import Any, cast
 
 from django.core.validators import RegexValidator
 from django.db import models
+from django.db.models.deletion import Collector
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, CheckType, CreatedSource, SubjectStatus, SubjectType
+from ..facade.enums import CheckRunStatus, CheckSeverity, CreatedSource, SubjectStatus, SubjectType
 
 # A check name is an addressable handle in `information_schema.data_quality_checks` and in agent
 # prose, so it follows the same bare-identifier discipline as a metric name.
 CHECK_NAME_REGEX = r"^[A-Za-z][A-Za-z0-9_]*$"
 
+SUBJECT_STATUS_FIELD = "subject_status"
+
 validate_check_name = RegexValidator(
     regex=CHECK_NAME_REGEX,
     message="Name must start with a letter and contain only letters, numbers, and underscores.",
 )
+
+
+def orphan_check_on_subject_delete(collector: Collector, field: models.ForeignKey, sub_objs: Any, using: str) -> None:
+    """Unbind the check and mark it orphaned in the same delete, instead of a plain ``SET_NULL``.
+
+    Nulling the key alone leaves the row reading ``active`` with no subject, and nothing would ever
+    correct it: checks run when their subject's data changes, and a deleted subject never changes
+    again.
+
+    The status update is queued first on purpose. The collector runs its field updates in insertion
+    order against the same queryset, which filters on the key this handler is about to null -- queued
+    second, it would match no rows.
+
+    ``sub_objs`` is the lazy queryset ``lazy_sub_objs`` asks for, which django-stubs types as an
+    indexable collection.
+    """
+    status_field = cast(models.Field, field.model._meta.get_field(SUBJECT_STATUS_FIELD))
+    collector.add_field_update(status_field, SubjectStatus.ORPHANED.value, sub_objs)
+    collector.add_field_update(field, None, sub_objs)
+
+
+orphan_check_on_subject_delete.lazy_sub_objs = True  # type: ignore[attr-defined]
 
 
 class DataQualityCheck(
@@ -76,7 +102,7 @@ class DataQualityCheck(
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery",
-        on_delete=models.SET_NULL,
+        on_delete=orphan_check_on_subject_delete,
         null=True,
         blank=True,
         db_constraint=False,
@@ -85,7 +111,7 @@ class DataQualityCheck(
     )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable",
-        on_delete=models.SET_NULL,
+        on_delete=orphan_check_on_subject_delete,
         null=True,
         blank=True,
         db_constraint=False,
@@ -108,9 +134,10 @@ class DataQualityCheck(
         help_text="Column the check applies to. Blank for table-scoped types like row_count.",
     )
 
+    # No choices: the check registry is the source of truth for which types exist, and Django
+    # serializes choices into migration state -- adding a type would then need a migration.
     check_type = models.CharField(
         max_length=32,
-        choices=[(t.value, t.value) for t in CheckType],
         help_text="Which assertion to make. Determines the shape of config.",
     )
     config = models.JSONField(

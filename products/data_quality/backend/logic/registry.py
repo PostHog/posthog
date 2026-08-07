@@ -4,6 +4,7 @@ The spec contract itself lives in ``spec.py``; this is only the lookup table, so
 one import and one entry.
 """
 
+from ..facade.contracts import CheckTypeInfo
 from ..facade.enums import CheckType
 from .spec import CheckTypeSpec
 from .types import accepted_values, custom_sql, freshness, not_null, relationships, row_count, unique
@@ -31,6 +32,19 @@ def get_spec(check_type: str) -> CheckTypeSpec:
 
 def all_specs() -> list[CheckTypeSpec]:
     return [_SPECS[check_type] for check_type in CheckType]
+
+
+def list_check_types() -> list[CheckTypeInfo]:
+    """The catalog, as plain values. What callers outside the compiler get instead of the specs."""
+    return [
+        CheckTypeInfo(
+            check_type=spec.type_name.value,
+            description=spec.description,
+            requires_column=spec.requires_column,
+            config_schema=spec.json_schema,
+        )
+        for spec in all_specs()
+    ]
 
 
 class UnknownCheckTypeError(ValueError):

@@ -109,11 +109,33 @@ class TestCheckCompiler:
     def test_compiles_to_a_count_only_query(self, check_type, column_name, config, related, expected) -> None:
         assert _compile(check_type, column_name, config, related).printed_query == expected
 
-    def test_the_stored_query_is_the_failing_rows_one_not_the_aggregate(self) -> None:
-        # Failing rows are never persisted, so this is the only way a human can see what broke.
-        compiled = _compile(CheckType.NOT_NULL, "customer_id", {})
-
-        assert compiled.printed_failing_rows_query == "SELECT 1 FROM orders WHERE isNull(customer_id)"
+    @parameterized.expand(
+        [
+            ("not_null", CheckType.NOT_NULL, "customer_id", {}, None, "SELECT * FROM orders WHERE isNull(customer_id)"),
+            (
+                "accepted_values",
+                CheckType.ACCEPTED_VALUES,
+                "status",
+                {"values": ["paid"]},
+                None,
+                "SELECT * FROM orders WHERE and(isNotNull(status), notIn(status, ['paid']))",
+            ),
+            (
+                "row_count",
+                CheckType.ROW_COUNT,
+                "",
+                {"min": 1},
+                None,
+                "SELECT count() AS row_count FROM orders",
+            ),
+        ]
+    )
+    def test_the_stored_query_shows_the_offending_data(
+        self, _name, check_type, column_name, config, related, expected
+    ) -> None:
+        # Failing rows are never persisted, so re-running this query is the only way a human can see
+        # what broke -- a constant projection would answer with a column of 1s.
+        assert _compile(check_type, column_name, config, related).printed_failing_rows_query == expected
 
     def test_freshness_fails_when_the_column_has_no_values_at_all(self) -> None:
         # An empty table or dead pipeline yields a null staleness; comparing null to the threshold

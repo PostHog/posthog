@@ -15,7 +15,9 @@ class TeamDataQualityConfig(models.Model):
     whether a blocking failure stops a materialization from publishing.
     """
 
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    # db_constraint=False: a real FK constraint takes SHARE ROW EXCLUSIVE on posthog_team while
+    # migrating, stalling writes under traffic.
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
 
     gate_materialization_on_checks = models.BooleanField(
         default=False,

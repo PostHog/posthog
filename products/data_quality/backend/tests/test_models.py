@@ -1,11 +1,21 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 
 from django.db import IntegrityError, transaction
 
-from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectType, SuiteRunTrigger
+from parameterized import parameterized
+
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_quality.backend.facade.enums import (
+    CheckRunStatus,
+    CheckType,
+    SubjectStatus,
+    SubjectType,
+    SuiteRunTrigger,
+)
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestDataQualityModels(BaseTest):
@@ -55,6 +65,35 @@ class TestDataQualityModels(BaseTest):
         self._create_check(saved_query_id=uuid4(), subject_name="shipments", name="orders_customer_id_not_null")
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create_check(saved_query_id=uuid4(), subject_name="returns", name="orders_customer_id_not_null")
+
+    @parameterized.expand(
+        [
+            (SubjectType.VIEW, "saved_query_id"),
+            (SubjectType.TABLE, "table_id"),
+        ]
+    )
+    def test_deleting_the_subject_orphans_the_check(self, subject_type, fk_name) -> None:
+        subject_id = self._create_subject(subject_type)
+        check = self._create_check(**{"subject_type": subject_type, "saved_query_id": None, fk_name: subject_id})
+
+        self._delete_subject(subject_type, subject_id)
+
+        check.refresh_from_db()
+        assert getattr(check, fk_name) is None
+        assert check.subject_status == SubjectStatus.ORPHANED
+
+    def _create_subject(self, subject_type: SubjectType) -> UUID:
+        if subject_type is SubjectType.VIEW:
+            return DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            ).id
+        return DataWarehouseTable.objects.create(
+            team=self.team, name="stripe_charges", format=DataWarehouseTable.TableFormat.Parquet, url_pattern=""
+        ).id
+
+    def _delete_subject(self, subject_type: SubjectType, subject_id: UUID) -> None:
+        model = DataWarehouseSavedQuery if subject_type is SubjectType.VIEW else DataWarehouseTable
+        model.objects.filter(id=subject_id).delete()
 
     def test_run_history_survives_deleting_the_definition(self) -> None:
         check = self._create_check()
