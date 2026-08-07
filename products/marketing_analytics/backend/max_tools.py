@@ -749,6 +749,21 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
         lines.append("## Suggestions: none")
         lines.append("")
 
+    if response.campaign_suggestions:
+        lines.append(f"## Campaign name suggestions ({len(response.campaign_suggestions)})")
+        for c in response.campaign_suggestions:
+            raw_values = ", ".join(f"`{_sanitize_for_prompt(v)}`" for v in c.raw_campaign_values)
+            lines.append(
+                f"- {raw_values} → **{_sanitize_for_prompt(c.suggested_clean_name)}** "
+                f"on {c.integration_display_name} (events_in_window={c.event_count_30d}, "
+                f"confidence={c.confidence:.2f})"
+            )
+            lines.append(f"    {_sanitize_for_prompt(c.reason, max_len=400)}")
+        lines.append("")
+    else:
+        lines.append("## Campaign name suggestions: none")
+        lines.append("")
+
     # Raw catalogue: every unmatched value we saw, with the alias-token hint if any
     if response.raw_unmatched_samples:
         lines.append(
