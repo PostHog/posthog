@@ -114,16 +114,39 @@ def normalize_to_exposure_criteria(
     if isinstance(exposure_criteria, dict):
         # Create a copy to avoid mutating the input
         criteria_copy = exposure_criteria.copy()
-        # Also normalize nested exposure_config if present
-        if criteria_copy.get("exposure_config"):
-            exposure_config = criteria_copy["exposure_config"]
-            if isinstance(exposure_config, dict):
-                if _is_actions_node_dict(exposure_config):
-                    criteria_copy["exposure_config"] = ActionsNode.model_validate(exposure_config)
+        # Also normalize nested configs if present
+        for config_key in ("exposure_config", "activation_config"):
+            config = criteria_copy.get(config_key)
+            if config and isinstance(config, dict):
+                if _is_actions_node_dict(config):
+                    criteria_copy[config_key] = ActionsNode.model_validate(config)
                 else:
-                    criteria_copy["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
+                    criteria_copy[config_key] = ExperimentEventExposureConfig.model_validate(config)
 
         return ExperimentExposureCriteria.model_validate(criteria_copy)
+
+
+def is_default_exposure_config(config: Union[ActionsNode, ExperimentEventExposureConfig, None]) -> bool:
+    """A missing config or one naming a default exposure event is the default exposure, not a
+    custom one (same convention as get_exposure_event_and_property)."""
+    if config is None:
+        return True
+    return isinstance(config, ExperimentEventExposureConfig) and config.event in (
+        DEFAULT_EXPOSURE_EVENT,
+        EXPERIMENT_EXPOSURE_EVENT,
+    )
+
+
+def has_activation_config(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:
+    """Whether the criteria put the experiment in activation mode: an activation event on top of
+    the default exposure. A custom exposure_config disables activation (validation rejects the
+    combination, but stored data predating it must not change semantics)."""
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    return (
+        criteria is not None
+        and criteria.activation_config is not None
+        and is_default_exposure_config(criteria.exposure_config)
+    )
 
 
 def get_multiple_variant_handling_from_experiment(
