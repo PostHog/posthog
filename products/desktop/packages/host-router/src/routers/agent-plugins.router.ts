@@ -5,7 +5,6 @@ import {
   agentPluginIdInput,
   agentPluginInstallation,
   listAgentPluginsOutput,
-  previewAgentPluginInput,
   registerAgentPluginInput,
   selectAgentPluginOutput,
   setAgentPluginEnabledInput,
@@ -16,14 +15,6 @@ export const agentPluginsRouter = router({
     .output(listAgentPluginsOutput)
     .query(({ ctx }) =>
       ctx.container.get<AgentPluginsService>(AGENT_PLUGINS_SERVICE).list(),
-    ),
-  preview: publicProcedure
-    .input(previewAgentPluginInput)
-    .output(selectAgentPluginOutput.unwrap())
-    .query(({ ctx, input }) =>
-      ctx.container
-        .get<AgentPluginsService>(AGENT_PLUGINS_SERVICE)
-        .preview(input.sourcePath),
     ),
   select: publicProcedure
     .output(selectAgentPluginOutput)
@@ -38,7 +29,7 @@ export const agentPluginsRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.container
         .get<AgentPluginsService>(AGENT_PLUGINS_SERVICE)
-        .register(input.sourcePath),
+        .register(input.selectionToken),
     ),
   setEnabled: publicProcedure
     .input(setAgentPluginEnabledInput)

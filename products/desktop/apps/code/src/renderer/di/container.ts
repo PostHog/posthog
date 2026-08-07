@@ -2,6 +2,10 @@ import "reflect-metadata";
 import { useDevFlagsStore } from "@features/dev-toolbar/devFlagsStore";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import type { TrpcRouter } from "@main/trpc/router";
+import {
+  AGENT_PLUGINS_CLIENT,
+  type AgentPluginsClient,
+} from "@posthog/core/agent-plugins/agentPluginsClient";
 import { canvasApplicationModule } from "@posthog/core/canvas/canvas.module";
 import {
   CLOUD_TASK_CLIENT,
@@ -184,6 +188,18 @@ container.bind(HOST_LOGGER).toConstantValue(hostLog);
 container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
+
+container.bind(AGENT_PLUGINS_CLIENT).toConstantValue({
+  list: () => hostTrpcClient.agentPlugins.list.query(),
+  select: () => hostTrpcClient.agentPlugins.select.mutate(),
+  register: (selectionToken: string) =>
+    hostTrpcClient.agentPlugins.register.mutate({ selectionToken }),
+  setEnabled: (id: string, enabled: boolean) =>
+    hostTrpcClient.agentPlugins.setEnabled.mutate({ id, enabled }),
+  unregister: async (id: string) => {
+    await hostTrpcClient.agentPlugins.unregister.mutate({ id });
+  },
+} satisfies AgentPluginsClient);
 
 container.bind(UPDATES_CLIENT).toConstantValue(updatesClient);
 

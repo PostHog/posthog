@@ -1,5 +1,9 @@
 import type { TrpcRouter } from "@main/trpc/router";
 import {
+  AGENT_PLUGINS_CLIENT,
+  type AgentPluginsClient,
+} from "@posthog/core/agent-plugins/agentPluginsClient";
+import {
   ARCHIVE_CLIENT,
   type ArchiveClient,
 } from "@posthog/core/archive/identifiers";
@@ -291,6 +295,7 @@ export interface RendererBindings {
   [HOST_LOGGER]: HostLogger;
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;
   [HOST_TRPC_CLIENT]: HostTrpcClient;
+  [AGENT_PLUGINS_CLIENT]: AgentPluginsClient;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;

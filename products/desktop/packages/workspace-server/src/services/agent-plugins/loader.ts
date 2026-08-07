@@ -224,14 +224,19 @@ async function validateSkillTree(
     });
     for (const entry of entries) {
       const entryPath = path.join(resolvedDirectory, entry.name);
+      const lstat = await fs.promises.lstat(entryPath);
+      if (lstat.isSymbolicLink()) {
+        return "Skill directories cannot contain symbolic links.";
+      }
       const resolvedEntry = await fs.promises.realpath(entryPath);
       if (!isPathContained(pluginRoot, resolvedEntry)) {
         return "Skill files must remain inside the plugin directory.";
       }
-      const stat = await fs.promises.stat(resolvedEntry);
-      if (stat.isDirectory()) {
+      if (lstat.isDirectory()) {
         const error = await walk(resolvedEntry);
         if (error) return error;
+      } else if (!lstat.isFile()) {
+        return "Skill directories can contain only regular files and directories.";
       }
     }
     return null;
@@ -355,7 +360,18 @@ async function loadSkills(
   });
   const skills: AgentPluginSkill[] = [];
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (entry.isSymbolicLink()) {
+      diagnostics.push(
+        diagnostic(
+          "error",
+          "invalid_skill",
+          `Skipped ${entry.name}: skill directories cannot be symbolic links.`,
+          `skills/${entry.name}`,
+        ),
+      );
+      continue;
+    }
+    if (!entry.isDirectory()) continue;
     const skillDirectory = path.join(resolvedSkillsPath, entry.name);
     const skillMdPath = path.join(skillDirectory, "SKILL.md");
 
@@ -391,8 +407,23 @@ async function loadSkills(
         );
         continue;
       }
-      const skillMdStat = await fs.promises.stat(resolvedSkillMd);
-      if (!skillMdStat.isFile()) continue;
+      const skillDirectoryStat = await fs.promises.lstat(skillDirectory);
+      const skillMdStat = await fs.promises.lstat(skillMdPath);
+      if (
+        skillDirectoryStat.isSymbolicLink() ||
+        skillMdStat.isSymbolicLink() ||
+        !skillMdStat.isFile()
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "error",
+            "invalid_skill",
+            `Skipped ${entry.name}: SKILL.md must be a regular file.`,
+            `skills/${entry.name}/SKILL.md`,
+          ),
+        );
+        continue;
+      }
 
       const treeError = await validateSkillTree(
         pluginRoot,

@@ -5,6 +5,10 @@ import {
   getGatewayUsageUrl,
   getLlmGatewayUrl,
 } from "@posthog/agent/posthog-api";
+import {
+  AGENT_PLUGINS_CLIENT,
+  type AgentPluginsClient,
+} from "@posthog/core/agent-plugins/agentPluginsClient";
 import { archiveModule } from "@posthog/core/archive/archive.module";
 import {
   ARCHIVE_CLIENT,
@@ -380,6 +384,7 @@ interface WebBindings {
   [GIT_CACHE_KEY_PROVIDER]: GitCacheKeyProvider;
   [TEAM_SKILLS_SERVICE]: TeamSkillsService;
   [SKILLS_WORKSPACE_CLIENT]: SkillsWorkspaceClient;
+  [AGENT_PLUGINS_CLIENT]: AgentPluginsClient;
   [CLOUD_ARTIFACT_SERVICE]: CloudArtifactService;
   [CLOUD_ARTIFACT_READ_FILE_AS_BASE64]: ReadFileAsBase64;
   [CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL]: BundleLocalSkill;
@@ -703,6 +708,19 @@ container.bind(GIT_CACHE_KEY_PROVIDER).toConstantValue(webGitCacheKeyProvider);
 // local skill / materialize a team skill to disk) — neither exists on web, so
 // those two methods reject.
 container.load(skillsCoreModule);
+container.bind(AGENT_PLUGINS_CLIENT).toConstantValue({
+  list: async () => [],
+  select: async () => null,
+  register: async () => {
+    throw new Error("Agent Plugins are not available on the web");
+  },
+  setEnabled: async () => {
+    throw new Error("Agent Plugins are not available on the web");
+  },
+  unregister: async () => {
+    throw new Error("Agent Plugins are not available on the web");
+  },
+} satisfies AgentPluginsClient);
 container.bind(SKILLS_WORKSPACE_CLIENT).toConstantValue({
   exportSkill: () =>
     Promise.reject(

@@ -1,45 +1,82 @@
-import { useHostTRPC } from "@posthog/host-router/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import {
+  AGENT_PLUGINS_CLIENT,
+  type AgentPluginInstallation,
+  type AgentPluginPreview,
+  type AgentPluginsClient,
+} from "@posthog/core/agent-plugins/agentPluginsClient";
+import { useService } from "@posthog/di/react";
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
-export function useAgentPlugins() {
-  const trpc = useHostTRPC();
-  return useQuery(trpc.agentPlugins.list.queryOptions());
+const agentPluginsQueryKey = ["agent-plugins"] as const;
+
+export function useAgentPlugins(): UseQueryResult<
+  AgentPluginInstallation[],
+  Error
+> {
+  const client = useService<AgentPluginsClient>(AGENT_PLUGINS_CLIENT);
+  return useQuery({
+    queryKey: agentPluginsQueryKey,
+    queryFn: () => client.list(),
+  });
 }
 
 function useInvalidateAgentPlugins(): () => void {
-  const trpc = useHostTRPC();
   const queryClient = useQueryClient();
-  return useCallback(() => {
-    void queryClient.invalidateQueries(trpc.agentPlugins.pathFilter());
-  }, [queryClient, trpc]);
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: agentPluginsQueryKey });
+  };
 }
 
-export function useSelectAgentPlugin() {
-  const trpc = useHostTRPC();
-  return useMutation(trpc.agentPlugins.select.mutationOptions());
+export function useSelectAgentPlugin(): UseMutationResult<
+  AgentPluginPreview | null,
+  Error,
+  void
+> {
+  const client = useService<AgentPluginsClient>(AGENT_PLUGINS_CLIENT);
+  return useMutation({ mutationFn: () => client.select() });
 }
 
-export function useRegisterAgentPlugin() {
-  const trpc = useHostTRPC();
+export function useRegisterAgentPlugin(): UseMutationResult<
+  AgentPluginInstallation,
+  Error,
+  { selectionToken: string }
+> {
+  const client = useService<AgentPluginsClient>(AGENT_PLUGINS_CLIENT);
   const invalidate = useInvalidateAgentPlugins();
-  return useMutation(
-    trpc.agentPlugins.register.mutationOptions({ onSuccess: invalidate }),
-  );
+  return useMutation({
+    mutationFn: ({ selectionToken }) => client.register(selectionToken),
+    onSuccess: invalidate,
+  });
 }
 
-export function useSetAgentPluginEnabled() {
-  const trpc = useHostTRPC();
+export function useSetAgentPluginEnabled(): UseMutationResult<
+  AgentPluginInstallation,
+  Error,
+  { id: string; enabled: boolean }
+> {
+  const client = useService<AgentPluginsClient>(AGENT_PLUGINS_CLIENT);
   const invalidate = useInvalidateAgentPlugins();
-  return useMutation(
-    trpc.agentPlugins.setEnabled.mutationOptions({ onSuccess: invalidate }),
-  );
+  return useMutation({
+    mutationFn: ({ id, enabled }) => client.setEnabled(id, enabled),
+    onSuccess: invalidate,
+  });
 }
 
-export function useUnregisterAgentPlugin() {
-  const trpc = useHostTRPC();
+export function useUnregisterAgentPlugin(): UseMutationResult<
+  void,
+  Error,
+  { id: string }
+> {
+  const client = useService<AgentPluginsClient>(AGENT_PLUGINS_CLIENT);
   const invalidate = useInvalidateAgentPlugins();
-  return useMutation(
-    trpc.agentPlugins.unregister.mutationOptions({ onSuccess: invalidate }),
-  );
+  return useMutation({
+    mutationFn: ({ id }) => client.unregister(id),
+    onSuccess: invalidate,
+  });
 }

@@ -10,7 +10,7 @@ PostHog Desktop supports skills from local [Agent Plugins 1.0.0](https://agent-p
 4. Choose the directory that contains `plugin.json`.
 5. Review the plugin metadata, valid skills, and diagnostics, then select **Add plugin**.
 
-PostHog Desktop keeps a reference to the selected directory. It does not copy the plugin into the app. Changes on disk are validated again when an agent session starts.
+PostHog Desktop keeps a reference to the selected directory. When an agent session starts, it validates the plugin again and copies valid skill files into temporary app storage for that session. The temporary copy is removed when the session ends.
 
 You can disable a plugin without removing it. Removing a plugin only removes its registration from PostHog Desktop and does not delete the source directory.
 
@@ -35,7 +35,7 @@ The manifest must include the canonical schema and a valid plugin name:
 }
 ```
 
-Each skill must follow the [Agent Skills specification](https://agentskills.io/specification). Invalid skills are skipped without disabling valid skills from the same plugin.
+Each skill must follow the [Agent Skills specification](https://agentskills.io/specification). Invalid skills are skipped without disabling valid skills from the same plugin. Skill directories must contain only regular files and directories. Symbolic links are not loaded.
 
 ## Current limitations
 

@@ -40,6 +40,7 @@ export const agentPluginPreview = z.object({
   manifest: agentPluginManifest.nullable(),
   skills: z.array(agentPluginSkill),
   diagnostics: z.array(agentPluginDiagnostic),
+  selectionToken: z.string().uuid().optional(),
 });
 
 export const agentPluginInstallation = z.object({
@@ -52,9 +53,10 @@ export const agentPluginInstallation = z.object({
 });
 
 export const listAgentPluginsOutput = z.array(agentPluginInstallation);
-export const previewAgentPluginInput = z.object({ sourcePath: z.string() });
 export const selectAgentPluginOutput = agentPluginPreview.nullable();
-export const registerAgentPluginInput = z.object({ sourcePath: z.string() });
+export const registerAgentPluginInput = z.object({
+  selectionToken: z.string().uuid(),
+});
 export const agentPluginIdInput = z.object({ id: z.string() });
 export const setAgentPluginEnabledInput = z.object({
   id: z.string(),
@@ -65,7 +67,7 @@ export const agentPluginState = z.object({
   version: z.literal(1),
   installations: z.array(
     z.object({
-      id: z.string(),
+      id: z.string().regex(/^[a-f0-9]{16}$/),
       sourcePath: z.string(),
       enabled: z.boolean(),
       manifest: agentPluginManifest,

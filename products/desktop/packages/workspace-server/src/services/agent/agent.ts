@@ -103,6 +103,7 @@ import type {
   AgentScopedLogger,
   AgentSleepCoordinator,
 } from "./ports";
+import { getReservedSkillSourcePaths } from "./reserved-skills";
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
@@ -871,11 +872,13 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         });
       }
 
-      const reservedSkillNames = new Set(await findSkillDirs(bundledSkillsDir));
-      for (const plugin of externalPlugins) {
-        for (const skillName of await findSkillDirs(
-          join(plugin.path, "skills"),
-        )) {
+      const reservedSkillNames = new Set<string>();
+      for (const skillsPath of getReservedSkillSourcePaths({
+        adapter: adapter ?? "claude",
+        bundledSkillsDir,
+        externalPluginPaths: externalPlugins.map((plugin) => plugin.path),
+      })) {
+        for (const skillName of await findSkillDirs(skillsPath)) {
           reservedSkillNames.add(skillName);
         }
       }
@@ -888,6 +891,12 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           await this.agentPluginsService.prepareRuntimePlugins(
             taskRunId,
             reservedSkillNames,
+            (pluginName, skillName) =>
+              this.log.warn("Skipped Agent Plugin skill name collision", {
+                pluginName,
+                skillName,
+                adapter,
+              }),
           );
       } catch (err) {
         this.log.warn("Failed to prepare Agent Plugins", {
