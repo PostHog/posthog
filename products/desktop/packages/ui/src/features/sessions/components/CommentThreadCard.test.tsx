@@ -1,10 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 import {
   githubCommentComponents,
   isGitHubHostedImage,
-} from "./CommentThreadCard";
+} from "../../editor/components/githubCommentImages";
+import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 
 describe("GitHub comment images", () => {
   it.each([

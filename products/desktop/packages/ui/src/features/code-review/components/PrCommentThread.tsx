@@ -27,6 +27,7 @@ import {
   useState,
 } from "react";
 import { isSendMessageSubmitKey } from "../../../utils/sendMessageKey";
+import { githubCommentComponents } from "../../editor/components/githubCommentImages";
 import { githubRehypePlugins } from "../../editor/components/githubMarkdownPlugins";
 import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 import { sendPromptToAgent } from "../../sessions/sendPromptToAgent";
@@ -255,6 +256,7 @@ function CommentBody({
           <MarkdownRenderer
             content={comment.body}
             rehypePlugins={githubRehypePlugins}
+            componentsOverride={githubCommentComponents}
           />
           {!isExpanded && isOverflowing && (
             <Box
