@@ -21,7 +21,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, ready_to_merge_expr
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
 
 _LIMIT = 1000
@@ -57,23 +57,6 @@ _SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-# Per merged PR: last transition is a ready -> merged_at minus it; no transition rows and the
-# PR's whole open-to-merge life inside the observed window -> never left ready, so open-to-merge
-# IS ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
-# bearing: created_at before the window means pre-window flips are possible, and merged_at past
-# the window means the transitions may simply not have synced yet (every merge lands a `merged`
-# issue event, so an in-range merge with no transition rows is proof of never drafting). The
-# coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
-_READY_TO_MERGE = """
-        multiIf(
-            pr.merged_at IS NULL, NULL,
-            coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
-            coalesce(re.pr_number, 0) = 0
-                AND pr.created_at >= __READY_WINDOW_START__
-                AND pr.merged_at <= __READY_WINDOW_END__, pr.open_to_merge_seconds,
-            NULL
-        ) AS ready_to_merge_seconds
-"""
 _READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 
 
@@ -160,9 +143,7 @@ def query_pull_request_list(
     # referencing the absent ready_by_pr CTE.
     window = curated.issue_events_window()
     if window is not None:
-        ready_column = _READY_TO_MERGE.replace("__READY_WINDOW_START__", window.start).replace(
-            "__READY_WINDOW_END__", window.end
-        )
+        ready_column = f"{ready_to_merge_expr(window)} AS ready_to_merge_seconds"
         ready_join = _READY_JOIN
     else:
         ready_column = "NULL AS ready_to_merge_seconds"

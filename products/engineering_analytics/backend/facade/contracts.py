@@ -1039,6 +1039,21 @@ class OpenToMergeBucket:
 
 
 @dataclass(frozen=True)
+class ReadyToMergeBucket:
+    """One time bucket of the repo's median cycle time: the p50 of per-PR ``ready_to_merge_seconds``
+    (SPEC §6: merged_at minus the last observed ready-for-review transition, with the never-drafted
+    fallback) over PRs merged in this bucket, bots and drafts excluded. ``p50_seconds`` is None for a
+    bucket where nothing merged with an observed value (a gap, not instant merges); the UI carries the
+    last known value forward rather than dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    # Median per-PR ready_to_merge_seconds over PRs merged in this bucket. None when no observed value.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -1061,6 +1076,11 @@ class RepoOverview:
     # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
+    # The precise companion (SPEC §6): median per-PR ready_to_merge_seconds over PRs merged in the
+    # window with an observed value. None when the issue-events table isn't synced or no merged PR
+    # in the window has an observed value ("not observed", never zero).
+    median_ready_to_merge_seconds: float | None
+    median_ready_to_merge_seconds_prev: float | None
     billable_minutes: float | None
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
@@ -1092,6 +1112,13 @@ class RepoOverview:
     open_to_merge_series: list[OpenToMergeBucket]
     # Bucket width of `open_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     open_to_merge_series_granularity: str
+    # Cycle-time trend: median per-PR ready_to_merge_seconds over PRs merged per bucket (bots/drafts
+    # excluded), oldest first, bucketed by `ready_to_merge_series_granularity`. Empty buckets carry
+    # None (nothing merged with an observed value); the whole list is empty when the issue-events
+    # table isn't synced, so consumers can fall back to `open_to_merge_series`.
+    ready_to_merge_series: list[ReadyToMergeBucket]
+    # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    ready_to_merge_series_granularity: str
 
 
 @dataclass(frozen=True)

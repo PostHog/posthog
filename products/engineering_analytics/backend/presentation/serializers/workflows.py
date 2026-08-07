@@ -8,6 +8,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     MasterFailureGroup,
     OpenToMergeBucket,
     PassRateBucket,
+    ReadyToMergeBucket,
     RepoOverview,
     RunFailureLogs,
     TimeToGreenBucket,
@@ -305,6 +306,22 @@ class OpenToMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class ReadyToMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ReadyToMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median per-PR ready_to_merge_seconds (merged_at minus the last observed "
+                "ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. "
+                "Null when nothing merged with an observed value (a gap, never zero).",
+                "allow_null": True,
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
@@ -328,6 +345,13 @@ class RepoOverviewSerializer(DataclassSerializer):
         help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
         "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
         "the whole series is empty when include_series=false.",
+    )
+    ready_to_merge_series = ReadyToMergeBucketSerializer(
+        many=True,
+        help_text="Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket "
+        "across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry "
+        "null; the whole series is empty when the issue-events table isn't synced or include_series=false, "
+        "so fall back to open_to_merge_series.",
     )
 
     class Meta:
@@ -359,6 +383,17 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "median_open_to_merge_seconds_prev": {
                 "help_text": "The same median over the previous window. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "median_ready_to_merge_seconds": {
+                "help_text": "Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the "
+                "last observed ready-for-review transition) over PRs merged in the window, bots and drafts "
+                "excluded. Null when the issue-events table isn't synced or no merged PR has an observed "
+                "value; fall back to median_open_to_merge_seconds and label it open-to-merge.",
+                "allow_null": True,
+            },
+            "median_ready_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when not observed.",
                 "allow_null": True,
             },
             "billable_minutes": {
@@ -402,6 +437,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "open_to_merge_series_granularity": {
                 "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+            "ready_to_merge_series_granularity": {
+                "help_text": "Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'."
             },
         }
 

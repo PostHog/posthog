@@ -49,6 +49,28 @@ class IssueEventsWindow:
     end: str
 
 
+def ready_to_merge_expr(window: IssueEventsWindow) -> str:
+    """Bare per-PR ready-to-merge seconds (SPEC §6), for a query that joins the PR source as ``pr``
+    to the ``ready_by_pr`` CTE as ``re``.
+
+    Last transition is a ready -> merged_at minus it; no transition rows and the PR's whole
+    open-to-merge life inside the observed window -> never left ready, so open-to-merge IS
+    ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
+    bearing: created_at before the window means pre-window flips are possible, and merged_at past
+    the window means the transitions may simply not have synced yet (every merge lands a `merged`
+    issue event, so an in-range merge with no transition rows is proof of never drafting). The
+    coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
+    """
+    return f"""multiIf(
+            pr.merged_at IS NULL, NULL,
+            coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
+            coalesce(re.pr_number, 0) = 0
+                AND pr.created_at >= {window.start}
+                AND pr.merged_at <= {window.end}, pr.open_to_merge_seconds,
+            NULL
+        )"""
+
+
 class CuratedGitHubSource:
     """A team's curated GitHub read layer, bound to its resolved warehouse tables.
 

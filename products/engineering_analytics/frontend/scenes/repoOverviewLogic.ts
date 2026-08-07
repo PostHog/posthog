@@ -17,6 +17,28 @@ const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 const TOP_COST_WORKFLOWS = 5
 
+// Carry-forward + trim shared by the p50-seconds trends: a gap means "nothing merged", not instant
+// merges, so zero-filling would draw a false dip; the line starts at the first bucket with data.
+const p50Trend = (
+    series: { bucket_start: string; p50_seconds?: number | null }[],
+    granularity: string | undefined
+): { values: number[]; labels: string[] } | null => {
+    const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
+    if (firstData === -1) {
+        return null
+    }
+    const fmt = granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+    const trimmed = series.slice(firstData)
+    let last = 0
+    const values = trimmed.map((bucket) => {
+        if (bucket.p50_seconds != null) {
+            last = bucket.p50_seconds
+        }
+        return last
+    })
+    return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+}
+
 export interface CostShareRow {
     workflowName: string | null
     costUsd: number
@@ -59,6 +81,10 @@ export interface repoOverviewLogicValues {
         values: number[]
     } | null
     prPreviewCount: number
+    readyToMergeSeries: {
+        labels: string[]
+        values: number[]
+    } | null
     repoActivity: WorkflowRunActivityApi
     repoActivityFailed: boolean
     repoActivityLoading: boolean
@@ -134,6 +160,10 @@ export interface repoOverviewLogicMeta {
             values: number[]
         } | null
         openToMergeSeries: (overview: RepoOverviewApi | null) => {
+            labels: string[]
+            values: number[]
+        } | null
+        readyToMergeSeries: (overview: RepoOverviewApi | null) => {
             labels: string[]
             values: number[]
         } | null
@@ -381,28 +411,18 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
             },
         ],
-        // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded). Same carry-forward +
-        // trim as time-to-green: a gap means "nothing merged", not instant merges, so zero-filling would
-        // draw a false dip. Null when no bucket had a qualifying merge.
+        // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded).
         openToMergeSeries: [
             (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
-                const series = overview?.open_to_merge_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const fmt = overview?.open_to_merge_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                const trimmed = series.slice(firstData)
-                let last = 0
-                const values = trimmed.map((bucket) => {
-                    if (bucket.p50_seconds != null) {
-                        last = bucket.p50_seconds
-                    }
-                    return last
-                })
-                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-            },
+            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null =>
+                p50Trend(overview?.open_to_merge_series ?? [], overview?.open_to_merge_series_granularity),
+        ],
+        // Cycle-time trend in seconds (median ready→merge). Empty when the issue-events table isn't
+        // synced; the scene then falls back to openToMergeSeries.
+        readyToMergeSeries: [
+            (s) => [s.overview],
+            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null =>
+                p50Trend(overview?.ready_to_merge_series ?? [], overview?.ready_to_merge_series_granularity),
         ],
     }),
 

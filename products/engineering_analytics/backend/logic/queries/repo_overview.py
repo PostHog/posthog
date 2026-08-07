@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
     OpenToMergeBucket,
     PassRateBucket,
+    ReadyToMergeBucket,
     RepoOverview,
     TimeToGreenBucket,
 )
@@ -31,7 +32,11 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     pick_granularity,
     window_buckets,
 )
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
+from products.engineering_analytics.backend.logic.queries._curated import (
+    CuratedGitHubSource,
+    opt_float,
+    ready_to_merge_expr,
+)
 from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
@@ -62,11 +67,15 @@ _PR_SELECT = """
     SELECT
         quantileIf(0.5)(open_to_merge_seconds, __CUR_MERGED__ AND NOT is_bot AND NOT is_draft) AS median_cur,
         quantileIf(0.5)(open_to_merge_seconds, __PREV_MERGED__ AND NOT is_bot AND NOT is_draft) AS median_prev,
+        __READY_MEDIANS__,
         countIf(__CUR_MERGED__) AS merged_cur,
         countIf(__PREV_MERGED__) AS merged_prev
     FROM __PR_SOURCE__ AS pr
+    __READY_JOIN__
     WHERE merged_at IS NOT NULL AND merged_at >= {prev_from}
 """
+
+_READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 
 _DEFAULT_BRANCH_SELECT = """
     SELECT countIf(head_branch = 'master') AS master_runs, countIf(head_branch = 'main') AS main_runs
@@ -160,6 +169,61 @@ def query_success_rate_series(
     ]
 
 
+# Same shape as _OPEN_TO_MERGE_SERIES_SELECT, but the value is the per-PR ready_to_merge expression;
+# ``n`` counts observed values because a bucket can have merges with none (all NULL -> false zero).
+_READY_TO_MERGE_SERIES_SELECT = """
+    SELECT
+        __BUCKET_FN__ AS bucket_start,
+        quantileIf(0.5)(__RTM__, NOT is_bot AND NOT is_draft) AS p50,
+        countIf(NOT is_bot AND NOT is_draft AND __RTM__ IS NOT NULL) AS n
+    FROM __PR_SOURCE__ AS pr
+    __READY_JOIN__
+    WHERE merged_at IS NOT NULL AND merged_at >= {date_from} __DATE_TO_MERGED__
+    GROUP BY bucket_start
+    LIMIT 40000
+"""
+
+
+def query_ready_to_merge_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    granularity: Granularity,
+) -> list[ReadyToMergeBucket]:
+    """Median cycle time (per-PR ready_to_merge_seconds, SPEC §6) per bucket across the window,
+    oldest first, bots and drafts excluded. Empty when the issue-events table isn't synced, so
+    consumers can fall back to the open-to-merge series."""
+    window = curated.issue_events_window()
+    ready_cte = curated.ready_by_pr_cte()
+    if window is None or ready_cte is None:
+        return []
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    select = (
+        _READY_TO_MERGE_SERIES_SELECT.replace("__RTM__", ready_to_merge_expr(window))
+        .replace("__READY_JOIN__", _READY_JOIN)
+        .replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__DATE_TO_MERGED__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
+    )
+    response = curated.run(
+        f"WITH {ready_cte} {select}",
+        query_type="engineering_analytics.ready_to_merge_series",
+        placeholders=placeholders,
+    )
+    p50_by_bucket = {
+        normalize_bucket(bucket_start, granularity): (opt_float(p50) if (n or 0) > 0 else None)
+        for bucket_start, p50, n in response.results or []
+    }
+    return [
+        ReadyToMergeBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
+        for bucket in window_buckets(date_from, date_to, granularity)
+    ]
+
+
 def query_open_to_merge_series(
     *,
     curated: CuratedGitHubSource,
@@ -204,6 +268,7 @@ class RepoSeries:
     time_to_green: list[TimeToGreenBucket]
     success_rate: list[PassRateBucket]
     open_to_merge: list[OpenToMergeBucket]
+    ready_to_merge: list[ReadyToMergeBucket]
 
 
 def query_repo_series(
@@ -228,6 +293,9 @@ def query_repo_series(
         open_to_merge=query_open_to_merge_series(
             curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
         ),
+        ready_to_merge=query_ready_to_merge_series(
+            curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
+        ),
     )
 
 
@@ -240,6 +308,7 @@ def empty_repo_series(*, date_from: datetime, date_to: datetime | None) -> RepoS
         time_to_green=[],
         success_rate=[],
         open_to_merge=[],
+        ready_to_merge=[],
     )
 
 
@@ -281,14 +350,30 @@ def query_repo_overview(
 
     pr_cur = "(merged_at >= {date_from}" + (" AND merged_at <= {date_to})" if date_to is not None else ")")
     pr_prev = "(merged_at >= {prev_from} AND merged_at < {date_from})"
-    pr_sql = (
-        _PR_SELECT.replace("__CUR_MERGED__", pr_cur)
+    window = curated.issue_events_window()
+    ready_cte = curated.ready_by_pr_cte()
+    if window is not None and ready_cte is not None:
+        rtm = ready_to_merge_expr(window)
+        ready_medians = (
+            f"quantileIf(0.5)({rtm}, __CUR_MERGED__ AND NOT is_bot AND NOT is_draft) AS ready_median_cur,\n"
+            f"quantileIf(0.5)({rtm}, __PREV_MERGED__ AND NOT is_bot AND NOT is_draft) AS ready_median_prev"
+        )
+        ready_join = _READY_JOIN
+        cte_prefix = f"WITH {ready_cte} "
+    else:
+        ready_medians = "NULL AS ready_median_cur,\nNULL AS ready_median_prev"
+        ready_join = ""
+        cte_prefix = ""
+    pr_sql = cte_prefix + (
+        _PR_SELECT.replace("__READY_MEDIANS__", ready_medians)
+        .replace("__READY_JOIN__", ready_join)
+        .replace("__CUR_MERGED__", pr_cur)
         .replace("__PREV_MERGED__", pr_prev)
         .replace("__PR_SOURCE__", curated.pr_source())
     )
     pr_response = curated.run(pr_sql, query_type="engineering_analytics.repo_overview_prs", placeholders=placeholders)
-    median_cur, median_prev, merged_cur, merged_prev = (
-        pr_response.results[0] if pr_response.results else (None, None, 0, 0)
+    median_cur, median_prev, ready_median_cur, ready_median_prev, merged_cur, merged_prev = (
+        pr_response.results[0] if pr_response.results else (None, None, None, None, 0, 0)
     )
 
     jobs_available = curated.jobs_source() is not None
@@ -316,6 +401,8 @@ def query_repo_overview(
         merged_pr_count_prev=int(merged_prev or 0),
         median_open_to_merge_seconds=opt_float(median_cur),
         median_open_to_merge_seconds_prev=opt_float(median_prev),
+        median_ready_to_merge_seconds=opt_float(ready_median_cur),
+        median_ready_to_merge_seconds_prev=opt_float(ready_median_prev),
         billable_minutes=billable_seconds / 60 if billable_seconds is not None else None,
         billable_minutes_prev=billable_seconds_prev / 60 if billable_seconds_prev is not None else None,
         estimated_cost_usd=opt_float(cost_usd),
@@ -332,4 +419,6 @@ def query_repo_overview(
         success_rate_series_granularity=series.granularity,
         open_to_merge_series=series.open_to_merge,
         open_to_merge_series_granularity=series.granularity,
+        ready_to_merge_series=series.ready_to_merge,
+        ready_to_merge_series_granularity=series.granularity,
     )

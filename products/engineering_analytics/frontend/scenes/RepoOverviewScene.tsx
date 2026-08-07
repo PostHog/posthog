@@ -40,6 +40,7 @@ export function RepoOverviewScene(): JSX.Element {
         timeToGreenSeries,
         passRateSeries,
         openToMergeSeries,
+        readyToMergeSeries,
         jobsAvailable,
         overviewDefaultBranch,
         notConnected,
@@ -159,16 +160,20 @@ export function RepoOverviewScene(): JSX.Element {
                         caption="Median time-to-green on pull requests: successful runs only, default branch excluded."
                     />
 
-                    {/* PR throughput: coarse created→merged time, bots and drafts excluded. */}
+                    {/* Cycle time: ready→merge when transition data exists, else the coarse open→merge. */}
                     <TrendCard
-                        title="Median PR open→merge"
-                        series={openToMergeSeries}
+                        title={readyToMergeSeries ? 'Median PR ready→merge' : 'Median PR open→merge'}
+                        series={readyToMergeSeries ?? openToMergeSeries}
                         formatValue={compactHoursLabel}
                         renderTooltipValue={compactHoursLabel}
                         goodWhenDown
                         loading={overviewPending}
                         emptyText="No PRs merged in the window yet."
-                        caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused."
+                        caption={
+                            readyToMergeSeries
+                                ? 'Median ready-for-review to merged time, bots and drafts excluded. Time as a draft is not counted.'
+                                : 'Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused.'
+                        }
                     />
 
                     {/* CI cost per merged PR — the headline economic trend, so it earns a full quill line

@@ -864,6 +864,16 @@ export interface OpenToMergeBucketApi {
     p50_seconds: number | null
 }
 
+export interface ReadyToMergeBucketApi {
+    /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Median per-PR ready_to_merge_seconds (merged_at minus the last observed ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged with an observed value (a gap, never zero).
+     * @nullable
+     */
+    p50_seconds: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
@@ -873,6 +883,8 @@ export interface RepoOverviewApi {
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
+    ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -905,6 +917,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     median_open_to_merge_seconds_prev: number | null
+    /**
+     * Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the last observed ready-for-review transition) over PRs merged in the window, bots and drafts excluded. Null when the issue-events table isn't synced or no merged PR has an observed value; fall back to median_open_to_merge_seconds and label it open-to-merge.
+     * @nullable
+     */
+    median_ready_to_merge_seconds: number | null
+    /**
+     * The same median over the previous window. Null when not observed.
+     * @nullable
+     */
+    median_ready_to_merge_seconds_prev: number | null
     /**
      * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
      * @nullable
@@ -947,6 +969,8 @@ export interface RepoOverviewApi {
     success_rate_series_granularity: string
     /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
     open_to_merge_series_granularity: string
+    /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
+    ready_to_merge_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {

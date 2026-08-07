@@ -13,11 +13,13 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _issue_event_row,
     _pr_row,
     _run_row,
     connect_github_source_without_data,
@@ -261,15 +263,52 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.estimated_cost_usd == pytest.approx(0.032)  # 4 min x $0.004 x 2 (4-core)
         assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
         assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
+        assert overview.median_ready_to_merge_seconds is None  # issue events unsynced: not observed, never zero
         assert overview.cost_series == []
         assert overview.time_to_green_series == []
         assert overview.success_rate_series == []
         assert overview.open_to_merge_series == []
+        assert overview.ready_to_merge_series == []
         assert overview.cost_series_granularity == "day"  # the grain the series would have used
 
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
         assert len(with_series.success_rate_series) > 0
+
+    def test_repo_overview_ready_to_merge_median_and_series(self) -> None:
+        # Guards the overview's ready_by_pr join: the headline must anchor on the last ready
+        # transition (3 days), not open->merge (9 days), and keep the bot exclusion. The bot's
+        # merge bucket has no observed human value, so its series bucket must be None, not 0.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(90, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha90"),
+                _pr_row(91, "dependabot[bot]", "closed", 0, _ago(6), merged_at=_ago(2), head_sha="sha91"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9600, "CI", "sha90", "completed", "success", _ago(1), _ago(1), pr_number=90)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [
+                _issue_event_row(6000, "ready_for_review", 90, _ago(4)),
+                _issue_event_row(6001, "ready_for_review", 91, _ago(3)),
+            ],
+        )
+
+        overview = api.get_repo_overview(team=self.team)
+        day = 86400
+        assert overview.median_open_to_merge_seconds == pytest.approx(9 * day)
+        assert overview.median_ready_to_merge_seconds == pytest.approx(3 * day)
+        assert overview.median_ready_to_merge_seconds_prev is None  # nothing merged in the prev window
+        observed = [b.p50_seconds for b in overview.ready_to_merge_series if b.p50_seconds is not None]
+        assert observed == [pytest.approx(3 * day)]
+        assert overview.ready_to_merge_series_granularity == "day"
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
