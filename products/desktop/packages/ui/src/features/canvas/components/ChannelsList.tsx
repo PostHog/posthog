@@ -168,7 +168,7 @@ function SpaceRowSurface({
     <AutocompleteItem
       value={optionValue}
       className={cn(
-        "w-full min-w-0 pr-1 data-selected:text-foreground",
+        "w-full min-w-0 pr-1 data-selected:bg-fill-selected data-selected:text-foreground",
         // quill wraps an option's children in its own flex row; widening it is
         // what keeps the shortcut hint at the row's right edge and lets the
         // name truncate, exactly as they do in the button above. Its `truncate`
