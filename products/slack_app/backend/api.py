@@ -1801,6 +1801,54 @@ def _route_assistant_event(
     )
 
 
+def _route_app_home_opened(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+    other_domain: str,
+    can_defer: bool,
+) -> str:
+    """Publish the Home tab from the region that owns the workspace's integration.
+
+    Slack delivers every event to a single Request URL, so the receiving region is
+    not necessarily the one holding the row the view renders against. Without this
+    gate the publish is silently skipped for every workspace owned by the other
+    region.
+    """
+    slack_user_id = str(event.get("user") or "")
+    if not slack_user_id:
+        return ROUTE_HANDLED_LOCALLY
+
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=slack_user_id,
+    )
+    region_route = resolve_region_or_terminal_route(
+        request,
+        slack_team_id,
+        candidates_present=bool(result.candidates),
+        kinds=[SLACK_INTEGRATION_KIND],
+        proxied=proxied,
+        other_domain=other_domain,
+        incoming_host=incoming_host,
+        can_defer=can_defer,
+    )
+    if region_route is not None:
+        return region_route
+
+    integration = result.integration if result.integration in result.candidates else result.candidates[0]
+    try:
+        _handle_app_home_opened(event, slack_team_id, integration=integration)
+    except Exception:
+        logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
+    return ROUTE_HANDLED_LOCALLY
+
+
 def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """Drop the workspace's cached Slack profiles so a reinstall resolves users from
     fresh ``users.info`` data instead of emails cached under the previous install.
@@ -1850,15 +1898,20 @@ def route_posthog_code_event_to_relevant_region(
     if event_type == "app_uninstalled":
         return _handle_app_uninstalled(request, slack_team_id)
 
-    # App Home tab: published per-user when they open the Home tab. Always
-    # handled locally — `views.publish` just renders a snapshot of the user's
-    # AI preferences against the integration row, no cross-region state.
+    # App Home tab: published per-user when they open the Home tab. The view is
+    # rendered against the workspace's integration row, which only the owning
+    # region holds, so this takes the same region gate as every other surface.
     if event_type == "app_home_opened":
-        try:
-            _handle_app_home_opened(event, slack_team_id)
-        except Exception:
-            logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
-        return ROUTE_HANDLED_LOCALLY
+        return _route_app_home_opened(
+            request,
+            event,
+            slack_team_id,
+            event_id,
+            proxied=proxied,
+            incoming_host=incoming_host,
+            other_domain=other_domain,
+            can_defer=can_defer_to_other_region,
+        )
 
     # Assistant surface: DMs to the app and agent-container events resolve the DMing user and run
     # against their project. A ``message`` is a DM iff ``channel_type == "im"`` — channel ``message``

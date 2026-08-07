@@ -1288,8 +1288,11 @@ def _selected_value(state: dict, block_id: str, action_id: str) -> str | None:
 # here.
 
 
-def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
+def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Integration) -> None:
     """Publish the Home tab for the user who just opened it.
+
+    The caller resolves the integration through the shared region gate, so this
+    region owns the workspace by the time we get here.
 
     Gated by the slack-app-home flag — when off, the publish is skipped so
     installs without the manifest changes (and workspaces that haven't opted
@@ -1301,11 +1304,13 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     if not slack_user_id:
         return
 
-    integration = _get_slack_integration(slack_team_id)
-    if integration is None:
-        return
-
     if not is_slack_app_home_enabled(integration):
+        logger.info(
+            "slack_app_home_publish_skipped",
+            reason="flag_off",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+        )
         return
 
     effective = resolve_ai_preferences(integration, slack_user_id)
@@ -1334,6 +1339,12 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     except Exception:
         logger.exception(
             "slack_app_home_publish_failed",
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+        )
+    else:
+        logger.info(
+            "slack_app_home_published",
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
