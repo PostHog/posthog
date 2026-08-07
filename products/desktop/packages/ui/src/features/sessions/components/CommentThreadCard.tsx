@@ -23,8 +23,39 @@ import { githubRehypePlugins } from "@posthog/ui/features/editor/components/gith
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useState } from "react";
+import type { Components } from "react-markdown";
 import { CommentComposer } from "./CommentComposer";
 import type { HighlightResolution } from "./commentViewTypes";
+
+const GITHUB_IMAGE_HOSTS = new Set([
+  "avatars.githubusercontent.com",
+  "camo.githubusercontent.com",
+  "github.githubassets.com",
+  "private-user-images.githubusercontent.com",
+  "raw.githubusercontent.com",
+  "user-images.githubusercontent.com",
+]);
+
+export function isGitHubHostedImage(source: string | undefined): boolean {
+  if (!source) return false;
+
+  try {
+    const url = new URL(source);
+    return (
+      url.protocol === "https:" &&
+      (GITHUB_IMAGE_HOSTS.has(url.hostname) ||
+        (url.hostname === "github.com" &&
+          url.pathname.startsWith("/user-attachments/assets/")))
+    );
+  } catch {
+    return false;
+  }
+}
+
+export const githubCommentComponents: Partial<Components> = {
+  img: ({ src, alt }) =>
+    isGitHubHostedImage(src) ? <img src={src} alt={alt ?? ""} /> : null,
+};
 
 function CommentBody({ entry }: { entry: CommentEntry }) {
   return (
@@ -53,6 +84,7 @@ function CommentBody({ entry }: { entry: CommentEntry }) {
             <MarkdownRenderer
               content={entry.body}
               rehypePlugins={githubRehypePlugins}
+              componentsOverride={githubCommentComponents}
             />
           </div>
         ) : (
