@@ -41,12 +41,15 @@ def _discussion_card_blocks(*, body_mrkdwn: str, author_name: str, item_url: str
     quoted comment body, an 'Open in PostHog' button, and a reply-to-sync hint. Replies stay plain
     text since they're threaded under it.
     """
+    # mrkdwn's ">" quotes a single line, so a multi-line comment needs the prefix on every line.
+    # Without it only the first line sits inside the quote and the rest reads as the card's own text.
+    quoted_body = "\n".join(f"> {line}" for line in (body_mrkdwn or "_(no text)_").split("\n"))
     return [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"New comment on <{_mrkdwn_safe_url(item_url)}|{escape_slack_mrkdwn(item_label)}> in PostHog:\n\n> {body_mrkdwn or '_(no text)_'}",
+                "text": f"New comment on <{_mrkdwn_safe_url(item_url)}|{escape_slack_mrkdwn(item_label)}> in PostHog:\n\n{quoted_body}",
             },
         },
         {

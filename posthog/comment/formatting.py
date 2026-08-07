@@ -794,6 +794,11 @@ def _slack_file_permalink(url: object) -> str | None:
     # out as text and leaving the link pointing somewhere other than it appears to.
     if ")" in url or any(char.isspace() for char in url):
         return None
+    # urlparse reads a backslash as an ordinary character, while the WHATWG parser browsers use
+    # reads it as a path separator. That splits the host checked below from the host a reader
+    # lands on, so reject the character instead of depending on who normalizes it first.
+    if "\\" in url:
+        return None
     try:
         parsed = urlparse(url)
     except ValueError:
@@ -808,7 +813,10 @@ def _slack_file_permalink(url: object) -> str | None:
 
 def _escape_slack_file_name(name: object) -> str:
     """Escape a Slack-supplied filename for use as markdown link text."""
-    text = name.strip() if isinstance(name, str) else ""
+    # Collapse every run of whitespace, not just the ends. A blank line inside the name would
+    # close the paragraph holding the link, dropping the rest of the name into one of its own
+    # where a bare URL renders as a live autolink.
+    text = " ".join(name.split()) if isinstance(name, str) else ""
     if not text:
         # A truncated file object still deserves a visible marker — "something was attached"
         # is strictly better than the message appearing to be empty.

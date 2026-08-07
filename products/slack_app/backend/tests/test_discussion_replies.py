@@ -215,6 +215,36 @@ class TestIngestDiscussionReply(APIBaseTest):
         assert reply.content == "📎 notes.pdf"
 
     @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_newline_in_filename_cannot_escape_the_link_text(self, _resolve):
+        # A blank line inside the name ends the paragraph holding the link, and the bare URL
+        # left behind renders as its own autolink.
+        event = self._event(
+            text="",
+            blocks=None,
+            files=[{"id": "F1", "name": "x\n\nhttps://attacker.example/phish", "permalink": PERMALINK}],
+        )
+
+        self._ingest(event)
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == f"📎 [x https://attacker.example/phish]({PERMALINK})"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_backslash_permalink_is_not_trusted(self, _resolve):
+        # urlparse reads the host as x.slack.com, but the WHATWG parser browsers use reads the
+        # backslash as a path separator and lands on evil.example.
+        event = self._event(
+            text="",
+            blocks=None,
+            files=[{"id": "F1", "name": "a.png", "permalink": "https://evil.example\\path@x.slack.com/"}],
+        )
+
+        self._ingest(event)
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == "📎 a.png"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
     def test_file_without_name_still_gets_a_marker(self, _resolve):
         self._ingest(self._event(text="", blocks=None, files=[{"id": "F1"}]))
 
