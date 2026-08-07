@@ -28,6 +28,7 @@ import { template as googleSheetsTemplate } from './_destinations/google_sheets/
 import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubspot.template'
 import { template as intercomEventTemplate } from './_destinations/intercom/intercom-event.template'
 import { template as intercomTemplate } from './_destinations/intercom/intercom.template'
+import { template as juneTemplate } from './_destinations/june/june.template'
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
 import { template as knockTemplate } from './_destinations/knock/knock.template'
 import { template as kudosityTemplate } from './_destinations/kudosity/kudosity.template'
@@ -144,6 +145,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     onesignalTemplate,
     knockTemplate,
     kudosityTemplate,
+    juneTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

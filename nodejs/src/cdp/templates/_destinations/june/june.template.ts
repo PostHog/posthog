@@ -1,16 +1,16 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+import { HogFunctionTemplate } from '~/cdp/types'
 
-template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="stable",
-    free=False,
-    type="destination",
-    id="template-june",
-    name="June.so",
-    description="Send events to June.so ",
-    icon_url="/static/services/june.png",
-    category=["Analytics"],
-    code_language="hog",
-    code="""
+export const template: HogFunctionTemplate = {
+    status: 'stable',
+    free: false,
+    type: 'destination',
+    id: 'template-june',
+    name: 'June.so',
+    description: 'Send events to June.so ',
+    icon_url: '/static/services/june.png',
+    category: ['Analytics'],
+    code_language: 'hog',
+    code: `
 let type := 'track'
 
 if (event.event in ('$identify', '$set')) {
@@ -108,41 +108,43 @@ let res := fetch(f'https://api.june.so/sdk/{type}', {
 if (res.status >= 400) {
     throw Error(f'Error from api.june.so (status {res.status}): {res.body}')
 }
-""".strip(),
-    inputs_schema=[
+`.trim(),
+    inputs_schema: [
         {
-            "key": "apiKey",
-            "type": "string",
-            "label": "June.so Write API key",
-            "secret": True,
-            "required": True,
+            key: 'apiKey',
+            type: 'string',
+            label: 'June.so Write API key',
+            secret: true,
+            required: true,
         },
         {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties as attributes",
-            "description": "If set, all event properties will be included as traits. Individual traits can be overridden below. For identify events the Person properties will be used.",
-            "default": False,
-            "secret": False,
-            "required": True,
+            key: 'include_all_properties',
+            type: 'boolean',
+            label: 'Include all properties as attributes',
+            description:
+                'If set, all event properties will be included as traits. Individual traits can be overridden below. For identify events the Person properties will be used.',
+            default: false,
+            secret: false,
+            required: true,
         },
         {
-            "key": "properties",
-            "type": "dictionary",
-            "label": "Trait mapping",
-            "description": "Map of June.so traits and their values. You can use the filters section to filter out unwanted events.",
-            "default": {
-                "email": "{person.properties.email}",
-                "name": "{person.properties.name}",
-                "phone": "{person.properties.phone}",
+            key: 'properties',
+            type: 'dictionary',
+            label: 'Trait mapping',
+            description:
+                'Map of June.so traits and their values. You can use the filters section to filter out unwanted events.',
+            default: {
+                email: '{person.properties.email}',
+                name: '{person.properties.name}',
+                phone: '{person.properties.phone}',
             },
-            "secret": False,
-            "required": False,
+            secret: false,
+            required: false,
         },
     ],
-    filters={
-        "events": [],
-        "actions": [],
-        "filter_test_accounts": False,
+    filters: {
+        events: [],
+        actions: [],
+        filter_test_accounts: false,
     },
-)
+}

@@ -13,7 +13,6 @@ from .hubspot.template_hubspot import (
     template as hubspot,
     template_event as hubspot_event,
 )
-from .june.template_june import template as june
 from .klaviyo.template_klaviyo import (
     template_event as klaviyo_event,
     template_user as klaviyo_user,
@@ -58,7 +57,6 @@ HOG_FUNCTION_TEMPLATES = [
     avo,
     hubspot,
     hubspot_event,
-    june,
     klaviyo_event,
     klaviyo_user,
     loops,
