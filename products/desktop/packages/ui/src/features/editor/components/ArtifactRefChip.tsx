@@ -8,7 +8,7 @@ import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import type { ArtifactLinkTarget } from "@posthog/ui/utils/artifactLinks";
 import { findArtifactForLink } from "@posthog/ui/utils/artifactLinks";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { type ReactNode, useMemo } from "react";
+import type { ReactNode } from "react";
 
 /**
  * An artifact reference inside a message: a chip that opens the file in an
@@ -41,15 +41,15 @@ export function ArtifactRefChip({
 
   // isLoading rather than isPending: a query that is disabled (signed out) is
   // pending forever, and a chip that never resolves is worse than a link.
-  const { data: artifacts, isLoading } = useRunArtifacts(
-    target.taskId,
-    target.runId,
-    { enabled: belongsToSession },
-  );
-  const artifact = useMemo(
-    () => (artifacts ? findArtifactForLink(artifacts, target) : null),
-    [artifacts, target],
-  );
+  const {
+    data: artifacts,
+    isFetching,
+    isLoading,
+  } = useRunArtifacts(target.taskId, target.runId, {
+    enabled: belongsToSession,
+    staleTime: 0,
+  });
+  const artifact = artifacts ? findArtifactForLink(artifacts, target) : null;
 
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const name = artifact?.name ?? target.fileName;
@@ -62,7 +62,7 @@ export function ArtifactRefChip({
   if (!belongsToSession) return <>{fallback}</>;
   // Resolving: hold the chip's shape so the line doesn't reflow once the
   // manifest lands, but keep it inert until there is something to open.
-  if (isLoading) {
+  if (isLoading || (isFetching && !artifact)) {
     return <ArtifactChipShell label={label} name={name} disabled />;
   }
   const artifactId = artifact?.id;

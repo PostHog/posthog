@@ -100,7 +100,7 @@ export function CloudArtifactDownloads({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!canDownload || downloadingId === artifact.id}
+                  disabled={!canDownload || downloadingId !== null}
                   onClick={() => {
                     if (!taskId || !runId || !artifact.id) return;
                     void download({

@@ -130,11 +130,9 @@ export const uploadArtifactTool = defineLocalTool({
       // api-client is regenerated against the updated OpenAPI spec, and older
       // backends simply omit it.
       const downloadUrl = (finalizedEntry as { url?: string }).url;
-      // Ask for a markdown link rather than a bare URL: the desktop app renders
-      // an artifact link as a chip that opens the file in-app, and the link text
-      // becomes its label. A bare URL falls back to showing the whole signed URL.
-      const linkText = downloadUrl
-        ? ` Reference it as a markdown link: [${name}](${downloadUrl})`
+      const referenceUrl = getArtifactReferenceUrl(downloadUrl);
+      const linkText = referenceUrl
+        ? ` Reference it as a markdown link: [${escapeMarkdownLinkLabel(name)}](<${referenceUrl}>)`
         : "";
 
       return {
@@ -152,6 +150,28 @@ export const uploadArtifactTool = defineLocalTool({
     }
   },
 });
+
+function getArtifactReferenceUrl(
+  downloadUrl: string | undefined,
+): string | null {
+  if (!downloadUrl) return null;
+
+  try {
+    const referenceUrl = new URL(downloadUrl);
+    // Query parameters contain the bearer credential and replies persist in conversation history.
+    referenceUrl.search = "";
+    referenceUrl.hash = "";
+    referenceUrl.username = "";
+    referenceUrl.password = "";
+    return referenceUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+  return label.replace(/([\\[\]])/g, "\\$1");
+}
 
 function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };

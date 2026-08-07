@@ -1,13 +1,13 @@
 /**
  * Recognizing task-artifact links inside agent messages.
  *
- * The `upload_artifact` tool hands the agent a presigned object-storage URL and
- * asks it to reference the file in its reply, so artifact references arrive in
- * the transcript as ordinary links. Rendered as-is they leave the app: the
- * markdown renderer marks anything unrecognized `target="_blank"`, Electron
- * hands `_blank` to the OS browser, and object storage answers with an
- * attachment download. The file the user wanted to read never opens in the tab
- * that can display it.
+ * The `upload_artifact` tool hands the agent an unsigned object-storage
+ * reference derived from its upload URL and asks it to use that in its reply,
+ * so artifact references arrive in the transcript as ordinary links. Older
+ * replies may still contain the original presigned URL. Rendered as-is they
+ * leave the app: the markdown renderer marks anything unrecognized
+ * `target="_blank"`, and Electron hands `_blank` to the OS browser. The file
+ * never opens in the artifact tab that can display it.
  *
  * The object key carries everything needed to reach that tab. It is built as
  * `<folder>/artifacts/team_<teamId>/task_<taskId>/run_<runId>/<idPrefix>_<name>`
