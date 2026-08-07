@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
 const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
@@ -12,10 +13,11 @@ interface State {
 
 /**
  * Catches chunk-load failures from `React.lazy(() => import(...))` boundaries.
- * On a stale-deploy chunk-hash mismatch we reload once; if a reload was already
- * attempted in the last 20s we let the error bubble to the outer ErrorBoundary
- * rather than spinning forever. Non-chunk errors are re-thrown so the regular
- * error UI still renders.
+ * On a stale-deploy chunk-hash mismatch we reload once, showing a loading
+ * overlay while the reload is pending so the page doesn't blank out; if a
+ * reload was already attempted in the last 20s we let the error bubble to the
+ * outer ErrorBoundary rather than spinning forever. Non-chunk errors are
+ * re-thrown so the regular error UI still renders.
  */
 interface ChunkLoadErrorBoundaryProps {
     children: ReactNode
@@ -65,7 +67,10 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
             throw error
         }
         if (error && isChunkLoadError(error)) {
-            return null
+            // A reload is pending. Show a loading state rather than an empty
+            // document so the page doesn't blank out while the browser fetches
+            // fresh assets.
+            return <SpinnerOverlay sceneLevel />
         }
         return this.props.children
     }

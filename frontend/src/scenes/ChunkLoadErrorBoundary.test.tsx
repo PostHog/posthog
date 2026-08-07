@@ -47,10 +47,10 @@ describe('ChunkLoadErrorBoundary', () => {
         cleanup()
     })
 
-    it('reloads for chunk errors before the parent error boundary catches them', () => {
+    it('reloads for chunk errors and shows a loading overlay instead of blanking the page', () => {
         const reload = jest.fn()
 
-        render(
+        const { container } = render(
             <TestErrorBoundary>
                 <ChunkLoadErrorBoundary reload={reload}>
                     <ThrowChunkError />
@@ -60,6 +60,9 @@ describe('ChunkLoadErrorBoundary', () => {
 
         expect(reload).toHaveBeenCalledTimes(1)
         expect(screen.queryByText('Failed to fetch dynamically imported module')).not.toBeInTheDocument()
+        // While the reload is pending the boundary must render a visible loading
+        // state, not an empty document - otherwise the whole shell blanks out.
+        expect(container.querySelector('.SpinnerOverlay')).toBeInTheDocument()
         expect(Number(window.localStorage.getItem(RELOAD_GUARD_KEY))).toBeGreaterThan(0)
     })
 

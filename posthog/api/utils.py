@@ -16,7 +16,6 @@ from django.http import HttpRequest
 
 import structlog
 from drf_spectacular.utils import empty
-from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
 from rest_framework import request, serializers, status
@@ -305,6 +304,11 @@ SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 SURROGATES_SUBSTITUTED_COUNTER = Counter(
     "surrogates_substituted_total",
     "Stray UTF16 surrogates detected and removed from user input.",
+)
+
+SERVER_TIMING_HEADER_TRUNCATED_COUNTER = Counter(
+    "server_timing_header_truncated_total",
+    "Server-Timing response header was truncated because it exceeded the 10k size budget.",
 )
 
 
@@ -755,11 +759,12 @@ class ServerTimingsGathered:
                 So, we limit here to 10k characters to avoid that issue
                 The timings header is a debug signal we don't rely on for functionality
                 so not receiving all timings is not the worse thing in the world
+
+                This is expected and self-recovering, so we track it with a counter metric
+                instead of an exception - it fires often and the partial header string is not
+                worth shipping to error tracking.
                 """
-                capture_exception(
-                    Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
-                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
-                )
+                SERVER_TIMING_HEADER_TRUNCATED_COUNTER.inc()
                 break
 
             result.append(timing_str)
