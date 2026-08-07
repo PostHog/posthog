@@ -3291,6 +3291,45 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            // Webhook-sync tables produce no rows until the webhook is registered with the
+            // provider, and the required-tables flow never shows the webhook step (step 4) —
+            // register the webhook after creation and only report completion once it succeeds.
+            const registerRequiredWebhookAndComplete = async (sourceId: string): Promise<void> => {
+                let webhookResult: WebhookCreateResult
+                try {
+                    webhookResult = await api.externalDataSources.createWebhook(sourceId)
+                } catch (e: any) {
+                    posthog.captureException(e)
+                    webhookResult = {
+                        success: false,
+                        webhook_url: '',
+                        error: e.data?.message ?? e.message,
+                    }
+                }
+                actions.setWebhookResult(webhookResult)
+                if (!webhookResultHasNoPendingInputs(webhookResult)) {
+                    lemonToast.error(
+                        `We created the source but couldn't set up its webhook${
+                            webhookResult.error ? `: ${webhookResult.error}` : ''
+                        }. Connect again to retry, or finish webhook setup in the source settings.`
+                    )
+                    return
+                }
+                props.onComplete!()
+            }
+
+            // A required-tables run whose webhook registration failed left the source created —
+            // retry the webhook instead of creating a duplicate source.
+            if (values.requiredTables && props.onComplete && values.sourceId) {
+                if (values.hasWebhookSchemas) {
+                    await registerRequiredWebhookAndComplete(values.sourceId)
+                } else {
+                    props.onComplete()
+                }
+                actions.setIsLoading(false)
+                return
+            }
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -3318,32 +3357,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
                 if (values.requiredTables && props.onComplete) {
-                    // Webhook-sync tables produce no rows until the webhook is registered with the
-                    // provider, and this flow never shows the webhook step (step 4) — register the
-                    // webhook here and only report completion once it succeeds.
                     if (values.hasWebhookSchemas) {
-                        let webhookResult: WebhookCreateResult
-                        try {
-                            webhookResult = await api.externalDataSources.createWebhook(id)
-                        } catch (e: any) {
-                            posthog.captureException(e)
-                            webhookResult = {
-                                success: false,
-                                webhook_url: '',
-                                error: e.data?.message ?? e.message,
-                            }
-                        }
-                        actions.setWebhookResult(webhookResult)
-                        if (!webhookResultHasNoPendingInputs(webhookResult)) {
-                            lemonToast.error(
-                                `We created the source but couldn't set up its webhook${
-                                    webhookResult.error ? `: ${webhookResult.error}` : ''
-                                }. Finish webhook setup in the source settings, then enable the signal again.`
-                            )
-                            return
-                        }
+                        await registerRequiredWebhookAndComplete(id)
+                    } else {
+                        props.onComplete()
                     }
-                    props.onComplete()
                 } else if (values.hasWebhookSchemas) {
                     // Go to webhook setup step (4)
                     actions.onNext()

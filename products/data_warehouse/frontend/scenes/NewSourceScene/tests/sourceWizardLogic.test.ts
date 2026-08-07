@@ -1085,18 +1085,21 @@ describe('sourceWizardLogic', () => {
             }
         })
 
-        it('does not complete when webhook registration fails', async () => {
+        it('does not complete on webhook failure, and a resubmit retries the webhook without a duplicate source', async () => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('posthog/posthog.workflow_runs', { supports_webhooks: true }),
             ] as ExternalDataSourceSyncSchema[])
-            jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'source-1' } as Awaited<
-                ReturnType<typeof api.externalDataSources.create>
-            >)
-            jest.spyOn(api.externalDataSources, 'createWebhook').mockResolvedValue({
-                success: false,
-                webhook_url: '',
-                error: 'Token is missing webhook permissions',
-            })
+            const create = jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({
+                id: 'source-1',
+            } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
+            const createWebhook = jest
+                .spyOn(api.externalDataSources, 'createWebhook')
+                .mockResolvedValueOnce({
+                    success: false,
+                    webhook_url: '',
+                    error: 'Token is missing webhook permissions',
+                })
+                .mockResolvedValueOnce({ success: true, webhook_url: 'https://example.com/webhook' })
 
             const { logic, onComplete, unmount } = mountRequiredTablesWizard(['workflow_runs'])
 
@@ -1105,6 +1108,14 @@ describe('sourceWizardLogic', () => {
 
                 expect(onComplete).not.toHaveBeenCalled()
                 expect(logic.values.isLoading).toBe(false)
+
+                // The source exists now, so a second submit must retry the webhook, not create again.
+                await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+
+                expect(create).toHaveBeenCalledTimes(1)
+                expect(createWebhook).toHaveBeenCalledTimes(2)
+                expect(createWebhook).toHaveBeenLastCalledWith('source-1')
+                expect(onComplete).toHaveBeenCalled()
             } finally {
                 unmount()
             }
