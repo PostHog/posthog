@@ -1138,6 +1138,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        ui_app: experiment-results
         response:
             exclude:
                 - timeseries.*.hogql
@@ -1150,7 +1151,6 @@ tools:
                 - timeseries.*.query_status
                 - timeseries.*.stats_version
                 - timeseries.*.insight
-        ui_app: experiment-results
     experiment-unarchive:
         operation: experiments_unarchive_create
         enabled: true
