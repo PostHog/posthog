@@ -30,6 +30,7 @@ import {
     mergeSuccess,
 } from './person-merge-types'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { lifecycleOpIdFromEvent } from './person-uuid'
 import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 
 export const mergeFinalFailuresCounter = new Counter({
@@ -296,13 +297,14 @@ export class PersonMergeService {
             })()
 
             this.discardOverrideCounts()
+            const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
             const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // New-world merges claim the person's lifecycle mark, which keeps a concurrent
                 // tombstone from landing between this check and the distinct id insert (an
                 // orphaned mapping); old-world merges rely on the delete's FK violation instead.
                 if (this.context.mergeTombstoneEnabled) {
                     await tx.claimLifecycleMarks(
-                        this.context.event.uuid,
+                        lifecycleOpId,
                         existingPerson.team_id,
                         [{ personId: existingPerson.id, personUuid: existingPerson.uuid, role: 'target' }],
                         this.context.distinctId
@@ -323,7 +325,7 @@ export class PersonMergeService {
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
                 if (this.context.mergeTombstoneEnabled) {
-                    await tx.releaseLifecycleMarks(this.context.event.uuid, this.context.distinctId)
+                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.distinctId)
                 }
                 return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
@@ -626,6 +628,7 @@ export class PersonMergeService {
 
         const currentTarget = target
         this.discardOverrideCounts()
+        const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
         const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
             'mergePeopleFold',
             async (tx) => {
@@ -633,7 +636,7 @@ export class PersonMergeService {
                 // (other merges, the delete saga) off the targets and sources until commit.
                 if (this.context.mergeTombstoneEnabled) {
                     await tx.claimLifecycleMarks(
-                        this.context.event.uuid,
+                        lifecycleOpId,
                         currentTarget.team_id,
                         [
                             { personId: currentTarget.id, personUuid: currentTarget.uuid, role: 'target' },
@@ -707,7 +710,7 @@ export class PersonMergeService {
                 }
 
                 if (this.context.mergeTombstoneEnabled) {
-                    await tx.releaseLifecycleMarks(this.context.event.uuid, this.context.distinctId)
+                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.distinctId)
                 }
                 return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
             }
@@ -848,6 +851,7 @@ export class PersonMergeService {
                 .inc()
 
             this.discardOverrideCounts()
+            const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
             const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                 'mergePeople',
                 async (tx) => {
@@ -860,7 +864,7 @@ export class PersonMergeService {
                     // resumes with a stale snapshot.
                     if (this.context.mergeTombstoneEnabled) {
                         await tx.claimLifecycleMarks(
-                            this.context.event.uuid,
+                            lifecycleOpId,
                             currentTargetPerson.team_id,
                             [
                                 {
@@ -932,7 +936,7 @@ export class PersonMergeService {
 
                     const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
                     if (this.context.mergeTombstoneEnabled) {
-                        await tx.releaseLifecycleMarks(this.context.event.uuid, this.context.distinctId)
+                        await tx.releaseLifecycleMarks(lifecycleOpId, this.context.distinctId)
                     }
                     return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
                 }
