@@ -24,7 +24,7 @@ export const getWizardRepositoryDetectionsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Upsert a repository detection. The `(repository, kind)` pair is the idempotency anchor — reposting the same pair replaces the existing row. Returns 201 on create, 200 on update.
+ * Upsert a repository detection. The `(repository, kind)` pair is the idempotency anchor — reposting the same pair replaces the existing row. Returns 201 on create, 200 on update. A push whose `task_run_id` differs from the run currently stamped on the row is rejected with 409.
  */
 export const wizardRepositoryDetectionsCreate = async (
     projectId: string,
