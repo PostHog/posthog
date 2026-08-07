@@ -45,7 +45,7 @@ def compile_check(
     )
 
 
-def _print(query: "ast.SelectQuery") -> str:
+def _print(query: "ast.SelectQuery | ast.SelectSetQuery") -> str:
     # limit_top_select=False: the aggregate is a single row anyway, and the failing-rows form is
     # stored for a human to re-run, so a synthetic LIMIT would misrepresent what the check examined.
     return print_prepared_ast(

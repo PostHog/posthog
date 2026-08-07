@@ -30,7 +30,6 @@ class TestSubjectResolver(BaseTest):
     def test_resolves_a_view_to_its_own_name_even_when_materialized(self) -> None:
         view = self._view()
         view.table = self._table("materialized_backing_table")
-        view.is_materialized = True
         view.save()
 
         resolved = resolve_subject(self.team.id, SubjectType.VIEW, view.id)

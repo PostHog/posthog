@@ -11,8 +11,12 @@ from ..errors import CheckConfigError
 from ..spec import CheckConfig, CheckTypeSpec
 
 
-def parse_failing_rows_query(query: str) -> ast.SelectQuery:
-    """Parse user HogQL into the single SELECT whose rows are the failures."""
+def parse_failing_rows_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse user HogQL into the SELECT whose rows are the failures.
+
+    A UNION of selects is as good as one: the compiler aggregates over whatever this returns, so the
+    failure set can be assembled from several branches.
+    """
     try:
         parsed = parse_select(query.rstrip(";").strip())
     except ExposedHogQLError as err:
@@ -20,8 +24,6 @@ def parse_failing_rows_query(query: str) -> ast.SelectQuery:
     except Exception:
         raise CheckConfigError("Could not parse the custom query.")
 
-    if not isinstance(parsed, ast.SelectQuery):
-        raise CheckConfigError("A custom_sql check must be a single SELECT statement.")
     found = find_placeholders(parsed)
     if found.has_filters or found.placeholder_fields or found.placeholder_expressions:
         raise CheckConfigError("A custom_sql check cannot use {placeholders} -- nothing supplies them.")
@@ -36,7 +38,7 @@ class CustomSqlConfig(CheckConfig):
 
     @field_validator("query")
     @classmethod
-    def _is_a_single_select(cls, value: str) -> str:
+    def _is_a_select(cls, value: str) -> str:
         parse_failing_rows_query(value)
         return value
 
@@ -46,6 +48,10 @@ class CustomSqlSpec(CheckTypeSpec):
 
     No extra sandboxing: HogQL is already team-scoped and read-only, and the query is wrapped in a
     count so rows never leave ClickHouse. Placeholders are rejected because nothing supplies them.
+
+    Nothing forces the query to read the check's own subject -- the subject decides when the check
+    runs and where its result is reported, not what the SQL may touch. A check whose query reads
+    elsewhere is therefore possible, and reports against the wrong table.
     """
 
     type_name = CheckType.CUSTOM_SQL

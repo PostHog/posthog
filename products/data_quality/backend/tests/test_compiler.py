@@ -104,6 +104,15 @@ class TestCheckCompiler:
                 "SELECT count() AS failure_count, count() AS observed_value "
                 "FROM (SELECT 1 FROM orders WHERE less(total, 0))",
             ),
+            (
+                CheckType.CUSTOM_SQL,
+                "",
+                {"query": "select id from orders where total < 0 union all select id from orders where total > 100"},
+                None,
+                "SELECT count() AS failure_count, count() AS observed_value "
+                "FROM (SELECT id FROM orders WHERE less(total, 0) "
+                "UNION ALL SELECT id FROM orders WHERE greater(total, 100))",
+            ),
         ]
     )
     def test_compiles_to_a_count_only_query(self, check_type, column_name, config, related, expected) -> None:

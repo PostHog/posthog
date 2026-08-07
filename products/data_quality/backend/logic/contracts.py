@@ -45,8 +45,8 @@ class CheckPlan:
     A type whose failing rows already show something useful leaves it unset.
     """
 
-    failing_rows: "ast.SelectQuery"
-    diagnostic_rows: "ast.SelectQuery | None" = None
+    failing_rows: "ast.SelectQuery | ast.SelectSetQuery"
+    diagnostic_rows: "ast.SelectQuery | ast.SelectSetQuery | None" = None
     failed_count_expr: "ast.Expr | None" = None
     observed_value_expr: "ast.Expr | None" = None
     evaluation: Evaluation = Evaluation.ZERO_ROWS_PASS

@@ -23,7 +23,6 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
         id=str(saved_query.id),
         team_id=saved_query.team_id,
         name=saved_query.name,
-        is_materialized=bool(saved_query.is_materialized),
         last_run_at=saved_query.last_run_at,
     )
 
