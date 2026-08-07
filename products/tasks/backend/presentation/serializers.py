@@ -280,6 +280,10 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    dismissed_at = serializers.CharField(
+        required=False,
+        help_text="Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
+    )
     url = serializers.URLField(
         required=False,
         help_text=(
@@ -1389,6 +1393,26 @@ class TaskRunArtifactPresignRequestSerializer(serializers.Serializer):
 class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Presigned URL for downloading the artifact")
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
+
+
+class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        allow_empty=False,
+        max_length=100,
+        help_text=(
+            "Manifest ids of the artifacts to update. Pass every version of a file together so the "
+            "whole file is dismissed rather than a single upload of it."
+        ),
+    )
+    dismissed = serializers.BooleanField(
+        default=True,
+        help_text="True to hide the artifacts from clients, false to show them again.",
+    )
+
+
+class TaskRunArtifactsDismissResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
 
 
 TASK_SUMMARIES_MAX_IDS = 5000
@@ -2579,17 +2603,23 @@ class WarmTaskRequestSerializer(serializers.Serializer):
     """Request body for warming a full idling Run while composing a Code-app cloud task.
 
     Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
-    interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
-    the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
-    it to the caller's team before use.
+    interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+    then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+    the view re-scopes it to the caller's team before use.
     """
 
     repository = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
         max_length=255,
-        help_text="Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
+        help_text="Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
     )
     github_integration = serializers.IntegerField(
-        help_text="Primary key of the team's GitHub integration to clone with.",
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Primary key of the team's GitHub integration to clone with when a repository is selected.",
     )
     branch = serializers.CharField(
         required=False,
@@ -2637,12 +2667,21 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         help_text="Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.",
     )
 
-    def validate_repository(self, value: str) -> str:
+    def validate_repository(self, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip().lower()
         parts = normalized.split("/")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         return normalized
+
+    def validate(self, attrs):
+        if bool(attrs.get("repository")) != bool(attrs.get("github_integration")):
+            raise serializers.ValidationError(
+                "Repository and GitHub integration must either both be provided or both be omitted."
+            )
+        return attrs
 
 
 class WarmTaskResponseSerializer(serializers.Serializer):

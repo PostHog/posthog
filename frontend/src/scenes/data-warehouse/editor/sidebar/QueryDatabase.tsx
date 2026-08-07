@@ -17,7 +17,7 @@ import {
     IconExternal,
     IconPlusSmall,
 } from '@posthog/icons'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTextSize } from 'lib/lemon-ui/icons'
@@ -51,6 +51,7 @@ import {
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -166,6 +167,8 @@ export const QueryDatabase = ({
         deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(sourceManagementLogic)
+    const { expressionsByFieldName } = useValues(expressionModalLogic)
+    const { openNewExpressionModal, openEditExpressionModal, deleteExpression } = useActions(expressionModalLogic)
     const { deleteDraft } = useActions(draftsLogic)
     const {
         openMaterializationModal,
@@ -469,6 +472,10 @@ export const QueryDatabase = ({
                         : null
                 const canDragBIField = isBIEditor && !!biField && isBIFieldCompatible(biConfig.source, biField)
                 const columnType = isColumn ? item.record?.field?.type : null
+                const savedExpression =
+                    isColumn && item.record?.table && item.record?.field
+                        ? expressionsByFieldName[`${item.record.table}.${item.record.field.name}`]
+                        : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
                 const certification =
                     item.record?.type === 'table'
@@ -537,7 +544,13 @@ export const QueryDatabase = ({
                                     </span>
                                 )}
                                 <TableCertificationIcon certification={certification} />
-                                {isColumn && columnType ? (
+                                {isColumn && columnType && savedExpression ? (
+                                    <Tooltip title={<code className="text-xs">{savedExpression.expression}</code>}>
+                                        <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                            {columnType === 'expression' ? 'expression' : `${columnType} expression`}
+                                        </span>
+                                    </Tooltip>
+                                ) : isColumn && columnType ? (
                                     <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
                                         {columnType === 'field_traverser' && item?.record?.field.chain
                                             ? formatTraversalChain(item.record.field.chain)
@@ -600,6 +613,35 @@ export const QueryDatabase = ({
 
                 if (joinMenu) {
                     return joinMenu
+                }
+
+                // Menu for fields backed by a saved expression
+                if (item.record?.field && item.record?.table) {
+                    const expression = expressionsByFieldName[`${item.record.table}.${item.record.field.name}`]
+                    if (expression) {
+                        return (
+                            <DropdownMenuGroup>
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openEditExpressionModal(expression)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Edit expression</ButtonPrimitive>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        deleteExpression(expression)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Delete expression</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                        )
+                    }
                 }
 
                 // Show menu for drafts
@@ -674,6 +716,25 @@ export const QueryDatabase = ({
                                     }
                                 >
                                     Add join
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (addJoinAccessDisabledReason) {
+                                        return
+                                    }
+                                    openNewExpressionModal(item.name)
+                                }}
+                            >
+                                <ButtonPrimitive
+                                    menuItem
+                                    disabledReasons={
+                                        addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                    }
+                                >
+                                    Add expression
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem
@@ -911,6 +972,27 @@ export const QueryDatabase = ({
                                         }
                                     >
                                         Add join
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {addJoinSourceTableName ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (addJoinAccessDisabledReason) {
+                                            return
+                                        }
+                                        openNewExpressionModal(addJoinSourceTableName)
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Add expression
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
@@ -1207,7 +1289,23 @@ export const QueryDatabase = ({
             }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {
-                    return getFieldTypeIcon(item.record.field?.type)
+                    const icon = getFieldTypeIcon(item.record.field?.type)
+                    const savedExpression =
+                        item.record?.table && item.record?.field
+                            ? expressionsByFieldName[`${item.record.table}.${item.record.field.name}`]
+                            : null
+                    if (savedExpression) {
+                        return (
+                            <span className="relative inline-flex">
+                                {icon}
+                                <span
+                                    className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent"
+                                    aria-hidden="true"
+                                />
+                            </span>
+                        )
+                    }
+                    return icon
                 }
                 return <TreeNodeDisplayIcon item={item} expandedItemIds={expandedItemIds} />
             }}

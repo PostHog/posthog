@@ -154,9 +154,13 @@ class AsyncHarmonicClient:
 
         if self.session is None:
             raise RuntimeError("HTTP session not initialized. Use async context manager.")
+        await asyncio.sleep(0.2)
+        # Short cap: a single profile fetch, and it shares the signup activity's 90s budget with
+        # the up-to-60s domain lookup — inheriting the session's 30s total would eat all headroom.
         async with self.session.get(
             f"{HARMONIC_BASE_URL}/companies/{company_id}",
             headers={"apikey": self.api_key},
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as response:
             if response.status == 404:
                 return None

@@ -79,7 +79,6 @@ from products.slack_app.backend.services.integration_resolver import (
 )
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
-    ACTION_EDIT_WORKSPACE,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_PERSONAL,
@@ -91,7 +90,6 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_TASKS_REFRESH,
     ACTION_UNLINK_ACCOUNT,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
-    EDIT_MODAL_WORKSPACE_CALLBACK_ID,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_RUNTIME_ADAPTER,
     handle_ai_preferences_block_action as _handle_ai_preferences_block_action,
@@ -3040,7 +3038,6 @@ def _extract_context_token(payload: dict) -> str:
 _AI_PREFERENCES_ACTION_IDS = frozenset(
     {
         ACTION_EDIT_PERSONAL,
-        ACTION_EDIT_WORKSPACE,
         ACTION_RESET_PERSONAL,
         ACTION_RESET_PROJECT_PERSONAL,
         ACTION_SET_PROJECT_PERSONAL,
@@ -3055,7 +3052,7 @@ _AI_PREFERENCES_ACTION_IDS = frozenset(
         MODAL_ACTION_MODEL,
     }
 )
-_AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID})
+_AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID})
 
 
 def _is_ai_preferences_interactivity(payload: dict, payload_type: str) -> bool:
