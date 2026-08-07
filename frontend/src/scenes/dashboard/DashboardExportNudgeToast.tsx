@@ -49,8 +49,8 @@ export function claimExportNudgeMessage(
         <span className="flex flex-col items-start gap-1.5 min-w-0">
             <span>{headline}</span>
             <span className="text-xs text-secondary leading-snug">
-                Want this on a schedule? We can send you a copy of {candidate.dashboardName || 'this dashboard'} every
-                week.
+                Want this on a schedule? We can send you a copy of{' '}
+                <span className="italic">{candidate.dashboardName || 'this dashboard'}</span> every week.
             </span>
             {/* The toast body gives every button a horizontal margin, which pulls this row off the
                 text above it and inflates the gap between the two buttons. */}
