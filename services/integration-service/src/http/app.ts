@@ -88,7 +88,7 @@ export function createApp(opts: AppOptions): Hono {
     app.post(RESOLVE_PATH, async (c) => {
         let verified
         try {
-            verified = await opts.verifier.verifyToken(bearerToken(c.req.header('Authorization')))
+            verified = await opts.verifier.verify(bearerToken(c.req.header('Authorization')))
         } catch (err) {
             if (err instanceof AuthError) {
                 authFailuresTotal.labels({ reason: err.reason }).inc()
@@ -99,14 +99,14 @@ export function createApp(opts: AppOptions): Hono {
         }
 
         try {
-            const response = await resolveKeys(verified.identity, verified.extras.previousUsed, opts.resolveDeps)
+            const response = await resolveKeys(verified, opts.resolveDeps)
             return c.json(response)
         } catch (err) {
             // A cold miss with a broken store. Everything softer than this — a stale
             // snapshot, an unreadable Redis entry — has already degraded gracefully by
             // the time it reaches here.
             logger.error('secrets:resolve_failed', {
-                caller: verified.identity.caller,
+                deployment: verified.deployment,
                 error: err instanceof Error ? err.message : String(err),
             })
             return c.json({ error: 'Secret store unavailable' }, 503)

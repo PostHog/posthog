@@ -12,12 +12,12 @@ import { GetSecretValueCommand, ResourceNotFoundException, SecretsManagerClient 
 import { logger } from '../lib/logging.js'
 import { PROVIDERS } from '../providers.js'
 import type { ProviderSnapshot, ResolvedSecret } from '../types.js'
-import { STATE_MARKER_KEY, type SecretStore } from './types.js'
+import { RECOVERY_FIELD, type SecretStore } from './types.js'
 
 interface VersionPayload {
     fields: Record<string, string>
-    /** Per-key state overrides, from the reserved `_state` object. */
-    states: Record<string, string>
+    /** Credential fields flagged as in recovery, from the reserved flat field. */
+    inRecovery: ReadonlySet<string>
     versionId: string
     createdAt: string | null
 }
@@ -29,37 +29,36 @@ function parsePayload(raw: string, versionId: string, createdAt: Date | undefine
     }
 
     const fields: Record<string, string> = {}
-    const states: Record<string, string> = {}
+    const inRecovery = new Set<string>()
 
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-        if (key === STATE_MARKER_KEY) {
-            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                for (const [stateKey, stateValue] of Object.entries(value as Record<string, unknown>)) {
-                    if (typeof stateValue === 'string') {
-                        states[stateKey] = stateValue
-                    }
+        // Non-string values would silently stringify to "[object Object]" downstream.
+        // Skipping them makes the field read as `missing`, which is loud and correct.
+        if (typeof value !== 'string') {
+            continue
+        }
+        if (key === RECOVERY_FIELD) {
+            for (const field of value.split(',').map((part) => part.trim())) {
+                if (field) {
+                    inRecovery.add(field)
                 }
             }
             continue
         }
-        // Non-string values would silently stringify to "[object Object]" downstream.
-        // Skipping them makes the field read as `missing`, which is loud and correct.
-        if (typeof value === 'string') {
-            fields[key] = value
-        }
+        fields[key] = value
     }
 
-    return { fields, states, versionId, createdAt: createdAt ? createdAt.toISOString() : null }
+    return { fields, inRecovery, versionId, createdAt: createdAt ? createdAt.toISOString() : null }
 }
 
 export interface SecretsManagerStoreOptions {
     client: SecretsManagerClient
-    /** Prepended to the provider name to form the AWS secret id, e.g. `integrations/`. */
-    prefix: string
+    /** Wraps the provider name into an AWS secret id, e.g. `integrations-stripe-secrets`. */
+    secretIdFor: (provider: string) => string
 }
 
 export function createSecretsManagerStore(opts: SecretsManagerStoreOptions): SecretStore {
-    const { client, prefix } = opts
+    const { client, secretIdFor } = opts
 
     async function fetchVersion(secretId: string, stage: 'AWSCURRENT' | 'AWSPREVIOUS'): Promise<VersionPayload | null> {
         try {
@@ -84,7 +83,7 @@ export function createSecretsManagerStore(opts: SecretsManagerStoreOptions): Sec
             if (!definition) {
                 return null
             }
-            const secretId = `${prefix}${provider}`
+            const secretId = secretIdFor(provider)
 
             const current = await fetchVersion(secretId, 'AWSCURRENT')
             if (!current) {
@@ -105,7 +104,7 @@ export function createSecretsManagerStore(opts: SecretsManagerStoreOptions): Sec
                     continue
                 }
 
-                if (current.states[key] === 'recovery') {
+                if (current.inRecovery.has(key)) {
                     secrets[key] = {
                         state: 'recovery',
                         versionId: current.versionId,

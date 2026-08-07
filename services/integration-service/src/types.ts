@@ -38,12 +38,21 @@ export interface ProviderSnapshot {
     secrets: Record<string, ResolvedSecret>
 }
 
-/** The verified identity behind a request. */
+/** What a verified request is allowed to do, and who to attribute it to. */
 export interface CallerIdentity {
-    /** Registry name, e.g. `temporal-worker-data-warehouse`. */
-    caller: string
-    /** Providers this caller may ever obtain — the standing ceiling. */
-    allowedProviders: ReadonlySet<string>
+    /**
+     * The pod set that signed the token, established by which key verified it. This is
+     * the authenticated identity and the authorization boundary.
+     */
+    deployment: string
+    /**
+     * The product code path that wanted the credential. Caller-supplied and NOT verified
+     * — it is for metrics and audit, and grants nothing. Always one of the recognised
+     * names or a constant, so it is safe as a metric label.
+     */
+    product: string
+    /** Providers this deployment may ever obtain, or '*' for all of them. */
+    allowedProviders: readonly string[] | '*'
     /** The exact keys this one request asked for, from the token's `keys` claim. */
     requestedKeys: readonly string[]
 }

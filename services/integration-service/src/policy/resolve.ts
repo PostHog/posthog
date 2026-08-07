@@ -2,19 +2,30 @@
 //
 // Two independent gates, in this order:
 //   1. the `keys` claim — what this request asked for (bounds a leaked token);
-//   2. the caller's provider allowlist — what this caller may ever have (bounds a
-//      compromised caller).
+//   2. the deployment's provider allowlist — what this pod may ever have (bounds a
+//      compromised deployment).
 //
 // A key outside the allowlist is reported in `denied` rather than failing the whole
-// request, so a policy mistake shows up as one named field a human can act on instead
-// of an opaque 403. Same for `missing`: an unknown key name and an unpopulated
-// credential are both diagnosable states, not errors.
+// request, so a policy mistake shows up as one named field a human can act on instead of
+// an opaque 403. Same for `missing`: an unknown key name and an unpopulated credential
+// are both diagnosable states, not errors.
 
+import { ALL_PROVIDERS } from '../deployments.js'
 import { logger } from '../lib/logging.js'
-import { observeResolve, previousVersionServedTotal, previousVersionUseTotal } from '../metrics.js'
+import { observeResolve, previousVersionServedTotal } from '../metrics.js'
 import { providerForKey } from '../providers.js'
-import type { CallerIdentity, ResolveOutcome } from '../types.js'
+import type { CallerIdentity, ProviderSnapshot, ResolveOutcome } from '../types.js'
 import type { UsageRecorder } from '../usage/recorder.js'
+
+/** Stand-in label for anything a caller named that the provider manifest does not define. */
+const UNKNOWN_LABEL = 'unknown'
+
+// Read the allowlist off the verified identity rather than the global table. The verifier
+// is the one place that decides what a token is allowed, and everything downstream should
+// answer to that decision rather than looking it up again.
+function allows(identity: CallerIdentity, provider: string): boolean {
+    return identity.allowedProviders === ALL_PROVIDERS || identity.allowedProviders.includes(provider)
+}
 
 /** Wire shape of one resolved field. snake_case because Python is the primary consumer. */
 export interface WireSecret {
@@ -29,23 +40,14 @@ export interface ResolveResponse {
     secrets: Record<string, WireSecret>
     denied: string[]
     missing: string[]
-    max_age_seconds: number
 }
-
-/** Stand-in label for anything a caller named that the provider manifest does not define. */
-const UNKNOWN_LABEL = 'unknown'
 
 export interface ResolveDeps {
-    loadProvider: (provider: string) => Promise<import('../types.js').ProviderSnapshot | null>
+    loadProvider: (provider: string) => Promise<ProviderSnapshot | null>
     recorder: UsageRecorder
-    maxAgeSeconds: number
 }
 
-export async function resolveKeys(
-    identity: CallerIdentity,
-    previousUsed: readonly string[],
-    deps: ResolveDeps
-): Promise<ResolveResponse> {
+export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): Promise<ResolveResponse> {
     const secrets: Record<string, WireSecret> = {}
     const denied: string[] = []
     const missing: string[] = []
@@ -61,12 +63,12 @@ export async function resolveKeys(
             // caller-supplied string, and putting it on a metric would let any holder of
             // a signing key grow this process's series set without bound. The real name
             // still reaches the response and the log line, neither of which is a label.
-            observeResolve(identity.caller, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
+            observeResolve(identity, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
             continue
         }
-        if (!identity.allowedProviders.has(provider)) {
+        if (!allows(identity, provider)) {
             denied.push(key)
-            observeResolve(identity.caller, provider, key, 'denied')
+            observeResolve(identity, provider, key, 'denied')
             continue
         }
         const bucket = byProvider.get(provider)
@@ -83,7 +85,7 @@ export async function resolveKeys(
             const resolved = snapshot?.secrets[key]
             if (!resolved) {
                 missing.push(key)
-                observeResolve(identity.caller, provider, key, 'missing')
+                observeResolve(identity, provider, key, 'missing')
                 continue
             }
 
@@ -101,36 +103,24 @@ export async function resolveKeys(
                 previousVersionServedTotal.labels({ provider, key }).inc()
             }
             secrets[key] = wire
-            observeResolve(identity.caller, provider, key, outcome)
+            observeResolve(identity, provider, key, outcome)
             if (outcome === 'ok') {
                 served.push(key)
             }
         }
     }
 
-    // Only manifest keys this caller may actually read get counted or recorded. Without
-    // this the report would write caller-supplied names into both a metric label and a
-    // Redis hash field, neither of which is ever reclaimed.
-    const reportedPreviousUsed: string[] = []
-    for (const key of previousUsed) {
-        const provider = providerForKey(key)
-        if (provider && identity.allowedProviders.has(provider)) {
-            previousVersionUseTotal.labels({ caller: identity.caller, provider, key }).inc()
-            reportedPreviousUsed.push(key)
-        }
-    }
-
     // One audit line per request rather than per key: the key list is bounded by the
     // token scope, so it stays readable, and Loki keeps the whole request together.
     logger.info('secrets:resolved', {
-        caller: identity.caller,
+        deployment: identity.deployment,
+        product: identity.product,
         served,
         denied,
         missing,
-        previousUsed,
     })
 
-    deps.recorder.record(identity.caller, served, reportedPreviousUsed)
+    deps.recorder.record(identity.deployment, served)
 
-    return { secrets, denied, missing, max_age_seconds: deps.maxAgeSeconds }
+    return { secrets, denied, missing }
 }

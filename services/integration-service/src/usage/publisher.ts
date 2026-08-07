@@ -24,10 +24,12 @@ import type { UsageRecorder } from './recorder.js'
 export const USAGE_OBJECT_KEY = 'integrations/usage/latest.json'
 
 export interface UsageCallerEntry {
+    /** The calling deployment, as authenticated by its signing key. */
     caller: string
     reads24h: number
-    previousUsed24h: number
     lastSeen: string | null
+    /** True when this deployment has read the key since the current value was activated. */
+    onCurrentValue: boolean
 }
 
 export interface UsageKeyEntry {
@@ -37,12 +39,16 @@ export interface UsageKeyEntry {
     currentActivatedAt: string | null
     callers: UsageCallerEntry[]
     /**
-     * True only when BOTH hold: nobody has needed the previous value across the quiet
-     * window, AND at least one caller has successfully read the current value in it.
+     * True when every deployment known to read this key has read it since the current
+     * value became AWSCURRENT, and at least one such deployment exists.
      *
-     * The second condition is not redundant. Zero previous-value use on its own is
-     * equally consistent with nothing reading the credential at all, which is exactly
-     * the state in which retiring a value looks safe and is not.
+     * This is sound only because callers do not cache: a read after activation
+     * necessarily returned the new value, so "has read since" means "is now using the
+     * new value". If a client-side cache is ever reintroduced, this verdict stops
+     * holding and has to be rethought.
+     *
+     * A deployment that reads the key rarely delays the verdict. That is the correct
+     * direction to be wrong in.
      */
     safeToRetirePrevious: boolean
 }
@@ -61,7 +67,6 @@ export function buildUsageMap(opts: {
     quietWindowHours: number
     snapshots: readonly ProviderSnapshot[]
     reads: ReadonlyMap<string, number>
-    previousUsed: ReadonlyMap<string, number>
     lastSeen: ReadonlyMap<string, number>
 }): UsageMap {
     const keys: Record<string, UsageKeyEntry> = {}
@@ -73,7 +78,7 @@ export function buildUsageMap(opts: {
             const ensure = (caller: string): UsageCallerEntry => {
                 let entry = callers.get(caller)
                 if (!entry) {
-                    entry = { caller, reads24h: 0, previousUsed24h: 0, lastSeen: null }
+                    entry = { caller, reads24h: 0, lastSeen: null, onCurrentValue: false }
                     callers.set(caller, entry)
                 }
                 return entry
@@ -85,22 +90,20 @@ export function buildUsageMap(opts: {
                     ensure(caller).reads24h += count
                 }
             }
-            for (const [field, count] of opts.previousUsed) {
-                const [fieldKey, caller] = field.split('|')
-                if (fieldKey === key && caller) {
-                    ensure(caller).previousUsed24h += count
-                }
-            }
+
+            const activatedAt = snapshot.currentActivatedAt ? Date.parse(snapshot.currentActivatedAt) : null
             for (const [field, at] of opts.lastSeen) {
                 const [fieldKey, caller] = field.split('|')
                 if (fieldKey === key && caller && callers.has(caller)) {
-                    ensure(caller).lastSeen = new Date(at).toISOString()
+                    const entry = ensure(caller)
+                    entry.lastSeen = new Date(at).toISOString()
+                    // A read after activation necessarily returned the new value, because
+                    // callers do not cache. So this is "has moved onto the new value".
+                    entry.onCurrentValue = activatedAt !== null && at >= activatedAt
                 }
             }
 
             const entries = [...callers.values()].sort((a, b) => a.caller.localeCompare(b.caller))
-            const anyPreviousUsed = entries.some((entry) => entry.previousUsed24h > 0)
-            const anyCurrentRead = entries.some((entry) => entry.reads24h > 0)
 
             keys[key] = {
                 provider: providerForKey(key) ?? snapshot.provider,
@@ -108,7 +111,10 @@ export function buildUsageMap(opts: {
                 currentVersionId: resolved.versionId,
                 currentActivatedAt: snapshot.currentActivatedAt,
                 callers: entries,
-                safeToRetirePrevious: resolved.state === 'rotating' && !anyPreviousUsed && anyCurrentRead,
+                safeToRetirePrevious:
+                    resolved.state === 'rotating' &&
+                    entries.length > 0 &&
+                    entries.every((entry) => entry.onCurrentValue),
             }
         }
     }
@@ -136,7 +142,7 @@ export class UsagePublisher {
 
     async publish(): Promise<void> {
         try {
-            const { reads, previousUsed, lastSeen } = await this.opts.recorder.summarize(this.opts.quietWindowHours)
+            const { reads, lastSeen } = await this.opts.recorder.summarize(this.opts.quietWindowHours)
             const snapshots = (await Promise.all(PROVIDER_NAMES.map((p) => this.opts.loadSnapshot(p)))).filter(
                 (s): s is ProviderSnapshot => s !== null
             )
@@ -147,7 +153,6 @@ export class UsagePublisher {
                 quietWindowHours: this.opts.quietWindowHours,
                 snapshots,
                 reads,
-                previousUsed,
                 lastSeen,
             })
 

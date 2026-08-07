@@ -2,46 +2,46 @@ import { SignJWT } from 'jose'
 import { describe, expect, it } from 'vitest'
 
 import { JwtVerifier, bearerToken } from '@/auth/jwt.js'
-import type { ClientRegistryLoader } from '@/auth/registry.js'
-import { AUDIENCE, AuthError, type ClientRegistry } from '@/auth/types.js'
+import type { SigningKeyLoader } from '@/auth/registry.js'
+import { AUDIENCE, AuthError, type SigningKeys } from '@/auth/types.js'
+
+const DW = 'temporal-worker-data-warehouse'
+const DJANGO = 'posthog-django'
 
 const DW_KEY_NEW = 'dw-signing-key-new'
 const DW_KEY_OLD = 'dw-signing-key-old'
 const DJANGO_KEY = 'django-signing-key'
 
-const REGISTRY: ClientRegistry = {
-    'temporal-worker-data-warehouse': { keys: [DW_KEY_NEW, DW_KEY_OLD], providers: ['google-ads', 'stripe'] },
-    'posthog-django': { keys: [DJANGO_KEY], providers: ['google-ads', 'stripe', 'hubspot'] },
+const KEYS: SigningKeys = {
+    [DW]: [DW_KEY_NEW, DW_KEY_OLD],
+    [DJANGO]: [DJANGO_KEY],
 }
 
-function verifier(registry: ClientRegistry = REGISTRY): JwtVerifier {
-    const loader = { entryFor: (caller: string) => registry[caller] ?? null } as ClientRegistryLoader
-    return new JwtVerifier(loader)
+function verifier(keys: SigningKeys = KEYS): JwtVerifier {
+    return new JwtVerifier({ entries: () => Object.entries(keys) } as SigningKeyLoader)
 }
 
 async function mint(opts: {
     key: string
-    caller: string
+    product?: string
     keys?: string[]
-    previousUsed?: string[]
     audience?: string
     expiresIn?: string
 }): Promise<string> {
-    let builder = new SignJWT({
-        caller: opts.caller,
+    return new SignJWT({
+        caller: opts.product ?? 'warehouse-sources',
         keys: opts.keys ?? ['GOOGLE_ADS_APP_CLIENT_SECRET'],
-        ...(opts.previousUsed ? { previous_used: opts.previousUsed } : {}),
     })
         .setProtectedHeader({ alg: 'HS256' })
         .setAudience(opts.audience ?? AUDIENCE)
         .setIssuedAt()
-    builder = builder.setExpirationTime(opts.expiresIn ?? '5m')
-    return builder.sign(new TextEncoder().encode(opts.key))
+        .setExpirationTime(opts.expiresIn ?? '5m')
+        .sign(new TextEncoder().encode(opts.key))
 }
 
-// Resolves to the rejection reason, or throws if the token was accepted. Deliberately
-// asserts by throwing rather than with `expect` inside a catch, which would make the
-// assertion conditional on the rejection happening at all.
+// Resolves to the rejection reason, or throws if the token was accepted. Asserts by
+// throwing rather than with `expect` inside a catch, which would make the assertion
+// conditional on the rejection happening at all.
 async function reasonFor(promise: Promise<unknown>): Promise<string> {
     const outcome = await promise.then(
         () => null,
@@ -54,139 +54,99 @@ async function reasonFor(promise: Promise<unknown>): Promise<string> {
 }
 
 describe('jwt verification', () => {
-    it('accepts a well-formed token and returns the caller allowlist and requested keys', async () => {
-        const token = await mint({ key: DW_KEY_NEW, caller: 'temporal-worker-data-warehouse' })
-        const { identity } = await verifier().verifyToken(token)
+    it('accepts a well-formed token and returns the requested keys', async () => {
+        const identity = await verifier().verify(await mint({ key: DW_KEY_NEW }))
 
-        expect(identity.caller).toBe('temporal-worker-data-warehouse')
+        expect(identity.deployment).toBe(DW)
         expect(identity.requestedKeys).toEqual(['GOOGLE_ADS_APP_CLIENT_SECRET'])
-        expect([...identity.allowedProviders].sort()).toEqual(['google-ads', 'stripe'])
     })
 
-    // The whole reason the signing key is per caller rather than fleet-wide: a key leaked
-    // from one pod must not let an attacker assume a caller with a wider allowlist.
-    it('rejects a token signed with one caller key but claiming to be another caller', async () => {
-        const forged = await mint({ key: DW_KEY_NEW, caller: 'posthog-django' })
-        expect(await reasonFor(verifier().verifyToken(forged))).toBe('bad_signature')
+    // The deployment is whichever key verified, never a claim. There is therefore nothing
+    // in the token an attacker could edit to become a different deployment.
+    it('derives the deployment from the verifying key, not from the token', async () => {
+        const signedByDjango = await verifier().verify(await mint({ key: DJANGO_KEY }))
+        const signedByWorker = await verifier().verify(await mint({ key: DW_KEY_NEW }))
+
+        expect(signedByDjango.deployment).toBe(DJANGO)
+        expect(signedByWorker.deployment).toBe(DW)
     })
 
-    it('accepts a token signed with a retired key still listed in the caller key set', async () => {
-        const token = await mint({ key: DW_KEY_OLD, caller: 'temporal-worker-data-warehouse' })
-        await expect(verifier().verifyToken(token)).resolves.toBeDefined()
+    it('gives a deployment the provider allowlist defined for it in code', async () => {
+        const worker = await verifier().verify(await mint({ key: DW_KEY_NEW }))
+        const django = await verifier().verify(await mint({ key: DJANGO_KEY }))
+
+        expect(worker.allowedProviders).toContain('google-ads')
+        expect(worker.allowedProviders).not.toContain('linear')
+        expect(django.allowedProviders).toBe('*')
     })
 
-    it('rejects a token signed with a key that has been removed from the set', async () => {
-        const token = await mint({ key: 'a-key-nobody-lists', caller: 'temporal-worker-data-warehouse' })
-        expect(await reasonFor(verifier().verifyToken(token))).toBe('bad_signature')
+    it('accepts a token signed with a retired key still listed for that deployment', async () => {
+        await expect(verifier().verify(await mint({ key: DW_KEY_OLD }))).resolves.toBeDefined()
     })
 
-    it('rejects an expired token', async () => {
-        const token = await mint({ key: DW_KEY_NEW, caller: 'temporal-worker-data-warehouse', expiresIn: '-1s' })
-        expect(await reasonFor(verifier().verifyToken(token))).toBe('expired')
+    it('rejects a token signed with a key no deployment lists', async () => {
+        expect(await reasonFor(verifier().verify(await mint({ key: 'nobody-lists-this' })))).toBe('bad_signature')
     })
 
-    it('rejects a token minted for a different audience', async () => {
-        const token = await mint({
-            key: DW_KEY_NEW,
-            caller: 'temporal-worker-data-warehouse',
-            audience: 'posthog:recording_api',
-        })
-        expect(await reasonFor(verifier().verifyToken(token))).toBe('bad_audience')
-    })
-
-    it('rejects a caller with no registry entry', async () => {
-        const token = await mint({ key: DW_KEY_NEW, caller: 'some-pod-nobody-registered' })
-        expect(await reasonFor(verifier().verifyToken(token))).toBe('unknown_caller')
-    })
-
-    // The request scope IS the token. A token with no keys claim is not a request for
-    // everything — it is a malformed request.
-    it('rejects a token carrying no keys claim', async () => {
-        const token = await mint({ key: DW_KEY_NEW, caller: 'temporal-worker-data-warehouse', keys: [] })
-        expect(await reasonFor(verifier().verifyToken(token))).toBe('no_keys_claim')
-    })
-
-    it('rejects a token with no caller claim', async () => {
-        const token = await new SignJWT({ keys: ['GOOGLE_ADS_APP_CLIENT_SECRET'] })
-            .setProtectedHeader({ alg: 'HS256' })
-            .setAudience(AUDIENCE)
-            .setExpirationTime('5m')
-            .sign(new TextEncoder().encode(DW_KEY_NEW))
-        expect(await reasonFor(verifier().verifyToken(token))).toBe('malformed')
+    it.each([
+        ['an expired token', { expiresIn: '-1s' }, 'expired'],
+        ['a token for another audience', { audience: 'posthog:recording_api' }, 'bad_audience'],
+        ['a token with no keys claim', { keys: [] }, 'no_keys_claim'],
+    ])('rejects %s', async (_label, overrides, reason) => {
+        const token = await mint({ key: DW_KEY_NEW, ...overrides })
+        expect(await reasonFor(verifier().verify(token))).toBe(reason)
     })
 
     it('rejects a garbage token', async () => {
-        expect(await reasonFor(verifier().verifyToken('not-a-jwt'))).toBe('malformed')
+        expect(await reasonFor(verifier().verify('not-a-jwt'))).toBe('malformed')
     })
 
-    // A caller reporting on a field it never asked for could hold open somebody else's
-    // rotation indefinitely.
-    it('confines the previous_used report to the keys the token actually requested', async () => {
-        const token = await mint({
-            key: DW_KEY_NEW,
-            caller: 'temporal-worker-data-warehouse',
-            keys: ['GOOGLE_ADS_APP_CLIENT_SECRET'],
-            previousUsed: ['GOOGLE_ADS_APP_CLIENT_SECRET', 'STRIPE_APP_SECRET_KEY'],
+    describe('the product claim', () => {
+        // Django holds one key and hosts many products, so the product name cannot be
+        // authenticated. It is kept for metrics and audit and grants nothing.
+        it('is carried through when we recognise it', async () => {
+            const identity = await verifier().verify(await mint({ key: DJANGO_KEY, product: 'cdp' }))
+            expect(identity.product).toBe('cdp')
         })
-        const { extras } = await verifier().verifyToken(token)
-        expect(extras.previousUsed).toEqual(['GOOGLE_ADS_APP_CLIENT_SECRET'])
+
+        // Otherwise it is a caller-supplied string, and a caller-supplied string must
+        // never become a metric label.
+        it.each([
+            ['an unrecognised product', 'something-invented'],
+            ['an empty product', ''],
+        ])('collapses %s to a constant', async (_label, product) => {
+            const identity = await verifier().verify(await mint({ key: DJANGO_KEY, product }))
+            expect(identity.product).toBe('unknown')
+        })
+
+        it('grants nothing — the allowlist follows the deployment', async () => {
+            const identity = await verifier().verify(await mint({ key: DW_KEY_NEW, product: 'cdp' }))
+            expect(identity.deployment).toBe(DW)
+            expect(identity.allowedProviders).not.toBe('*')
+        })
     })
 
-    it('treats a missing previous_used claim as no report', async () => {
-        const token = await mint({ key: DW_KEY_NEW, caller: 'temporal-worker-data-warehouse' })
-        expect((await verifier().verifyToken(token)).extras.previousUsed).toEqual([])
-    })
-
-    // Every distinct key name a caller sends becomes a metric label and a Redis field,
-    // and neither is reclaimed. The allowlist bounds what a compromised caller can read;
-    // these bound what it can cost.
+    // Every distinct key name a caller sends becomes a Redis field, and it is never
+    // reclaimed. The allowlist bounds what a compromised caller can read; these bound
+    // what it can cost.
     describe('claim size limits', () => {
-        it('rejects a token asking for more keys than any real request needs', async () => {
-            const token = await mint({
-                key: DW_KEY_NEW,
-                caller: 'temporal-worker-data-warehouse',
-                keys: Array.from({ length: 51 }, (_, i) => `KEY_${i}`),
-            })
-            expect(await reasonFor(verifier().verifyToken(token))).toBe('oversized_keys_claim')
-        })
-
-        it('rejects a token carrying an absurdly long key name', async () => {
-            const token = await mint({
-                key: DW_KEY_NEW,
-                caller: 'temporal-worker-data-warehouse',
-                keys: ['A'.repeat(129)],
-            })
-            expect(await reasonFor(verifier().verifyToken(token))).toBe('oversized_keys_claim')
+        it.each([
+            ['more keys than any real request needs', Array.from({ length: 51 }, (_, i) => `KEY_${i}`)],
+            ['an absurdly long key name', ['A'.repeat(129)]],
+        ])('rejects %s', async (_label, keys) => {
+            expect(await reasonFor(verifier().verify(await mint({ key: DW_KEY_NEW, keys })))).toBe(
+                'oversized_keys_claim'
+            )
         })
 
         it('accepts a request at the limit', async () => {
-            const token = await mint({
-                key: DW_KEY_NEW,
-                caller: 'temporal-worker-data-warehouse',
-                keys: Array.from({ length: 50 }, (_, i) => `KEY_${i}`),
-            })
-            await expect(verifier().verifyToken(token)).resolves.toBeDefined()
+            const keys = Array.from({ length: 50 }, (_, i) => `KEY_${i}`)
+            await expect(verifier().verify(await mint({ key: DW_KEY_NEW, keys }))).resolves.toBeDefined()
         })
 
         it('deduplicates a repeated key rather than resolving it twice', async () => {
-            const token = await mint({
-                key: DW_KEY_NEW,
-                caller: 'temporal-worker-data-warehouse',
-                keys: ['GOOGLE_ADS_APP_CLIENT_SECRET', 'GOOGLE_ADS_APP_CLIENT_SECRET'],
-            })
-            const { identity } = await verifier().verifyToken(token)
-            expect(identity.requestedKeys).toEqual(['GOOGLE_ADS_APP_CLIENT_SECRET'])
-        })
-
-        it('deduplicates the previous_used report', async () => {
-            const token = await mint({
-                key: DW_KEY_NEW,
-                caller: 'temporal-worker-data-warehouse',
-                keys: ['GOOGLE_ADS_APP_CLIENT_SECRET'],
-                previousUsed: ['GOOGLE_ADS_APP_CLIENT_SECRET', 'GOOGLE_ADS_APP_CLIENT_SECRET'],
-            })
-            const { extras } = await verifier().verifyToken(token)
-            expect(extras.previousUsed).toEqual(['GOOGLE_ADS_APP_CLIENT_SECRET'])
+            const token = await mint({ key: DW_KEY_NEW, keys: ['A_KEY', 'A_KEY'] })
+            expect((await verifier().verify(token)).requestedKeys).toEqual(['A_KEY'])
         })
     })
 })

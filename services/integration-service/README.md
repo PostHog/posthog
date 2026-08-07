@@ -45,9 +45,8 @@ that one call needed:
 ```jsonc
 // Authorization: Bearer <token>
 {
-  "caller": "temporal-worker-data-warehouse",
+  "caller": "warehouse-sources", // the product that asked; recorded, not trusted
   "keys": ["GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"],
-  "previous_used": [], // optional, see Rotation
   "aud": "posthog:integration_service",
   "exp": 1786035932,
 }
@@ -64,55 +63,71 @@ that one call needed:
       "fetched_at": "…",
     },
   },
-  "denied": [], // in the token, but outside this caller's allowlist
+  "denied": [], // in the token, but outside this deployment's allowlist
   "missing": [], // unknown key, or no value in this environment
-  "max_age_seconds": 60, // how long the caller may cache — server-controlled
 }
 ```
 
 Denials are per key rather than a 403 over the whole batch, so a policy mistake reads as one named
 field a human can act on.
 
-`max_age_seconds` being server-controlled is deliberate: dropping it to `0` fleet-wide during an
-emergency rotation needs no caller redeploy.
+Callers do not cache, so there is no freshness hint to send. A rotation reaches every caller on
+their next read.
 
 ## Auth
 
-Per-caller HS256 JWT, following the `recording-api` scheme (PostHog/posthog#67476) — the pattern
-`.agents/security.md` names as strongly preferred. Not `INTERNAL_API_SECRET`, which
+Per-deployment HS256 JWT, following the `recording-api` scheme (PostHog/posthog#67476) — the
+pattern `.agents/security.md` names as strongly preferred. Not `INTERNAL_API_SECRET`, which
 `posthog/settings/data_stores.py` explicitly forbids extending.
 
-**The signing key is per caller, not fleet-wide.** Same env var name, different value in
-`posthog-django-shared-secrets` versus `temporal-worker-data-warehouse-secrets`. A fleet-wide key
-would let a leak from the warehouse worker mint a token claiming to be Django and inherit Django's
-wider allowlist, which would defeat the allowlist entirely.
+Two identities, deliberately not conflated:
 
-Two layers, bounding different things:
+|                | What it is                                                                                               | Trusted?                                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Deployment** | The pod set that signed the token (`posthog-django`, a temporal worker)                                  | Yes. It is derived from _which key verified the token_, never from a claim, so there is nothing in the token to forge |
+| **Product**    | The code path that wanted the credential (`warehouse-sources`, `cdp`), from a code enum at the call site | No. Django holds one key and hosts many products, so a compromised Django pod could name any of them                  |
 
-| Layer                                      | Bounds                                                 |
-| ------------------------------------------ | ------------------------------------------------------ |
-| Caller allowlist (`integrations/_clients`) | a compromised caller — the standing ceiling            |
-| `keys` claim                               | a leaked token — one request's scope, for five minutes |
+Authorization hangs off the deployment. The product exists so an incident can ask "which product
+read this", and is collapsed to a constant when the service does not recognise it, so it can never
+become an unbounded metric label.
 
-The registry lives in Secrets Manager, so onboarding a caller or rotating a key is a secrets change
-with no service deploy:
+Two layers bound different failures:
 
-```jsonc
-{
-  "temporal-worker-data-warehouse": {
-    "keys": ["<new>", "<old>"], // newest first; all accepted, so rotation is zero-downtime
-    "providers": ["google-ads", "hubspot", "stripe"],
-  },
-}
+| Layer                               | Bounds                   |
+| ----------------------------------- | ------------------------ |
+| The deployment's provider allowlist | a compromised deployment |
+| `keys` claim in the token           | a leaked token           |
+
+The allowlist lives in `src/deployments.ts` rather than in a secret. It is authorization policy, so
+it should move through review, and it changes rarely. Django gets `*` because it hosts nearly every
+product and an explicit list there would be the full set with extra upkeep; the warehouse worker
+gets a real list because its need is genuinely narrow.
+
+Signing keys live in this service's own secret, one flat entry per deployment, so the
+`PostHog/secrets` CLI and UI can manage them:
+
 ```
+integration-service-secrets
+  CALLER_KEY_POSTHOG_DJANGO                 = "<new>,<old>"
+  CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE = "<new>,<old>"
+```
+
+The same value goes into that deployment's own secret as `INTEGRATION_SERVICE_JWT_SECRET`.
+Duplicating one value per deployment is inherent to shared-secret auth, and it replaces 26
+duplicated credentials with one.
 
 `Verifier` is an interface so a Kubernetes projected-ServiceAccount-token verifier (TokenReview)
 can drop in later without touching the routes or the policy layer.
 
 ## Storage and rotation
 
-One AWS secret per provider (`integrations/<provider>`), holding that provider's fields as flat
-JSON. Per-provider granularity matters because AWS staging labels apply to a whole secret version:
+One AWS secret per provider, named so the `PostHog/secrets` CLI and UI resolve it
+(`integrations-stripe` → `integrations-stripe-secrets`), holding that provider's fields as flat
+`KEY: value` pairs. Flat and uppercase is not a preference: that tool only manages `[A-Z0-9_]+`
+keys with plain string values, and a nested object would be invisible to the very UI meant to
+operate this.
+
+Per-provider granularity matters because AWS staging labels apply to a whole secret version:
 rotating Stripe must not disturb Google.
 
 Rotation rides AWS's own staging labels rather than a bespoke format. `PutSecretValue` promotes the
@@ -120,15 +135,20 @@ new version to `AWSCURRENT` and demotes the old to `AWSPREVIOUS`; the service re
 them **per field**, so a provider whose `client_id` did not change reports only the field that did.
 Rollback is `secrets rollback`, which the `PostHog/secrets` CLI already implements.
 
-| State      | Condition                         | Response                              |
-| ---------- | --------------------------------- | ------------------------------------- |
-| `steady`   | no `AWSPREVIOUS`, or equal values | `value` only                          |
-| `rotating` | values differ                     | `value` + `previous`                  |
-| `recovery` | `_state` entry in the secret JSON | no value; caller raises a typed error |
+| State      | Condition                                    | Response                              |
+| ---------- | -------------------------------------------- | ------------------------------------- |
+| `steady`   | no `AWSPREVIOUS`, or equal values            | `value` only                          |
+| `rotating` | values differ                                | `value` + `previous`                  |
+| `recovery` | field named in `INTEGRATION_RECOVERY_FIELDS` | no value; caller raises a typed error |
 
-`recovery` covers a credential that is known-burned with no valid replacement yet. Callers fail
-fast and surface "reconnect needed" rather than hammering a third party with a credential that
-cannot work.
+`recovery` covers a credential that is known-burned with no valid replacement yet. These are the
+client ids and secrets that authenticate _PostHog_ to the third party, so there is no per-user
+"reconnect" to offer: the integration is down for everyone until an engineer re-provisions the app.
+What the state buys is that callers fail immediately with a distinct error, so the outage is
+attributable to a known cause instead of looking like a third-party problem.
+
+`INTEGRATION_RECOVERY_FIELDS` is a comma-separated list of field names inside the provider's own
+secret, which keeps the whole layout flat.
 
 Only fields named in `src/providers.ts` are ever served. A field present in the secret but absent
 from that manifest is ignored, so adding a credential is a reviewed code change and never just a
@@ -136,20 +156,24 @@ secrets edit.
 
 ### Knowing when the old value is safe to delete
 
-We serve both values during a rotation and **cannot observe which one the caller's request to the
-third party actually succeeded with**. So it is not inferred here — it is reported. A client that
-fell back to the previous value lists that key in the signed `previous_used` claim on its next
-resolve. Signed, so only an already-authorized caller can report; piggy-backed, so no extra round
-trip.
+Nothing is reported to this service by a caller. Every metric and every verdict is measured here,
+so none of it depends on a client being well behaved, current, or honest.
 
-`safeToRetirePrevious` then requires **both** conditions:
+That rules out observing which value a caller's third-party call actually succeeded with, so the
+verdict is built from something we can see instead:
 
-- nobody has needed the previous value across the quiet window, **and**
-- at least one caller has successfully read the current value in it.
+> `safeToRetirePrevious` is true when **every deployment known to read this key has read it since
+> the current value became `AWSCURRENT`**, and at least one such deployment exists.
 
-The second is not redundant. Zero previous-value use on its own is equally consistent with nothing
-reading the credential at all — which is exactly the state in which retiring a value looks safe and
-is not.
+This is sound only because callers do not cache. A read after activation necessarily returned the
+new value, so "has read since" means "is now on the new value". If a client-side cache is ever
+reintroduced, this verdict stops holding and has to be rethought.
+
+The "at least one" clause is not redundant. With nothing reading the key, "no reader is still on
+the old value" is vacuously true, which is exactly the state where retiring looks safe and is not.
+
+A deployment that reads a key rarely delays the verdict rather than rushing it. That is the correct
+direction to be wrong in.
 
 ## Caching
 
@@ -218,20 +242,20 @@ local work. Point `AWS_ENDPOINT_URL` at moto to exercise the store without real 
 
 ## Configuration
 
-| Variable                                     | Default         | Notes                                                              |
-| -------------------------------------------- | --------------- | ------------------------------------------------------------------ |
-| `INTEGRATION_SERVICE_ENV`                    | `dev`           | Logical env; bound into cache keys, GCM AAD and the usage artifact |
-| `INTEGRATION_SERVICE_REDIS_URL`              | —               | Unset disables L2. Required in production                          |
-| `INTEGRATION_SERVICE_KMS_KEY_ID`             | —               | Required in production, and whenever Redis is configured           |
-| `INTEGRATION_SERVICE_SECRET_PREFIX`          | `integrations/` | Prefix for the per-provider secrets and `_clients`                 |
-| `INTEGRATION_SERVICE_CACHE_TTL_SECONDS`      | `300`           | Server-side snapshot TTL and refresh cadence                       |
-| `INTEGRATION_SERVICE_CLIENT_MAX_AGE_SECONDS` | `60`            | The `max_age_seconds` hint sent to callers                         |
-| `INTEGRATION_SERVICE_DEK_ROTATION_SECONDS`   | `3600`          | How often a new KMS data key is generated                          |
-| `INTEGRATION_SERVICE_RETIRE_QUIET_HOURS`     | `24`            | Quiet window for `safeToRetirePrevious`                            |
-| `INTEGRATION_SERVICE_USAGE_BUCKET`           | —               | Unset disables usage publishing                                    |
-| `INTEGRATION_SERVICE_USAGE_KMS_KEY_ID`       | —               | SSE-KMS key for the usage artifact                                 |
-| `INTEGRATION_SERVICE_METRICS_TOKEN`          | —               | Unset leaves `/metrics` open for in-cluster scrapes                |
-| `PORT`                                       | `8004`          |                                                                    |
+| Variable                                   | Default                       | Notes                                                              |
+| ------------------------------------------ | ----------------------------- | ------------------------------------------------------------------ |
+| `INTEGRATION_SERVICE_ENV`                  | `dev`                         | Logical env; bound into cache keys, GCM AAD and the usage artifact |
+| `INTEGRATION_SERVICE_REDIS_URL`            | —                             | Unset disables L2. Required in production                          |
+| `INTEGRATION_SERVICE_KMS_KEY_ID`           | —                             | Required in production, and whenever Redis is configured           |
+| `INTEGRATION_SERVICE_SECRET_PREFIX`        | `integrations-`               | Prefix for the per-provider secret names                           |
+| `INTEGRATION_SERVICE_KEYS_SECRET_ID`       | `integration-service-secrets` | Secret holding one signing key per deployment                      |
+| `INTEGRATION_SERVICE_CACHE_TTL_SECONDS`    | `300`                         | Server-side snapshot TTL and refresh cadence                       |
+| `INTEGRATION_SERVICE_DEK_ROTATION_SECONDS` | `3600`                        | How often a new KMS data key is generated                          |
+| `INTEGRATION_SERVICE_RETIRE_QUIET_HOURS`   | `24`                          | Quiet window for `safeToRetirePrevious`                            |
+| `INTEGRATION_SERVICE_USAGE_BUCKET`         | —                             | Unset disables usage publishing                                    |
+| `INTEGRATION_SERVICE_USAGE_KMS_KEY_ID`     | —                             | SSE-KMS key for the usage artifact                                 |
+| `INTEGRATION_SERVICE_METRICS_TOKEN`        | —                             | Unset leaves `/metrics` open for in-cluster scrapes                |
+| `PORT`                                     | `8004`                        |                                                                    |
 
 The service exits at boot rather than starting degraded when a production-required variable is
 missing, or when Redis is configured without a KMS key.

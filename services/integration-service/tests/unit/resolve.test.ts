@@ -35,15 +35,20 @@ function deps(overrides: Partial<ResolveDeps> = {}): ResolveDeps {
     return {
         loadProvider: (provider) => Promise.resolve(SNAPSHOTS[provider] ?? null),
         recorder: { record: vi.fn() } as unknown as UsageRecorder,
-        maxAgeSeconds: 60,
         ...overrides,
     }
 }
 
-function identity(requestedKeys: string[], allowed: string[] = ['google-ads', 'stripe']): CallerIdentity {
+// `temporal-worker-data-warehouse` is a real deployment in src/deployments.ts, so its
+// allowlist here is the one the service will actually apply.
+function identity(
+    requestedKeys: string[],
+    allowed: readonly string[] | '*' = ['google-ads', 'stripe']
+): CallerIdentity {
     return {
-        caller: 'temporal-worker-data-warehouse',
-        allowedProviders: new Set(allowed),
+        deployment: 'temporal-worker-data-warehouse',
+        product: 'warehouse-sources',
+        allowedProviders: allowed,
         requestedKeys,
     }
 }
@@ -52,7 +57,6 @@ describe('resolve', () => {
     it('serves the requested fields with their rotation state', async () => {
         const response = await resolveKeys(
             identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']),
-            [],
             deps()
         )
 
@@ -62,14 +66,13 @@ describe('resolve', () => {
             value: 'ga-new',
             previous: 'ga-old',
         })
-        expect(response.max_age_seconds).toBe(60)
     })
 
     // THE containment property. The caller is allowed Stripe, but this token did not ask
     // for it — so a token lifted from a log unlocks one provider, not the caller's whole
     // entitlement. If someone reintroduces a request body, this is the test that fails.
     it('serves nothing outside the token scope even when the caller is allowed that provider', async () => {
-        const response = await resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID']), [], deps())
+        const response = await resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID']), deps())
 
         expect(Object.keys(response.secrets)).toEqual(['GOOGLE_ADS_APP_CLIENT_ID'])
         expect(response.secrets).not.toHaveProperty('STRIPE_APP_SECRET_KEY')
@@ -79,7 +82,6 @@ describe('resolve', () => {
     it('reports a key outside the allowlist as denied while still serving the permitted ones', async () => {
         const response = await resolveKeys(
             identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'], ['google-ads']),
-            [],
             deps()
         )
 
@@ -92,14 +94,14 @@ describe('resolve', () => {
         ['a key absent from the provider manifest', 'NOT_A_REAL_KEY'],
         ['a manifest key with no value in the store', 'STRIPE_SIGNING_SECRET'],
     ])('reports %s as missing rather than failing the request', async (_label, key) => {
-        const response = await resolveKeys(identity([key, 'GOOGLE_ADS_APP_CLIENT_ID']), [], deps())
+        const response = await resolveKeys(identity([key, 'GOOGLE_ADS_APP_CLIENT_ID']), deps())
 
         expect(response.missing).toContain(key)
         expect(response.secrets).toHaveProperty('GOOGLE_ADS_APP_CLIENT_ID')
     })
 
     it('serves a recovery field with no value so the caller fails fast', async () => {
-        const response = await resolveKeys(identity(['STRIPE_APP_SECRET_KEY']), [], {
+        const response = await resolveKeys(identity(['STRIPE_APP_SECRET_KEY']), {
             ...deps(),
             loadProvider: () =>
                 Promise.resolve(
@@ -117,7 +119,6 @@ describe('resolve', () => {
         const loadProvider = vi.fn((provider: string) => Promise.resolve(SNAPSHOTS[provider] ?? null))
         await resolveKeys(
             identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET', 'STRIPE_APP_SECRET_KEY']),
-            [],
             deps({ loadProvider })
         )
 
@@ -131,7 +132,7 @@ describe('resolve', () => {
         register.resetMetrics()
         const invented = 'TOTALLY_MADE_UP_KEY_NAME_9f2a'
 
-        const response = await resolveKeys(identity([invented]), [], deps())
+        const response = await resolveKeys(identity([invented]), deps())
 
         const series = await resolveTotal.get()
         const labelValues = series.values.flatMap((v) => Object.values(v.labels).map(String))
@@ -140,33 +141,13 @@ describe('resolve', () => {
         expect(response.missing).toContain(invented)
     })
 
-    it('drops an unknown key from the previous-used report before it reaches Redis', async () => {
-        const record = vi.fn()
-        await resolveKeys(
-            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'MADE_UP_KEY']),
-            ['GOOGLE_ADS_APP_CLIENT_ID', 'MADE_UP_KEY'],
-            deps({ recorder: { record } as unknown as UsageRecorder })
-        )
-
-        expect(record).toHaveBeenCalledWith(
-            'temporal-worker-data-warehouse',
-            ['GOOGLE_ADS_APP_CLIENT_ID'],
-            ['GOOGLE_ADS_APP_CLIENT_ID']
-        )
-    })
-
-    it('records only successfully served keys against the caller usage rollup', async () => {
+    it('records only successfully served keys against the usage rollup', async () => {
         const record = vi.fn()
         await resolveKeys(
             identity(['GOOGLE_ADS_APP_CLIENT_ID', 'NOT_A_REAL_KEY']),
-            ['GOOGLE_ADS_APP_CLIENT_SECRET'],
             deps({ recorder: { record } as unknown as UsageRecorder })
         )
 
-        expect(record).toHaveBeenCalledWith(
-            'temporal-worker-data-warehouse',
-            ['GOOGLE_ADS_APP_CLIENT_ID'],
-            ['GOOGLE_ADS_APP_CLIENT_SECRET']
-        )
+        expect(record).toHaveBeenCalledWith('temporal-worker-data-warehouse', ['GOOGLE_ADS_APP_CLIENT_ID'])
     })
 })

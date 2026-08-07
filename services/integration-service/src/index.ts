@@ -16,7 +16,7 @@ import { serve } from '@hono/node-server'
 import Redis from 'ioredis'
 
 import { JwtVerifier } from './auth/jwt.js'
-import { ClientRegistryLoader } from './auth/registry.js'
+import { SigningKeyLoader } from './auth/registry.js'
 import { credentialProvider } from './aws/credentials.js'
 import { EnvelopeCipher } from './cache/envelope.js'
 import { ProviderCache } from './cache/providerCache.js'
@@ -57,12 +57,12 @@ async function main(): Promise<void> {
     const kms = new KMSClient(awsCommon)
     const s3 = new S3Client(awsCommon)
 
-    const registry = new ClientRegistryLoader(secretsManager, config.clientRegistrySecretId)
+    const signingKeys = new SigningKeyLoader(secretsManager, config.signingKeySecretId)
     try {
-        await registry.load()
+        await signingKeys.load()
     } catch (err) {
-        logger.error('startup:registry_load_failed', {
-            secretId: config.clientRegistrySecretId,
+        logger.error('startup:signing_keys_load_failed', {
+            secretId: config.signingKeySecretId,
             error: err instanceof Error ? err.message : String(err),
         })
         process.exit(1)
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
     })
 
     const cache = new ProviderCache({
-        store: createSecretsManagerStore({ client: secretsManager, prefix: config.secretPrefix }),
+        store: createSecretsManagerStore({ client: secretsManager, secretIdFor: config.secretIdFor }),
         cipher,
         redis,
         env: config.env,
@@ -115,12 +115,11 @@ async function main(): Promise<void> {
     const lifecycle: Lifecycle = { shuttingDown: false, ready: false }
 
     const app = createApp({
-        verifier: new JwtVerifier(registry),
+        verifier: new JwtVerifier(signingKeys),
         lifecycle,
         resolveDeps: {
             loadProvider: (provider) => cache.get(provider),
             recorder,
-            maxAgeSeconds: config.clientMaxAgeSeconds,
         },
         metricsToken: config.metricsToken,
     })
@@ -138,7 +137,7 @@ async function main(): Promise<void> {
         await cache.warm(PROVIDER_NAMES)
     })
     scheduleJittered(config.cacheTtlSeconds * 1000, async () => {
-        await registry.reload()
+        await signingKeys.reload()
     })
 
     if (config.usageBucket) {

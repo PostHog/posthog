@@ -1,9 +1,9 @@
 // Auth seam.
 //
-// Phase 1 verifies a per-caller HS256 JWT. The interface exists so a Kubernetes
-// projected-ServiceAccount-token verifier (TokenReview) can drop in later as a second
-// implementation without touching the routes or the policy layer — that would remove
-// the last long-lived secret from caller pods.
+// Phase 1 verifies an HS256 JWT signed with a deployment's key. The interface exists so
+// a Kubernetes projected-ServiceAccount-token verifier (TokenReview) can drop in later
+// as a second implementation without touching the routes or the policy layer — that
+// would remove the last long-lived secret from caller pods.
 
 import type { CallerIdentity } from '../types.js'
 
@@ -13,7 +13,6 @@ export const AUDIENCE = 'posthog:integration_service'
 export type AuthFailureReason =
     | 'missing_token'
     | 'malformed'
-    | 'unknown_caller'
     | 'bad_signature'
     | 'expired'
     | 'bad_audience'
@@ -35,16 +34,11 @@ export interface Verifier {
     verify(token: string): Promise<CallerIdentity>
 }
 
-/** One caller's entry in the client registry. */
-export interface ClientRegistryEntry {
-    /**
-     * Signing keys, newest first. All are accepted for verification; the caller signs
-     * with the first. Same `new,old` convention as RECORDING_API_JWT_SECRET, which is
-     * what makes key rotation zero-downtime.
-     */
-    keys: string[]
-    /** Providers this caller may ever obtain — the standing ceiling on a compromised pod. */
-    providers: string[]
-}
-
-export type ClientRegistry = Record<string, ClientRegistryEntry>
+/**
+ * Signing keys per deployment, newest first. All are accepted for verification; the
+ * deployment signs with the first, so a key rotation is zero-downtime.
+ *
+ * The deployment a token belongs to is whichever key set verifies it. Nothing in the
+ * token asserts it, so it cannot be forged by editing a claim.
+ */
+export type SigningKeys = Record<string, string[]>

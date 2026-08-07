@@ -16,9 +16,10 @@ INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
 # INTEGRATION_SERVICE_URL is set, and local dev reads the environment as it always has.
 # So an empty value here fails closed everywhere rather than minting tokens nothing wants.
 INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
-# Which registry entry this process authenticates as. Must match a caller in the
-# service's `integrations/_clients` secret.
-INTEGRATION_SERVICE_CALLER = get_from_env("INTEGRATION_SERVICE_CALLER", "posthog-django")
+# Which product asked for a credential is passed at the call site from
+# posthog.integration_secrets.callers.IntegrationCaller, not configured here. The
+# deployment is identified by which signing key above verifies, so it needs no setting
+# either.
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")

@@ -1,104 +1,76 @@
 // HS256 JWT verification, following the recording-api scheme (PostHog/posthog#67476).
 //
-// Two properties are doing the security work here, and they bound different things:
+// The deployment is established by WHICH KEY VERIFIES the token, never by a claim. So
+// there is nothing in the token an attacker could edit to become a different deployment,
+// and no need for the token to name one. Trying each deployment's keys in turn is a
+// handful of HMAC verifies against a set the size of our pod fleet.
 //
-//   - The signing key is PER CALLER, not fleet-wide. So the `caller` claim is
-//     authenticated rather than merely asserted: a token is only accepted if it
-//     verifies against that caller's own key set. A key leaked from the warehouse
-//     worker cannot mint a token claiming to be Django and inherit Django's wider
-//     allowlist. This bounds a compromised caller.
+// The `caller` claim names the product that wanted the credential. It is NOT verified:
+// Django holds one key and hosts many products, so a compromised Django pod could name
+// any of them. It is recorded for metrics and audit, collapsed to a constant when we do
+// not recognise it, and it grants nothing.
 //
-//   - The requested key set travels in the `keys` claim, and there is NO request body.
-//     A token lifted from a log, a trace or an error report unlocks only the fields
-//     that one request needed, for five minutes. This bounds a leaked token.
-//
-// The optional `previous_used` claim is how a rotation learns whether the old value is
-// still needed — see metrics.previousVersionUseTotal. It must be a subset of `keys`,
-// so a caller cannot report on fields it did not ask for.
+// The requested key set travels in the `keys` claim and there is no request body, so a
+// token lifted from a log unlocks the fields of one call rather than everything the
+// deployment may read.
 
 import { decodeJwt, jwtVerify } from 'jose'
 
+import { DEPLOYMENT_PROVIDERS, productLabel } from '../deployments.js'
 import type { CallerIdentity } from '../types.js'
-import type { ClientRegistryLoader } from './registry.js'
+import type { SigningKeyLoader } from './registry.js'
 import { AUDIENCE, AuthError, type Verifier } from './types.js'
 
-/** Extra request context a token carries beyond the identity itself. */
-export interface TokenExtras {
-    /** Keys the caller reports only worked against the third party via the previous value. */
-    previousUsed: readonly string[]
-}
-
-export interface VerifiedToken {
-    identity: CallerIdentity
-    extras: TokenExtras
-}
-
 // Caps on the `keys` claim. A holder of a valid signing key would otherwise be able to
-// grow this process's memory without bound: every distinct key name becomes a Prometheus
-// label value and a Redis usage field, and neither is reclaimed. The allowlist bounds
-// what a compromised caller can *read*; these bound what it can *cost*.
+// grow this process's memory without bound: every distinct key name becomes a Redis usage
+// field, and it is never reclaimed. The deployment allowlist bounds what a compromised
+// caller can *read*; these bound what it can *cost*.
 //
-// The real ceiling is the provider manifest, which today is well under 50 fields in
-// total, so no legitimate request comes close.
+// The real ceiling is the provider manifest, well under 50 fields in total, so no
+// legitimate request comes close.
 const MAX_REQUESTED_KEYS = 50
 const MAX_KEY_LENGTH = 128
 
 function stringArray(value: unknown): string[] | null {
-    if (!Array.isArray(value)) {
-        return null
-    }
-    if (!value.every((item) => typeof item === 'string')) {
+    if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
         return null
     }
     return value as string[]
 }
 
 export class JwtVerifier implements Verifier {
-    constructor(private readonly registry: ClientRegistryLoader) {}
+    constructor(private readonly keys: SigningKeyLoader) {}
 
-    async verifyToken(token: string): Promise<VerifiedToken> {
-        // Unverified decode, used ONLY to select which key set to verify against. The
-        // verification below is what actually authenticates the caller — nothing read
-        // here is trusted until jwtVerify has succeeded with that caller's key.
-        let unverifiedCaller: string
+    async verify(token: string): Promise<CallerIdentity> {
+        // Decoded only to fail fast on garbage; nothing read here is trusted or used.
         try {
-            const claims = decodeJwt(token)
-            if (typeof claims.caller !== 'string' || claims.caller.length === 0) {
-                throw new AuthError('malformed', 'token has no caller claim')
-            }
-            unverifiedCaller = claims.caller
-        } catch (err) {
-            if (err instanceof AuthError) {
-                throw err
-            }
+            decodeJwt(token)
+        } catch {
             throw new AuthError('malformed', 'token could not be decoded')
         }
 
-        const entry = this.registry.entryFor(unverifiedCaller)
-        if (!entry) {
-            throw new AuthError('unknown_caller', `no registry entry for caller ${unverifiedCaller}`)
-        }
-
-        // Try every key in the caller's set, newest first, so a rotation window accepts
-        // tokens signed with either value.
         let payload: Record<string, unknown> | null = null
+        let deployment = ''
         let sawExpired = false
         let sawBadAudience = false
 
-        for (const key of entry.keys) {
-            try {
-                const result = await jwtVerify(token, new TextEncoder().encode(key), {
-                    algorithms: ['HS256'],
-                    audience: AUDIENCE,
-                })
-                payload = result.payload as Record<string, unknown>
-                break
-            } catch (err) {
-                const code = (err as { code?: string }).code
-                if (code === 'ERR_JWT_EXPIRED') {
-                    sawExpired = true
-                } else if (code === 'ERR_JWT_CLAIM_VALIDATION_FAILED') {
-                    sawBadAudience = true
+        outer: for (const [candidate, candidateKeys] of this.keys.entries()) {
+            for (const key of candidateKeys) {
+                try {
+                    const result = await jwtVerify(token, new TextEncoder().encode(key), {
+                        algorithms: ['HS256'],
+                        audience: AUDIENCE,
+                    })
+                    payload = result.payload as Record<string, unknown>
+                    deployment = candidate
+                    break outer
+                } catch (err) {
+                    const code = (err as { code?: string }).code
+                    if (code === 'ERR_JWT_EXPIRED') {
+                        sawExpired = true
+                    } else if (code === 'ERR_JWT_CLAIM_VALIDATION_FAILED') {
+                        sawBadAudience = true
+                    }
                 }
             }
         }
@@ -110,13 +82,7 @@ export class JwtVerifier implements Verifier {
             if (sawBadAudience) {
                 throw new AuthError('bad_audience', 'token audience does not match')
             }
-            throw new AuthError('bad_signature', `token did not verify against any key for ${unverifiedCaller}`)
-        }
-
-        // Re-read from the verified payload rather than trusting the earlier decode.
-        const caller = payload['caller']
-        if (typeof caller !== 'string' || caller !== unverifiedCaller) {
-            throw new AuthError('malformed', 'caller claim changed between decode and verify')
+            throw new AuthError('bad_signature', 'token did not verify against any deployment key')
         }
 
         const claimedKeys = stringArray(payload['keys'])
@@ -127,29 +93,15 @@ export class JwtVerifier implements Verifier {
             throw new AuthError('oversized_keys_claim', 'keys claim exceeds the per-request limits')
         }
 
-        // Deduplicate: a repeated key would otherwise be resolved, counted and logged
-        // once per occurrence for no benefit.
-        const requestedSet = new Set(claimedKeys)
-        const requestedKeys = [...requestedSet]
-
-        const reportedPreviousUsed = stringArray(payload['previous_used']) ?? []
-
+        const claimedProduct = payload['caller']
         return {
-            identity: {
-                caller,
-                allowedProviders: new Set(entry.providers),
-                requestedKeys,
-            },
-            extras: {
-                // Confine the report to the request's own scope, so a caller cannot
-                // hold open somebody else's rotation.
-                previousUsed: [...new Set(reportedPreviousUsed.filter((key) => requestedSet.has(key)))],
-            },
+            deployment,
+            product: productLabel(typeof claimedProduct === 'string' ? claimedProduct : ''),
+            allowedProviders: DEPLOYMENT_PROVIDERS[deployment] ?? [],
+            // Deduplicate: a repeated key would otherwise be resolved, counted and logged
+            // once per occurrence for no benefit.
+            requestedKeys: [...new Set(claimedKeys)],
         }
-    }
-
-    async verify(token: string): Promise<CallerIdentity> {
-        return (await this.verifyToken(token)).identity
     }
 }
 

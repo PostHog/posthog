@@ -8,6 +8,7 @@ from django.test import TestCase, override_settings
 import jwt
 from parameterized import parameterized
 
+from posthog.integration_secrets.callers import IntegrationCaller
 from posthog.integration_secrets.client import (
     IntegrationSecretsClient,
     integration_service_enabled,
@@ -19,10 +20,13 @@ from posthog.jwt import PosthogJwtAudience
 SERVICE_SETTINGS: dict[str, Any] = {
     "INTEGRATION_SERVICE_URL": "http://integration-service.posthog.svc.cluster.local",
     "INTEGRATION_SERVICE_JWT_SECRET": "signing-key-new,signing-key-old",
-    "INTEGRATION_SERVICE_CALLER": "posthog-django",
 }
 
 KEY = "HUBSPOT_APP_CLIENT_SECRET"
+CALLER = IntegrationCaller.WAREHOUSE_SOURCES
+
+FLAG = "posthog.integration_secrets.client.posthoganalytics.feature_enabled"
+POST = "posthog.integration_secrets.client.internal_requests.post"
 
 
 class FakeResponse:
@@ -40,14 +44,8 @@ def body(
     secrets: dict[str, Any] | None = None,
     denied: list[str] | None = None,
     missing: list[str] | None = None,
-    max_age: int = 60,
 ) -> dict[str, Any]:
-    return {
-        "secrets": secrets or {},
-        "denied": denied or [],
-        "missing": missing or [],
-        "max_age_seconds": max_age,
-    }
+    return {"secrets": secrets or {}, "denied": denied or [], "missing": missing or []}
 
 
 def steady(value: str) -> dict[str, Any]:
@@ -58,42 +56,27 @@ def steady(value: str) -> dict[str, Any]:
 class TestIntegrationSecretsClient(TestCase):
     def setUp(self) -> None:
         self.secrets = IntegrationSecretsClient()
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
 
     def test_returns_the_value_the_service_resolved(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({KEY: steady("sec")})),
-        ):
-            assert self.secrets.get(KEY) == "sec"
+        with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))):
+            assert self.secrets.get(KEY, CALLER) == "sec"
 
-    def test_caches_within_max_age_so_a_second_read_makes_no_request(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({KEY: steady("sec")})),
-        ) as post:
-            self.secrets.get(KEY)
-            self.secrets.get(KEY)
-            assert post.call_count == 1
-
-    def test_a_zero_max_age_disables_caching_so_a_rotation_lands_immediately(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            side_effect=[
-                FakeResponse(body({KEY: steady("old")}, max_age=0)),
-                FakeResponse(body({KEY: steady("new")}, max_age=0)),
-            ],
-        ) as post:
-            assert self.secrets.get(KEY) == "old"
-            assert self.secrets.get(KEY) == "new"
+    # No cache anywhere: a rotation has to land on the very next read, and the service's
+    # "safe to retire the old value" verdict depends on nobody holding a stale copy.
+    def test_reads_the_service_every_time(self) -> None:
+        responses = [FakeResponse(body({KEY: steady("old")})), FakeResponse(body({KEY: steady("new")}))]
+        with patch(POST, side_effect=responses) as post:
+            assert self.secrets.get(KEY, CALLER) == "old"
+            assert self.secrets.get(KEY, CALLER) == "new"
             assert post.call_count == 2
 
     def test_batches_several_keys_into_one_request(self) -> None:
         keys = [KEY, "HUBSPOT_APP_CLIENT_ID"]
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({k: steady(f"v-{k}") for k in keys})),
-        ) as post:
-            assert self.secrets.get_many(keys) == {k: f"v-{k}" for k in keys}
+        with patch(POST, return_value=FakeResponse(body({k: steady(f"v-{k}") for k in keys}))) as post:
+            assert self.secrets.get_many(keys, CALLER) == {k: f"v-{k}" for k in keys}
             assert post.call_count == 1
 
     @parameterized.expand(
@@ -104,124 +87,96 @@ class TestIntegrationSecretsClient(TestCase):
         ]
     )
     def test_raises_a_typed_error_for(self, _name: str, response: dict[str, Any], expected: type[Exception]) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body(**response)),
-        ):
+        with patch(POST, return_value=FakeResponse(body(**response))):
             with pytest.raises(expected):
-                self.secrets.get(KEY)
+                self.secrets.get(KEY, CALLER)
 
-    def test_recovery_raises_rather_than_returning_a_credential_that_cannot_work(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({KEY: {"state": "recovery", "version_id": "v1", "fetched_at": "now"}})),
-        ):
+    # Platform client ids and secrets are what authenticate us to the third party, so a
+    # burned one cannot be "reconnected" by a user — the integration is down until an
+    # engineer re-provisions it. Failing immediately keeps that distinguishable from a
+    # third-party outage.
+    def test_recovery_raises_rather_than_returning_a_dead_credential(self) -> None:
+        payload = {"state": "recovery", "version_id": "v1", "fetched_at": "now"}
+        with patch(POST, return_value=FakeResponse(body({KEY: payload}))):
             with pytest.raises(SecretInRecoveryError):
-                self.secrets.get(KEY)
+                self.secrets.get(KEY, CALLER)
 
     def test_get_with_previous_exposes_the_outgoing_value_during_a_rotation(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(
-                body(
-                    {
-                        KEY: {
-                            "state": "rotating",
-                            "value": "new",
-                            "previous": "old",
-                            "version_id": "v1",
-                            "fetched_at": "now",
-                        }
-                    }
-                )
-            ),
+        rotating = {"state": "rotating", "value": "new", "previous": "old", "version_id": "v1", "fetched_at": "now"}
+        with patch(POST, return_value=FakeResponse(body({KEY: rotating}))):
+            assert self.secrets.get_with_previous(KEY, CALLER) == ("new", "old")
+
+    # With no cache there is no last known good, so an outage is an outage. This is the
+    # trade for immediate rotations, and it is why the service needs an availability SLO
+    # before the environment variables come out.
+    def test_an_unreachable_service_raises_rather_than_serving_something_stale(self) -> None:
+        with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))):
+            self.secrets.get(KEY, CALLER)
+
+        with patch(POST, side_effect=ConnectionError("integration service is down")):
+            with pytest.raises(ConnectionError):
+                self.secrets.get(KEY, CALLER)
+
+    def test_does_not_fall_back_to_the_environment_when_the_service_is_down(self) -> None:
+        with (
+            patch(POST, side_effect=ConnectionError("integration service is down")),
+            patch.dict("os.environ", {KEY: "from-env"}),
         ):
-            assert self.secrets.get_with_previous(KEY) == ("new", "old")
+            with pytest.raises(ConnectionError):
+                self.secrets.get(KEY, CALLER)
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestDegradation(TestCase):
-    """A transient service failure must not fail a warehouse sync."""
-
+class TestRolloutFlag(TestCase):
     def setUp(self) -> None:
         self.secrets = IntegrationSecretsClient()
 
-    def test_serves_the_last_known_good_value_when_the_service_becomes_unreachable(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            side_effect=[
-                FakeResponse(body({KEY: steady("sec")}, max_age=0)),
-                ConnectionError("integration service is down"),
-            ],
-        ):
-            assert self.secrets.get(KEY) == "sec"
-            assert self.secrets.get(KEY) == "sec"
-
-    def test_falls_back_to_the_environment_when_unreachable_with_a_cold_cache(self) -> None:
+    def test_reads_the_environment_while_the_flag_is_off(self) -> None:
         with (
-            patch(
-                "posthog.integration_secrets.client.internal_requests.post",
-                side_effect=ConnectionError("integration service is down"),
-            ),
+            patch(FLAG, return_value=False),
+            patch(POST) as post,
             patch.dict("os.environ", {KEY: "from-env"}),
         ):
-            assert self.secrets.get(KEY) == "from-env"
+            assert self.secrets.get(KEY, CALLER) == "from-env"
+            post.assert_not_called()
 
-    # A denial is a configuration error, not a blip. Falling back to the environment
-    # there would quietly restore exactly the access the allowlist just refused.
-    def test_a_denial_propagates_instead_of_falling_back_to_the_environment(self) -> None:
+    # Closed means the old path, not a failed read. A flag service blip must not take out
+    # credential reads while the environment variables are still in place.
+    def test_a_failing_flag_check_falls_back_to_the_environment(self) -> None:
         with (
-            patch(
-                "posthog.integration_secrets.client.internal_requests.post",
-                return_value=FakeResponse(body(denied=[KEY])),
-            ),
+            patch(FLAG, side_effect=RuntimeError("flag service unavailable")),
+            patch(POST) as post,
             patch.dict("os.environ", {KEY: "from-env"}),
         ):
-            with pytest.raises(SecretDeniedError):
-                self.secrets.get(KEY)
+            assert self.secrets.get(KEY, CALLER) == "from-env"
+            post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("both unset", "", "", True, False),
+            ("url only", "http://svc", "", True, False),
+            ("key only", "", "key", True, False),
+            ("configured but flag off", "http://svc", "key", False, False),
+            ("configured and flag on", "http://svc", "key", True, True),
+        ]
+    )
+    def test_enabled_requires_url_key_and_flag(
+        self, _name: str, url: str, key: str, flag: bool, expected: bool
+    ) -> None:
+        with (
+            override_settings(INTEGRATION_SERVICE_URL=url, INTEGRATION_SERVICE_JWT_SECRET=key),
+            patch(FLAG, return_value=flag),
+        ):
+            assert integration_service_enabled() is expected
 
 
 class TestUnconfigured(TestCase):
     """Self-hosted and local dev: no service, read the environment exactly as before."""
 
-    def setUp(self) -> None:
-        self.secrets = IntegrationSecretsClient()
-
-    @override_settings(INTEGRATION_SERVICE_URL="", INTEGRATION_SERVICE_JWT_SECRET="key")
-    def test_reads_the_environment_when_no_url_is_configured(self) -> None:
-        with (
-            patch("posthog.integration_secrets.client.internal_requests.post") as post,
-            patch.dict("os.environ", {KEY: "from-env"}),
-        ):
-            assert self.secrets.get(KEY) == "from-env"
-            post.assert_not_called()
-
-    @override_settings(INTEGRATION_SERVICE_URL="http://svc", INTEGRATION_SERVICE_JWT_SECRET="")
-    def test_reads_the_environment_when_no_signing_key_is_configured(self) -> None:
-        with (
-            patch("posthog.integration_secrets.client.internal_requests.post") as post,
-            patch.dict("os.environ", {KEY: "from-env"}),
-        ):
-            assert self.secrets.get(KEY) == "from-env"
-            post.assert_not_called()
-
     @override_settings(INTEGRATION_SERVICE_URL="", INTEGRATION_SERVICE_JWT_SECRET="")
     def test_raises_when_unconfigured_and_the_environment_has_nothing_either(self) -> None:
-        with patch.dict("os.environ", {}, clear=False):
-            with pytest.raises(SecretMissingError):
-                self.secrets.get("A_KEY_NOBODY_SET")
-
-    @parameterized.expand(
-        [
-            ("both unset", "", "", False),
-            ("url only", "http://svc", "", False),
-            ("key only", "", "key", False),
-            ("both set", "http://svc", "key", True),
-        ]
-    )
-    def test_enabled_requires_both_url_and_key(self, _name: str, url: str, key: str, expected: bool) -> None:
-        with override_settings(INTEGRATION_SERVICE_URL=url, INTEGRATION_SERVICE_JWT_SECRET=key):
-            assert integration_service_enabled() is expected
+        with pytest.raises(SecretMissingError):
+            IntegrationSecretsClient().get("A_KEY_NOBODY_SET", CALLER)
 
 
 @override_settings(**SERVICE_SETTINGS)
@@ -230,6 +185,9 @@ class TestMintedToken(TestCase):
 
     def setUp(self) -> None:
         self.secrets = IntegrationSecretsClient()
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
 
     def _claims_from_call(self, post: Any) -> dict[str, Any]:
         header = post.call_args.kwargs["headers"]["Authorization"]
@@ -241,59 +199,25 @@ class TestMintedToken(TestCase):
         )
 
     def test_carries_only_the_keys_this_call_needs(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({KEY: steady("sec")})),
-        ) as post:
-            self.secrets.get(KEY)
+        with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))) as post:
+            self.secrets.get(KEY, CALLER)
             claims = self._claims_from_call(post)
 
         assert claims["keys"] == [KEY]
-        assert claims["caller"] == "posthog-django"
         assert claims["aud"] == PosthogJwtAudience.INTEGRATION_SERVICE.value
 
+    # Attribution, not authorization: the service records it but grants nothing on it.
+    def test_names_the_product_that_asked_rather_than_the_pod(self) -> None:
+        with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))) as post:
+            self.secrets.get(KEY, IntegrationCaller.CDP)
+            assert self._claims_from_call(post)["caller"] == "cdp"
+
     def test_signs_with_the_newest_key_so_rotation_is_zero_downtime(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({KEY: steady("sec")})),
-        ) as post:
-            self.secrets.get(KEY)
-            header = post.call_args.kwargs["headers"]["Authorization"]
+        with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))) as post:
+            self.secrets.get(KEY, CALLER)
+            token = post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
 
-        # Verifies under the new key, and not under the retired one.
-        jwt.decode(
-            header.removeprefix("Bearer "),
-            "signing-key-new",
-            audience=PosthogJwtAudience.INTEGRATION_SERVICE.value,
-            algorithms=["HS256"],
-        )
+        audience = PosthogJwtAudience.INTEGRATION_SERVICE.value
+        jwt.decode(token, "signing-key-new", audience=audience, algorithms=["HS256"])
         with pytest.raises(jwt.InvalidSignatureError):
-            jwt.decode(
-                header.removeprefix("Bearer "),
-                "signing-key-old",
-                audience=PosthogJwtAudience.INTEGRATION_SERVICE.value,
-                algorithms=["HS256"],
-            )
-
-    def test_omits_previous_used_when_nothing_has_been_reported(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({KEY: steady("sec")})),
-        ) as post:
-            self.secrets.get(KEY)
-            assert "previous_used" not in self._claims_from_call(post)
-
-    # This report is the only way the service can tell "the rotation has landed" apart
-    # from "nothing is reading this credential" — see safeToRetirePrevious.
-    def test_reports_previous_used_on_the_next_request_then_stops(self) -> None:
-        with patch(
-            "posthog.integration_secrets.client.internal_requests.post",
-            return_value=FakeResponse(body({KEY: steady("sec")}, max_age=0)),
-        ) as post:
-            self.secrets.get(KEY)
-            self.secrets.report_previous_used(KEY)
-            self.secrets.get(KEY)
-            assert self._claims_from_call(post)["previous_used"] == [KEY]
-
-            self.secrets.get(KEY)
-            assert "previous_used" not in self._claims_from_call(post)
+            jwt.decode(token, "signing-key-old", audience=audience, algorithms=["HS256"])

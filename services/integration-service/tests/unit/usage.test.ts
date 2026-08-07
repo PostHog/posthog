@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest'
 import type { ProviderSnapshot } from '@/types.js'
 import { buildUsageMap, type UsageMap } from '@/usage/publisher.js'
 
+const ACTIVATED_AT = '2026-08-01T00:00:00.000Z'
+const BEFORE = Date.parse('2026-07-30T00:00:00.000Z')
+const AFTER = Date.parse('2026-08-02T00:00:00.000Z')
+
 const ROTATING: ProviderSnapshot = {
     provider: 'google-ads',
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v-new',
-    currentActivatedAt: '2026-08-01T00:00:00.000Z',
+    currentActivatedAt: ACTIVATED_AT,
     secrets: {
         GOOGLE_ADS_APP_CLIENT_SECRET: {
             state: 'rotating',
@@ -22,7 +26,6 @@ const ROTATING: ProviderSnapshot = {
 function build(opts: {
     snapshots?: ProviderSnapshot[]
     reads?: Record<string, number>
-    previousUsed?: Record<string, number>
     lastSeen?: Record<string, number>
 }): UsageMap {
     return buildUsageMap({
@@ -31,56 +34,59 @@ function build(opts: {
         quietWindowHours: 24,
         snapshots: opts.snapshots ?? [ROTATING],
         reads: new Map(Object.entries(opts.reads ?? {})),
-        previousUsed: new Map(Object.entries(opts.previousUsed ?? {})),
         lastSeen: new Map(Object.entries(opts.lastSeen ?? {})),
     })
 }
 
 const KEY = 'GOOGLE_ADS_APP_CLIENT_SECRET'
-const CALLER = 'temporal-worker-data-warehouse'
+const WORKER = 'temporal-worker-data-warehouse'
+const DJANGO = 'posthog-django'
 
 describe('usage map', () => {
-    it('attributes reads to the caller that made them', () => {
-        const usage = build({ reads: { [`${KEY}|${CALLER}`]: 42 } })
-        expect(usage.keys[KEY]?.callers).toEqual([{ caller: CALLER, reads24h: 42, previousUsed24h: 0, lastSeen: null }])
+    it('attributes reads to the deployment that made them', () => {
+        const usage = build({ reads: { [`${KEY}|${WORKER}`]: 42 } })
+        expect(usage.keys[KEY]?.callers[0]).toMatchObject({ caller: WORKER, reads24h: 42 })
     })
 
     it('carries the rotation state and current version through', () => {
-        const usage = build({ reads: { [`${KEY}|${CALLER}`]: 1 } })
+        const usage = build({ reads: { [`${KEY}|${WORKER}`]: 1 } })
         expect(usage.keys[KEY]).toMatchObject({
             provider: 'google-ads',
             state: 'rotating',
             currentVersionId: 'v-new',
-            currentActivatedAt: '2026-08-01T00:00:00.000Z',
+            currentActivatedAt: ACTIVATED_AT,
         })
     })
 
+    // Sound only because callers do not cache: a read after activation necessarily
+    // returned the new value, so "read since" means "using the new value".
     describe('safeToRetirePrevious', () => {
-        it('is true when nobody needed the previous value and the current one is being read', () => {
-            const usage = build({ reads: { [`${KEY}|${CALLER}`]: 100 } })
+        it('is true when every reader has read since the new value was activated', () => {
+            const usage = build({
+                reads: { [`${KEY}|${WORKER}`]: 100, [`${KEY}|${DJANGO}`]: 5 },
+                lastSeen: { [`${KEY}|${WORKER}`]: AFTER, [`${KEY}|${DJANGO}`]: AFTER },
+            })
             expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(true)
         })
 
-        // The trap the two-condition rule exists for. Zero previous-value use looks
-        // identical whether the rotation has landed everywhere or nothing is reading the
-        // credential at all — and only one of those is safe to act on.
-        it('is false when nothing is reading the credential at all', () => {
-            const usage = build({ reads: {}, previousUsed: {} })
-            expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(false)
+        // The trap: with nothing reading the credential, "no reader is still on the old
+        // value" is vacuously true, and retiring would look safe when it is not.
+        it('is false when nothing reads the credential at all', () => {
+            expect(build({}).keys[KEY]?.safeToRetirePrevious).toBe(false)
         })
 
-        it('is false while any caller still needs the previous value', () => {
+        it('is false while a reader has not come back since activation', () => {
             const usage = build({
-                reads: { [`${KEY}|${CALLER}`]: 100 },
-                previousUsed: { [`${KEY}|${CALLER}`]: 1 },
+                reads: { [`${KEY}|${WORKER}`]: 100 },
+                lastSeen: { [`${KEY}|${WORKER}`]: BEFORE },
             })
             expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(false)
         })
 
-        it('is false when one caller has migrated but another has not', () => {
+        it('is false when one deployment has moved on but another has not', () => {
             const usage = build({
-                reads: { [`${KEY}|${CALLER}`]: 100, [`${KEY}|posthog-django`]: 5 },
-                previousUsed: { [`${KEY}|posthog-django`]: 3 },
+                reads: { [`${KEY}|${WORKER}`]: 100, [`${KEY}|${DJANGO}`]: 5 },
+                lastSeen: { [`${KEY}|${WORKER}`]: AFTER, [`${KEY}|${DJANGO}`]: BEFORE },
             })
             expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(false)
         })
@@ -88,37 +94,41 @@ describe('usage map', () => {
         it('is false for a key that is not mid-rotation, since there is nothing to retire', () => {
             const steady: ProviderSnapshot = {
                 ...ROTATING,
-                secrets: {
-                    [KEY]: { state: 'steady', value: 'ga-only', versionId: 'v-new', fetchedAt: 'now' },
-                },
+                secrets: { [KEY]: { state: 'steady', value: 'only', versionId: 'v-new', fetchedAt: 'now' } },
             }
-            const usage = build({ snapshots: [steady], reads: { [`${KEY}|${CALLER}`]: 100 } })
+            const usage = build({
+                snapshots: [steady],
+                reads: { [`${KEY}|${WORKER}`]: 100 },
+                lastSeen: { [`${KEY}|${WORKER}`]: AFTER },
+            })
+            expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(false)
+        })
+
+        it('is false when the current version has no activation time to compare against', () => {
+            const undated: ProviderSnapshot = { ...ROTATING, currentActivatedAt: null }
+            const usage = build({
+                snapshots: [undated],
+                reads: { [`${KEY}|${WORKER}`]: 100 },
+                lastSeen: { [`${KEY}|${WORKER}`]: AFTER },
+            })
             expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(false)
         })
     })
 
-    // The artifact lands in an S3 bucket the secrets UI reads. It carries topology, and
-    // topology only.
+    // The artifact lands in an S3 bucket the secrets UI reads. It carries topology only.
     it('contains no credential values once serialized', () => {
         const serialized = JSON.stringify(
-            build({
-                reads: { [`${KEY}|${CALLER}`]: 5 },
-                previousUsed: { [`${KEY}|${CALLER}`]: 1 },
-                lastSeen: { [`${KEY}|${CALLER}`]: Date.parse('2026-08-06T11:00:00.000Z') },
-            })
+            build({ reads: { [`${KEY}|${WORKER}`]: 5 }, lastSeen: { [`${KEY}|${WORKER}`]: AFTER } })
         )
 
         expect(serialized).not.toContain('ga-new-super-secret')
         expect(serialized).not.toContain('ga-old-super-secret')
         expect(serialized).toContain(KEY)
-        expect(serialized).toContain(CALLER)
+        expect(serialized).toContain(WORKER)
     })
 
-    it('records last-seen for callers that have read the key', () => {
-        const usage = build({
-            reads: { [`${KEY}|${CALLER}`]: 5 },
-            lastSeen: { [`${KEY}|${CALLER}`]: Date.parse('2026-08-06T11:00:00.000Z') },
-        })
-        expect(usage.keys[KEY]?.callers[0]?.lastSeen).toBe('2026-08-06T11:00:00.000Z')
+    it('records last-seen for deployments that have read the key', () => {
+        const usage = build({ reads: { [`${KEY}|${WORKER}`]: 5 }, lastSeen: { [`${KEY}|${WORKER}`]: AFTER } })
+        expect(usage.keys[KEY]?.callers[0]?.lastSeen).toBe(new Date(AFTER).toISOString())
     })
 })

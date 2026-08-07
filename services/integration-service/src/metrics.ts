@@ -1,19 +1,16 @@
 // Prometheus metrics for the integration-service.
 //
-// Cardinality is caller × provider × key. Both the caller set (the client registry) and
-// the key set (src/providers.ts) are fixed configuration, so the series count is bounded
-// — but only because nothing here ever takes a label value from a request. A key a caller
-// names that the manifest does not define is recorded under a constant label instead; see
-// policy/resolve.ts. Never add a per-team or per-request label.
+// Cardinality is deployment × product × provider × key. Every one of those is drawn from
+// fixed configuration in code, never from a request: a key the manifest does not define
+// and a product we do not recognise both collapse to a constant. See policy/resolve.ts
+// and deployments.ts. Never add a per-team or per-request label.
 //
-// The rotation metrics are the reason this service is worth instrumenting at all. See
-// the note on previousVersionUseTotal — "was the old value still needed" is the
-// question a rotation actually turns on, and it is not the same question as "did we
-// serve the old value".
+// Everything here is measured by this service. Nothing is reported to it by a caller, so
+// no metric depends on a client being well behaved, current, or honest.
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { ResolveOutcome } from './types.js'
+import type { CallerIdentity, ResolveOutcome } from './types.js'
 
 export const register = new Registry()
 
@@ -25,8 +22,10 @@ collectDefaultMetrics({ register, prefix: 'integration_service_' })
 
 export const resolveTotal = new Counter({
     name: 'integration_secret_resolve_total',
-    help: 'Credential field resolutions, by caller and outcome',
-    labelNames: ['caller', 'provider', 'key', 'result'],
+    help: 'Credential field resolutions, by deployment, product and outcome',
+    // `deployment` is authenticated; `product` is caller-supplied but collapsed to a
+    // known set in deployments.ts, so both stay bounded.
+    labelNames: ['deployment', 'product', 'provider', 'key', 'result'],
     registers: [register],
 })
 
@@ -47,25 +46,6 @@ export const previousVersionServedTotal = new Counter({
     name: 'integration_secret_previous_version_served_total',
     help: 'Responses in which a previous (AWSPREVIOUS) value was included alongside the current one',
     labelNames: ['provider', 'key'],
-    registers: [register],
-})
-
-// The one that gates retiring an old value.
-//
-// We serve both values during a rotation and cannot observe which one the caller's
-// request to the third party actually succeeded with — so this is NOT inferred here.
-// It is reported by the caller: a client that fell back to the previous value lists
-// that key in the signed `previous_used` claim on its next resolve. Signed, so it
-// cannot be forged by anything that is not already an authorized caller, and free of
-// an extra round trip.
-//
-// When this stays at zero across the quiet window AND current-value reads are
-// non-zero, the old value is safe to delete. Zero on its own is not evidence — it is
-// equally consistent with nothing reading the credential at all.
-export const previousVersionUseTotal = new Counter({
-    name: 'integration_secret_previous_version_use_total',
-    help: 'Times a caller reported that only the previous value worked against the third party',
-    labelNames: ['caller', 'provider', 'key'],
     registers: [register],
 })
 
@@ -151,8 +131,13 @@ export const shuttingDown = new Gauge({
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function observeResolve(caller: string, provider: string, key: string, result: ResolveOutcome): void {
-    resolveTotal.labels({ caller, provider, key, result }).inc()
+export function observeResolve(
+    identity: Pick<CallerIdentity, 'deployment' | 'product'>,
+    provider: string,
+    key: string,
+    result: ResolveOutcome
+): void {
+    resolveTotal.labels({ deployment: identity.deployment, product: identity.product, provider, key, result }).inc()
     if (result === 'ok') {
         lastResolvedTimestamp.labels({ provider, key }).set(Date.now() / 1000)
     }

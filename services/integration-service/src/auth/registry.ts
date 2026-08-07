@@ -1,56 +1,60 @@
-// The client registry: caller name -> signing keys + allowed providers.
+// The service's own signing keys, one entry per calling deployment.
 //
-// Lives in Secrets Manager (`<prefix>_clients`) rather than in code, so onboarding a
-// caller or rotating its signing key is a secrets change with no service deploy. That
-// matters because the alternative — a deploy per key rotation — is exactly the friction
-// that makes people not rotate.
+// Stored in this service's AWS secret as flat uppercase keys, which is what the
+// PostHog/secrets CLI and UI can manage:
+//
+//   integration-service-secrets
+//     CALLER_KEY_POSTHOG_DJANGO                  = "<new>,<old>"
+//     CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE  = "<new>,<old>"
+//
+// The same value is also set as INTEGRATION_SERVICE_JWT_SECRET in that deployment's own
+// secret. Duplicating one value per deployment is inherent to shared-secret auth, and it
+// replaces 26 duplicated credentials with one.
 //
 // Held in process memory only, never written to Redis. Everything else this service
-// caches is a credential sealed under KMS; these are the keys that authenticate
-// callers, and there is no working set argument for putting them anywhere but here.
+// caches is a credential sealed under KMS; these are the keys that authenticate callers.
 
 import { GetSecretValueCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager'
 
+import { DEPLOYMENT_PROVIDERS } from '../deployments.js'
 import { logger } from '../lib/logging.js'
-import { PROVIDERS } from '../providers.js'
-import type { ClientRegistry, ClientRegistryEntry } from './types.js'
+import type { SigningKeys } from './types.js'
 
-function parseRegistry(raw: string): ClientRegistry {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new Error('client registry is not a JSON object')
-    }
+const KEY_PREFIX = 'CALLER_KEY_'
 
-    const registry: ClientRegistry = {}
-    for (const [caller, value] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-            throw new Error(`client registry entry for ${caller} is not an object`)
-        }
-        const entry = value as Partial<ClientRegistryEntry>
-        const keys = Array.isArray(entry.keys) ? entry.keys.filter((k) => typeof k === 'string' && k.length > 0) : []
-        const providers = Array.isArray(entry.providers)
-            ? entry.providers.filter((p) => typeof p === 'string' && p.length > 0)
-            : []
-
-        if (keys.length === 0) {
-            throw new Error(`client registry entry for ${caller} has no signing keys`)
-        }
-
-        // A provider that does not exist in the manifest is almost certainly a typo, and
-        // a typo'd allowlist silently grants nothing — which looks like a broken caller
-        // at 3am. Fail the parse instead, so it surfaces at load.
-        const unknown = providers.filter((p) => !(p in PROVIDERS))
-        if (unknown.length > 0) {
-            throw new Error(`client registry entry for ${caller} allows unknown provider(s): ${unknown.join(', ')}`)
-        }
-
-        registry[caller] = { keys, providers }
-    }
-    return registry
+/** `temporal-worker-data-warehouse` -> `CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE`. */
+export function secretKeyFor(deployment: string): string {
+    return `${KEY_PREFIX}${deployment.toUpperCase().replaceAll('-', '_')}`
 }
 
-export class ClientRegistryLoader {
-    private registry: ClientRegistry = {}
+function parseSigningKeys(raw: string): SigningKeys {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('signing key secret is not a JSON object')
+    }
+    const flat = parsed as Record<string, unknown>
+
+    const keys: SigningKeys = {}
+    for (const deployment of Object.keys(DEPLOYMENT_PROVIDERS)) {
+        const value = flat[secretKeyFor(deployment)]
+        if (typeof value !== 'string') {
+            continue
+        }
+        // Comma-separated `new,old`, whitespace-trimmed. Same convention as
+        // RECORDING_API_JWT_SECRET and the minting side.
+        const parts = value
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+        if (parts.length > 0) {
+            keys[deployment] = parts
+        }
+    }
+    return keys
+}
+
+export class SigningKeyLoader {
+    private keys: SigningKeys = {}
     private loaded = false
 
     constructor(
@@ -58,26 +62,30 @@ export class ClientRegistryLoader {
         private readonly secretId: string
     ) {}
 
-    /** Replace the in-memory registry. Throws on the first load so boot fails closed. */
+    /** Replace the in-memory key set. Throws on the first load so boot fails closed. */
     async load(): Promise<void> {
         const response = await this.client.send(new GetSecretValueCommand({ SecretId: this.secretId }))
         if (!response.SecretString) {
-            throw new Error(`client registry ${this.secretId} has no value`)
+            throw new Error(`signing key secret ${this.secretId} has no value`)
         }
-        this.registry = parseRegistry(response.SecretString)
+        const keys = parseSigningKeys(response.SecretString)
+        if (Object.keys(keys).length === 0) {
+            throw new Error(`signing key secret ${this.secretId} defines no deployment keys`)
+        }
+        this.keys = keys
         this.loaded = true
-        logger.info('auth:registry_loaded', { callers: Object.keys(this.registry).length })
+        logger.info('auth:signing_keys_loaded', { deployments: Object.keys(keys).sort() })
     }
 
     /**
-     * Reload, keeping the previous registry if the new one is unreadable. A malformed
-     * edit must not lock every caller out of a running fleet; it should page instead.
+     * Reload, keeping the previous keys if the new value is unreadable. A malformed edit
+     * must not lock every caller out of a running fleet; it should page instead.
      */
     async reload(): Promise<void> {
         try {
             await this.load()
         } catch (err) {
-            logger.error('auth:registry_reload_failed', {
+            logger.error('auth:signing_keys_reload_failed', {
                 error: err instanceof Error ? err.message : String(err),
             })
         }
@@ -87,7 +95,8 @@ export class ClientRegistryLoader {
         return this.loaded
     }
 
-    entryFor(caller: string): ClientRegistryEntry | null {
-        return this.registry[caller] ?? null
+    /** Every deployment and its accepted keys, for the verifier to try in turn. */
+    entries(): [string, string[]][] {
+        return Object.entries(this.keys)
     }
 }

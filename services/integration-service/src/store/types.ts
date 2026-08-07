@@ -19,5 +19,13 @@ export interface SecretStore {
     loadProvider(provider: string): Promise<ProviderSnapshot | null>
 }
 
-/** Reserved key inside a provider's JSON blob; never a credential field. */
-export const STATE_MARKER_KEY = '_state'
+/**
+ * Reserved field inside a provider's secret naming the credentials that are in recovery,
+ * comma-separated. Uppercase and flat because PostHog/secrets only manages
+ * `[A-Z0-9_]+` keys with plain string values — a nested object would be invisible to
+ * the CLI and the UI, which are the tools meant to operate this.
+ *
+ * Never a credential field: the provider manifest defines those, and this name is not
+ * in it.
+ */
+export const RECOVERY_FIELD = 'INTEGRATION_RECOVERY_FIELDS'

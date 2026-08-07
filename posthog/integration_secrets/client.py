@@ -3,30 +3,31 @@
 These are the OAuth app client ids/secrets and API keys PostHog itself owns, which used
 to be injected as environment variables into every pod that might need one. Reading them
 over HTTP means rotation happens in one place with no charts PR and no pod restart, and
-every read is attributed to a caller.
+every read is attributed.
 
-Three behaviours are load-bearing and worth knowing before changing anything here:
+Three behaviours are load-bearing:
 
-1. **Resolve on use, not at import.** A value cached for `max_age_seconds` (set by the
-   service, not by us) is the switchover latency during an emergency rotation. Hoisting
-   a value into a module constant would put us back where we started.
+1. **No caching, anywhere.** Every call resolves against the service. That makes the
+   service a hard dependency on the credential path, which is the deliberate trade: it
+   also makes a rotation land immediately, and it is what lets the service decide when an
+   old value is safe to retire (a read after activation necessarily returned the new
+   value, which is only true if nobody cached it).
 
-2. **Last-known-good on failure.** Warehouse syncs and OAuth refreshes now depend on this
-   service. A blip must degrade, not fail, so an expired value is served when the service
-   is unreachable.
+2. **A failure is a failure.** With no cache there is no last known good, so an
+   unreachable service raises rather than quietly serving something stale. The service
+   needs an availability SLO before the environment variables come out.
 
-3. **Environment fallback when unconfigured.** This repository is public and self-hosted
-   deployments have no such service, so an unset `INTEGRATION_SERVICE_URL` means "read
-   `os.environ` exactly as before". It doubles as the local-dev path and the break-glass.
+3. **Environment fallback only when the client is off.** Unconfigured, flag disabled, or
+   a flag check that errored means "read `os.environ` as before". That covers self-hosted
+   deployments, local development, and the rollout window. It is not an outage path: once
+   the client is on and the service is down, the call fails.
 
 The token carries the request. `keys` is the exact set this call needs, so a token lifted
-from a log or a trace unlocks those fields for five minutes rather than everything this
-caller is entitled to — there is deliberately no request body.
+from a log unlocks those fields for five minutes rather than everything the deployment
+may read. There is deliberately no request body.
 """
 
 import os
-import time
-import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -34,12 +35,14 @@ from typing import Any
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
 
+from .callers import IntegrationCaller
 from .errors import SecretDeniedError, SecretInRecoveryError, SecretMissingError
 
 logger = structlog.get_logger(__name__)
@@ -47,8 +50,13 @@ logger = structlog.get_logger(__name__)
 RESOLVE_PATH = "/v1/secrets/resolve"
 TOKEN_TTL = timedelta(minutes=5)
 REQUEST_TIMEOUT_SECONDS = 5
-# Used only when the service omits the hint; the service normally sets it.
-DEFAULT_MAX_AGE_SECONDS = 60
+
+# Rollout gate. Evaluated per call, so it can be turned off without a deploy if the
+# service misbehaves. posthoganalytics evaluates locally when a personal API key is
+# configured; if that ever stops being true this becomes a network hop on the credential
+# path and should move to a settings-only gate.
+INTEGRATION_SERVICE_FLAG = "integration-service-enabled"
+INTEGRATION_SERVICE_FLAG_DISTINCT_ID = "integration_service"
 
 INTEGRATION_SECRET_FETCH_COUNTER = Counter(
     "posthog_integration_secret_fetch_total",
@@ -72,47 +80,42 @@ class SecretValue:
     previous: str | None
 
 
-@dataclass(frozen=True, kw_only=True)
-class _CacheEntry:
-    secret: SecretValue
-    expires_at: float
-
-
 def integration_service_signing_keys() -> list[str]:
     """The comma-separated `new_key,old_key` set, newest first, whitespace-trimmed.
 
-    Same convention as RECORDING_API_JWT_SECRET: sign with the first, and the service
-    verifies against all of this caller's keys, so rotation is zero-downtime.
+    Same convention as RECORDING_API_JWT_SECRET: sign with the first. The service accepts
+    every key it holds for this deployment, so a key rotation is zero-downtime.
     """
     return [key for key in get_list(settings.INTEGRATION_SERVICE_JWT_SECRET or "") if key]
 
 
-def integration_service_enabled() -> bool:
-    """True once both a service URL and a signing key are configured.
+def _flag_enabled() -> bool:
+    """The rollout flag, failing closed.
 
-    Until then every read falls back to the environment, so the client can ship dormant
-    and be enabled per environment.
+    Closed here means "do not use the service" — the old environment-variable path. A
+    flag service blip must not take out credential reads, and during the rollout the
+    environment variables are still present, so falling back is safe.
     """
-    return bool(settings.INTEGRATION_SERVICE_URL) and bool(integration_service_signing_keys())
+    try:
+        return bool(posthoganalytics.feature_enabled(INTEGRATION_SERVICE_FLAG, INTEGRATION_SERVICE_FLAG_DISTINCT_ID))
+    except Exception:
+        logger.warning("integration_secrets.flag_check_failed_defaulting_off", exc_info=True)
+        return False
+
+
+def integration_service_enabled() -> bool:
+    """True when the service is configured and the rollout flag is on."""
+    if not settings.INTEGRATION_SERVICE_URL or not integration_service_signing_keys():
+        return False
+    return _flag_enabled()
 
 
 class IntegrationSecretsClient:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._cache: dict[str, _CacheEntry] = {}
-        # Keys whose last successful third-party call needed the previous value. Reported
-        # on the next resolve so a rotation can tell "nobody needs the old value" apart
-        # from "nothing is reading this at all" — see the service's usage rollup.
-        self._previous_used: set[str] = set()
+    def get(self, key: str, caller: IntegrationCaller) -> str:
+        return self.get_many([key], caller)[key]
 
-    # -- public API ---------------------------------------------------------------
-
-    def get(self, key: str) -> str:
-        value = self.get_many([key])[key]
-        return value
-
-    def get_many(self, keys: list[str]) -> dict[str, str]:
-        resolved = self._resolve(keys)
+    def get_many(self, keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
+        resolved = self._resolve(keys, caller)
         out: dict[str, str] = {}
         for key in keys:
             secret = resolved[key]
@@ -121,71 +124,33 @@ class IntegrationSecretsClient:
             out[key] = secret.value
         return out
 
-    def get_with_previous(self, key: str) -> tuple[str, str | None]:
+    def get_with_previous(self, key: str, caller: IntegrationCaller) -> tuple[str, str | None]:
         """Current value plus the outgoing one while a rotation is in flight.
 
         For callers that can retry against a third party: try current, and on an auth
-        failure retry with previous and call `report_previous_used(key)` so the rotation
-        knows the old value is still needed.
+        failure retry with previous. Nothing is reported back — the service works out for
+        itself when the old value is safe to retire.
         """
-        secret = self._resolve([key])[key]
+        secret = self._resolve([key], caller)[key]
         if secret.state == "recovery" or secret.value is None:
             raise SecretInRecoveryError(key)
         return secret.value, secret.previous
 
-    def report_previous_used(self, key: str) -> None:
-        with self._lock:
-            self._previous_used.add(key)
-
-    def clear_cache(self) -> None:
-        with self._lock:
-            self._cache.clear()
-
-    # -- internals ----------------------------------------------------------------
-
-    def _resolve(self, keys: list[str]) -> dict[str, SecretValue]:
+    def _resolve(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
         if not integration_service_enabled():
-            INTEGRATION_SECRET_ENV_FALLBACK_COUNTER.labels(reason="not_configured").inc()
+            INTEGRATION_SECRET_ENV_FALLBACK_COUNTER.labels(reason="disabled").inc()
             return {key: self._from_environment(key) for key in keys}
+        return self._fetch(keys, caller)
 
-        now = _monotonic()
-        with self._lock:
-            fresh = {key: entry.secret for key, entry in self._cache.items() if key in keys and entry.expires_at > now}
-        wanted = [key for key in keys if key not in fresh]
-        if not wanted:
-            INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="cache_hit").inc()
-            return fresh
-
-        try:
-            fetched = self._fetch(wanted)
-        except Exception as error:
-            return {**fresh, **self._degrade(wanted, error)}
-
-        return {**fresh, **fetched}
-
-    def _fetch(self, keys: list[str]) -> dict[str, SecretValue]:
-        with self._lock:
-            previous_used = sorted(self._previous_used & set(keys))
-
+    def _fetch(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
         response = internal_requests.post(
             f"{settings.INTEGRATION_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}",
-            headers=self._auth_headers(keys, previous_used),
+            headers=self._auth_headers(keys, caller),
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         body: dict[str, Any] = response.json()
 
-        with self._lock:
-            # The report has been delivered; drop it so it is not counted again.
-            self._previous_used -= set(previous_used)
-
-        # Explicit None check, not `or`: 0 is a meaningful value meaning "do not cache
-        # this at all", which is how an emergency rotation is driven fleet-wide without
-        # redeploying callers. Treating it as falsy would silently keep serving the
-        # burned credential for the default TTL.
-        raw_max_age = body.get("max_age_seconds")
-        max_age = DEFAULT_MAX_AGE_SECONDS if raw_max_age is None else int(raw_max_age)
-        expires_at = _monotonic() + max_age
         denied = set(body.get("denied") or [])
         missing = set(body.get("missing") or [])
         secrets: dict[str, Any] = body.get("secrets") or {}
@@ -200,56 +165,23 @@ class IntegrationSecretsClient:
                 raise SecretMissingError(key)
 
             payload = secrets[key]
-            secret = SecretValue(
+            resolved[key] = SecretValue(
                 state=payload.get("state", "steady"),
                 value=payload.get("value"),
                 previous=payload.get("previous"),
             )
-            resolved[key] = secret
             INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="ok").inc()
-            with self._lock:
-                self._cache[key] = _CacheEntry(secret=secret, expires_at=expires_at)
 
         return resolved
 
-    def _auth_headers(self, keys: list[str], previous_used: list[str]) -> dict[str, str]:
-        payload: dict[str, Any] = {"caller": settings.INTEGRATION_SERVICE_CALLER, "keys": sorted(keys)}
-        if previous_used:
-            payload["previous_used"] = previous_used
+    def _auth_headers(self, keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
         token = encode_jwt(
-            payload,
+            {"caller": str(caller), "keys": sorted(set(keys))},
             TOKEN_TTL,
             PosthogJwtAudience.INTEGRATION_SERVICE,
             signing_key=integration_service_signing_keys()[0],
         )
         return {"Authorization": f"Bearer {token}"}
-
-    def _degrade(self, keys: list[str], error: Exception) -> dict[str, SecretValue]:
-        """Serve the last known good value, or fall back to the environment.
-
-        Deliberately does NOT re-raise for a transport failure: the alternative is that a
-        few seconds of integration-service unavailability fails every warehouse sync in
-        flight. A denial or a missing key is a different matter and propagates.
-        """
-        if isinstance(error, SecretDeniedError | SecretMissingError | SecretInRecoveryError):
-            raise error
-
-        logger.warning(
-            "integration_secrets.fetch_failed",
-            keys=sorted(keys),
-            error=str(error),
-        )
-        out: dict[str, SecretValue] = {}
-        for key in keys:
-            with self._lock:
-                stale = self._cache.get(key)
-            if stale is not None:
-                INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="stale").inc()
-                out[key] = stale.secret
-                continue
-            INTEGRATION_SECRET_ENV_FALLBACK_COUNTER.labels(reason="service_unavailable").inc()
-            out[key] = self._from_environment(key)
-        return out
 
     def _from_environment(self, key: str) -> SecretValue:
         value = os.environ.get(key) or getattr(settings, key, "")
@@ -258,28 +190,16 @@ class IntegrationSecretsClient:
         return SecretValue(state="steady", value=value, previous=None)
 
 
-def _monotonic() -> float:
-    return time.monotonic()
-
-
 _client = IntegrationSecretsClient()
 
 
-def get(key: str) -> str:
-    return _client.get(key)
+def get(key: str, caller: IntegrationCaller) -> str:
+    return _client.get(key, caller)
 
 
-def get_many(keys: list[str]) -> dict[str, str]:
-    return _client.get_many(keys)
+def get_many(keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
+    return _client.get_many(keys, caller)
 
 
-def get_with_previous(key: str) -> tuple[str, str | None]:
-    return _client.get_with_previous(key)
-
-
-def report_previous_used(key: str) -> None:
-    _client.report_previous_used(key)
-
-
-def clear_cache() -> None:
-    _client.clear_cache()
+def get_with_previous(key: str, caller: IntegrationCaller) -> tuple[str, str | None]:
+    return _client.get_with_previous(key, caller)

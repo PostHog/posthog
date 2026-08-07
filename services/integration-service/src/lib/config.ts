@@ -21,15 +21,16 @@ export interface Config {
     /** Set only in tests / local dev to point the AWS SDK at moto. */
     awsEndpoint: string | undefined
 
-    secretPrefix: string
-    clientRegistrySecretId: string
+    /** Builds the AWS secret id for a provider, in the shape PostHog/secrets manages. */
+    secretIdFor: (provider: string) => string
+    /** This service's own secret, holding one signing key per calling deployment. */
+    signingKeySecretId: string
 
     redisUrl: string | undefined
     kmsKeyId: string | undefined
     dekRotationMs: number
 
     cacheTtlSeconds: number
-    clientMaxAgeSeconds: number
 
     usageBucket: string | undefined
     usageKmsKeyId: string | undefined
@@ -50,7 +51,11 @@ function intFromEnv(key: Parameters<typeof getEnv>[0], fallback: number): number
 
 export function loadConfig(): Config {
     const isProduction = getEnv('NODE_ENV') === 'production'
-    const secretPrefix = getEnv('INTEGRATION_SERVICE_SECRET_PREFIX') ?? 'integrations/'
+    // PostHog/secrets names every managed secret `<app>-secrets` and only shows secrets
+    // tagged managed-by=secrets-script, so provider credentials have to live under names
+    // its CLI and UI resolve. `integrations-stripe` -> `integrations-stripe-secrets`.
+    const secretPrefix = getEnv('INTEGRATION_SERVICE_SECRET_PREFIX') ?? 'integrations-'
+    const secretSuffix = '-secrets'
 
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -63,17 +68,14 @@ export function loadConfig(): Config {
         awsRegion: getEnv('AWS_REGION') ?? 'us-east-1',
         awsEndpoint: getEnv('AWS_ENDPOINT_URL'),
 
-        secretPrefix,
-        clientRegistrySecretId: `${secretPrefix}_clients`,
+        secretIdFor: (provider: string) => `${secretPrefix}${provider}${secretSuffix}`,
+        signingKeySecretId: getEnv('INTEGRATION_SERVICE_KEYS_SECRET_ID') ?? `integration-service${secretSuffix}`,
 
         redisUrl: getEnv('INTEGRATION_SERVICE_REDIS_URL'),
         kmsKeyId: getEnv('INTEGRATION_SERVICE_KMS_KEY_ID'),
         dekRotationMs: intFromEnv('INTEGRATION_SERVICE_DEK_ROTATION_SECONDS', 3600) * 1000,
 
         cacheTtlSeconds: intFromEnv('INTEGRATION_SERVICE_CACHE_TTL_SECONDS', 300),
-        // How long a caller may hold a value. Server-controlled on purpose: dropping it
-        // to 0 fleet-wide during an emergency rotation needs no caller redeploy.
-        clientMaxAgeSeconds: intFromEnv('INTEGRATION_SERVICE_CLIENT_MAX_AGE_SECONDS', 60),
 
         usageBucket: getEnv('INTEGRATION_SERVICE_USAGE_BUCKET'),
         usageKmsKeyId: getEnv('INTEGRATION_SERVICE_USAGE_KMS_KEY_ID'),
