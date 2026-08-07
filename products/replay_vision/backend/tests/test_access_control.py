@@ -6,7 +6,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
-from products.replay_vision.backend.tests.test_api import TestScannerExperimentTargeting, _VisionAPITestCase
+from products.replay_vision.backend.tests.helpers import create_experiment
+from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.replay_vision.backend.tests.test_vision_actions_api import _VisionActionAPITestCase
 
 try:
@@ -190,7 +191,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
     def test_experiment_targeting_rejects_an_experiment_the_caller_cannot_view(self) -> None:
         # A scanner-editor without experiment access must not be able to confirm an experiment's
         # existence via the targeting validation response; a denied experiment reads as not-found.
-        experiment = TestScannerExperimentTargeting._create_experiment(self.team, "denied-flag")
+        experiment = create_experiment(self.team, "denied-flag")
         self._set_resource_default("experiment", "none")
         self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
 

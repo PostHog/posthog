@@ -15,8 +15,6 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
-from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
@@ -42,7 +40,10 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    create_experiment,
+    snapshot_for as _snapshot_for,
+)
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -691,21 +692,12 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 class TestScannerExperimentTargeting(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.experiment = self._create_experiment(self.team, "checkout-redesign")
+        self.experiment = create_experiment(self.team, "checkout-redesign")
         self.targeting = {
             "experiment_id": self.experiment.id,
             "variant_keys": ["test"],
             "use_exposure_fallback": False,
         }
-
-    @staticmethod
-    def _create_experiment(team: Team, flag_key: str) -> Experiment:
-        flag = FeatureFlag.objects.create(
-            team=team,
-            key=flag_key,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        return Experiment.objects.create(team=team, name=f"exp-{flag_key}", feature_flag=flag)
 
     def _create_payload(self, name: str, **extra: Any) -> dict[str, Any]:
         return {
@@ -734,22 +726,29 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         [
             ("missing_experiment", {"variant_keys": [], "use_exposure_fallback": False}),
             ("bad_experiment_id", {"experiment_id": 0, "variant_keys": [], "use_exposure_fallback": False}),
-            ("bad_variant_keys", {"variant_keys": "not-a-list", "use_exposure_fallback": False}),
-            ("too_many_variant_keys", {"variant_keys": [f"v{i}" for i in range(51)], "use_exposure_fallback": False}),
+            (
+                "variant_keys_not_a_list",
+                {"experiment_id": 9, "variant_keys": "not-a-list", "use_exposure_fallback": False},
+            ),
+            ("blank_variant_key", {"experiment_id": 9, "variant_keys": [""], "use_exposure_fallback": False}),
+            (
+                "too_many_variant_keys",
+                {"experiment_id": 9, "variant_keys": [f"v{i}" for i in range(51)], "use_exposure_fallback": False},
+            ),
         ]
     )
     def test_experiment_targeting_rejects_malformed(self, _name: str, targeting: dict[str, Any]) -> None:
-        payload = {**self.targeting, **targeting}
-        if "experiment_id" not in targeting and _name == "missing_experiment":
-            payload.pop("experiment_id")
         resp = self.client.post(
-            self.scanners_url, data=self._create_payload("bad-ctx", experiment_targeting=payload), format="json"
+            self.scanners_url, data=self._create_payload("bad-ctx", experiment_targeting=targeting), format="json"
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 400, resp.json())
+        # The field's nested validation reports the exact offending key (e.g.
+        # experiment_targeting__variant_keys__0), so match on the prefix rather than the exact attr.
+        self.assertTrue(resp.json()["attr"].startswith("experiment_targeting"), resp.json())
 
     def test_partial_update_cannot_save_a_half_filled_targeting(self) -> None:
-        # PATCH makes the serializer partial; a nested serializer field would let the required
-        # keys through and persist an object the generated types say can't exist.
+        # PATCH makes the parent serializer partial; the custom field validates every write through
+        # a fresh non-partial serializer, so a half-filled object can't persist.
         scanner = self._create_scanner(name="patch-me", experiment_targeting=self.targeting)
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
@@ -762,7 +761,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
 
     def test_rejects_an_experiment_from_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
-        foreign = self._create_experiment(other_team, "foreign-flag")
+        foreign = create_experiment(other_team, "foreign-flag")
         resp = self.client.post(
             self.scanners_url,
             data=self._create_payload(
@@ -773,7 +772,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_list_filters_by_experiment_id(self) -> None:
-        other = self._create_experiment(self.team, "other-flag")
+        other = create_experiment(self.team, "other-flag")
         self._create_scanner(name="for-exp", experiment_targeting=self.targeting)
         self._create_scanner(name="for-other-exp", experiment_targeting={**self.targeting, "experiment_id": other.id})
         self._create_scanner(name="no-context")

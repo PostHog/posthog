@@ -181,7 +181,7 @@ class ScannerExperimentTargetingSerializer(serializers.Serializer):
         help_text="The experiment the scanner watches.",
     )
     variant_keys = serializers.ListField(
-        child=serializers.CharField(max_length=400),
+        child=serializers.CharField(max_length=400, allow_blank=False),
         allow_empty=True,
         max_length=50,
         help_text="Targeted experiment variants. Empty means every variant.",
@@ -194,21 +194,35 @@ class ScannerExperimentTargetingSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(ScannerExperimentTargetingSerializer(allow_null=True))
+class ScannerExperimentTargetingField(serializers.JSONField):
+    """The experiment-targeting blob, always validated whole.
+
+    A JSONField subclass rather than a nested serializer field so a partial PATCH can't save a
+    half-filled object: DRF propagates the parent's `partial` into nested serializers, but this
+    validates every write through a fresh non-partial serializer. Decorating the class (not an
+    instance) is what makes `extend_schema_field` land, so the generated types get the real shape.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        data = super().to_internal_value(data)
+        if data is None:
+            return None
+        nested = ScannerExperimentTargetingSerializer(data=data)
+        nested.is_valid(raise_exception=True)
+        return dict(nested.validated_data)
+
+
 class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A Replay Vision scanner: its type, targeting query, and AI configuration."""
 
-    # A JSONField validated whole in validate_experiment_targeting, not a nested serializer field:
-    # PATCH makes the parent serializer partial, which DRF propagates into nested serializers, so a
-    # nested field would accept and save a half-filled object.
-    experiment_targeting = extend_schema_field(ScannerExperimentTargetingSerializer(allow_null=True))(  # type: ignore[type-var]
-        serializers.JSONField(
-            required=False,
-            allow_null=True,
-            help_text=(
-                "The experiment this scanner's targeting watches, if any. "
-                "Set null when the experiment targeting is removed."
-            ),
-        )
+    experiment_targeting = ScannerExperimentTargetingField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The experiment this scanner's targeting watches, if any. "
+            "Set null when the experiment targeting is removed."
+        ),
     )
     name = serializers.CharField(
         max_length=255,
@@ -413,28 +427,21 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         return attrs
 
     def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        # The field already validated the blob's shape; this adds the access check, which needs the
+        # request context the field lacks. Filtered by the caller's experiment access (not just the
+        # team) so a scanner-editor can't confirm an experiment they can't view exists — a denied or
+        # cross-team id reads as not-found. Falls back to team scoping when there's no request context.
         if value is None:
             return None
-        nested = ScannerExperimentTargetingSerializer(data=value)
-        nested.is_valid(raise_exception=True)
-        data = dict(nested.validated_data)
-        # Scoped like a foreign key even though it's JSON: accepting a cross-team id would hand
-        # every later consumer of the field an experiment the caller can't access. Filtered by the
-        # caller's experiment access, not just the team, so a scanner-editor can't confirm the
-        # existence of an experiment they can't view (the not-found response is the same either way).
-        team = self.context["get_team"]()
-        team_experiments = Experiment.objects.filter(team=team)
-        # Narrow to experiments the caller can actually view when access control is in context, so
-        # a scanner-editor can't confirm the existence of an experiment they can't see. Without it
-        # (no request context), team scoping alone still prevents cross-team references.
+        team_experiments = Experiment.objects.filter(team=self.context["get_team"]())
         accessible = (
             self.user_access_control.filter_queryset_by_access_level(team_experiments)
             if self.user_access_control
             else team_experiments
         )
-        if not accessible.filter(id=data["experiment_id"]).exists():
+        if not accessible.filter(id=value["experiment_id"]).exists():
             raise serializers.ValidationError("Experiment not found in this project.")
-        return data
+        return value
 
     def validate_sampling_rate(self, value: float) -> float:
         # Below one modulo bucket the candidate query samples nothing — reject instead of silently scanning zero.
