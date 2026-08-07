@@ -4,8 +4,9 @@ import time
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.db.models import F
 from django.utils import timezone
@@ -544,11 +545,15 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     data_catalog_enabled = await database_sync_to_async(_data_catalog_enabled_for_team, thread_sensitive=False)(team)
+    previous_run_at = await database_sync_to_async(_previous_completed_run_at, thread_sensitive=False)(
+        team.id, skill.name, run_id
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
         team_id=team.id,
         started_at=started_at,
+        previous_run_at=previous_run_at,
         github_read_access=github_guidance,
         data_catalog_enabled=data_catalog_enabled,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
@@ -677,6 +682,36 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
         )
         .exists()
     )
+
+
+def _previous_completed_run_at(team_id: int, skill_name: str, run_id: UUID) -> datetime | None:
+    """When this scout's last completed run began, used to bound the prompt's scan window.
+
+    Anchors on `created_at` (the bridge row's insertion stamp) so it lines up with the
+    `started_at` the same prompt reports for the current run.
+
+    Only *completed* runs count. A run that failed before it scanned covers no window, so
+    anchoring on it would leave that window permanently unscanned — whereas anchoring past it
+    just re-reads ground a later run already covered, which dedupe memory absorbs. Overlap is
+    recoverable; a gap is not.
+
+    Excludes the current run defensively. Its bridge row is inserted from the session's
+    `on_task_run_created` hook, so today it cannot exist yet when the prompt is built, but that
+    ordering is not this function's to depend on.
+    """
+    previous = (
+        SignalScoutRun.objects.unscoped()
+        .filter(
+            team_id=team_id,
+            skill_name=skill_name,
+            task_run__status=tasks_facade.TaskRunStatus.COMPLETED,
+        )
+        .exclude(id=run_id)
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    return previous
 
 
 def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:

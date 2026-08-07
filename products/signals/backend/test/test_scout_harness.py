@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import BaseTest
@@ -41,6 +42,7 @@ from products.signals.backend.scout_harness.runner import (
     RunResult,
     _ai_stage,
     _create_run_row,
+    _previous_completed_run_at,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -2021,3 +2023,92 @@ class TestRunRowProvenanceStamps(BaseTest):
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.
         assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)
+
+
+class TestScanWindowSection(SimpleTestCase):
+    """The scan window the harness hands each run.
+
+    A scout otherwise reconstitutes a bound from a prose scratchpad cursor and hand-formats it
+    into a query literal. A naive literal resolves in the project's timezone rather than UTC, so
+    the window shifts by the project's offset — and once the offset exceeds the scan interval the
+    whole window sits in the future and the scan returns nothing on a live surface, with nothing
+    raising. These tests pin the properties that make that unrepresentable.
+    """
+
+    def _build(self, previous_run_at: datetime | None) -> str:
+        return build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch for spikes",
+                description="Errors scout",
+                allowed_tools=["emit_report"],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 19, 30, 17, tzinfo=UTC),
+            previous_run_at=previous_run_at,
+        )
+
+    def test_bounds_are_rendered_ready_to_paste_and_explicitly_utc(self) -> None:
+        prompt = self._build(datetime(2026, 5, 1, 13, 30, 17, tzinfo=UTC))
+        # Pre-formatted so the model never derives a literal itself. Both bounds carry 'UTC':
+        # dropping it is the entire bug, and a bound rendered without it would read as sanctioned.
+        assert "toDateTime('2026-05-01 13:30:17', 'UTC')" in prompt
+        assert "toDateTime('2026-05-01 19:30:17', 'UTC')" in prompt
+
+    def test_no_naive_datetime_literal_is_ever_rendered_as_usable_sql(self) -> None:
+        prompt = self._build(datetime(2026, 5, 1, 13, 30, 17, tzinfo=UTC))
+        # The section names the naive form to warn against it, so a blanket "no naive literal"
+        # assertion would fail on its own guidance. Pin the narrower property that matters: every
+        # naive literal on a line that also assigns a bound is a literal the scout would copy.
+        for line in prompt.splitlines():
+            if "timestamp >=" in line or "timestamp <" in line:
+                assert re.search(r"toDateTime\('[^']*'\)", line) is None, line
+
+    def test_non_utc_previous_run_is_converted_not_reformatted(self) -> None:
+        # A stored timestamp arriving in another zone must be converted, not string-formatted in
+        # place — that would emit a local wall-clock time labelled 'UTC', the same silent shift
+        # one layer down.
+        prompt = self._build(datetime(2026, 5, 1, 6, 30, 17, tzinfo=ZoneInfo("US/Pacific")))
+        assert "toDateTime('2026-05-01 13:30:17', 'UTC')" in prompt
+
+    def test_first_run_renders_no_window_instead_of_a_fabricated_one(self) -> None:
+        prompt = self._build(None)
+        # With no completed predecessor there is no honest lower bound. Inventing one (epoch, or
+        # started_at) would either scan everything or scan nothing.
+        assert "no window to resume from" in prompt
+        assert "timestamp >=" not in prompt
+        # The UTC rule still has to reach a first run, which picks its own lookback.
+        assert "'UTC'" in prompt
+
+    def test_run_is_told_to_corroborate_an_empty_window(self) -> None:
+        # Prevention leaks. Without this, a shifted window and a genuinely quiet surface produce
+        # identical run summaries, which is what let the failure persist unnoticed across runs.
+        prompt = self._build(datetime(2026, 5, 1, 13, 30, 17, tzinfo=UTC))
+        assert "Prove a zero before you trust it" in prompt
+
+
+class TestPreviousCompletedRunLookup(BaseTest):
+    def _run(self, *, status: str, skill_name: str = "signals-scout-errors") -> SignalScoutRun:
+        task_run = _make_task_run(self.team)
+        task_run.status = status
+        task_run.save(update_fields=["status"])
+        return SignalScoutRun.objects.create(task_run=task_run, team=self.team, skill_name=skill_name)
+
+    def test_failed_run_does_not_become_the_next_lower_bound(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        completed = self._run(status=TaskRun.Status.COMPLETED)
+        self._run(status=TaskRun.Status.FAILED)
+        # A failed run scanned nothing, so anchoring on it would leave its window permanently
+        # unscanned. Anchoring past it only re-reads ground the next run covers anyway.
+        assert _previous_completed_run_at(self.team.id, "signals-scout-errors", uuid7()) == completed.created_at
+
+    def test_lookup_is_scoped_to_the_same_scout(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        self._run(status=TaskRun.Status.COMPLETED, skill_name="signals-scout-logs")
+        assert _previous_completed_run_at(self.team.id, "signals-scout-errors", uuid7()) is None

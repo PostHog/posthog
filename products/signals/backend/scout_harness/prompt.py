@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -817,12 +817,62 @@ def _skill_authors_line(authors: list[SkillAuthor]) -> str:
     )
 
 
+def _sql_utc_literal(moment: datetime) -> str:
+    """Format an instant as the string half of an explicitly-UTC HogQL bound."""
+    return moment.astimezone(UTC).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _scan_window_section(previous_run_at: datetime | None, started_at: datetime) -> str:
+    """Hand the run pre-formatted, explicitly-UTC bounds for an incremental scan.
+
+    A scout keeps its scan cursor as prose in the scratchpad (see `_SCRATCHPAD_KEYS`), so every
+    incremental run reconstitutes a timestamp out of free text and hand-formats it into a query
+    bound. That formatting step is where the window silently breaks: HogQL resolves a *naive*
+    datetime literal in the project's timezone, while every timestamp the harness hands a run is
+    UTC, so a cursor dropped into a bare `toDateTime(...)` shifts the window by the project's UTC
+    offset. When the offset exceeds the scan interval the entire window lands in the future and the
+    query returns zero rows on a live surface. Nothing raises, so the run closes out "quiet",
+    advances its cursor, and does it again next run.
+
+    Handing the run bounds it can paste removes the formatting step rather than warning about it.
+    Telling the project's timezone instead would not: the MCP layer already states it in every
+    session's environment block, and runs still hand-format naive literals.
+
+    The window is a default, not a mandate — a skill body that sets its own lookback still governs,
+    and the UTC rule applies to whatever window it picks.
+    """
+    upper = _sql_utc_literal(started_at)
+    if previous_run_at is None:
+        zone_rule_opener = "**Bound your window explicitly in UTC — that is load-bearing.**"
+        window = """No previous run of this scout has completed on this project, so there is no window to resume from. Pick the lookback your skill body justifies."""
+    else:
+        zone_rule_opener = "**Both bounds carry `'UTC'`, and that is load-bearing.**"
+        lower = _sql_utc_literal(previous_run_at)
+        window = f"""Your previous completed run began at `{lower}Z`. Unless your skill body sets a different lookback, resume from there — and paste these bounds rather than formatting your own from a scratchpad cursor:
+
+    AND timestamp >= toDateTime('{lower}', 'UTC')
+    AND timestamp <  toDateTime('{upper}', 'UTC')
+
+The lower bound is the previous *completed* run, so a run that failed before it scanned leaves no unscanned gap. That means windows can overlap — prefer re-reading a little to skipping, and lean on your dedupe memory for the overlap."""
+
+    return f"""# Your scan window
+
+{window}
+
+{zone_rule_opener} HogQL resolves a naive literal like `toDateTime('{upper}')` in *this project's* timezone, not UTC. Every timestamp the harness gives you is UTC, so dropping the second argument shifts your window by the project's offset — and when that offset is larger than your scan interval, the whole window lands in the future and returns zero rows on a surface that is busy. Nothing errors when this happens. Never write a bare `toDateTime('YYYY-MM-DD HH:MM:SS')`, and read timestamps back with `toTimeZone(timestamp, 'UTC')` so what you store matches what you read.
+
+Note that `toDate()` and `toStartOfDay()` *do* resolve in the project's timezone. That is usually right for day-grain buckets, but it means a UTC bound and a day bucket in one query are two different clocks. Know which you are using.
+
+**Prove a zero before you trust it.** If your incremental window comes back empty, re-count the same source over a broad window (say `now() - INTERVAL 7 DAY`) before concluding the surface is quiet. A zero next to a healthy broad count means your window is wrong, not that nothing happened: do not advance your cursor, do not overwrite a good baseline with zeros, and do not close out quiet. State both counts in your summary either way, so the next run can tell an idle surface from a blind one."""
+
+
 def build_run_prompt(
     skill: LoadedSkill,
     *,
     run_id: str,
     team_id: int,
     started_at: datetime,
+    previous_run_at: datetime | None = None,
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     data_catalog_enabled: bool = False,
@@ -872,6 +922,7 @@ def build_run_prompt(
     channel-matched with the same fail-closed rule as everything else.
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
+    scan_window_section = _scan_window_section(previous_run_at, started_at)
     schema_json = json.dumps(SignalScoutRunSummary.model_json_schema(), indent=2)
     allowed_tools = skill.allowed_tools or []
     can_emit_report = "emit_report" in allowed_tools
@@ -925,6 +976,8 @@ def build_run_prompt(
 - **team_id**: `{team_id}`, implicit on every MCP call.
 - **skill**: `{skill.name}` (v{skill.version}), your steering layer.{authors_line}
 - **started_at**: `{started_at_iso}`, when this run began (UTC). Informational; use current clock time for queries about "now".
+
+{scan_window_section}
 
 # How to call tools
 
