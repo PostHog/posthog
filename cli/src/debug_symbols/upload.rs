@@ -123,13 +123,14 @@ pub fn upload(args: &Args) -> Result<()> {
     // --include-source implies force unless the user explicitly asked to keep
     // existing symbol sets with --skip-on-conflict.
     let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
-    api::symbol_sets::upload_with_retry(
+    let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
         release_args.skip_release_on_fail,
         effective_force,
         conflict.skip_on_conflict,
-    )?;
+    );
+    upload_result?;
     info!("Debug symbol upload complete");
 
     Ok(())

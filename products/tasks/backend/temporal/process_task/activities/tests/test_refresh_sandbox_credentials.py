@@ -1,3 +1,6 @@
+import uuid
+import dataclasses
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -142,6 +145,23 @@ class TestRefreshSandboxCredentialsActivity:
         get_token.assert_not_called()
         sandbox.execute.assert_not_called()
         increment.assert_called_once_with("github", "skipped")
+
+    def test_missing_task_returns_task_gone_flag(self, activity_environment, task_context, test_task, sandbox):
+        # Rows hard-deleted mid-run (team deletion cascade) must surface as an output
+        # flag the refresh loop stops on, not as an error the loop swallows and retries.
+        context = dataclasses.replace(task_context, task_id=str(uuid.uuid4()))
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+            return_value=sandbox,
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.task_gone is True
+        assert output.refreshed_kinds == []
+        sandbox.execute.assert_not_called()
 
     def test_skips_refresh_when_sandbox_gone(self, activity_environment, task_context, test_task):
         # A reaped/unreachable sandbox surfaces as SandboxNotFoundError from get_by_id.

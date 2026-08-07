@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { applyMarginOverride } from '../../core/hooks/useChartMargins'
 import type {
     ChartConfig,
     ChartLegendConfig,
@@ -159,7 +160,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
         const base: Partial<ChartMargins> = { left, right }
         return {
-            margins: { ...base, ...config?.margins },
+            margins: applyMarginOverride(base, config?.margins ?? {}),
             nameOffsetX: offset,
         }
     }, [visibleSeries, slopeLabels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])

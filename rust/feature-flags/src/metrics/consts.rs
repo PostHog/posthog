@@ -29,6 +29,12 @@ pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_fi
 // structural errors. Cohort and team ids are in the companion debug log, not metric
 // labels (cardinality).
 pub const COHORT_MALFORMED_FILTER_COUNTER: &str = "flags_cohort_malformed_filter_total";
+// Counts evaluated cohorts the two MembershipStampPolicy variants route differently.
+// Labels: direction="would_lose" | "would_gain", active_policy = the policy this process
+// runs, which says whether the reroute is still pending or already applied. Cohort and
+// team ids are in the companion deduped warn log (cardinality).
+pub const FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER: &str =
+    "flags_cohort_stamp_policy_divergence_total";
 // Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on
 // (team_id, person_uuid)). hit = lookup fully served from cache; miss = a
 // behavioral cohorts DB query was issued (no cache entry, or the entry was
@@ -389,6 +395,13 @@ pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_COUNTER: &str = "flags_dependency_graph_build_total";
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_TIME: &str = "flags_dependency_graph_build_ms";
 pub const FLAG_MISSING_REQUESTED_FLAG_KEY: &str = "missing_requested_flag_key";
+
+// Requests short-circuited because the team is over its billing quota.
+pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
+
+// Conditions skipped during evaluation because required context was absent.
+// Labels: reason (missing_device_id, missing_group_type)
+pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label

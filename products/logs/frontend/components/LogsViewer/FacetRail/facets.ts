@@ -35,8 +35,17 @@ export type FacetField = 'severity_text' | 'service_name'
  *   `exact` for included values and `is_not` for excluded ones.
  */
 export type FacetSource =
-    | { type: 'column'; column: FacetField; filterKey: FacetFilterKey }
-    | { type: 'resourceAttribute'; key: string }
+    | {
+          type: 'column'
+          column: FacetField
+          filterKey: FacetFilterKey
+          /**
+           * The `log` property-filter key the facet's exclusions are stored under (e.g. severity_level).
+           * Includes stay in the dedicated field; without this, the facet is two-state (no exclusions).
+           */
+          exclusionKey?: string
+      }
+    | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -57,17 +66,17 @@ export interface FacetConfig {
     maxHeight?: number
 }
 
-interface LogResourceAttributeFilter {
+interface RailPropertyFilter {
     key: string
-    type: PropertyFilterType.LogResourceAttribute
+    type: PropertyFilterType.Log | PropertyFilterType.LogResourceAttribute
     operator: PropertyOperator
     value?: PropertyFilterValue
 }
 
 // The logs filterGroup is always { AND, values: [{ AND, values: [<property filters>] }] } — the
 // editable property filters live in the single inner group.
-function innerFilters(group: UniversalFiltersGroup | undefined): LogResourceAttributeFilter[] {
-    return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as LogResourceAttributeFilter[]
+function innerFilters(group: UniversalFiltersGroup | undefined): RailPropertyFilter[] {
+    return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as RailPropertyFilter[]
 }
 
 /**
@@ -85,7 +94,7 @@ export interface FacetSelection {
 // untouched on write.
 const RAIL_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
 
-function isRailFacetFilter(filter: LogResourceAttributeFilter, key: string): boolean {
+function isRailFacetFilter(filter: RailPropertyFilter, key: string): boolean {
     return (
         filter?.type === PropertyFilterType.LogResourceAttribute &&
         filter?.key === key &&
@@ -93,7 +102,7 @@ function isRailFacetFilter(filter: LogResourceAttributeFilter, key: string): boo
     )
 }
 
-function filterValues(filter: LogResourceAttributeFilter): string[] {
+function filterValues(filter: RailPropertyFilter): string[] {
     const value = filter.value
     if (Array.isArray(value)) {
         return value as string[]
@@ -153,6 +162,33 @@ export function cycleResourceAttributeFilter(
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
+// A column facet's exclusions are the `is_not` `log` property filter under the facet's
+// exclusionKey. The rail owns only that filter — includes live in the facet's dedicated query
+// field, so an `exact` chip on the same key is chips-bar state: ignored on read, preserved on write.
+function isLogExclusionFilter(filter: RailPropertyFilter, key: string): boolean {
+    return filter?.type === PropertyFilterType.Log && filter?.key === key && filter?.operator === PropertyOperator.IsNot
+}
+
+/** A column facet's excluded values, read from the `is_not` log filter under `key`. */
+export function logFilterExclusions(group: UniversalFiltersGroup | undefined, key: string): string[] {
+    return innerFilters(group)
+        .filter((f) => isLogExclusionFilter(f, key))
+        .flatMap(filterValues)
+}
+
+/** Replace the `is_not` log filter under `key` with `excluded`, dropping the filter when empty. */
+export function setLogFilterExclusions(
+    group: UniversalFiltersGroup | undefined,
+    key: string,
+    excluded: string[]
+): UniversalFiltersGroup {
+    const values = innerFilters(group).filter((f) => !isLogExclusionFilter(f, key))
+    if (excluded.length > 0) {
+        values.push({ key, type: PropertyFilterType.Log, operator: PropertyOperator.IsNot, value: excluded })
+    }
+    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
+}
+
 // Colors mirror the severity bar in the log rows (SEVERITY_BAR_COLORS) so the rail matches the viewer.
 const SEVERITY_OPTIONS: FacetOption[] = (
     [
@@ -170,7 +206,7 @@ const LEVEL_FACET: FacetConfig = {
     title: 'Level',
     group: 'Standard',
     kind: 'fixed',
-    source: { type: 'column', column: 'severity_text', filterKey: 'severityLevels' },
+    source: { type: 'column', column: 'severity_text', filterKey: 'severityLevels', exclusionKey: 'severity_level' },
     fixedOptions: SEVERITY_OPTIONS,
 }
 
@@ -179,22 +215,29 @@ const SERVICE_FACET: FacetConfig = {
     title: 'Service',
     group: 'Standard',
     kind: 'dynamic',
-    source: { type: 'column', column: 'service_name', filterKey: 'serviceNames' },
+    source: { type: 'column', column: 'service_name', filterKey: 'serviceNames', exclusionKey: 'service_name' },
     searchable: true,
     searchPlaceholder: 'Search services…',
     emptyLabel: 'No services',
     maxHeight: 300,
 }
 
-// Curated OTel resource attributes worth faceting. Keys are the stable OTel semantic-convention names;
-// `deployment.environment.name` is the 1.27+ stable key (older data may use `deployment.environment`).
-function resourceAttributeFacet(key: string, slug: string, title: string, group: string): FacetConfig {
+// Curated OTel resource attributes worth faceting. `key` is the current OTel semantic-convention name;
+// `aliasKeys` are older or non-standard spellings of the same attribute that resolveFacets falls back to
+// when the tenant doesn't emit the current key.
+function resourceAttributeFacet(
+    key: string,
+    slug: string,
+    title: string,
+    group: string,
+    aliasKeys?: string[]
+): FacetConfig {
     return {
         key: slug,
         title,
         group,
         kind: 'dynamic',
-        source: { type: 'resourceAttribute', key },
+        source: { type: 'resourceAttribute', key, aliasKeys },
         searchable: true,
         searchPlaceholder: `Search ${title.toLowerCase()}…`,
         emptyLabel: `No ${title.toLowerCase()} values`,
@@ -202,11 +245,16 @@ function resourceAttributeFacet(key: string, slug: string, title: string, group:
     }
 }
 
+// The only faceted attribute semconv has ever renamed: `deployment.environment` became
+// `deployment.environment.name` in 1.27. `env` is not a semantic convention — it's what a Datadog `env:`
+// tag lands as, since the Datadog ingest path stores ddtags verbatim. The rest below need no aliases:
+// the `k8s.*.name` keys are stable and were never renamed, and `host.name` has kept its spelling too.
 const ENVIRONMENT_FACET = resourceAttributeFacet(
     'deployment.environment.name',
     'environment',
     'Environment',
-    'Standard'
+    'Standard',
+    ['deployment.environment', 'env']
 )
 const NAMESPACE_FACET = resourceAttributeFacet('k8s.namespace.name', 'namespace', 'Namespace', 'Kubernetes')
 const DEPLOYMENT_FACET = resourceAttributeFacet('k8s.deployment.name', 'deployment', 'Deployment', 'Kubernetes')
@@ -217,7 +265,8 @@ const HOST_FACET = resourceAttributeFacet('host.name', 'host', 'Host', 'Infrastr
 /**
  * The rail is rendered entirely from this list — append a config to add a facet (or a new group).
  * Ordered by group (Standard → Kubernetes → Infrastructure) since facetsByGroup keeps first-appearance order.
- * Resource-attribute facets only render when the tenant actually emits the key (see facetCountsLogic).
+ * Resource-attribute facets only render when the tenant actually emits the key or one of its aliases
+ * (see resolveFacets, called from facetCountsLogic).
  */
 export const FACETS: FacetConfig[] = [
     LEVEL_FACET,
@@ -229,6 +278,29 @@ export const FACETS: FacetConfig[] = [
     NODE_FACET,
     HOST_FACET,
 ]
+
+/**
+ * Resolve the configured facets against the resource-attribute keys a tenant actually emits.
+ * Column facets always pass through. A resource-attribute facet is kept only if the tenant emits its
+ * current key or one of its aliases, and its source is rewritten onto whichever spelling is present so
+ * the rail queries and filters on the key that has data. The current key wins when several are present.
+ */
+export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string[]): FacetConfig[] {
+    const present = new Set(presentResourceKeys)
+    const resolved: FacetConfig[] = []
+    for (const facet of facets) {
+        if (facet.source.type === 'column') {
+            resolved.push(facet)
+            continue
+        }
+        const match = [facet.source.key, ...(facet.source.aliasKeys ?? [])].find((k) => present.has(k))
+        if (match === undefined) {
+            continue
+        }
+        resolved.push(match === facet.source.key ? facet : { ...facet, source: { ...facet.source, key: match } })
+    }
+    return resolved
+}
 
 /**
  * Filter facets by a free-text query matching the field name or its group (case-insensitive

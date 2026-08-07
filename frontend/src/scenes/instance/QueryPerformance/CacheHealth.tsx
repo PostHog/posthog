@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { TimeSeriesBarChart } from '@posthog/quill-charts'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -9,7 +11,14 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyLargeNumber, humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
-import { CachePartitionRow, CacheTableStats, queryPerformanceLogic } from './queryPerformanceLogic'
+import { CacheGrowthResponse, CachePartitionRow, CacheTableStats, queryPerformanceLogic } from './queryPerformanceLogic'
+
+const GROWTH_RANGE_OPTIONS = [
+    { label: '48h', hours: 48 },
+    { label: '7d', hours: 168 },
+    { label: '14d', hours: 336 },
+    { label: '21d', hours: 504 },
+]
 
 // Partitions are keyed by toYYYYMMDD(expires_at), so a partition id is the day its rows expire.
 const partitionToISO = (partition: string): string =>
@@ -31,16 +40,50 @@ function ttlStatus(partition: string): { label: string; type: LemonTagType } {
     return { label: `Drops in ${days}d`, type: 'muted' }
 }
 
+// "experiment_exposures_preaggregated" -> "exposures" — the key the backend uses for growth series
+// (it comes from the experiment_precompute_table query tag on build INSERTs).
+const growthKey = (table: string): string => table.replace(/^experiment_/, '').replace(/_preaggregated$/, '')
+
 // "experiment_exposures_preaggregated" -> "Exposures", "experiment_metric_events_preaggregated" -> "Metric events"
 function tableLabel(table: string): string {
-    const short = table
-        .replace(/^experiment_/, '')
-        .replace(/_preaggregated$/, '')
-        .replace(/_/g, ' ')
+    const short = growthKey(table).replace(/_/g, ' ')
     return short.charAt(0).toUpperCase() + short.slice(1)
 }
 
-function TableCard({ table }: { table: CacheTableStats }): JSX.Element {
+function GrowthChart({
+    title,
+    growth,
+    data,
+    formatValue,
+}: {
+    title: string
+    growth: CacheGrowthResponse
+    data: number[]
+    formatValue?: (value: number) => string
+}): JSX.Element {
+    const theme = useChartTheme()
+    return (
+        <div>
+            <div className="text-xs text-muted mb-1">{title}</div>
+            {/* Flex column: the chart root is `flex-1` and only gets height from a flex parent. */}
+            <div className="h-32 flex flex-col">
+                <TimeSeriesBarChart
+                    series={[{ key: 'value', label: title, data }]}
+                    labels={growth.buckets}
+                    theme={theme}
+                    config={{
+                        xAxis: { timezone: 'UTC', interval: growth.interval },
+                        yAxis: formatValue ? { tickFormatter: formatValue } : { format: 'short' },
+                        tooltip: formatValue ? { valueFormatter: formatValue } : undefined,
+                        showGrid: true,
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
+
+function TableCard({ table, growth }: { table: CacheTableStats; growth: CacheGrowthResponse | null }): JSX.Element {
     if (table.unavailable) {
         return (
             <LemonCard hoverEffect={false} className="flex-1 min-w-72">
@@ -50,6 +93,8 @@ function TableCard({ table }: { table: CacheTableStats }): JSX.Element {
             </LemonCard>
         )
     }
+    const series = growth?.tables[growthKey(table.table)]
+    const per = growth?.interval === 'hour' ? 'per hour' : 'per day'
     return (
         <LemonCard hoverEffect={false} className="flex-1 min-w-72">
             <div className="font-mono text-xs text-muted">{table.table}</div>
@@ -66,13 +111,30 @@ function TableCard({ table }: { table: CacheTableStats }): JSX.Element {
                       )}`
                     : 'No active parts'}
             </div>
+            {growth && series ? (
+                <div className="flex flex-col gap-3 mt-3">
+                    <GrowthChart title={`Rows written ${per}`} growth={growth} data={series.written_rows} />
+                    <GrowthChart
+                        title={`Data written ${per} (uncompressed)`}
+                        growth={growth}
+                        data={series.written_bytes}
+                        formatValue={humanizeBytes}
+                    />
+                </div>
+            ) : (
+                <div className="flex flex-col gap-3 mt-3">
+                    <LemonSkeleton className="h-32 w-full" />
+                    <LemonSkeleton className="h-32 w-full" />
+                </div>
+            )}
         </LemonCard>
     )
 }
 
 export function CacheHealth(): JSX.Element {
-    const { cacheHealth, cacheHealthLoading, cachePartitionRows } = useValues(queryPerformanceLogic)
-    const { loadCacheHealth } = useActions(queryPerformanceLogic)
+    const { cacheHealth, cacheHealthLoading, cachePartitionRows, cacheGrowth, cacheGrowthHoursBack } =
+        useValues(queryPerformanceLogic)
+    const { loadCacheHealth, loadCacheGrowth, setCacheGrowthHoursBack } = useActions(queryPerformanceLogic)
 
     const tables = cacheHealth?.tables ?? []
 
@@ -123,17 +185,32 @@ export function CacheHealth(): JSX.Element {
         <>
             <div className="flex items-center justify-between gap-2 mb-2">
                 <p className="text-muted text-sm mb-0">
-                    Physical footprint of the experiment preaggregation tables (active parts across all shards, from
-                    ClickHouse system.parts).
+                    Physical footprint of the experiment preaggregation tables (totals from ClickHouse system.parts,
+                    growth from the archived build inserts).
                 </p>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => loadCacheHealth()}
-                    disabledReason={cacheHealthLoading ? 'Loading...' : undefined}
-                >
-                    Refresh
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    {GROWTH_RANGE_OPTIONS.map(({ label, hours }) => (
+                        <LemonButton
+                            key={hours}
+                            type={cacheGrowthHoursBack === hours ? 'primary' : 'tertiary'}
+                            size="small"
+                            onClick={() => setCacheGrowthHoursBack(hours)}
+                        >
+                            {label}
+                        </LemonButton>
+                    ))}
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => {
+                            loadCacheHealth()
+                            loadCacheGrowth()
+                        }}
+                        disabledReason={cacheHealthLoading ? 'Loading...' : undefined}
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
             </div>
             <div className="flex flex-wrap gap-4 mb-4">
                 {!cacheHealth && cacheHealthLoading
@@ -145,7 +222,7 @@ export function CacheHealth(): JSX.Element {
                               <LemonSkeleton className="h-3 w-1/3 mt-1" />
                           </LemonCard>
                       ))
-                    : tables.map((table) => <TableCard key={table.table} table={table} />)}
+                    : tables.map((table) => <TableCard key={table.table} table={table} growth={cacheGrowth} />)}
             </div>
             <h3>Partition breakdown by expiry day</h3>
             <LemonTable

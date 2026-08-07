@@ -48,6 +48,13 @@ class VisionQuotaSerializer(serializers.Serializer):
             "Scanners without a computed estimate contribute 0."
         ),
     )
+    free_monthly_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Credits per period included for free. Already counted inside `credit_limit`; "
+            "only credits beyond this number are billed."
+        ),
+    )
 
 
 class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

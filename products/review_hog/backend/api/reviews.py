@@ -350,6 +350,12 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
     newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
     a stuck spinner forever.
+
+    `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
+    outcome sweep appends it after the PR merges, which can be long after the run ended. Counting it
+    would restart the staleness window and re-show the spinner for a report with nothing running —
+    exactly the crashed-and-never-finalized report (status only leaves ACTIVE on a successful
+    finalize) that the ageing-out exists to retire.
     """
     candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
     if not candidates:
@@ -357,6 +363,7 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     latest_artefact = dict(
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(report_id__in=[report.id for report in candidates])
+        .exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
         .values_list("report_id")
         .annotate(latest=Max("created_at"))
         .values_list("report_id", "latest")
@@ -468,7 +475,10 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     be opened.
     """
 
-    scope_object = "INTERNAL"
+    # `review_hog` rather than INTERNAL so the reads and trigger the Code review UI drives are also
+    # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
+    # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
+    scope_object = "review_hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
@@ -587,7 +597,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "recent completed reviews in scope — the requesting user's by default, every review on this project "
         "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
     def perspective_stats(self, request: Request, **kwargs) -> Response:
         params = PerspectiveStatsParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -639,7 +649,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in "
         "the worker.",
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = resolve_effective_team_id(self.team_id)
         # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are

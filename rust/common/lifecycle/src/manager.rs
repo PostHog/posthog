@@ -466,6 +466,16 @@ impl Manager {
         self.observability_components.contains_key(tag)
     }
 
+    /// Advisory components are deliberately absent from `components` and
+    /// `observability_components`, so `liveness_components` is the only record
+    /// of them. Registration requires a liveness deadline for advisory handles,
+    /// which guarantees every one of them is present here.
+    fn is_advisory_tag(&self, tag: &str) -> bool {
+        self.liveness_components
+            .iter()
+            .any(|c| c.tag == tag && c.advisory)
+    }
+
     async fn run_monitor_loop(
         mut self,
         mut event_rx: mpsc::Receiver<ComponentEvent>,
@@ -597,6 +607,17 @@ impl Manager {
                             break;
                         }
                         ComponentEvent::Died { tag } => {
+                            // Advisory components are best-effort by contract: their
+                            // death is informational, so it must not take the process
+                            // with it. Health stalls are already exempt in the poll
+                            // task; without this the exemption is trivially bypassed
+                            // by dropping the handle, which is what a failed
+                            // construction or a panicking task does.
+                            if self.is_advisory_tag(&tag) {
+                                info!(component = %tag,
+                                    "Lifecycle: advisory component died, continuing");
+                                continue;
+                            }
                             metrics::emit_shutdown_initiated(&name, &tag, "died");
                             warn!(trigger_component = %tag, trigger_reason = "died",
                                 "Lifecycle: shutdown initiated, component died unexpectedly");

@@ -84,7 +84,7 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         source = self._make_source()
         existing = self._make_synced_schema(source, "public.users")
 
-        created, _deleted = sync_old_schemas_with_new_schemas(
+        sync_result = sync_old_schemas_with_new_schemas(
             {"public.users": None, "analytics.users": None},
             source_id=str(source.pk),
             team_id=self.team.pk,
@@ -92,7 +92,7 @@ class TestSchemaDiscoveryReconcile(BaseTest):
 
         existing.refresh_from_db()
         assert existing.should_sync is True
-        assert "analytics.users" in created
+        assert "analytics.users" in sync_result.created
         assert ExternalDataSchema.objects.filter(source_id=source.pk, name="analytics.users").exists()
 
     def test_strict_match_creates_qualified_row_alongside_legacy_bare_row(self) -> None:
@@ -102,7 +102,7 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         source = self._make_source()
         legacy = self._make_synced_schema(source, "issues")
 
-        created, _deleted = sync_old_schemas_with_new_schemas(
+        sync_result = sync_old_schemas_with_new_schemas(
             {"issues": None, "acme/other.issues": "acme/other · issues"},
             source_id=str(source.pk),
             team_id=self.team.pk,
@@ -114,7 +114,7 @@ class TestSchemaDiscoveryReconcile(BaseTest):
 
         legacy.refresh_from_db()
         assert legacy.should_sync is True
-        assert created == ["acme/other.issues"]
+        assert sync_result.created == ["acme/other.issues"]
         new_row = ExternalDataSchema.objects.get(source_id=source.pk, name="acme/other.issues")
         assert new_row.sync_type_config.get("schema_metadata") == {
             "source_repository": "acme/other",

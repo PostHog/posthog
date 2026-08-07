@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/common/config/config'
+import { PERSON_COLUMNS } from '~/common/persons/repositories/postgres-person-repository'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -475,7 +476,7 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
 }
 
 export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: number) {
-    const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
+    const query = `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
     return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.fetchPersons`.

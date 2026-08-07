@@ -462,6 +462,46 @@ return result`,
                 window_seconds: 900,
             })
         })
+
+        it('seeds inactivity defaults when switching to the session target', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target: 'session',
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('reseeds with session defaults, not trace defaults, when switching strategy', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setSettleStrategy('fixed_window')
+                logic.actions.setSettleStrategy('inactivity')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('clears the settle bag when switching back to generation', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setEvaluationTarget('generation')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({ target: 'generation', target_config: {} }),
+            })
+        })
     })
 
     describe('selectors', () => {
@@ -1030,6 +1070,25 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-3', result: null })],
+                })
+            })
+
+            // An evaluation that disallows N/A emits result=false alongside skipped=true, so a
+            // session that was never graded would otherwise be counted and listed as a failure.
+            it('excludes skipped runs from the fail bucket', async () => {
+                const skippedRun: EvaluationRun = {
+                    ...mockRuns[1],
+                    id: 'run-skipped',
+                    generation_id: 'gen-skipped',
+                    result: false,
+                    skipped: true,
+                }
+                logic.actions.loadEvaluationRunsSuccess([...mockRuns, skippedRun])
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2' })],
+                    runsToSummarizeCount: 1,
                 })
             })
 

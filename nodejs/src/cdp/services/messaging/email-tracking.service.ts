@@ -159,6 +159,7 @@ export class EmailTrackingService {
         source,
         properties,
         timestamp,
+        workflowVersion,
     }: {
         functionId?: string
         invocationId?: string
@@ -169,6 +170,7 @@ export class EmailTrackingService {
         source: 'direct' | 'ses'
         properties?: Record<string, unknown>
         timestamp?: string
+        workflowVersion?: number
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -209,6 +211,11 @@ export class EmailTrackingService {
                 metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
+                // The version comes off the tracking code minted at send time, never from `hogFlow`
+                // above — that's the currently published version, which for an engagement event
+                // arriving after a republish would blame the new version for the old one's sends.
+                app_source_version:
+                    hogFlow && workflowVersion !== undefined ? { id: hogFlow.id, version: workflowVersion } : undefined,
             },
             hogFlow ? 'hog_flow' : 'hog_function'
         )
@@ -223,6 +230,7 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
             })
@@ -334,6 +342,7 @@ export class EmailTrackingService {
                     source: 'ses',
                     properties: metric.properties,
                     timestamp: metric.timestamp,
+                    workflowVersion: metric.workflowVersion,
                 })
             }
 
@@ -399,6 +408,7 @@ export class EmailTrackingService {
         actionId?: string
         parentRunId?: string
         distinctId?: string
+        workflowVersion?: number
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -412,6 +422,7 @@ export class EmailTrackingService {
                 actionId: parsed?.actionId,
                 parentRunId: parsed?.parentRunId,
                 distinctId: parsed?.distinctId,
+                workflowVersion: parsed?.workflowVersion,
             }
         }
         return {

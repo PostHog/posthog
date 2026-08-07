@@ -20,6 +20,7 @@ import { percentage } from 'lib/utils/numbers'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -39,7 +40,7 @@ import {
     LEGACY_ROLE_COLUMNS,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
-import { accountsExpansionLogic } from './accountsExpansionLogic'
+import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
 import { AccountsEvents } from './constants'
 
@@ -133,10 +134,28 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 }
 
 function TagsCell({ record }: { record: unknown }): JSX.Element {
+    const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
+    const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
-    const tags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
-    return tags.length > 0 ? <ObjectTags tags={tags} staticOnly /> : <span className="text-muted">—</span>
+    const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
+    const accountId = getNameCell(record, visibleColumnNames)?.id
+    if (!accountId) {
+        return cellTags.length > 0 ? <ObjectTags tags={cellTags} staticOnly /> : <span className="text-muted">—</span>
+    }
+    const tags = tagOverrides[accountId] ?? cellTags
+    return (
+        <ObjectTags
+            tags={tags}
+            onChange={(newTags) => updateAccountTags(accountId, newTags)}
+            onTagClick={addTagToFilter}
+            saving={isTagsSaving(accountId)}
+            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+            data-attr="accounts-tags-cell"
+        />
+    )
 }
 
 function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
@@ -282,11 +301,16 @@ function CustomPropertyHistoryCell({
     }
 
     if (display.mode === 'sparkline') {
+        // Each sparkline auto-scales to its own range, so the line shows the trend but not the
+        // magnitude — every row looks alike without the latest value spelled out next to it.
         return (
-            <div className="w-32">
+            // `min-w-min` lets the cell outgrow w-40 instead of spilling a long value into the next
+            // column, and the chart keeps a floor so it degrades rather than vanishing.
+            <div className="flex items-center gap-2 w-40 min-w-min">
+                <span className="tabular-nums whitespace-nowrap">{formatValue(latest[1])}</span>
                 <Sparkline
                     type="line"
-                    className="h-8"
+                    className="h-8 min-w-8"
                     data={chartPoints.map(([, value]) => value)}
                     labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
                     renderTooltipValue={formatValue}
@@ -318,6 +342,51 @@ function CustomPropertyHistoryCell({
     )
 }
 
+const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
+    'Last Slack message at': 'summaries',
+}
+
+export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {
+    return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
+}
+
+function CanonicalTimestampCell({
+    record,
+    definition,
+    value,
+    tab,
+}: {
+    record: unknown
+    definition: CustomPropertyDefinitionApi
+    value: string
+    tab: AccountExpansionTab
+}): JSX.Element {
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { openAccountTab } = useActions(accountsExpansionLogic)
+    const accountId = getNameCell(record, visibleColumnNames)?.id
+    const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
+
+    if (!accountId) {
+        return label
+    }
+    return (
+        <Link
+            to={urls.customerAnalyticsAccount(accountId, tab)}
+            onClick={(event) => {
+                // Modifier-click keeps the href's new-tab behavior, matching the account name cell.
+                if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                    return
+                }
+                event.preventDefault()
+                event.stopPropagation()
+                openAccountTab(accountId, tab)
+            }}
+        >
+            {label}
+        </Link>
+    )
+}
+
 function CustomPropertyCell({
     record,
     column,
@@ -340,6 +409,10 @@ function CustomPropertyCell({
         return <span className="text-muted">—</span>
     }
     if (definition.display_type === 'date' || definition.display_type === 'datetime') {
+        const tab = getCanonicalPropertyTab(definition)
+        if (tab) {
+            return <CanonicalTimestampCell record={record} definition={definition} value={value} tab={tab} />
+        }
         return <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
     }
     if (definition.display_type === 'boolean') {
@@ -542,7 +615,7 @@ function AccountsHogQLSkeleton(): JSX.Element {
 }
 
 export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery, accountsQuerySource } = useValues(accountsLogic)
+    const { hogqlQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
@@ -562,6 +635,7 @@ export function AccountsHogQLTable(): JSX.Element {
                 context={{
                     columns: contextColumns,
                     expandable,
+                    dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
                     emptyStateHeading: 'There are no matching accounts for this query',
                     emptyStateDetail: 'Try adjusting the filters or refreshing',

@@ -2,11 +2,15 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalF
 
 import { FacetOption } from './Facet'
 import {
+    FACETS as CONFIGURED_FACETS,
     FacetConfig,
     cycleResourceAttributeFilter,
     filterFacetsByName,
+    logFilterExclusions,
     mergeSelectedIntoOptions,
+    resolveFacets,
     resourceAttributeSelection,
+    setLogFilterExclusions,
 } from './facets'
 
 const facet = (key: string, title: string, group: string): FacetConfig => ({
@@ -176,6 +180,92 @@ describe('facets', () => {
                     excluded: ['a'],
                 })
             })
+        })
+
+        describe('column facet exclusions (log filters)', () => {
+            const LEVEL_KEY = 'severity_level'
+            const logFilter = (
+                operator: PropertyOperator,
+                value: unknown,
+                key: string = LEVEL_KEY
+            ): Record<string, unknown> => ({ key, type: PropertyFilterType.Log, operator, value })
+
+            it.each<[string, Record<string, unknown>[], string[]]>([
+                [
+                    'is_not log filter reads as exclusions',
+                    [logFilter(PropertyOperator.IsNot, ['info', 'debug'])],
+                    ['info', 'debug'],
+                ],
+                [
+                    'scalar is_not chip reads as a single exclusion',
+                    [logFilter(PropertyOperator.IsNot, 'info')],
+                    ['info'],
+                ],
+                [
+                    'an exact log chip on the same key is not rail state',
+                    [logFilter(PropertyOperator.Exact, ['error'])],
+                    [],
+                ],
+                [
+                    'a resource-attribute filter under the same key is not a log exclusion',
+                    [railFilter(PropertyOperator.IsNot, ['info'], LEVEL_KEY)],
+                    [],
+                ],
+            ])('%s', (_, filters, excluded) => {
+                expect(logFilterExclusions(groupOf(filters), LEVEL_KEY)).toEqual(excluded)
+            })
+
+            it('writes, replaces, and drops the is_not filter as the exclusion set changes', () => {
+                const withOne = setLogFilterExclusions(groupOf([]), LEVEL_KEY, ['info'])
+                expect(logFilterExclusions(withOne, LEVEL_KEY)).toEqual(['info'])
+
+                const withTwo = setLogFilterExclusions(withOne, LEVEL_KEY, ['info', 'debug'])
+                expect((withTwo.values[0] as UniversalFiltersGroup).values).toEqual([
+                    logFilter(PropertyOperator.IsNot, ['info', 'debug']),
+                ])
+
+                const cleared = setLogFilterExclusions(withTwo, LEVEL_KEY, [])
+                expect((cleared.values[0] as UniversalFiltersGroup).values).toEqual([])
+            })
+
+            it('preserves resource rail filters and same-key exact chips when writing', () => {
+                const resource = railFilter(PropertyOperator.Exact, ['argocd'])
+                const exactChip = logFilter(PropertyOperator.Exact, ['fatal'])
+                const group = setLogFilterExclusions(groupOf([resource, exactChip]), LEVEL_KEY, ['info'])
+
+                expect((group.values[0] as UniversalFiltersGroup).values).toEqual([
+                    resource,
+                    exactChip,
+                    logFilter(PropertyOperator.IsNot, ['info']),
+                ])
+            })
+        })
+    })
+
+    describe('resolveFacets', () => {
+        const environmentKey = (presentResourceKeys: string[]): string | undefined => {
+            const facet = resolveFacets(CONFIGURED_FACETS, presentResourceKeys).find((f) => f.key === 'environment')
+            return facet?.source.type === 'resourceAttribute' ? facet.source.key : undefined
+        }
+
+        // The rail queries and filters on whichever key resolution picks, so picking the wrong one (or
+        // none) silently hides a facet the tenant's data can populate.
+        it.each<[string, string[], string | undefined]>([
+            ['the current key is used as-is', ['deployment.environment.name'], 'deployment.environment.name'],
+            ['the superseded key still resolves', ['deployment.environment'], 'deployment.environment'],
+            ['a datadog env tag still resolves', ['env'], 'env'],
+            [
+                'the current key wins over its aliases',
+                ['env', 'deployment.environment', 'deployment.environment.name'],
+                'deployment.environment.name',
+            ],
+            ['no spelling emitted drops the facet', ['k8s.pod.name'], undefined],
+        ])('%s', (_, presentResourceKeys, expected) => {
+            expect(environmentKey(presentResourceKeys)).toEqual(expected)
+        })
+
+        it('keeps column facets whatever the tenant emits', () => {
+            expect(resolveFacets(CONFIGURED_FACETS, []).map((f) => f.key)).toEqual(['level', 'service'])
         })
     })
 })

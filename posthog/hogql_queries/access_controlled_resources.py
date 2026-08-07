@@ -2,7 +2,15 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
-from posthog.schema import DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode
+from posthog.schema import (
+    DataWarehouseNode,
+    EntityType,
+    FunnelsDataWarehouseNode,
+    LifecycleDataWarehouseNode,
+    RetentionEntity,
+)
+
+from posthog.rbac.user_access_control import RESOURCE_FALLBACK_MAP
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -123,17 +131,29 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
                 # otherwise a user denied an underlying table could be served a cached view result.
                 scopes.add("warehouse_table")
 
-        return scopes
+        return _with_fallback_parents(scopes)
 
     # Structured insight queries (Trends/Funnels/Lifecycle/...) read warehouse data via a
     # DataWarehouseNode in their tree rather than by table name.
-    return {"warehouse_table", "warehouse_view"} if _references_data_warehouse(query) else set()
+    return _with_fallback_parents({"warehouse_table", "warehouse_view"}) if _references_data_warehouse(query) else set()
+
+
+def _with_fallback_parents(scopes: set[str]) -> set[str]:
+    """Add the parent of every scope that resolves through one, since the parent's rules decide the
+    child's access.
+
+    Only RESOURCE_FALLBACK_MAP. RESOURCE_INHERITANCE_MAP substitutes the parent's access for the
+    child's rather than adding rules of its own, so there is nothing extra to partition on.
+    """
+    return scopes | {parent for child, parent in RESOURCE_FALLBACK_MAP.items() if child in scopes}
 
 
 def _references_data_warehouse(value) -> bool:
-    """True if a structured query reads a data-warehouse source via a DataWarehouseNode anywhere in
-    its tree (series, sub-queries, exclusions, ...)"""
+    """True if a structured query reads a data-warehouse source via a DataWarehouseNode — or a
+    data-warehouse RetentionEntity — anywhere in its tree (series, sub-queries, exclusions, ...)"""
     if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
+        return True
+    if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True
     if isinstance(value, BaseModel):
         return any(_references_data_warehouse(field) for field in value.__dict__.values())

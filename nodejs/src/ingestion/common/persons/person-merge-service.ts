@@ -62,6 +62,12 @@ export const mergeFoldSizeHistogram = new Histogram({
     buckets: [2, 5, 10, 25, 50, 100, 250, 500],
 })
 
+export const mergeDistinctIdOverrideCounter = new Counter({
+    name: 'person_merge_distinct_id_override_total',
+    help: 'Distinct id mapping rows written during merges, split by whether their version writes a ClickHouse override row.',
+    labelNames: ['call', 'overrideWritten'],
+})
+
 /** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
 class MergeFoldLimitError extends Error {}
 
@@ -241,6 +247,11 @@ export class PersonMergeService {
         //      the Distinct ID has been merged. This is important so that an event being processed
         //      concurrently for that Distinct ID doesn't emit an event and _miss_ that a different
         //      Person UUID needs to be used now. (See the `processPerson` code in `update` for more.)
+        //
+        // When `mergeAlwaysV1` is on for the team, check 1 is skipped: every merge-added mapping
+        // gets version 1 regardless of personless history. Version 1 is safe in both cases — the
+        // override either re-points real personless events or is a harmless transient row the
+        // squash job deletes. The upsert (check 2) still runs for the `is_merged` race hint.
 
         if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
@@ -253,18 +264,21 @@ export class PersonMergeService {
                 }
             })()
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+            this.discardOverrideCounts()
+            const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctIdToAdd
-                )
-                const distinctIdVersion = insertedDistinctId ? 0 : 1
+                const insertedDistinctId = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctIdToAdd)
+                const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !insertedDistinctId ? 1 : 0
+                this.recordOverrideCount('oneExists', distinctIdVersion > 0)
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
                 return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
+            this.flushOverrideCounts()
+            return result
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
@@ -287,12 +301,16 @@ export class PersonMergeService {
             let distinctId1 = mergeIntoDistinctId
             let distinctId2 = otherPersonDistinctId
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
-
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
+            this.discardOverrideCounts()
+            const result = await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
+                // See comment above about `distinctIdVersion`. With personless writes disabled the
+                // upserts are skipped; the always-v1 branch below never reads the results.
+                const insertedDistinctId1 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
+                const insertedDistinctId2 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
 
                 // `createPerson` uses the first Distinct ID provided to generate the Person
                 // UUID. That means the first Distinct ID definitely doesn't need an override,
@@ -301,7 +319,11 @@ export class PersonMergeService {
                 // need to actually write an override. (But mostly we're being verbose for
                 // documentation purposes)
                 let distinctId2Version = 0
-                if (insertedDistinctId1 && insertedDistinctId2) {
+                if (this.context.personlessRollout.mergeAlwaysV1) {
+                    // The upsert results are not consulted: the second Distinct ID always gets an
+                    // override, and no swap is needed since the first one derives the Person UUID.
+                    distinctId2Version = 1
+                } else if (insertedDistinctId1 && insertedDistinctId2) {
                     // We were the first to insert both (neither was used for Personless), so we
                     // can use either as the primary Person UUID and create no overrides.
                 } else if (insertedDistinctId1 && !insertedDistinctId2) {
@@ -321,6 +343,7 @@ export class PersonMergeService {
                 // The first Distinct ID is used to create the new Person's UUID, and so it
                 // never needs an override.
                 const distinctId1Version = 0
+                this.recordOverrideCount('neitherExist', distinctId2Version > 0)
 
                 const [person, wasCreated] = await this.personCreateService.createPerson(
                     timestamp,
@@ -339,6 +362,8 @@ export class PersonMergeService {
                 const needsPersonUpdate = !wasCreated && !person.is_identified
                 return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
             })
+            this.flushOverrideCounts()
+            return result
         }
     }
 
@@ -550,6 +575,7 @@ export class PersonMergeService {
         const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
 
         const currentTarget = target
+        this.discardOverrideCounts()
         const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
             'mergePeopleFold',
             async (tx) => {
@@ -585,12 +611,16 @@ export class PersonMergeService {
                 if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
                     throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
                 }
+                this.recordOverrideCount('bothExistMove', true, moveResult.distinctIdsMoved.length)
 
                 const addMessages: PersonMessage[] = []
                 for (const pair of missingPairs) {
                     // See mergeDistinctIds for the personless distinctIdVersion logic.
-                    const inserted = await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
-                    const distinctIdVersion = inserted ? 0 : 1
+                    const inserted = this.context.personlessRollout.writesDisabled
+                        ? false
+                        : await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
+                    const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !inserted ? 1 : 0
+                    this.recordOverrideCount('fold', distinctIdVersion > 0)
                     addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
                 }
 
@@ -609,6 +639,7 @@ export class PersonMergeService {
             }
         )
 
+        this.flushOverrideCounts()
         plan.status = 'executed'
         plan.mergedPerson = mergedPerson
         mergeFoldExecutedCounter.inc()
@@ -742,6 +773,7 @@ export class PersonMergeService {
                 })
                 .inc()
 
+            this.discardOverrideCounts()
             const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                 'mergePeople',
                 async (tx) => {
@@ -796,6 +828,7 @@ export class PersonMergeService {
                 }
             )
 
+            this.flushOverrideCounts()
             mergeTxnSuccessCounter
                 .labels({
                     call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
@@ -838,6 +871,28 @@ export class PersonMergeService {
                 throw error
             }
         }
+    }
+
+    // Override-counter increments are buffered and flushed only after the enclosing
+    // transaction commits: merges retry and roll back, and rolled-back rows must not
+    // inflate a metric used for override-inflow capacity planning.
+    private pendingOverrideCounts: { call: string; overrideWritten: boolean; count: number }[] = []
+
+    private recordOverrideCount(call: string, overrideWritten: boolean, count: number = 1): void {
+        if (count > 0) {
+            this.pendingOverrideCounts.push({ call, overrideWritten, count })
+        }
+    }
+
+    private discardOverrideCounts(): void {
+        this.pendingOverrideCounts = []
+    }
+
+    private flushOverrideCounts(): void {
+        for (const { call, overrideWritten, count } of this.pendingOverrideCounts) {
+            mergeDistinctIdOverrideCounter.labels({ call, overrideWritten: String(overrideWritten) }).inc(count)
+        }
+        this.pendingOverrideCounts = []
     }
 
     private async moveDistinctIdsBasedOnMode(
@@ -896,6 +951,7 @@ export class PersonMergeService {
             } else {
                 allDistinctIdMessages.push(...distinctIdResult.messages)
                 hasProcessedAnyDistinctIds = true
+                this.recordOverrideCount('bothExistMove', true, distinctIdResult.distinctIdsMoved.length)
 
                 // Check if we moved fewer than the batch size, indicating we're done
                 hasMore = distinctIdResult.distinctIdsMoved.length >= batchSize
@@ -945,6 +1001,7 @@ export class PersonMergeService {
                 throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
             }
         }
+        this.recordOverrideCount('bothExistMove', true, movedCount)
 
         return allDistinctIdMessages
     }

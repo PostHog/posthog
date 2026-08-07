@@ -409,10 +409,6 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             ),
         )
 
-    def all_properties(self) -> ast.Expr:
-        properties = self.query.properties + self._test_account_filters
-        return property_to_expr(properties, team=self.team)
-
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
         return ast.Call(

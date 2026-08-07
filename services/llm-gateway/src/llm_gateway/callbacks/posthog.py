@@ -20,6 +20,7 @@ from llm_gateway.request_context import (
     get_posthog_properties,
     get_product,
     get_time_to_first_token,
+    get_traceparent_trace_id,
 )
 
 logger = structlog.get_logger(__name__)
@@ -162,10 +163,12 @@ class PostHogCallback(InstrumentedCallback):
         region_url: str = "https://us.posthog.com",
         secondary_api_key: str | None = None,
         secondary_host: str | None = None,
+        ai_lane_capture: bool = True,
     ):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        self._ai_lane_capture = ai_lane_capture
         # Customer-origin region URL stamped on every captured event via the
         # `instance` group. The PHAI usage report filters on $group_<N> where
         # N is the destination project's `instance` group_type_index, so the
@@ -188,9 +191,10 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        # metadata.user_id carries Claude Code's session blob — constant for a
+        # whole task, so hashing it (_normalize_trace_id) collapses every turn
+        # into one trace. A per-turn traceparent therefore takes precedence.
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -312,9 +316,7 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -420,8 +422,9 @@ class PostHogCallback(InstrumentedCallback):
             host=host,
             sync_mode=True,
             enable_local_evaluation=False,
-            _use_ai_lane=True,
-            _enable_multimodal_capture=True,
+            # Multimodal capture implies the AI lane, so one setting governs both.
+            _use_ai_lane=self._ai_lane_capture,
+            _enable_multimodal_capture=self._ai_lane_capture,
         )
         try:
             _capture_ai_event(client, **capture_kwargs)

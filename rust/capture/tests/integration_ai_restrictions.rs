@@ -175,9 +175,8 @@ async fn setup_ai_router_with_restriction(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -498,9 +497,8 @@ async fn setup_ai_router_with_redirect_to_topic(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -580,9 +578,8 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,

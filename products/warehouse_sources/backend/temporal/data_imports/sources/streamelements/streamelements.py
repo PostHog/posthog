@@ -6,7 +6,6 @@ import requests
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -22,9 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import (
-    STREAMELEMENTS_BASE_URL,
     STREAMELEMENTS_ENDPOINTS,
+    streamelements_base_url,
 )
 
 
@@ -133,9 +133,9 @@ def _tracked_session(api_token: str) -> requests.Session:
     return make_tracked_session(redact_values=(api_token,), capture=False)
 
 
-def _client_config(api_token: str) -> ClientConfig:
+def _client_config(api_token: str, api_version: str) -> ClientConfig:
     return {
-        "base_url": STREAMELEMENTS_BASE_URL,
+        "base_url": streamelements_base_url(api_version),
         "headers": {"Accept": "application/json"},
         # Channel JWT tokens and OAuth2 access tokens both go in a Bearer Authorization
         # header. Framework auth redacts the value from logs.
@@ -144,10 +144,10 @@ def _client_config(api_token: str) -> ClientConfig:
     }
 
 
-def get_channel_id(api_token: str) -> str:
+def get_channel_id(api_token: str, api_version: str) -> str:
     """Resolve the 24-hex channel id every other endpoint is scoped by."""
     response = _tracked_session(api_token).get(
-        f"{STREAMELEMENTS_BASE_URL}/channels/me",
+        f"{streamelements_base_url(api_version)}/channels/me",
         headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
         timeout=30,
     )
@@ -158,11 +158,11 @@ def get_channel_id(api_token: str) -> str:
     return str(channel_id)
 
 
-def validate_credentials(api_token: str) -> tuple[bool, str | None]:
+def validate_credentials(api_token: str, api_version: str) -> tuple[bool, str | None]:
     """Confirm the token is genuine with one cheap probe of GET /channels/me."""
     try:
         response = _tracked_session(api_token).get(
-            f"{STREAMELEMENTS_BASE_URL}/channels/me",
+            f"{streamelements_base_url(api_version)}/channels/me",
             headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
             timeout=10,
         )
@@ -190,6 +190,7 @@ def streamelements_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[StreamElementsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -197,7 +198,7 @@ def streamelements_source(
 
     path = config.path
     if "{channel}" in path:
-        path = path.format(channel=get_channel_id(api_token))
+        path = path.format(channel=get_channel_id(api_token, api_version))
 
     params: dict[str, Any] = dict(config.params)
     use_incremental = should_use_incremental_field and config.supports_incremental
@@ -229,7 +230,7 @@ def streamelements_source(
     }
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_token),
+        "client": _client_config(api_token, api_version),
         "resources": [
             {
                 "name": endpoint,

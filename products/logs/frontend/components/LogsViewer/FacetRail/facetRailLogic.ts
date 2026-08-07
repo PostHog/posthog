@@ -2,10 +2,11 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { UniversalFiltersGroup } from '../../../../../../frontend/src/types'
-import { FacetSource, cycleResourceAttributeFilter } from './facets'
+import { FacetSource, cycleResourceAttributeFilter, logFilterExclusions, setLogFilterExclusions } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -30,6 +31,13 @@ export interface facetRailLogicActions {
     ) => {
         filterGroup: UniversalFiltersGroup
         openFilterOnInsert: boolean
+    } // logsViewerFiltersLogic
+    setFilters: (
+        filters: Partial<LogsViewerFilters>,
+        pushToHistory?: boolean | undefined
+    ) => {
+        filters: Partial<LogsViewerFilters>
+        pushToHistory: boolean
     } // logsViewerFiltersLogic
     setServiceNames: (serviceNames: string[]) => {
         serviceNames: string[]
@@ -72,7 +80,10 @@ export const facetRailLogic = kea<facetRailLogicType>([
     key((props) => props.id),
 
     connect((props: FacetRailLogicProps) => ({
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames', 'setFilterGroup']],
+        actions: [
+            logsViewerFiltersLogic({ id: props.id }),
+            ['setSeverityLevels', 'setServiceNames', 'setFilterGroup', 'setFilters'],
+        ],
     })),
 
     actions({
@@ -109,10 +120,69 @@ export const facetRailLogic = kea<facetRailLogicType>([
                 // Selection lives as log_resource_attribute filters inside the group; a click
                 // cycles the value included → excluded → cleared.
                 actions.setFilterGroup(cycleResourceAttributeFilter(filterGroup, source.key, value), false)
-            } else if (source.filterKey === 'severityLevels') {
-                actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+                return
+            }
+
+            // Column facets have a split representation: includes live in the facet's dedicated
+            // field, exclusions in an is_not log filter inside the group (under exclusionKey).
+            // A click cycles included → excluded → cleared across the two stores; without an
+            // exclusionKey the facet stays two-state. setIncluded writes the dedicated field on
+            // its own (keeping its filter-change analytics); includedFilters produces the same
+            // field update as a filters patch for the one transition that must move both stores
+            // atomically.
+            const cycleColumnValue = (
+                included: string[],
+                setIncluded: (next: string[]) => void,
+                includedFilters: (next: string[]) => Partial<LogsViewerFilters>
+            ): void => {
+                const { exclusionKey } = source
+                if (!exclusionKey) {
+                    setIncluded(toggleMembership(included, value))
+                    return
+                }
+                const excluded = logFilterExclusions(filterGroup, exclusionKey)
+                if (included.includes(value)) {
+                    // included → excluded moves the value across both stores at once (out of the
+                    // dedicated includes field, into an is_not log filter). Write them in a single
+                    // setFilters so the query, URL sync, and filter history all see the final
+                    // state, instead of two setters each firing against a half-applied cycle.
+                    actions.setFilters(
+                        {
+                            ...includedFilters(included.filter((v) => v !== value)),
+                            filterGroup: setLogFilterExclusions(
+                                filterGroup,
+                                exclusionKey,
+                                excluded.includes(value) ? excluded : [...excluded, value]
+                            ),
+                        },
+                        false
+                    )
+                } else if (excluded.includes(value)) {
+                    actions.setFilterGroup(
+                        setLogFilterExclusions(
+                            filterGroup,
+                            exclusionKey,
+                            excluded.filter((v) => v !== value)
+                        ),
+                        false
+                    )
+                } else {
+                    setIncluded([...included, value])
+                }
+            }
+
+            if (source.filterKey === 'severityLevels') {
+                cycleColumnValue(
+                    severityLevels ?? [],
+                    (next) => actions.setSeverityLevels(next as LogSeverityLevel[]),
+                    (next) => ({ severityLevels: next as LogSeverityLevel[] })
+                )
             } else if (source.filterKey === 'serviceNames') {
-                actions.setServiceNames(toggleMembership(serviceNames, value))
+                cycleColumnValue(
+                    serviceNames ?? [],
+                    (next) => actions.setServiceNames(next),
+                    (next) => ({ serviceNames: next })
+                )
             } else {
                 // Adding a new column filterKey without wiring its setter here is a compile error.
                 source.filterKey satisfies never
