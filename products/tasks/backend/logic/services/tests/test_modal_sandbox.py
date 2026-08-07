@@ -856,7 +856,9 @@ class TestModalSandboxAgentServer:
         assert exc.value.non_retryable is True
 
     @pytest.mark.parametrize("snapshot_method", ["create_directory_snapshot", "create_snapshot"])
-    def test_generic_resource_exhausted_is_transient_not_file_cap(self, mock_sandbox: Any, snapshot_method: str) -> None:
+    def test_generic_resource_exhausted_is_transient_not_file_cap(
+        self, mock_sandbox: Any, snapshot_method: str
+    ) -> None:
         # A generic quota/rate-limit RESOURCE_EXHAUSTED must stay retryable, not be misclassified
         # as the permanent file-count cap.
         quota_error = ModalResourceExhaustedError("resource quota exceeded, please try again later")
@@ -878,7 +880,9 @@ class TestModalSandboxAgentServer:
     def test_prune_failure_does_not_block_snapshot(self, mock_sandbox: Any) -> None:
         # _prune_snapshot_heavy_dirs is best-effort: a failed prune must not skip the snapshot.
         mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-after-failed-prune")
-        with patch.object(ModalSandbox, "execute", side_effect=SandboxExecutionError("prune timed out", {}, cause=RuntimeError())):
+        with patch.object(
+            ModalSandbox, "execute", side_effect=SandboxExecutionError("prune timed out", {}, cause=RuntimeError())
+        ):
             result = mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR, prune_heavy_dirs=True)
 
         assert result == "im-after-failed-prune"

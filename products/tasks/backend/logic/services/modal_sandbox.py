@@ -162,6 +162,7 @@ def _is_snapshot_file_cap_error(error: BaseException) -> bool:
     message = str(error).lower()
     return "snapshot" in message and "more than" in message and "file" in message
 
+
 # Modal's snapshot_filesystem default timeout is 55s, which multi-GB sandbox filesystems
 # routinely exceed. The default fits the standalone snapshot activity's 10-minute budget;
 # resume snapshots run under a 5-minute activity budget and pass a tighter per-call
