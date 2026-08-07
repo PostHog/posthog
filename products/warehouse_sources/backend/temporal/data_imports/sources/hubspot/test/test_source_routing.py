@@ -313,6 +313,8 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
         "Hubspot v4 associations malformed JSON response (retryable): "
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        # auth.hubspot_refresh_access_token, exhausted after tenacity's 5 in-process attempts
+        "You have reached your rate limit.",
     ],
 )
 def test_transient_http_error_is_retryable(error_msg: str) -> None:

@@ -442,7 +442,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             mirrorCompare(
                 'hog-watcher.getCachedEffectiveState',
                 () => this.hogWatcher.getCachedEffectiveState(webhookId),
-                () => this.hogWatcherMirror?.getCachedEffectiveState(webhookId)
+                () => this.hogWatcherMirror.getCachedEffectiveState(webhookId)
             ),
         ])
 
@@ -473,9 +473,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         void this.promiseScheduler.schedule(
             this.invocationResultsService.flush(),
             this.hogWatcher.observeResultsBuffered(result),
-            mirrorCall('hog-watcher.observeResultsBuffered', () =>
-                this.hogWatcherMirror?.observeResultsBuffered(result)
-            )
+            mirrorCall('hog-watcher.observeResultsBuffered', () => this.hogWatcherMirror.observeResultsBuffered(result))
         )
 
         return result

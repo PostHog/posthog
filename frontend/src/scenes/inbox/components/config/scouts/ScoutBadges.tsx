@@ -85,3 +85,11 @@ export function ScoutOriginBadge({ origin }: { origin: ScoutOriginEnumApi }): JS
         </Tooltip>
     )
 }
+
+export function ScoutTagBadge({ tag }: { tag: string }): JSX.Element {
+    return (
+        <LemonTag type="highlight" size="small">
+            {tag}
+        </LemonTag>
+    )
+}

@@ -242,8 +242,21 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid GitHub credentials. Please reconnect your account.",
-            "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
-            "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
+            # GitHub's own wording for the two denials a user can actually act on. Both are matched
+            # ahead of the generic 403 keys below, because the first match in this dict wins.
+            "Resource not accessible by integration": "The GitHub app doesn't have permission to read this table. Give it the matching repository permission on GitHub, then reconnect your GitHub account.",
+            "Resource not accessible by personal access token": "Your GitHub token doesn't have permission to read this table. Add the missing scope to the token, then update the source with the new token.",
+            "SAML enforcement": "Your GitHub organization requires single sign-on for this connection. Authorize it on GitHub, then reconnect your GitHub account.",
+            "OAuth App access restrictions": "Your GitHub organization hasn't approved this connection. Ask an organization owner to approve it, then reconnect your GitHub account.",
+            # Rate-limited 403s never reach here: the sync classifies those as a rate limit and backs
+            # off until GitHub's reset. A 403 that lands in this map is a permission denial.
+            "GitHub denied access": "GitHub denied access to this repository. The connected account is missing a permission, or your organization hasn't approved it. Check the connection on GitHub, then reconnect your GitHub account.",
+            "403 Client Error": "GitHub denied access to this repository. The connected account is missing a permission, or your organization hasn't approved it. Check the connection on GitHub, then reconnect your GitHub account.",
+            # Raised only after a probe confirms the repository itself no longer resolves. A renamed
+            # or transferred repository still resolves through GitHub's redirect, so this is a
+            # deleted repository or one the connection can no longer see.
+            "GitHub repository is not accessible": "This repository is no longer available on GitHub. It may have been deleted, or your connection may have lost access to it. Update the source with a repository you can still reach, or reconnect your GitHub account.",
+            "404 Client Error": "GitHub couldn't find this repository. Check that it still exists and that your connection can access it.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.

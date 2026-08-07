@@ -39,6 +39,9 @@ from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
+    SIGNAL_DOCUMENT_PRODUCT,
+    SIGNAL_DOCUMENT_RENDERING,
+    SIGNAL_DOCUMENT_TYPE,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     FetchSignalTypeExamplesInput,
@@ -46,6 +49,7 @@ from products.signals.backend.temporal.signal_queries import (
     RunSignalSemanticSearchInput,
     RunSignalSemanticSearchOutput,
     WaitForClickHouseInput,
+    WaitForClickHouseMode,
     WaitForClickHouseSignal,
     fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
@@ -56,6 +60,7 @@ from products.signals.backend.temporal.signal_queries import (
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     RERESEARCH_MAX_SIGNALS,
+    RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
     MatchedMetadata,
@@ -679,6 +684,7 @@ class AssignAndEmitSignalOutput:
     promoted: bool
     timestamp: datetime
     run_count: int
+    research_debounce_seconds: int = 0
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -734,9 +740,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     emit_embedding_request(
                         content=input.description,
                         team_id=input.team_id,
-                        product="signals",
-                        document_type="signal",
-                        rendering="plain",
+                        product=SIGNAL_DOCUMENT_PRODUCT,
+                        document_type=SIGNAL_DOCUMENT_TYPE,
+                        rendering=SIGNAL_DOCUMENT_RENDERING,
                         document_id=input.signal_id,
                         models=[m.value for m in EmbeddingModelName],
                         timestamp=ts,
@@ -851,9 +857,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             emit_embedding_request(
                 content=input.description,
                 team_id=input.team_id,
-                product="signals",
-                document_type="signal",
-                rendering="plain",
+                product=SIGNAL_DOCUMENT_PRODUCT,
+                document_type=SIGNAL_DOCUMENT_TYPE,
+                rendering=SIGNAL_DOCUMENT_RENDERING,
                 document_id=input.signal_id,
                 models=[m.value for m in EmbeddingModelName],
                 timestamp=ts,
@@ -990,6 +996,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=db_result.promoted,
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
+            research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
         )
     except Exception as e:
         logger.exception(
@@ -1352,7 +1359,11 @@ async def _process_signal_batch(
 
             if assign_result.promoted:
                 promoted_reports[assign_result.report_id] = (
-                    SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=signal.team_id,
+                        report_id=assign_result.report_id,
+                        debounce_seconds=assign_result.research_debounce_seconds,
+                    ),
                     assign_result.run_count,
                 )
 
@@ -1378,6 +1389,9 @@ async def _process_signal_batch(
                     for sid, result in emitted_signals
                 ],
                 max_wait_time_seconds=3600,
+                # Fresh emissions: the store's confirmation is enough for the next batch's
+                # semantic search — don't spend ClickHouse queries on the happy path.
+                mode=WaitForClickHouseMode.OPTIMISTIC,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),
@@ -1396,11 +1410,10 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=timedelta(hours=1),
+                execution_timeout=timedelta(hours=1, seconds=report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
-            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
-            pass
+            metrics.increment_research_run_collapsed()
         except Exception:
             # Log and continue: raising here would reprocess the whole batch and double-count
             # signals. The report stays CANDIDATE and re-promotes on the next matching signal.

@@ -284,9 +284,14 @@ pub struct ProcessedEvent {
 /// for overflow beyond this mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OverflowReason {
-    /// Governor matched a configured `keys_to_reroute` entry for this event's
-    /// key. Events in this state always have `skip_person_processing = true`
-    /// and are routed to the overflow topic with a null partition key.
+    /// The overflow governor matched a configured `keys_to_reroute` entry
+    /// for this event's key, or the global rate limiter put the key over its
+    /// window. Routed to the overflow topic with a null partition key, with
+    /// person processing off: the reason itself implies the skip
+    /// ([`ProcessedEventMetadata::person_processing_disabled`]), so a
+    /// stamping site cannot keep person processing on for a force-limited
+    /// key by forgetting the flag. Stamping sites still set
+    /// `skip_person_processing = true` alongside for pipeline-level readers.
     ForceLimited,
     /// Per-key rate exceeded the configured governor quota. Routed to the
     /// overflow topic. `preserve_locality` mirrors the
@@ -325,6 +330,17 @@ pub struct ProcessedEventMetadata {
     /// Feeds the `distinct_id_truncated` ingestion warning; nothing routes on
     /// it.
     pub distinct_id_truncated_from: Option<usize>,
+}
+
+impl ProcessedEventMetadata {
+    /// Whether person processing is off for this event: the stamped flag, or
+    /// a `ForceLimited` reason — force-limiting implies the skip, so the
+    /// sink's header and ordering cannot silently keep person processing on
+    /// for a force-limited key whose stamping site forgot the flag.
+    pub fn person_processing_disabled(&self) -> bool {
+        self.skip_person_processing
+            || matches!(self.overflow_reason, Some(OverflowReason::ForceLimited))
+    }
 }
 
 #[cfg(test)]

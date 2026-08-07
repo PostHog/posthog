@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.models.integration import GitHubIntegrationError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -113,6 +114,31 @@ class TestGithubSource:
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "raised_message,expected_key",
+        [
+            (
+                "GitHub denied access: Resource not accessible by integration (url=https://api.github.com/repos/o/r/issues)",
+                "Resource not accessible by integration",
+            ),
+            (
+                "GitHub denied access: Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization. (url=https://api.github.com/repos/o/r/issues)",
+                "SAML enforcement",
+            ),
+            (
+                "GitHub denied access: Must have admin rights to Repository. (url=https://api.github.com/repos/o/r/issues)",
+                "GitHub denied access",
+            ),
+            ("GitHub repository is not accessible: owner/repo", "GitHub repository is not accessible"),
+        ],
+    )
+    def test_sync_failures_pick_the_specific_friendly_error(self, raised_message, expected_key):
+        # The job picks the first matching key, so a specific cause must be declared ahead of the
+        # generic fallback or every denial reads as the vague one.
+        errors = self.source.get_non_retryable_errors()
+        matched = next(key for key in errors if error_message_matches(raised_message, [key]))
+        assert matched == expected_key
 
     def test_suspended_installation_token_refresh_is_non_retryable(self):
         # The raw GitHubIntegrationError raised by refresh_access_token on a suspended installation.

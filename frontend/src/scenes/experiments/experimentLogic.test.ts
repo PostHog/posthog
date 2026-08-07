@@ -559,6 +559,29 @@ describe('experimentLogic', () => {
             )
         })
 
+        it.each([
+            ['variant notes', (): void => logic.actions.updateExperimentVariantNotes({ control: 'a note' })],
+            ['variant images', (): void => logic.actions.updateExperimentVariantImages({ control: ['media-id-1'] })],
+        ])('includes the concurrency payload on the raw %s write path', async (_name, dispatch) => {
+            const snapshot = { ...experiment, version: 6 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue({ ...snapshot, version: 7 })
+
+            await expectLogic(logic, dispatch).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    version: 6,
+                    original_experiment: expect.objectContaining({ metrics: snapshot.metrics }),
+                })
+            )
+            // The write bumped the version server-side; the snapshot must absorb the response,
+            // or every later save from this tab is stale and can 409.
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(7)
+        })
+
         it('reloads fresh state but keeps the rejected scalar edit on a version conflict', async () => {
             const snapshot = { ...experiment, version: 1 } as Experiment
             logic.actions.setUnmodifiedExperiment(snapshot)
@@ -582,7 +605,7 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.description).toEqual('stale write')
         })
     })
-    describe('saveMetricsReorder', () => {
+    describe('moveMetricsBetweenSections', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',
             uuid: 'primary-metric-uuid',
@@ -626,35 +649,6 @@ describe('experimentLogic', () => {
             api.update.mockClear()
         })
 
-        it('persists a pure reorder without touching metric arrays or results', async () => {
-            const testExperiment = {
-                ...experiment,
-                saved_metrics: [],
-                metrics: [primaryMetric, otherPrimaryMetric],
-                metrics_secondary: [],
-                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
-            } as unknown as Experiment
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
-            api.update.mockResolvedValue({
-                ...testExperiment,
-                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['other-primary-uuid', 'primary-metric-uuid'], [], [])
-            })
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
-
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
-                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
-                update_feature_flag_params: false,
-            })
-            expect(logic.values.primaryMetricsResults).toEqual([primaryMetricResult, otherPrimaryMetricResult])
-        })
-
         it('moves an inline metric to secondary and reuses existing results', async () => {
             const testExperiment = {
                 ...experiment,
@@ -675,7 +669,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(
+                logic.actions.moveMetricsBetweenSections(
                     false,
                     ['primary-metric-uuid', 'other-primary-uuid'],
                     [],
@@ -733,7 +727,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(
+                logic.actions.moveMetricsBetweenSections(
                     false,
                     ['primary-metric-uuid', 'other-primary-uuid', 'third-primary-uuid'],
                     ['other-primary-uuid'],
@@ -792,7 +786,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
@@ -852,7 +846,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
             })
                 .toDispatchActions(['updateExperimentSuccess', 'retryPrimaryMetric'])
                 .toFinishAllListeners()
@@ -892,10 +886,81 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
             })
                 .toDispatchActions(['updateExperiment', 'refreshExperimentResults'])
                 .toFinishAllListeners()
+        })
+    })
+    describe('reorderMetrics', () => {
+        const testExperiment = {
+            ...experiment,
+            saved_metrics: [],
+            metrics: [
+                { kind: 'ExperimentMetric', uuid: 'first-uuid', name: 'First' },
+                { kind: 'ExperimentMetric', uuid: 'second-uuid', name: 'Second' },
+            ],
+            metrics_secondary: [],
+            primary_metrics_ordered_uuids: ['first-uuid', 'second-uuid'],
+        } as unknown as Experiment
+
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+            logic.actions.setExperiment(testExperiment)
+        })
+
+        it('applies the new order before the request lands, then persists only the ordering', async () => {
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
+            })
+
+            logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+
+            // Optimistic: the table must not wait on the round trip to show the new order.
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['second-uuid', 'first-uuid'])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
+                    update_feature_flag_params: false,
+                })
+            )
+        })
+
+        it('rolls the order back when the update fails', async () => {
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+            api.update.mockRejectedValue(new Error('nope'))
+
+            await expectLogic(logic, () => {
+                logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['first-uuid', 'second-uuid'])
+            expect(errorMock).toHaveBeenCalledWith('Could not save the new metric order')
+        })
+
+        it('coalesces drops inside the debounce window into one request', async () => {
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                primary_metrics_ordered_uuids: ['first-uuid', 'second-uuid'],
+            })
+
+            logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+            logic.actions.reorderMetrics(false, ['first-uuid', 'second-uuid'])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            // A superseded run must not report its cancellation as a save failure.
+            expect(errorMock).not.toHaveBeenCalled()
         })
     })
     describe('breakdown management', () => {
@@ -1854,7 +1919,7 @@ describe('experimentLogic', () => {
             api.update.mockClear()
         })
 
-        it('sends variant split and holdout via experiment update with update_feature_flag_params', async () => {
+        it('sends variant split via experiment update without resending an unchanged holdout', async () => {
             const updatedExperiment = {
                 ...experiment,
                 parameters: {
@@ -1867,6 +1932,7 @@ describe('experimentLogic', () => {
             }
             api.update.mockResolvedValue(updatedExperiment)
 
+            logic.actions.setUnmodifiedExperiment(experiment)
             logic.actions.setExperiment(experiment)
 
             await expectLogic(logic, () => {
@@ -1889,14 +1955,35 @@ describe('experimentLogic', () => {
                             },
                         },
                     },
-                    holdout_id: experiment.holdout_id,
                     update_feature_flag_params: true,
                 })
             )
+            // An unchanged holdout must not ride along: resending it makes every stale
+            // distribution save read as a holdout edit and conflict server-side.
+            expect(api.update.mock.calls[0][1]).not.toHaveProperty('holdout_id')
             // No rollout group when the caller omits rolloutPercentage (the modal itself always
             // passes one; this covers the omit branch)
             const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
             expect(sentFlagFilters).not.toHaveProperty('groups')
+        })
+
+        it('sends holdout_id when the user changed it since the last save', async () => {
+            api.update.mockResolvedValue(experiment)
+
+            logic.actions.setUnmodifiedExperiment({ ...experiment, holdout_id: null } as Experiment)
+            logic.actions.setExperiment({ ...experiment, holdout_id: 42 } as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateDistribution([
+                    { key: 'control', rollout_percentage: 60 },
+                    { key: 'test', rollout_percentage: 40 },
+                ])
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ holdout_id: 42 })
+            )
         })
 
         it('does not call feature flag API directly', async () => {

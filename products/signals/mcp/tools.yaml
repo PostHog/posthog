@@ -644,6 +644,24 @@ tools:
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
             Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is
             the scout's inferred learnings.
+    scout-record-output:
+        operation: signals_scout_record_output
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Record structured output for a run
+        description: >
+            Record schema-validated structured records for a `SignalScoutRun` — the structured-output channel next to
+            findings and reports. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one
+            record); without it the call fails closed, as it does for a dry-run scout (emit off). Pass the `run_id` and
+            a `records` list of `{payload, subject}` entries. All-or-nothing: any record failing the schema fails the
+            whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's
+            event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are
+            deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true

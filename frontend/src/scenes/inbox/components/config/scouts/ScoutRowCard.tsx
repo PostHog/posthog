@@ -20,8 +20,9 @@ import {
     prettifyScoutSkillName,
     ScoutRollup,
 } from '../../../utils/scoutRunsWindow'
+import { scoutTags } from '../../../utils/scoutTags'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
-import { ScoutLifecycleBadge, ScoutOriginBadge } from './ScoutBadges'
+import { ScoutLifecycleBadge, ScoutOriginBadge, ScoutTagBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 
@@ -132,7 +133,7 @@ export function ScoutRowCard({
                             <ScoutLifecycleBadge config={config} />
                         </div>
                     </div>
-                    <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
+                    <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted">
                         {/* A cron schedule overrides the rolling interval, so the badge shows it instead. */}
                         <span>
                             {config.run_cron_schedule
@@ -144,6 +145,9 @@ export function ScoutRowCard({
                         {rollup && rollup.emittedCount > 0 ? (
                             <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>
                         ) : null}
+                        {scoutTags(config).map((tag) => (
+                            <ScoutTagBadge key={tag} tag={tag} />
+                        ))}
                     </div>
                 </div>
                 {/* The sparkline is the flexible region: it shrinks and clips the oldest runs

@@ -1,10 +1,5 @@
 export const BILLING_FLAG = "posthog-code-billing";
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
-/**
- * Launch switch for the one-time usage-based billing announcement: flip at
- * cutover, delete once the fleet has acknowledged.
- */
-export const USAGE_BILLING_FLAG = "posthog-code-usage-billing";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
 export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";

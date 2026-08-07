@@ -1048,6 +1048,49 @@ class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
+    def test_payload_conditions_normalize_a_bare_string_to_a_list(self):
+        # The matcher reads `equals` as a list, so a string that survived unnormalized would be
+        # compared character by character and never match.
+        created = self._create_loop(
+            self.owner_client,
+            triggers=[
+                self._github_trigger(
+                    ["pull_request"],
+                    {"payload": [{"path": "requested_team.slug", "equals": "team-security"}]},
+                )
+            ],
+        )
+        self.assertEqual(
+            created["triggers"][0]["config"]["filters"]["payload"],
+            [{"path": "requested_team.slug", "equals": ["team-security"]}],
+        )
+
+    @parameterized.expand(
+        [
+            ("not_a_list", {"payload": {"path": "action", "equals": "opened"}}),
+            ("entry_not_an_object", {"payload": ["requested_team.slug"]}),
+            ("missing_path", {"payload": [{"equals": "team-security"}]}),
+            ("empty_path", {"payload": [{"path": "  ", "equals": "team-security"}]}),
+            ("path_with_empty_segment", {"payload": [{"path": "requested_team..slug", "equals": "x"}]}),
+            # Saves fine and then never fires: matching walks objects, not lists.
+            ("path_indexing_into_a_list", {"payload": [{"path": "pull_request.labels.0.name", "equals": "x"}]}),
+            ("too_many_path_segments", {"payload": [{"path": ".".join("abcdefghi"), "equals": "x"}]}),
+            ("missing_equals", {"payload": [{"path": "requested_team.slug"}]}),
+            ("empty_equals", {"payload": [{"path": "requested_team.slug", "equals": []}]}),
+            ("non_string_equals", {"payload": [{"path": "pull_request.number", "equals": 7}]}),
+            ("too_many_conditions", {"payload": [{"path": f"a{i}", "equals": "x"} for i in range(17)]}),
+            # The allowlist is how an agent discovers the vocabulary after a failed call.
+            ("unknown_filter_key", {"reviewers": ["alice"]}),
+        ]
+    )
+    def test_invalid_payload_conditions_are_rejected(self, _name, filters):
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(triggers=[self._github_trigger(["pull_request"], filters)]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
 
 class LoopServiceReadbackAPITest(LoopsAPITestCase):
     def _psak(self, scopes) -> str:

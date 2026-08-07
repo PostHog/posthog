@@ -52,6 +52,13 @@ class SandboxComputeCost:
 COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = ()
 
 
+def validate_reporting_window(reporting_start: datetime, reporting_end: datetime) -> None:
+    if timezone.is_naive(reporting_start) or timezone.is_naive(reporting_end):
+        raise ValueError("reporting timestamps must be timezone-aware")
+    if reporting_end <= reporting_start:
+        raise ValueError("reporting end must follow reporting start")
+
+
 def validate_compute_rate_cards(rate_cards: Sequence[ComputeRateCard]) -> tuple[ComputeRateCard, ...]:
     cards = tuple(rate_cards)
     if not cards:
@@ -92,10 +99,7 @@ def calculate_sandbox_compute_cost(
     rate_cards: Sequence[ComputeRateCard] = COMPUTE_RATE_CARDS,
 ) -> SandboxComputeCost:
     cards = validate_compute_rate_cards(rate_cards)
-    if timezone.is_naive(reporting_start) or timezone.is_naive(reporting_end):
-        raise ValueError("reporting timestamps must be timezone-aware")
-    if reporting_end <= reporting_start:
-        raise ValueError("reporting end must follow reporting start")
+    validate_reporting_window(reporting_start, reporting_end)
 
     now = calculated_at or timezone.now()
     if timezone.is_naive(now):

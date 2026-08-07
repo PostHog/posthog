@@ -284,13 +284,6 @@ export const urls = {
     debugHog: (): string => '/debug/hog',
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    heatmaps: (params?: string): string =>
-        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmapNew: (params?: string): string =>
-        `/heatmaps/new${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmapRecording: (params?: string): string =>
-        `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmap: (id: string | number): string => `/heatmaps/${id}`,
     links: (params?: string): string =>
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     link: (id: string): string => `/link/${id}`,

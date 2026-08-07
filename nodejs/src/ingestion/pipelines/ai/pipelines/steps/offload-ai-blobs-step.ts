@@ -62,6 +62,9 @@ interface AiBlobOffloadPlan {
     /** Heavy properties rewritten with blob pointers, applied on fan-in. */
     rewrittenProps: Record<string, unknown>
     savedChars: number
+    /** Qualifying payloads and their decoded bytes, counted per occurrence (pre-dedup). */
+    occurrenceCount: number
+    occurrenceBytes: number
     belowFloorCount: number
     belowFloorBytes: number
     skipReason: 'no_blobs' | 'blob_limit_exceeded' | null
@@ -100,6 +103,8 @@ export function createExtractAiBlobsStep<T extends OffloadAiBlobsInput>(
         const rewrittenProps: Record<string, unknown> = {}
         const blobsByHash = new Map<string, DetectedBlob>()
         let savedChars = 0
+        let occurrenceCount = 0
+        let occurrenceBytes = 0
         let belowFloorCount = 0
         let belowFloorBytes = 0
 
@@ -111,6 +116,8 @@ export function createExtractAiBlobsStep<T extends OffloadAiBlobsInput>(
             const extraction = extractBlobs(value, extractionOpts)
             belowFloorCount += extraction.belowFloorCount
             belowFloorBytes += extraction.belowFloorBytes
+            occurrenceCount += extraction.occurrences
+            occurrenceBytes += extraction.occurrenceBytes
             if (extraction.blobs.length === 0) {
                 continue
             }
@@ -125,6 +132,8 @@ export function createExtractAiBlobsStep<T extends OffloadAiBlobsInput>(
             blobs: [],
             rewrittenProps,
             savedChars,
+            occurrenceCount,
+            occurrenceBytes,
             belowFloorCount,
             belowFloorBytes,
             skipReason: null,
@@ -203,7 +212,7 @@ export function mergeAiBlobPointersFanIn<T extends WithAiBlobOffloadPlan<Offload
 
     for (const { blob, outcome } of uploads) {
         aiBlobOffloadBlobsCounter.labels(blob.detector, mimeFamily(blob.mime), outcome).inc()
-        aiBlobOffloadBlobBytes.labels(mimeFamily(blob.mime)).observe(blob.bytes.length)
+        aiBlobOffloadBlobBytes.labels(mimeFamily(blob.mime), outcome).observe(blob.bytes.length)
     }
     aiBlobOffloadBlobsPerEvent.observe(uploads.length)
     aiBlobOffloadEventBytesSaved.observe(plan.savedChars)
@@ -214,7 +223,12 @@ export function mergeAiBlobPointersFanIn<T extends WithAiBlobOffloadPlan<Offload
         ...rest,
         normalizedEvent: {
             ...normalizedEvent,
-            properties: { ...properties, ...plan.rewrittenProps },
+            properties: {
+                ...properties,
+                ...plan.rewrittenProps,
+                $ai_blob_count: plan.occurrenceCount,
+                $ai_blob_bytes: plan.occurrenceBytes,
+            },
         },
     }
 }

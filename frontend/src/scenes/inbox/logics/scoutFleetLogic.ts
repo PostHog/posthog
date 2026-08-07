@@ -50,6 +50,8 @@ import {
     ScoutRollup,
     sortConfigsForDisplay,
 } from '../utils/scoutRunsWindow'
+import { configMatchesScoutTags, listScoutTagOptions } from '../utils/scoutTags'
+import type { ScoutTagOption } from '../utils/scoutTags'
 
 type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
@@ -97,6 +99,7 @@ const MAX_RUNS_PAGES = 15
 export interface scoutFleetLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    activeScoutTags: string[]
     aiConsentDisabledReason: string | null
     customScoutCount: number
     deletingScoutIds: string[]
@@ -129,6 +132,8 @@ export interface scoutFleetLogicValues {
     scoutConfigsLoading: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutTagOptions: ScoutTagOption[]
+    selectedScoutTags: string[]
     updatingScoutIds: string[]
     visibleConfigs: SignalScoutConfig[]
 }
@@ -223,6 +228,9 @@ export interface scoutFleetLogicActions {
     setHideDisabled: (hideDisabled: boolean) => {
         hideDisabled: boolean
     }
+    setScoutTagFilter: (tags: string[]) => {
+        tags: string[]
+    }
     startRunsPolling: () => {
         value: true
     }
@@ -271,7 +279,13 @@ export interface scoutFleetLogicMeta {
         ) => FleetSummary | null
         enabledCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
         lastRunAt: (scoutConfigs: SignalScoutConfigApi[] | null) => string | null
-        visibleConfigs: (scoutConfigs: SignalScoutConfigApi[] | null, hideDisabled: boolean) => SignalScoutConfig[]
+        scoutTagOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutTagOption[]
+        activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
+        visibleConfigs: (
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            hideDisabled: boolean,
+            activeScoutTags: string[]
+        ) => SignalScoutConfig[]
         runsWindowComplete: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => boolean
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
@@ -314,6 +328,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setHideDisabled: (hideDisabled: boolean) => ({ hideDisabled }),
+        setScoutTagFilter: (tags: string[]) => ({ tags }),
         setExpanded: (expanded: boolean) => ({ expanded }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
@@ -459,6 +474,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 setHideDisabled: (_, { hideDisabled }) => hideDisabled,
             },
         ],
+        selectedScoutTags: [
+            [] as string[],
+            {
+                setScoutTagFilter: (_, { tags }) => tags,
+            },
+        ],
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -546,11 +567,27 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 return latest
             },
         ],
+        scoutTagOptions: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): ScoutTagOption[] => listScoutTagOptions(scoutConfigs ?? []),
+        ],
+        activeScoutTags: [
+            (s) => [s.selectedScoutTags, s.scoutTagOptions],
+            (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]): string[] =>
+                selectedScoutTags.filter((tag) => scoutTagOptions.some((option) => option.tag === tag)),
+        ],
         visibleConfigs: [
-            (s) => [s.scoutConfigs, s.hideDisabled],
-            (scoutConfigs: SignalScoutConfig[] | null, hideDisabled: boolean): SignalScoutConfig[] => {
-                const sorted = sortConfigsForDisplay(scoutConfigs ?? [])
-                return hideDisabled ? sorted.filter((config) => config.enabled) : sorted
+            (s) => [s.scoutConfigs, s.hideDisabled, s.activeScoutTags],
+            (
+                scoutConfigs: SignalScoutConfig[] | null,
+                hideDisabled: boolean,
+                activeScoutTags: string[]
+            ): SignalScoutConfig[] => {
+                let sorted = sortConfigsForDisplay(scoutConfigs ?? [])
+                if (hideDisabled) {
+                    sorted = sorted.filter((config) => config.enabled)
+                }
+                return sorted.filter((config) => configMatchesScoutTags(config, activeScoutTags))
             },
         ],
         runsWindowComplete: [
@@ -588,6 +625,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        setScoutTagFilter: ({ tags }) => {
+            captureScoutAction({
+                actionType: 'filter_tags',
+                surface: 'fleet_list',
+                extra: {
+                    tags,
+                    filter_match_count: tags.length
+                        ? (values.scoutConfigs ?? []).filter((config) => configMatchesScoutTags(config, tags)).length
+                        : undefined,
+                },
+            })
+        },
         updateScoutConfig: async ({ configId, updates }) => {
             const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())
             const pendingUpdates: Map<string, SignalScoutConfigUpdate> = (cache.pendingScoutConfigUpdates ??= new Map())

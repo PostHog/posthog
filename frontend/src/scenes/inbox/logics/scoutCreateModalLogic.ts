@@ -23,9 +23,10 @@ import {
     SIGNALS_SCOUT_SKILL_PREFIX,
     timeToDailyCron,
 } from '../utils/scoutRunsWindow'
+import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
 
 type ScoutCreateConfigFormValues = Required<
-    Pick<SignalScoutConfigOptionsApi, 'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule'>
+    Pick<SignalScoutConfigOptionsApi, 'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule' | 'tags'>
 > &
     Pick<SignalScoutConfigOptionsApi, 'output_destinations'>
 
@@ -55,6 +56,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         emit: true,
         run_interval_minutes: 1440,
         run_cron_schedule: null,
+        tags: [],
     },
 }
 
@@ -83,6 +85,16 @@ function scoutNameError(name: string): string | undefined {
     }
     if (!normalizedName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)) {
         return `Name must start with ${SIGNALS_SCOUT_SKILL_PREFIX}`
+    }
+    return undefined
+}
+
+function scoutTagsError(tags: string[]): string | undefined {
+    if (tags.length > MAX_SCOUT_TAGS) {
+        return `A scout can have up to ${MAX_SCOUT_TAGS} tags`
+    }
+    if (tags.some((tag) => normalizeScoutTag(tag).length > MAX_SCOUT_TAG_LENGTH)) {
+        return `Tags can be up to ${MAX_SCOUT_TAG_LENGTH} characters`
     }
     return undefined
 }
@@ -175,25 +187,33 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     forms(({ props: logicProps, actions, values }) => ({
         scoutCreateForm: {
             defaults: getScoutCreateFormValues(logicProps.initialValues),
-            errors: ({ name, description, body, config, dailyTime }) => ({
-                name: scoutNameError(name),
-                description: !description.trim()
-                    ? 'Description is required'
-                    : description.length > SKILL_DESCRIPTION_MAX_LENGTH
-                      ? `Description must be ${SKILL_DESCRIPTION_MAX_LENGTH} characters or fewer`
-                      : undefined,
-                body: !body.trim() ? 'Instructions are required' : undefined,
-                dailyTime:
-                    dailyCronToTime(config.run_cron_schedule) !== null && !isValidScoutDailyTime(dailyTime)
-                        ? 'Run time is required'
-                        : undefined,
-                config:
+            errors: ({ name, description, body, config, dailyTime }) => {
+                const runIntervalError =
                     !Number.isFinite(config.run_interval_minutes) ||
                     config.run_interval_minutes < 30 ||
                     config.run_interval_minutes > 43200
-                        ? { run_interval_minutes: 'Schedule must be between 30 minutes and 30 days' }
-                        : undefined,
-            }),
+                        ? 'Schedule must be between 30 minutes and 30 days'
+                        : undefined
+                const tagsError = scoutTagsError(config.tags)
+
+                return {
+                    name: scoutNameError(name),
+                    description: !description.trim()
+                        ? 'Description is required'
+                        : description.length > SKILL_DESCRIPTION_MAX_LENGTH
+                          ? `Description must be ${SKILL_DESCRIPTION_MAX_LENGTH} characters or fewer`
+                          : undefined,
+                    body: !body.trim() ? 'Instructions are required' : undefined,
+                    dailyTime:
+                        dailyCronToTime(config.run_cron_schedule) !== null && !isValidScoutDailyTime(dailyTime)
+                            ? 'Run time is required'
+                            : undefined,
+                    config:
+                        runIntervalError || tagsError
+                            ? { run_interval_minutes: runIntervalError, tags: tagsError ? [tagsError] : undefined }
+                            : undefined,
+                }
+            },
             submit: async (formValues) => {
                 if (values.currentTeamId === null) {
                     lemonToast.error('Select a project before creating a scout')

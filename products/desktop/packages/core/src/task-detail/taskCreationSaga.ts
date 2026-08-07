@@ -800,10 +800,13 @@ export class TaskCreationSaga extends Saga<
           input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
         const result = await this.deps.posthogClient.createTask({
           description,
-          repository: repository ?? undefined,
+          repository: input.repositories
+            ? undefined
+            : (repository ?? undefined),
+          repositories: input.repositories,
           github_integration:
             input.workspaceMode === "cloud" &&
-            input.cloudRunSource === "signal_report"
+            (input.cloudRunSource === "signal_report" || input.repositories)
               ? input.githubIntegrationId
               : undefined,
           github_user_integration:

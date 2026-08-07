@@ -192,6 +192,7 @@ def _run_row(
     pr_number: int | None = None,
     head_branch: str = "main",
     commit_message: str | None = None,
+    actor: str = "alice",
 ) -> dict[str, Any]:
     return {
         "id": run_id,
@@ -209,6 +210,7 @@ def _run_row(
         "pull_requests": pr_association(pr_number, base_repo=full_name) if pr_number is not None else None,
         "repository": json.dumps({"full_name": full_name, "id": repo_id(full_name)}),
         "head_commit": json.dumps({"message": commit_message}) if commit_message is not None else None,
+        "actor": json.dumps({"login": actor}),
     }
 
 

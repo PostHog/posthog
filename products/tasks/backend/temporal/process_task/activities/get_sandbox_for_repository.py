@@ -30,7 +30,12 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    increment_snapshot_restore,
+    increment_snapshot_usage,
+    sandbox_runtime_label,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -140,7 +145,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # Repo-setup snapshots come from default-base sandboxes; restoring one would drop the custom image.
         if has_repo and github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
-            with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
+            with StepTimer(
+                "snapshot_lookup",
+                origin_product=ctx.origin_product,
+                runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            ) as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
@@ -310,7 +319,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "debug",
             f"Provisioning sandbox from {image_source_label} (image build may take a few minutes on first run)",
         )
-        with StepTimer("sandbox_creation", used_snapshot=used_snapshot) as sandbox_creation_timer:
+        runtime = sandbox_runtime_label(use_vm_sandbox)
+        with StepTimer(
+            "sandbox_creation",
+            used_snapshot=used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        ) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
             # The provider's TTL clock starts here — the usage ledger anchors its
             # kill deadline on this boundary, not on when the row is opened below.
@@ -342,7 +357,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 )
             else:
                 emit_agent_log(ctx.run_id, "debug", f"Cloning {repository} into sandbox")
-            with StepTimer("repository_clone", used_snapshot=used_snapshot):
+            with StepTimer(
+                "repository_clone",
+                used_snapshot=used_snapshot,
+                origin_product=ctx.origin_product,
+                runtime=runtime,
+            ):
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
                 sandbox.destroy()

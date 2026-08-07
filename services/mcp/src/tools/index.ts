@@ -48,6 +48,7 @@ import updatePropertyDefinition from './projects/updatePropertyDefinition'
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
+import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
 // Misc
 import {
     type ToolFilterOptions,
@@ -110,6 +111,11 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feedback
     'agent-feedback': submitFeedback,
+
+    // Current-task comments. The model never supplies a task id; the host-stamped MCP context does.
+    'tasks-artifacts-list': tasksArtifactsList,
+    'tasks-comments-list': tasksCommentsList,
+    'tasks-comments-retrieve': tasksCommentsRetrieve,
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,

@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useId } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonModal,
+    LemonSelect,
+    LemonSwitch,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +29,7 @@ import {
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SIGNALS_SCOUT_SKILL_PREFIX,
 } from '../../../utils/scoutRunsWindow'
+import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 
 export interface ScoutCreateModalProps {
@@ -49,12 +58,16 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
         onClose()
     }
 
+    const tagsValidationError = scoutCreateFormValidationErrors.config?.tags?.find(
+        (error): error is string => typeof error === 'string'
+    )
     const firstError = [
         scoutCreateFormValidationErrors.name,
         scoutCreateFormValidationErrors.description,
         scoutCreateFormValidationErrors.body,
         scoutCreateFormValidationErrors.dailyTime,
         scoutCreateFormValidationErrors.config?.run_interval_minutes,
+        tagsValidationError,
     ].find((error): error is string => typeof error === 'string')
 
     return (
@@ -124,6 +137,30 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                             placeholder="Investigates recurring checkout failures and reports meaningful changes."
                             data-attr="scout-create-description"
                         />
+                    </LemonField>
+
+                    <LemonField
+                        name="config.tags"
+                        label="Tags"
+                        help={`Add up to ${MAX_SCOUT_TAGS} tags to group scouts in the fleet.`}
+                    >
+                        {({ value, onChange }) => (
+                            <div className="flex flex-col gap-2">
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    limit={MAX_SCOUT_TAGS}
+                                    value={value}
+                                    onChange={(tags) => onChange(normalizeScoutTags(tags))}
+                                    placeholder="Add tag"
+                                    fullWidth
+                                    status={tagsValidationError ? 'danger' : 'default'}
+                                    disabledReason={isScoutCreateFormSubmitting ? 'Creating the scout' : undefined}
+                                    data-attr="scout-create-tags"
+                                />
+                                {tagsValidationError ? <LemonField.Error error={tagsValidationError} /> : null}
+                            </div>
+                        )}
                     </LemonField>
 
                     <LemonField name="body" label="Instructions" help="This markdown prompt is executed on every run.">

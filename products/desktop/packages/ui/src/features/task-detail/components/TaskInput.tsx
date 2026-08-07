@@ -15,6 +15,15 @@ import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
 import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  TaskRepositoryChip,
+  TaskRepositoryDialog,
+} from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
+import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import {
+  resolveTaskRepositoryDraft,
+  useTaskRepositoryDraftStore,
+} from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -137,6 +146,8 @@ interface TaskInputProps {
    * needs a repo and attaches one lazily.
    */
   allowNoRepo?: boolean;
+  channelRepositories?: string[];
+  channelGithubIntegration?: number | null;
   /**
    * Channels new-task starter prompts. When provided, a column of suggestion
    * cards renders below the input while it's empty; clicking one fills the
@@ -179,6 +190,8 @@ export function TaskInput({
   channelId,
   channelContextId,
   allowNoRepo,
+  channelRepositories = [],
+  channelGithubIntegration = null,
   suggestions,
   onSuggestionSelect,
   onContextChipClick,
@@ -204,6 +217,24 @@ export function TaskInput({
   );
   const selectedDirectory = useActiveRepoStore((s) => s.path);
   const setSelectedDirectory = useActiveRepoStore((s) => s.setPath);
+  const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
+  // "" only on channel-less repo-optional surfaces (none today); a real space
+  // id keys the draft shared with the space home composer.
+  const repositoryDraftKey = channelId ?? "";
+  const repositoryDraft = useTaskRepositoryDraftStore(
+    (s) => s.drafts[repositoryDraftKey],
+  );
+  const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const {
+    repositories: taskRepositories,
+    githubIntegration: taskGithubIntegration,
+    folder: taskFolder,
+  } = resolveTaskRepositoryDraft(
+    repositoryDraft,
+    channelRepositories,
+    channelGithubIntegration,
+  );
+  const updateChannelRepositories = useUpdateTaskChannelRepositories();
   // Inline file preview opened from the command palette's file search.
   const previewFile = useFileSearchStore((s) => s.previewFile);
   const closePreviewFile = useFileSearchStore((s) => s.closePreview);
@@ -460,6 +491,7 @@ export function TaskInput({
   const {
     repositories: visibleCloudRepositories,
     isPending: cloudRepositoriesLoading,
+    isFetchingMore: cloudRepositoriesFetchingMore,
     hasMore: cloudRepositoriesHasMore,
     loadMore: loadMoreCloudRepositories,
   } = useUserGithubRepositories(cloudRepoSearchQuery, isCloudRepoPickerOpen);
@@ -944,8 +976,14 @@ export function TaskInput({
   } = useTaskCreation({
     editorRef,
     sessionId,
-    selectedDirectory,
+    selectedDirectory: allowNoRepo ? taskFolder : selectedDirectory,
     selectedRepository: selectedCloudRepository,
+    repositories:
+      allowNoRepo && workspaceMode === "cloud" ? taskRepositories : undefined,
+    githubIntegrationId:
+      allowNoRepo && workspaceMode === "cloud"
+        ? (taskGithubIntegration ?? undefined)
+        : undefined,
     githubUserIntegrationId: selectedGithubUserIntegrationId,
     workspaceMode: effectiveWorkspaceMode,
     branch: branchForTaskCreation,
@@ -1239,6 +1277,15 @@ export function TaskInput({
                   onCustomImageChange={setSelectedCustomImageId}
                   size="1"
                 />
+                {allowNoRepo && (
+                  <TaskRepositoryChip
+                    cloud={workspaceMode === "cloud"}
+                    repositoryCount={taskRepositories.length}
+                    hasFolder={!!taskFolder}
+                    disabled={isCreatingTask}
+                    onOpen={() => setRepositoryDialogOpen(true)}
+                  />
+                )}
                 {!allowNoRepo && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
@@ -1279,6 +1326,7 @@ export function TaskInput({
                           isLoadingRepos ||
                           (isCloudRepoPickerOpen && cloudRepositoriesLoading)
                         }
+                        isLoadingMore={cloudRepositoriesFetchingMore}
                         isRefreshing={isRefreshingRepos}
                         onRefresh={handleRefreshRepositories}
                         open={isCloudRepoPickerOpen}
@@ -1586,6 +1634,41 @@ export function TaskInput({
           </Flex>
         </Box>
       </Flex>
+
+      {allowNoRepo && (
+        <TaskRepositoryDialog
+          open={repositoryDialogOpen}
+          onOpenChange={setRepositoryDialogOpen}
+          cloud={workspaceMode === "cloud"}
+          repositories={taskRepositories}
+          integrationId={taskGithubIntegration}
+          folder={taskFolder}
+          onApply={(selection) => {
+            setRepositoryDraft(repositoryDraftKey, {
+              repositories: selection.repositories,
+              githubIntegration: selection.integrationId,
+              folder: selection.folder,
+            });
+            if (
+              selection.saveToSpace &&
+              channelId &&
+              workspaceMode === "cloud"
+            ) {
+              updateChannelRepositories.mutate(
+                {
+                  channelId,
+                  githubIntegration: selection.integrationId,
+                  repositories: selection.repositories,
+                },
+                {
+                  onError: () =>
+                    toast.error("Couldn't save repositories to the space"),
+                },
+              );
+            }
+          }}
+        />
+      )}
 
       <GitBranchDialog
         open={branchOpen}

@@ -74,7 +74,7 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
     return [tuple(row) for row in response.results or []]
 
 
-def canonical_report_uuid(report_id: str) -> str | None:
+def canonical_report_uuid(report_id: str | None) -> str | None:
     """Canonical lowercase-hyphenated form of a client-supplied report id, or None when it cannot
     be a report UUID. Canonicalizing (not just validating) matters because a case or hyphenation
     variant would otherwise survive as a separate label-only row instead of joining its report."""
@@ -82,9 +82,13 @@ def canonical_report_uuid(report_id: str) -> str | None:
         return str(uuid.UUID(report_id))
     except ValueError:
         return None
+    except TypeError:
+        # uuid.UUID(None) raises TypeError, not ValueError; a missing event property surfaces
+        # as a None cell in HogQL results.
+        return None
 
 
-def valid_report_uuids(report_ids: set[str]) -> set[str]:
+def valid_report_uuids(report_ids: set[str | None]) -> set[str]:
     """Label events are client-supplied; drop ids that cannot be report UUIDs before ORM lookups."""
     return {canonical for report_id in report_ids if (canonical := canonical_report_uuid(report_id)) is not None}
 
@@ -122,7 +126,10 @@ FROM (
     WHERE event IN ('pr_created', 'pr_merged', 'pr_closed')
       AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
 )
-WHERE report_id != ''
+-- The null guard is load-bearing: an event missing its report id property yields a NULL report_id
+-- (most pr_* events are not born from a signal report), and HogQL's null-safe inequality evaluates
+-- NULL != '' to true, so the empty-string filter alone would pass a NULL row through.
+WHERE report_id IS NOT NULL AND report_id != ''
 """
 
 # Point-in-time caveat: the source is a ReplacingMergeTree versioned by inserted_at, so merges

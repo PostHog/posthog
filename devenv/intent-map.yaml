@@ -146,7 +146,7 @@ capabilities:
         docker_profiles: []
 
     nodejs_realtime_cohorts:
-        description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
+        description: 'Node.js Realtime Cohorts - cohort membership persistence'
         requires: [event_ingestion]
         docker_profiles: []
 

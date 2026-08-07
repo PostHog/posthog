@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type {
@@ -22,6 +24,7 @@ import {
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
+import { ScoutTagsEditor } from './ScoutTagsEditor'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -67,6 +70,7 @@ export function ScoutConfigForm({
     updating = false,
 }: ScoutConfigFormProps): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const dailyTime = dailyCronToTime(config.run_cron_schedule)
     const scheduleMode = getScoutScheduleMode(config)
     const controlsDisabledReason = updating
@@ -163,6 +167,34 @@ export function ScoutConfigForm({
                     }}
                 />
             </div>
+            {featureFlags[FEATURE_FLAGS.SCOUTS_MODEL_CONFIG] ? (
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-xs text-default">Model</span>
+                        <span className="text-[11.5px] text-muted">
+                            The model this scout runs on. Pick a more capable model for harder tasks. Leave empty to use
+                            the default.
+                        </span>
+                    </div>
+                    <LemonInput
+                        key={config.model ?? 'unset'}
+                        size="small"
+                        placeholder="Default"
+                        defaultValue={config.model ?? ''}
+                        // Editable while the scout is disabled for the same reason as network access:
+                        // a newly enabled scout is immediately due, so the model must be settable first.
+                        disabledReason={updating ? 'Saving scout settings' : undefined}
+                        className="w-44"
+                        onBlur={(event) => {
+                            const value = event.currentTarget.value.trim()
+                            if (value !== (config.model ?? '')) {
+                                onUpdate(config.id, { model: value || null })
+                            }
+                        }}
+                        aria-label={`${config.skill_name} model`}
+                    />
+                </div>
+            ) : null}
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Opt out of auto-pause</span>
@@ -178,6 +210,13 @@ export function ScoutConfigForm({
                     onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
                     aria-label={`${config.skill_name} opt out of auto-pause`}
                 />
+            </div>
+            <div className="flex flex-col gap-1">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Tags</span>
+                    <span className="text-[11.5px] text-muted">Use tags to group scouts and filter the list.</span>
+                </div>
+                <ScoutTagsEditor config={config} onUpdate={onUpdate} updating={updating} />
             </div>
             <ScoutSlackDestination
                 destination={config.output_destinations?.slack}
