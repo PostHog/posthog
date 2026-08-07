@@ -43,7 +43,6 @@ import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/pl
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -259,11 +258,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const { renameTask } = useRenameTask();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
-  const { data: allTasks = [] } = useTasks({ showAllUsers: true });
-  const allTaskIds = useMemo(
-    () => new Set(allTasks.map((task) => task.id)),
-    [allTasks],
-  );
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -321,7 +315,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const showRecent = listState === "ready";
 
   const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
-    placeTaskInCommandCenter(taskId, taskTitle, allTaskIds);
+    placeTaskInCommandCenter(taskId, taskTitle);
 
   const taskRow = (item: (typeof items)[number]) => (
     <ChannelItemRow

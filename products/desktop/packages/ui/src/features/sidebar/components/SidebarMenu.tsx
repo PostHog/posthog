@@ -327,7 +327,7 @@ function SidebarMenuComponent() {
         onArchive: handleTaskArchive,
         onArchivePrior: handleArchivePrior,
         onAddToCommandCenter: () => {
-          placeTaskInCommandCenter(taskId, task.title, new Set(taskMap.keys()));
+          placeTaskInCommandCenter(taskId, task.title);
         },
       });
     }
