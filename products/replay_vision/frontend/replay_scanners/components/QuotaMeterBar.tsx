@@ -25,7 +25,7 @@ interface QuotaMeterBarProps {
     valueNow: number
     label: string
     size?: 'small' | 'medium'
-    /** Caption under the limit marker, shown only once the segments overshoot the limit. */
+    /** Caption under the limit marker. Always shown, so the limit reads the same whether or not it is exceeded. */
     limitLabel?: string
     className?: string
 }
@@ -87,7 +87,6 @@ export function QuotaMeterBar({
         usedFreePct,
         projected.map((segment) => segment.pct)
     )
-    // At or under the limit the marker lands on the bar's own edge, so it is left off.
     const overshoots = limitMarkerPct < 100
     // Keep the caption inside the card when the marker sits near either end, instead of centering it off the edge.
     const captionAnchor = limitMarkerPct > 85 ? 'translateX(-100%)' : limitMarkerPct < 15 ? 'none' : 'translateX(-50%)'
@@ -125,28 +124,27 @@ export function QuotaMeterBar({
                         />
                     ))}
                 </div>
-                {overshoots && (
-                    <div
-                        className={clsx(
-                            'absolute w-0.5 rounded-full bg-text-3000 transition-[left] duration-500 ease-out',
-                            size === 'small' ? '-top-1 h-3.5' : '-top-1 h-5'
-                        )}
-                        style={{ left: `${limitMarkerPct}%` }}
-                    />
-                )}
+                <div
+                    className={clsx(
+                        'absolute w-0.5 rounded-full bg-text-3000 transition-[left] duration-500 ease-out',
+                        size === 'small' ? '-top-1 h-3.5' : '-top-1 h-5'
+                    )}
+                    // At the limit the marker sits on the bar's own end, so pull it back inside rather than
+                    // letting it hang half off the edge.
+                    style={{ left: `${limitMarkerPct}%`, transform: overshoots ? undefined : 'translateX(-100%)' }}
+                />
             </div>
-            {overshoots &&
-                limitLabel && (
-                    // Its own row in normal flow, so the caption can never land on whatever the parent renders next.
-                    <div className="relative mt-1 h-4">
-                        <span
-                            className="absolute whitespace-nowrap text-[11px] font-medium text-secondary transition-[left] duration-500 ease-out"
-                            style={{ left: `${limitMarkerPct}%`, transform: captionAnchor }}
-                        >
-                            {limitLabel}
-                        </span>
-                    </div>
-                )}
+            {limitLabel && (
+                // Its own row in normal flow, so the caption can never land on whatever the parent renders next.
+                <div className="relative mt-1 h-4">
+                    <span
+                        className="absolute whitespace-nowrap text-[11px] font-medium text-secondary transition-[left] duration-500 ease-out"
+                        style={{ left: `${limitMarkerPct}%`, transform: captionAnchor }}
+                    >
+                        {limitLabel}
+                    </span>
+                </div>
+            )}
         </div>
     )
 }
