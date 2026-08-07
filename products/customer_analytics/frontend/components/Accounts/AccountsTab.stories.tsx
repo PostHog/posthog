@@ -259,18 +259,13 @@ export const EmptyWithActiveFilter: Story = {
         const canvas = within(canvasElement)
         const myAccounts = await canvas.findByText('My accounts', {}, { timeout: 15000 })
         await userEvent.click(myAccounts)
-        // The empty state names the active filter and offers the escape hatch.
+        // The empty state names the active filter and offers the escape hatch — the
+        // clearing behavior itself is covered by accountsLogic.test.ts.
         await canvas.findByText(/Filters applied: My accounts/, {}, { timeout: 15000 })
-        const clearButton = canvasElement.querySelector<HTMLElement>('[data-attr="accounts-clear-filters"]')
-        if (!clearButton) {
-            throw new Error('Clear filters button did not render in the empty state')
-        }
-        await userEvent.click(clearButton)
-        // Clearing the filter drops the escape hatch and re-runs the same (still empty) search.
         await waitFor(
             () => {
-                if (canvasElement.querySelector('[data-attr="accounts-clear-filters"]')) {
-                    throw new Error('Clear filters button still present after clearing')
+                if (!canvasElement.querySelector('[data-attr="accounts-clear-filters"]')) {
+                    throw new Error('Clear filters button did not render in the empty state')
                 }
             },
             { timeout: 15000 }
