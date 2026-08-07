@@ -378,21 +378,26 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     // Timed here rather than from the success and failure listeners, which would
                     // have to read a start time off `cache` that a superseded request can overwrite.
                     const startedAt = performance.now()
-                    const response = await experimentsSessionBucketsCreate(
-                        String(values.currentProjectId),
-                        Number(props.experiment.id),
-                        request
-                    ).catch((error: Error & { detail?: string }) => {
+                    let response: ExperimentSessionBucketResponseApi
+                    try {
+                        response = await experimentsSessionBucketsCreate(
+                            String(values.currentProjectId),
+                            Number(props.experiment.id),
+                            request
+                        )
+                    } catch (error) {
+                        const requestError = error as Error & { detail?: string }
                         actions.reportExperimentRecordingsBucketFailed(props.experiment.id, {
                             bucket: request.bucket,
                             metric_count: request.metric_uuids.length,
                             duration_ms: Math.round(performance.now() - startedAt),
-                            error: error?.detail || error?.message || 'unknown',
+                            error: requestError?.detail || requestError?.message || 'unknown',
                         })
                         throw error
-                    })
+                    }
                     // Past this breakpoint the response is the one the list will show. A superseded
                     // request throws here instead, so its load is never counted as one somebody saw.
+                    // Kept outside the `try`: a cancellation must not be reported as a failure.
                     breakpoint()
                     actions.reportExperimentRecordingsBucketLoaded(props.experiment.id, {
                         bucket: request.bucket,
