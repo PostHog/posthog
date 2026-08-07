@@ -678,18 +678,14 @@ class TestParseModalSubmission:
 
 class TestHandleAppHomeOpened:
     def test_publishes_view_for_known_user(self, slack_integration, mock_slack_client, flag_on, admin_user):
-        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID)
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert mock_slack_client.views_publish.called
         kwargs = mock_slack_client.views_publish.call_args.kwargs
         assert kwargs["user_id"] == "U001"
         assert kwargs["view"]["type"] == "home"
 
     def test_noop_when_user_missing(self, slack_integration, mock_slack_client, flag_on):
-        handle_app_home_opened({}, SLACK_WORKSPACE_ID)
-        assert not mock_slack_client.views_publish.called
-
-    def test_noop_when_integration_missing(self, db, mock_slack_client, flag_on):
-        handle_app_home_opened({"user": "U001"}, "T_UNKNOWN")
+        handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
 
 
