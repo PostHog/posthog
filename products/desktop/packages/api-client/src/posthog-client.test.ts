@@ -32,6 +32,34 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  it("keeps task comments loaded before a later page fails", async () => {
+    const firstComment = { id: "comment-1" };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            next: "https://app.posthog.test/api/projects/42/comments/?cursor=next-page",
+            previous: null,
+            results: [firstComment],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockRejectedValueOnce(new Error("unavailable"));
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await expect(client.getTaskComments("task-1")).resolves.toEqual([
+      firstComment,
+    ]);
+  });
+
   it.each([
     "user_message",
     "permission_response",
