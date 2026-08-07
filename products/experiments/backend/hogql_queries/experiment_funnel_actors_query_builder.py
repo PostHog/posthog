@@ -88,6 +88,46 @@ class ExperimentFunnelActorsQueryBuilder:
 
         return query
 
+    def build_exposure_actors_query(self) -> ast.SelectQuery:
+        """
+        Build actors query for the exposure step (funnel step 0).
+
+        Unlike the metric-step actors query, this needs no funnel evaluation: the
+        exposure bar counts everyone who was exposed to a variant, so we select
+        straight from the exposures CTE. Recordings, when requested, point at the
+        first exposure event.
+        """
+        exposure_select_query = self._query_builder._exposure_query_builder().select_query()
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                "WITH exposures AS ({exposure_query}) SELECT * FROM exposures",
+                placeholders={"exposure_query": exposure_select_query},
+            ),
+        )
+
+        select_exprs: list[ast.Expr] = [
+            ast.Alias(alias="actor_id", expr=ast.Field(chain=["entity_id"])),
+            ast.Alias(alias="variant", expr=ast.Field(chain=["variant"])),
+        ]
+
+        if self.include_recordings:
+            # Mirror the (timestamp, uuid, $session_id, $window_id) tuple shape the
+            # actors runner expects, sourced from the first exposure event.
+            select_exprs.append(
+                ast.Alias(
+                    alias="matching_events",
+                    expr=parse_expr("array(tuple(first_exposure_time, exposure_event_uuid, exposure_session_id, ''))"),
+                )
+            )
+
+        query.select = select_exprs
+        query.where = self._build_variant_filter()
+        query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["actor_id"]))]
+
+        return query
+
     def _build_base_query_with_ctes(self) -> ast.SelectQuery:
         """
         Build query with exposures, metric_events, and entity_metrics CTEs.
@@ -369,18 +409,24 @@ class ExperimentFunnelActorsQueryBuilder:
             )
 
         # Filter by variant (skip if empty string or None)
-        if self.funnel_step_breakdown:
-            if isinstance(self.funnel_step_breakdown, int | float):
-                variant_value = str(int(self.funnel_step_breakdown))
-            else:
-                variant_value = self.funnel_step_breakdown
-
-            conditions.append(
-                parse_expr(
-                    "variant = {variant}",
-                    {"variant": ast.Constant(value=variant_value)},
-                )
-            )
+        variant_filter = self._build_variant_filter()
+        if variant_filter is not None:
+            conditions.append(variant_filter)
 
         query.where = ast.And(exprs=conditions) if conditions else None
         return query
+
+    def _build_variant_filter(self) -> ast.Expr | None:
+        """Build a `variant = ...` filter, or None when no variant is requested."""
+        if not self.funnel_step_breakdown:
+            return None
+
+        if isinstance(self.funnel_step_breakdown, int | float):
+            variant_value = str(int(self.funnel_step_breakdown))
+        else:
+            variant_value = self.funnel_step_breakdown
+
+        return parse_expr(
+            "variant = {variant}",
+            {"variant": ast.Constant(value=variant_value)},
+        )
