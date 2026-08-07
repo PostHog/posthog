@@ -721,17 +721,6 @@ procs:
             tech: Python
         # no capability - manual start
 
-    warehouse-sources-duckgres-load:
-        shell: |-
-            bin/wait-for-docker && \
-            python manage.py run_warehouse_sources_duckgres_load --health-port 8092
-        autostart: false
-        ready_pattern: 'duckgres_batch_consumer_started'
-        groups:
-            layer: Tools
-            tech: Python
-        # no capability - manual start
-
 # Grouping dimension the sidebar starts grouped by (press `g` to cycle/disable).
 default_group: layer
 
