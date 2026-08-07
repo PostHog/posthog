@@ -15,10 +15,6 @@ from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .braze.template_braze import template as braze
 from .brevo.template_brevo import template as brevo
 from .clearbit.template_clearbit import template as clearbit
-from .customerio.template_customerio import (
-    TemplateCustomerioMigrator,
-    template as customerio,
-)
 from .discord.template_discord import template as discord
 from .engage.template_engage import (
     TemplateEngageMigrator,
@@ -100,7 +96,6 @@ HOG_FUNCTION_TEMPLATES = [
     braze,
     brevo,
     clearbit,
-    customerio,
     discord,
     engage,
     gleap,
@@ -145,7 +140,6 @@ HOG_FUNCTION_TEMPLATES = [
 
 
 HOG_FUNCTION_MIGRATORS = {
-    TemplateCustomerioMigrator.plugin_url: TemplateCustomerioMigrator,
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
     TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,

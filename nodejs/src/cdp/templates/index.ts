@@ -6,6 +6,7 @@ import { template as appcuesTemplate } from './_destinations/appcues/appcues.tem
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
+import { template as customerioTemplate } from './_destinations/customerio/customerio.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
@@ -100,6 +101,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     unifyTemplate,
     closeTemplate,
     retainTemplate,
+    customerioTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
