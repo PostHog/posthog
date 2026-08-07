@@ -3,6 +3,7 @@ import { applyCspToHtml } from "../../mcp-apps/utils/mcp-app-csp";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
 
 function removeAutomaticRedirects(html: string): string {
+  if (!/<meta\b/i.test(html) || !/http-equiv\s*=/i.test(html)) return html;
   const document = new DOMParser().parseFromString(html, "text/html");
   const refreshElements = Array.from(
     document.querySelectorAll<HTMLMetaElement>("meta[http-equiv]"),

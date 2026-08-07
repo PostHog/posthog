@@ -786,6 +786,18 @@ describe("ArtifactPreview", () => {
     );
   });
 
+  it("does not parse HTML without a possible refresh directive", () => {
+    const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
+
+    artifactHtmlDocument(
+      "<!doctype html><html><body><p>Report</p></body></html>",
+      "test-channel",
+    );
+
+    expect(parse).not.toHaveBeenCalled();
+    parse.mockRestore();
+  });
+
   it("keeps sensitive capabilities blocked in HTML artifacts", () => {
     const document = artifactHtmlDocument(
       '<!doctype html><img src="https://images.example/report.png">',
