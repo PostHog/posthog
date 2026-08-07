@@ -19,9 +19,6 @@ class PhraseSearchFilter(filters.SearchFilter):
 
     def get_search_terms(self, request: Request) -> list[str]:
         term = request.query_params.get(self.search_param, "").replace("\x00", "").strip()
-        # Quoting the value was the workaround for the splitting behavior, so keep honoring it
-        if len(term) >= 2 and term[0] == term[-1] and term[0] in ('"', "'"):
-            term = term[1:-1].strip()
         return [term] if term else []
 
 
