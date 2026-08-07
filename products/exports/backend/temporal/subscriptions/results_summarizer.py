@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -13,9 +13,6 @@ from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, SERI
 LOGGER = get_logger(__name__)
 
 MAX_SUMMARY_LENGTH = 2000
-
-# Only bounds a degenerate period; a real one ends the walk by overshooting the gap.
-_MAX_PERIOD_MULTIPLE = 1000
 
 # Both LLM prompt templates tell the model to look for this prefix, so it is a cross-module contract.
 INCOMPLETE_PERIOD_NOTE_PREFIX = "(Excluding"
@@ -82,7 +79,7 @@ def _summarize_trend_kind(
 
 
 def _sample_notice(shown: int, total: int, *, noun: str) -> str:
-    # Directive, like the exclusion note: a model given only the count still wrote "all series".
+    # Directive, not descriptive: a count alone does not stop a model generalising to the whole set.
     return f"(These are the first {shown} of {total} {noun} — describe them as those {shown}, never as all {noun}.)"
 
 
@@ -126,7 +123,7 @@ def _summarize_trends(
                 latest = numeric[-1]
                 avg = sum(numeric) / len(numeric)
                 trend = _trend_direction(numeric)
-                # "(6 points)" reads as a magnitude here; a model wrote "decreased by 6 points".
+                # A bare count beside formatted values reads as a magnitude, so name the unit.
                 span = _plural(coverage.unit, len(numeric)) if coverage else "points"
                 line = (
                     f"- {label}: latest={_fmt_value(latest, value_format)}, avg={_fmt_value(avg, value_format)}, "
@@ -229,19 +226,12 @@ def _first_days_list(results: list[Any]) -> Any:
 
 def _period_and_unit(results: list[Any], starts: list[datetime] | None) -> tuple[Period | None, str]:
     """`dateRange.daysOfWeek` removes buckets mid-axis, so spacing alone would read a weekdays-only
-    daily trend as 3-day buckets — which is why the query's own `interval` wins where it agrees.
-    But `intervalCount` never reaches the payload, so an "every 2 days" bucket claims to be one day
-    wide. A gap that is the same everywhere and a whole multiple of the named period is that case;
-    an irregular gap is a hole and must not win.
+    daily trend as 3-day buckets. That only happens on trends, which is exactly where `interval` is
+    present, so the spacing fallback only ever runs on axes without holes.
     """
     interval = _query_interval(results)
-    named = PERIOD_MAP.get(interval) if interval else None
-    if named is not None and starts:
-        multiple = _uniform_multiple(starts, named)
-        if multiple > 1:
-            # Truthfully unnameable: this is N of the named unit, not one of them.
-            return named * multiple, "interval"
-        return named, interval or "interval"
+    if interval and interval in PERIOD_MAP:
+        return PERIOD_MAP[interval], interval
     if starts and len(starts) >= 2:
         width = starts[-1] - starts[-2]
         for name, spec in INTERVAL_SPECS.items():
@@ -249,37 +239,6 @@ def _period_and_unit(results: list[Any], starts: list[datetime] | None) -> tuple
                 return spec.period, name
         return width, "interval"
     return None, "interval"
-
-
-def _uniform_multiple(starts: list[datetime], period: Period) -> int:
-    """How many of `period` separate every consecutive pair, or 1 when that varies.
-
-    Comparing multiples rather than durations is what makes this work either way: consecutive
-    calendar months are not the same number of days, and a `daysOfWeek` hole is a gap of a
-    different multiple rather than a wider bucket.
-    """
-    if len(starts) < 2:
-        return 1
-    multiples = {_period_multiple(a, period, b - a) for a, b in zip(starts, starts[1:])}
-    return multiples.pop() if len(multiples) == 1 else 1
-
-
-def _period_multiple(anchor: datetime, period: Period, gap: timedelta) -> int:
-    """How many of `period` fit `gap`, anchored to a real bucket start, or 1 when none does.
-
-    A relativedelta has no length until it is applied to a date, so an "every 2 months" trend
-    cannot be measured by arithmetic on the gap alone. The walk ends when the span passes the gap,
-    so `intervalCount` needs no ceiling; the guard is only there to bound a degenerate period.
-    """
-    end = anchor
-    for count in range(1, _MAX_PERIOD_MULTIPLE + 1):
-        end = end + period
-        if end - anchor == gap:
-            return count
-        if end - anchor > gap:
-            return 1
-    LOGGER.info("subscription_summary.period_multiple_exhausted", gap_days=gap.days)
-    return 1
 
 
 def _query_interval(results: list[Any]) -> str | None:

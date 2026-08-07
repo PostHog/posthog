@@ -767,3 +767,16 @@ class TestAnnotationsSection:
 @pytest.mark.parametrize("template", [INITIAL_USER_PROMPT_TEMPLATE, USER_PROMPT_TEMPLATE])
 def test_prompts_name_the_marker_the_summarizer_actually_emits(template):
     assert INCOMPLETE_PERIOD_NOTE_PREFIX in template
+
+
+# A managed prompt is authored per team and can predate any marker the summarizer emits, so the
+# contract cannot live only in the in-repo templates.
+def test_a_managed_prompt_without_the_marker_still_gets_the_format_guidance():
+    stale = "Current data (captured {{current_timestamp}}):\n{{current_section}}\n{{annotations_section}}Summarize."
+    with patch(
+        "products.exports.backend.temporal.subscriptions.llm_change_summary._get_managed_prompt",
+        side_effect=lambda team, name, fallback: stale if "user" in name else fallback,
+    ):
+        messages = build_initial_prompt_messages([_make_state(1, "Signups", "- Signups: latest=15")])
+    assert INCOMPLETE_PERIOD_NOTE_PREFIX in messages[1]["content"]
+    assert "in_progress=" in messages[1]["content"]

@@ -146,6 +146,17 @@ def _compile_template(template: str, variables: dict[str, str]) -> str:
     return re.sub(r"\{\{(.+?)\}\}", replacer, template)
 
 
+def _ensure_format_guidance(user_content: str) -> str:
+    """Guarantee the marker contract regardless of which prompt the team is on.
+
+    A managed prompt is authored per team and can predate any marker the summarizer emits, so
+    leaving this to the template would make the contract optional exactly where it is least visible.
+    """
+    if INCOMPLETE_PERIOD_NOTE_PREFIX in user_content:
+        return user_content
+    return f"{user_content}\n\n{_INCOMPLETE_PERIOD_GUIDANCE}"
+
+
 def _get_managed_prompt(team: Team | None, prompt_name: str, fallback: str) -> str:
     if team is None:
         SUBSCRIPTION_PROMPT_SOURCE.labels(prompt_name=prompt_name, source="fallback").inc()
@@ -294,6 +305,7 @@ def build_prompt_messages(
         },
     )
 
+    user_content = _ensure_format_guidance(user_content)
     user_content = _append_extras(user_content, prompt_guide, subscription_title, core_memory_text)
 
     system_prompt = _get_managed_prompt(team, PROMPT_CHANGE_SYSTEM, CHANGE_SYSTEM_PROMPT)
@@ -325,6 +337,7 @@ def build_initial_prompt_messages(
         },
     )
 
+    user_content = _ensure_format_guidance(user_content)
     user_content = _append_extras(user_content, prompt_guide, subscription_title, core_memory_text)
 
     system_prompt = _get_managed_prompt(team, PROMPT_INITIAL_SYSTEM, INITIAL_SYSTEM_PROMPT)

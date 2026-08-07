@@ -5,7 +5,7 @@ caller, keeps DST out of the arithmetic: a spring-forward day is still one calen
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Union
 
 from dateutil.relativedelta import relativedelta
 
@@ -15,7 +15,7 @@ _BUCKET_START_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d")
 Period = Union[timedelta, relativedelta]
 
 
-def parse_bucket_start(label: Any) -> datetime | None:
+def parse_bucket_start(label: object) -> datetime | None:
     """Parse a bucket label into naive project-local time, or None if it isn't one.
 
     Stickiness puts integer day-counts in `days` rather than dates, so non-strings are rejected.
@@ -33,7 +33,7 @@ def parse_bucket_start(label: Any) -> datetime | None:
         return None
 
 
-def bucket_starts(days: Any) -> list[datetime] | None:
+def bucket_starts(days: object) -> list[datetime] | None:
     """Parse a whole `days` list, all or nothing.
 
     A partly unparseable list would yield neighbours that are not really adjacent.
