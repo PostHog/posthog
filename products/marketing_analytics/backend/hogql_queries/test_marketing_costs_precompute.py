@@ -307,6 +307,20 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 f"deduped row should carry the latest {label_column} '{post_value}', not the stale '{pre_value}'"
             )
 
+    @patch("posthog.hogql.database.schema.marketing_costs_precomputed.posthoganalytics.feature_enabled")
+    def test_costs_dedup_v2_flag_is_targeted_at_the_project_group(self, feature_enabled):
+        # This flag is the switch that stops a renamed campaign from double-counting its cost, so it has to
+        # be enableable for one affected project. With only the organization group it is all-or-nothing per
+        # org, and a person-level override is silently ignored (the distinct id is a team uuid).
+        from posthog.hogql.database.schema.marketing_costs_precomputed import costs_dedup_v2_enabled
+
+        feature_enabled.return_value = True
+        assert costs_dedup_v2_enabled(self.team) is True
+
+        assert feature_enabled.call_args.args[1] == str(self.team.uuid)
+        assert feature_enabled.call_args.kwargs["groups"]["project"] == str(self.team.id)
+        assert feature_enabled.call_args.kwargs["group_properties"]["project"] == {"id": str(self.team.id)}
+
     def test_one_unmaterializable_source_does_not_force_all_to_s3(self):
         # One source materializes, one can't. The result must read the native table for the materialized
         # source and keep only the other on the live S3 union — not fall back to S3 for everything.

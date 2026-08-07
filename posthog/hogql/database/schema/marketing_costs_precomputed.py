@@ -7,6 +7,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, LazyTable, LazyTableToAdd
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 
+from products.marketing_analytics.backend.hogql_queries.flag_targeting import team_flag_target
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -47,13 +49,13 @@ def costs_dedup_v2_enabled(team: "Team | None") -> bool:
     cached = getattr(team, _FLAG_CACHE_ATTR, None)
     if cached is not None:
         return cached
-    organization = team.organization
+    distinct_id, groups, group_properties = team_flag_target(team)
     enabled = bool(
         posthoganalytics.feature_enabled(
             COSTS_DEDUP_V2_FLAG,
-            str(team.uuid),
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
+            distinct_id,
+            groups=groups,
+            group_properties=group_properties,
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
