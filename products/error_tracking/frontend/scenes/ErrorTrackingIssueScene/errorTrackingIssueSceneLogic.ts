@@ -4,6 +4,7 @@ import {
     connect,
     defaults,
     events,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -731,12 +732,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             {
                 loadSpikeEvents: async () => {
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
-                    const response = await api.errorTracking.getSpikeEvents({
-                        issueIds: [props.id],
-                        dateFrom,
-                        dateTo,
-                    })
-                    return response.results
+                    try {
+                        const response = await api.errorTracking.getSpikeEvents({
+                            issueIds: [props.id],
+                            dateFrom,
+                            dateTo,
+                        })
+                        return response.results
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // Spike markers are supplementary; the issue page renders fine without
+                        // them. Degrade to no markers rather than letting the rejection reach the
+                        // global handler, which would file it as a new error-tracking issue.
+                        console.warn('Failed to load spike events for issue', e)
+                        return []
+                    }
                 },
             },
         ],

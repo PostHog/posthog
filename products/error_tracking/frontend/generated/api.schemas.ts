@@ -1903,6 +1903,18 @@ export type ErrorTrackingReleasesListParams = {
 
 export type ErrorTrackingSpikeEventsListParams = {
     /**
+     * Only return spike events detected at or after this ISO 8601 timestamp.
+     */
+    date_from?: string
+    /**
+     * Only return spike events detected at or before this ISO 8601 timestamp.
+     */
+    date_to?: string
+    /**
+     * Comma-separated list of issue UUIDs to filter spike events by. Omit for all issues.
+     */
+    issue_ids?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1910,6 +1922,18 @@ export type ErrorTrackingSpikeEventsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Field to order results by. Defaults to newest first (-detected_at).
+     *
+     * * `detected_at` - detected_at
+     * * `-detected_at` - -detected_at
+     * * `computed_baseline` - computed_baseline
+     * * `-computed_baseline` - -computed_baseline
+     * * `current_bucket_value` - current_bucket_value
+     * * `-current_bucket_value` - -current_bucket_value
+     * @minLength 1
+     */
+    order_by?: string
 }
 
 export type ErrorTrackingStackFramesListParams = {
