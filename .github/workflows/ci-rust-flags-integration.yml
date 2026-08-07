@@ -37,6 +37,8 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    SCHEMA_CACHE_EPOCH: v2
     # Django SECRET_KEY for cryptographic signing (sessions, CSRF, etc.) - test-only, not used in production
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461b81b72'
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
@@ -80,6 +82,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
+                  fetch-depth: 1000
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -118,6 +123,99 @@ jobs:
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Fetch current PR base for merge-base
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -z "$MERGE_BASE" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
+                      exit 0
+                  fi
+                  # Routing decides which app labels reach the dump, so a PR that edits it
+                  # matches no master dump: drop both keys and migrate from scratch.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched, so restore falls back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' && steps.schema-key.outputs.key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
+
+            - name: Prime test_posthog from cached schema
+              # Postgres here is a service container, so this restores over the connection
+              # instead of using hogli db:restore-test-db, which shells into the
+              # docker-compose db service that every other schema cache consumer runs.
+              if: ${{ github.event_name == 'pull_request' }}
+              env:
+                  PGPASSWORD: posthog
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::schema cache miss, so migrate runs from scratch"
+                      exit 0
+                  fi
+                  # --single-transaction rolls the database back to empty on any error,
+                  # which leaves the migrate step below a clean slate to work from.
+                  if ! gunzip -c schema.sql.gz \
+                      | psql -q -v ON_ERROR_STOP=1 --single-transaction -h localhost -U posthog test_posthog; then
+                      echo "::warning::schema restore failed (stale or incompatible dump?), so migrate runs from scratch"
+                      exit 0
+                  fi
+                  # The dump is schema-only, so rows written by data migrations are absent.
+                  python manage.py ensure_migration_defaults
+                  # ci-backend.yml dumps with TEST=1, which routes the apps in
+                  # products/db_routing.yaml to separate databases: their tables are absent
+                  # from the dump, but django_migrations still records them as applied. This
+                  # job configures no product DBs, so drop those records and let migrate
+                  # replay them from 0001 against the default DB.
+                  APPS=$(python - <<'EOF'
+                  import yaml
+                  with open("products/db_routing.yaml") as f:
+                      routes = yaml.safe_load(f)["routes"]
+                  print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
+                  EOF
+                  )
+                  if [ -n "$APPS" ]; then
+                      psql -h localhost -U posthog test_posthog \
+                        -c "DELETE FROM django_migrations WHERE app IN ($APPS);"
+                  fi
 
             - name: Set up test database schema
               run: |
