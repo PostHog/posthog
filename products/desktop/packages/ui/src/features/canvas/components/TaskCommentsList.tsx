@@ -75,6 +75,9 @@ const EMPTY_COMMENTS: ResourceComment[] = [];
 const POLL_INTERVAL_MS = 30_000;
 const PULSE_MS = 1_200;
 const ALL_SOURCES = "all";
+// Each PR starts three GitHub-backed queries. Keep this cap at the source so a
+// task with generated output cannot fan out into an unbounded number of requests.
+const MAX_PR_COMMENT_SOURCES = 20;
 
 type StateFilter = "open" | "resolved";
 
@@ -349,7 +352,9 @@ export function TaskCommentsList({
     () =>
       onlySource
         ? []
-        : rows.flatMap((row) => (row.kind === "pr" ? [row.url] : [])),
+        : rows
+            .flatMap((row) => (row.kind === "pr" ? [row.url] : []))
+            .slice(0, MAX_PR_COMMENT_SOURCES),
     [rows, onlySource],
   );
   const prConversation = usePrCommentsForUrls(prUrls);

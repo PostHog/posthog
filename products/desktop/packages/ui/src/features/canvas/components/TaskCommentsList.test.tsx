@@ -22,6 +22,9 @@ const mocks = vi.hoisted(() => ({
   createdFor: [] as unknown[],
   resolvedFor: [] as unknown[],
   queriedTargets: [] as unknown[],
+  prCommentUrls: [] as string[],
+  prReviewUrls: [] as string[],
+  prTitleUrls: [] as string[],
 }));
 
 function openThread(body: string): void {
@@ -45,19 +48,28 @@ vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   useActiveArtifactId: () => mocks.activeArtifactId,
 }));
 vi.mock("@posthog/ui/features/pr-review/usePrCommentsForUrls", () => ({
-  usePrCommentsForUrls: (urls: string[]) => ({
-    byUrl: new Map(urls.map((url) => [url, mocks.prConversation])),
-    isLoading: false,
-  }),
+  usePrCommentsForUrls: (urls: string[]) => {
+    mocks.prCommentUrls = urls;
+    return {
+      byUrl: new Map(urls.map((url) => [url, mocks.prConversation])),
+      isLoading: false,
+    };
+  },
 }));
 vi.mock("@posthog/ui/features/pr-review/usePrReviewThreadsForUrls", () => ({
-  usePrReviewThreadsForUrls: (urls: string[]) => ({
-    byUrl: new Map(urls.map((url) => [url, mocks.prReviewThreads])),
-    isLoading: false,
-  }),
+  usePrReviewThreadsForUrls: (urls: string[]) => {
+    mocks.prReviewUrls = urls;
+    return {
+      byUrl: new Map(urls.map((url) => [url, mocks.prReviewThreads])),
+      isLoading: false,
+    };
+  },
 }));
 vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
-  usePrTitles: () => ({}),
+  usePrTitles: (urls: string[]) => {
+    mocks.prTitleUrls = urls;
+    return {};
+  },
 }));
 vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
@@ -232,10 +244,29 @@ describe("TaskCommentsList", () => {
     mocks.createdFor = [];
     mocks.resolvedFor = [];
     mocks.queriedTargets = [];
+    mocks.prCommentUrls = [];
+    mocks.prReviewUrls = [];
+    mocks.prTitleUrls = [];
     useCommentNavigationStore.setState({
       focusByTask: {},
       resolutionsByTarget: {},
     });
+  });
+
+  it("limits GitHub comment queries to 20 pull requests", () => {
+    mocks.runs = Array.from({ length: 25 }, (_, index) =>
+      prRun(`https://github.com/acme/repo/pull/${index + 1}`),
+    );
+
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    const expectedUrls = Array.from(
+      { length: 20 },
+      (_, index) => `https://github.com/acme/repo/pull/${index + 1}`,
+    );
+    expect(mocks.prCommentUrls).toEqual(expectedUrls);
+    expect(mocks.prReviewUrls).toEqual(expectedUrls);
+    expect(mocks.prTitleUrls).toEqual(expectedUrls);
   });
 
   it("queries and displays only the current canvas when restricted", async () => {
