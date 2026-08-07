@@ -166,9 +166,21 @@ def render(fields: dict[str, Any]) -> str:
 
 def main() -> None:
     path = sys.argv[1]
+    # A vendor file holding several templates becomes one Node file per template, so
+    # allow picking one by its id.
+    only = sys.argv[2] if len(sys.argv) > 2 else None
+
     templates = extract_templates(path)
     if not templates:
         raise SystemExit(f"no HogFunctionTemplateDC found in {path}")
+
+    if only:
+        matched = [f for _, f in templates if f.get("id") == only]
+        if not matched:
+            raise SystemExit(f"{path}: no template with id {only!r} (have {[f.get('id') for _, f in templates]})")
+        sys.stdout.write(render(matched[0]))
+        return
+
     for name, fields in templates:
         sys.stdout.write(f"// ===== {name} ({fields.get('id')}) =====" + "\n")
         sys.stdout.write(render(fields) + "\n")
