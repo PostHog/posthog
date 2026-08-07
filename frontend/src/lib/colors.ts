@@ -27,24 +27,15 @@ export const dataColorVars = [
     'data-color-15',
 ] as const
 
-export type DataColorToken =
-    | 'preset-1'
-    | 'preset-2'
-    | 'preset-3'
-    | 'preset-4'
-    | 'preset-5'
-    | 'preset-6'
-    | 'preset-7'
-    | 'preset-8'
-    | 'preset-9'
-    | 'preset-10'
-    | 'preset-11'
-    | 'preset-12'
-    | 'preset-13'
-    | 'preset-14'
-    | 'preset-15'
+/**
+ * A data color token, e.g. `preset-1`. The default theme has 15 colors, but custom themes can
+ * define arbitrarily many, so this is any `preset-<n>` rather than a fixed set. The `@pattern`
+ * keeps the generated backend schema in sync, otherwise it rejects tokens past `preset-15`.
+ * @pattern ^preset-\d+$
+ */
+export type DataColorToken = `preset-${number}`
 
-export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
+export type DataColorTheme = {
     [key: `preset-${number}`]: string
 }
 

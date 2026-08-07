@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 import pydantic
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint, constr
 
 from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
@@ -70,7 +70,6 @@ from posthog.schema_enums import (
     DatabaseSchemaTableCertificationStatus as DatabaseSchemaTableCertificationStatus,
     DatabaseSchemaTableType as DatabaseSchemaTableType,
     DatabaseSerializedFieldType as DatabaseSerializedFieldType,
-    DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
     DataWarehouseSourceCategory as DataWarehouseSourceCategory,
@@ -2424,7 +2423,15 @@ class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    color: DataColorToken | None = None
+    color: constr(pattern=r"^preset-\d+$") | None = Field(
+        default=None,
+        description=(
+            "A data color token, e.g. `preset-1`. The default theme has 15 colors, but"
+            " custom themes can define arbitrarily many, so this is any `preset-<n>`"
+            " rather than a fixed set. The `@pattern` keeps the generated backend"
+            " schema in sync, otherwise it rejects tokens past `preset-15`."
+        ),
+    )
     hidden: bool | None = None
 
 
@@ -2433,7 +2440,15 @@ class ResultCustomizationByPosition(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["position"] = "position"
-    color: DataColorToken | None = None
+    color: constr(pattern=r"^preset-\d+$") | None = Field(
+        default=None,
+        description=(
+            "A data color token, e.g. `preset-1`. The default theme has 15 colors, but"
+            " custom themes can define arbitrarily many, so this is any `preset-<n>`"
+            " rather than a fixed set. The `@pattern` keeps the generated backend"
+            " schema in sync, otherwise it rejects tokens past `preset-15`."
+        ),
+    )
     hidden: bool | None = None
 
 
@@ -2442,7 +2457,15 @@ class ResultCustomizationByValue(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["value"] = "value"
-    color: DataColorToken | None = None
+    color: constr(pattern=r"^preset-\d+$") | None = Field(
+        default=None,
+        description=(
+            "A data color token, e.g. `preset-1`. The default theme has 15 colors, but"
+            " custom themes can define arbitrarily many, so this is any `preset-<n>`"
+            " rather than a fixed set. The `@pattern` keeps the generated backend"
+            " schema in sync, otherwise it rejects tokens past `preset-15`."
+        ),
+    )
     hidden: bool | None = None
 
 
