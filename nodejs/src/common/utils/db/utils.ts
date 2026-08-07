@@ -135,20 +135,7 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
-// Deletion call sites own the version they emit (the +100 fudge for hard deletes,
-// the exact stamped death version for tombstones), so a deletion must state it
-// explicitly — a stale person.version can never become a no-headroom death row.
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted?: false): PersonMessage
-export function generateKafkaPersonUpdateMessage(
-    person: InternalPerson,
-    isDeleted: true,
-    deletedVersion: number
-): PersonMessage
-export function generateKafkaPersonUpdateMessage(
-    person: InternalPerson,
-    isDeleted = false,
-    deletedVersion?: number
-): PersonMessage {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): PersonMessage {
     return {
         output: PERSONS_OUTPUT,
         value: Buffer.from(
@@ -159,7 +146,7 @@ export function generateKafkaPersonUpdateMessage(
                 team_id: person.team_id,
                 is_identified: Number(person.is_identified),
                 is_deleted: Number(isDeleted),
-                version: isDeleted ? deletedVersion : person.version,
+                version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
                 last_seen_at: person.last_seen_at
                     ? castTimestampOrNow(person.last_seen_at, TimestampFormat.ClickHouseSecondPrecision)
                     : null,

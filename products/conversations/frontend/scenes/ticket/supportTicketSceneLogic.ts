@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -25,9 +26,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
+import { objectsEqual } from 'lib/utils/objects'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -37,7 +40,7 @@ import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import type { Breadcrumb, CommentType, PersonType } from '~/types'
+import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
@@ -69,6 +72,35 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+/** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
+const SEND_RECOVERY_WINDOW_SECONDS = 120
+
+/**
+ * How a failed send request should be treated. `null` means the send definitely did not happen:
+ * the server rejected the request before writing anything, so the draft is safe to keep and resend.
+ * Every other value means we don't know, and have to look at the thread before telling the operator.
+ */
+type UnconfirmedSendReason = 'network' | 'timeout' | 'in_progress' | 'server_error' | null
+
+function classifySendFailure(error: any): UnconfirmedSendReason {
+    const status = error?.status
+    if (typeof status !== 'number') {
+        // No response reached us, so the request may still have been processed.
+        return 'network'
+    }
+    if (status === 408) {
+        return 'timeout'
+    }
+    if (status === 409) {
+        // The dedupe guard is still creating an identical message from an earlier attempt.
+        return 'in_progress'
+    }
+    if (status >= 500) {
+        return 'server_error'
+    }
+    // Includes 429: throttling rejects before the request body is handled, so nothing was written.
+    return null
+}
 
 function regionFromUrl(url?: string): Region | undefined {
     if (url) {
@@ -195,6 +227,7 @@ export interface supportTicketSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    user: UserType | null // userLogic
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -243,6 +276,9 @@ export interface supportTicketSceneLogicActions {
         value: true
     } // supportTicketsSceneLogic
     loadTags: () => any // tagsModel
+    appendMessage: (message: CommentType) => {
+        message: CommentType
+    }
     cancelEditingMessage: () => {
         value: true
     }
@@ -511,6 +547,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['resolveAssignee'],
             tagsModel,
             ['tags as availableTags'],
+            userLogic,
+            ['user'],
         ],
     })),
     actions({
@@ -524,6 +562,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadMessages: true,
         setMessages: (messages: CommentType[]) => ({ messages }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
+        appendMessage: (message: CommentType) => ({ message }),
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -761,6 +800,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 setMessages: (_, { messages }) => messages,
                 setOlderMessages: (state, { olderMessages }) => [...olderMessages, ...state],
+                appendMessage: (state, { message }) => {
+                    if (state.some((existing) => existing.id === message.id)) {
+                        return state
+                    }
+                    return [...state, message].sort((a, b) => a.created_at.localeCompare(b.created_at))
+                },
             },
         ],
         messagesLoading: [
@@ -1185,11 +1230,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setMessages([])
                 return
             }
+            const revision = ++cache.messageRevision
+            const ticketId = values.ticket.id
             try {
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: values.ticket.id,
+                    item_id: ticketId,
                 })
+                if (cache.messageRevision !== revision || values.ticket?.id !== ticketId) {
+                    // setMessages replaces the list wholesale, so a poll that started before a
+                    // newer load or a local write must not apply its older snapshot.
+                    actions.setMessagesLoading(false)
+                    return
+                }
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
             } catch {
@@ -1217,6 +1270,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     .filter((msg) => new Date(msg.created_at) < new Date(oldestMessage.created_at))
                     .reverse()
 
+                // Prepending is a local write too: a poll that started earlier would replace the
+                // list with just the newest page and drop what we just loaded.
+                cache.messageRevision += 1
                 actions.setOlderMessages(olderMessages)
                 actions.setHasMoreMessages(olderMessages.length > 0)
             } catch {
@@ -1229,45 +1285,55 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setMessageSending(false)
                 return
             }
-            try {
-                if (values.editingMessageId) {
-                    const editingId = values.editingMessageId
-                    await conversationsTicketsNotesPartialUpdate(
-                        String(getCurrentTeamId()),
-                        values.ticket.id,
-                        editingId,
-                        {
-                            message: content,
-                            rich_content: richContent,
-                        }
-                    )
-                    // Optimistic local update so the thread reflects the edit before comments.list returns.
-                    actions.setMessages(
-                        values.messages.map((message) =>
-                            message.id === editingId
-                                ? {
-                                      ...message,
-                                      content,
-                                      rich_content: richContent,
-                                      version: (message.version ?? 0) + 1,
-                                  }
-                                : message
-                        )
-                    )
-                    lemonToast.success('Private note updated')
+            const ticketId = values.ticket.id
+
+            if (values.editingMessageId) {
+                const editingId = values.editingMessageId
+                try {
+                    await conversationsTicketsNotesPartialUpdate(String(getCurrentTeamId()), ticketId, editingId, {
+                        message: content,
+                        rich_content: richContent,
+                    })
+                } catch {
+                    // A failed PATCH leaves the note as it was, so this is always a definite failure
+                    // and never goes through the create-recovery path below.
+                    lemonToast.error('Failed to update note')
                     actions.setMessageSending(false)
-                    // Restore the stashed composer draft; skip onSuccess (it clears the editor).
-                    actions.cancelEditingMessage()
-                    actions.loadMessages()
                     return
                 }
+                // Optimistic local update so the thread reflects the edit before comments.list returns.
+                cache.messageRevision += 1
+                actions.setMessages(
+                    values.messages.map((message) =>
+                        message.id === editingId
+                            ? {
+                                  ...message,
+                                  content,
+                                  rich_content: richContent,
+                                  version: (message.version ?? 0) + 1,
+                              }
+                            : message
+                    )
+                )
+                lemonToast.success('Private note updated')
+                actions.setMessageSending(false)
+                // Restore the stashed composer draft; skip onSuccess (it clears the editor).
+                actions.cancelEditingMessage()
+                actions.loadMessages()
+                return
+            }
 
-                await api.comments.create(
+            const attemptStartedAt = dayjs()
+            let sent: CommentType | null = null
+            let unconfirmedReason: UnconfirmedSendReason = null
+
+            try {
+                sent = await api.comments.create(
                     {
                         content,
                         rich_content: richContent,
                         scope: 'conversations_ticket',
-                        item_id: values.ticket.id,
+                        item_id: ticketId,
                         item_context: {
                             author_type: 'support',
                             is_private: isPrivate,
@@ -1275,26 +1341,65 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     },
                     {}
                 )
-                // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
-                // after this API call succeeds; the per-message delivery status is the send signal.
-                lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
-                actions.setMessageSending(false)
-                onSuccess?.()
-                if (!isPrivate) {
-                    actions.incrementUnreadCustomerCount()
+            } catch (error: any) {
+                unconfirmedReason = classifySendFailure(error)
+                if (unconfirmedReason === null) {
+                    lemonToast.error('Failed to send message')
+                    actions.setMessageSending(false)
+                    return
                 }
-                if (statusAfterSend) {
-                    actions.setStatus(statusAfterSend)
-                    actions.updateTicket()
+                // The message may already be in the thread, so look before telling the operator
+                // anything. A silent fetch keeps this off the normal loading and error paths.
+                const authorId = values.user?.id
+                try {
+                    const response = await api.comments.list({ scope: 'conversations_ticket', item_id: ticketId })
+                    const earliestAcceptable = attemptStartedAt.subtract(SEND_RECOVERY_WINDOW_SECONDS, 'second')
+                    sent =
+                        (response.results || []).find(
+                            (message) =>
+                                message.content === content &&
+                                objectsEqual(message.rich_content ?? null, richContent ?? null) &&
+                                message.item_context?.is_private === isPrivate &&
+                                message.item_context?.author_type === 'support' &&
+                                // Without a known author we can't tell our own send from a
+                                // colleague's identical one, so treat the outcome as unresolved.
+                                authorId !== undefined &&
+                                message.created_by?.id === authorId &&
+                                !dayjs(message.created_at).isBefore(earliestAcceptable)
+                        ) ?? null
+                } catch {
+                    // Leave `sent` null: an unresolved outcome is the safe answer, and the operator
+                    // does not need a second toast about a fetch they never asked for.
                 }
-                setTimeout(() => {
-                    actions.loadMessages()
-                }, 300)
-                actions.loadTickets()
-            } catch {
-                lemonToast.error(values.editingMessageId ? 'Failed to update note' : 'Failed to send message')
-                actions.setMessageSending(false)
             }
+
+            if (!sent) {
+                posthog.capture('support reply send unconfirmed', {
+                    reason: unconfirmedReason,
+                    is_private: isPrivate,
+                })
+                lemonToast.error(
+                    "We couldn't confirm that your message was added. Check the thread before sending it again."
+                )
+                actions.setMessageSending(false)
+                return
+            }
+
+            // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
+            // after this API call succeeds; the per-message delivery status is the send signal.
+            cache.messageRevision += 1
+            actions.appendMessage(sent)
+            lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
+            actions.setMessageSending(false)
+            onSuccess?.()
+            if (!isPrivate) {
+                actions.incrementUnreadCustomerCount()
+            }
+            if (statusAfterSend) {
+                actions.setStatus(statusAfterSend)
+                actions.updateTicket()
+            }
+            actions.loadTickets()
         },
         startEditingMessage: ({ message }) => {
             // Only stash the composer draft on first enter; switching notes keeps the original stash.
@@ -1389,14 +1494,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props, values }) => {
+    afterMount(({ actions, props, values, cache }) => {
+        // Guards against a slow poll landing after a newer load or a local message write.
+        cache.messageRevision = 0
         actions.setDraftModeEnabled(values.draftModeDefault)
         if (props.id !== 'new') {
             actions.loadTicket()
         }
     }),
-    beforeUnmount(({ cache }) => {
-        cache.disposables.disposeAll()
+    beforeUnmount(() => {
+        // The message poller is registered through cache.disposables, which the plugin tears down.
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
     beforeUnload(({ values, actions }) => ({

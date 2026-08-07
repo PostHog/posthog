@@ -218,28 +218,34 @@ impl ConsumerPool {
     /// only means the first operations pay the setup they would have
     /// paid anyway.
     pub async fn warm_up(&self, n: usize) {
-        // Hold every connected client outside the pool until the end:
-        // returning them as we go would make the next checkout pop the
-        // client we just returned, connecting one client n times and
-        // leaving the other n-1 slots to be built cold on the hot path.
-        let mut connected = Vec::with_capacity(n);
+        // Create every client before connecting any: returning them as we
+        // go would make the next checkout pop the client we just returned,
+        // connecting one client n times and leaving the other n-1 slots to
+        // be built cold on the hot path. The connects then run
+        // concurrently — a deploy burst needs the pool populated in one
+        // connect's time, not n of them in sequence.
+        let mut clients = Vec::with_capacity(n);
         for _ in 0..n {
             let Ok(consumer) = self.checkout() else {
                 break;
             };
-            let timeout = Duration::from_secs(5);
-            let outcome = tokio::task::spawn_blocking(move || {
-                let ok = consumer.fetch_metadata(None, timeout).is_ok();
-                (consumer, ok)
-            })
-            .await;
-            match outcome {
-                Ok((consumer, true)) => connected.push(consumer),
-                _ => break,
-            }
+            clients.push(consumer);
         }
-        for consumer in connected {
-            self.give_back(consumer);
+        let connects: Vec<_> = clients
+            .into_iter()
+            .map(|consumer| {
+                tokio::task::spawn_blocking(move || {
+                    let ok = consumer
+                        .fetch_metadata(None, Duration::from_secs(5))
+                        .is_ok();
+                    (consumer, ok)
+                })
+            })
+            .collect();
+        for connect in connects {
+            if let Ok((consumer, true)) = connect.await {
+                self.give_back(consumer);
+            }
         }
     }
 }

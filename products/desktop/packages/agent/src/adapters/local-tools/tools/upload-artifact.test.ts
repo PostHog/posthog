@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const prepareTaskArtifactUploads = vi.fn();
 const finalizeTaskArtifactUploads = vi.fn();
+const uploadTaskArtifacts = vi.fn();
 
 vi.mock("../../../signed-commit-artefacts", () => ({
   createSandboxPosthogClient: () => ({
     prepareTaskArtifactUploads,
     finalizeTaskArtifactUploads,
+    uploadTaskArtifacts,
   }),
 }));
 
@@ -48,6 +50,17 @@ describe("uploadArtifactTool", () => {
         storage_path: "tasks/artifacts/report.csv",
         uploaded_at: "2026-01-01T00:00:00Z",
         url: "https://storage.example/download/report.csv",
+      },
+    ]);
+    uploadTaskArtifacts.mockResolvedValue([
+      {
+        id: "artifact-1",
+        name: "report.csv",
+        type: "output",
+        size: 7,
+        storage_path: "tasks/artifacts/report.csv",
+        uploaded_at: "2026-01-01T00:00:00Z",
+        url: "https://app.example/download/artifact-1",
       },
     ]);
   });
@@ -94,6 +107,48 @@ describe("uploadArtifactTool", () => {
     expect(result.content[0]?.text).toContain(
       "https://storage.example/download/report.csv",
     );
+  });
+
+  it("falls back to the inline upload when object storage is unreachable", async () => {
+    await writeFile(path.join(cwd, "report.csv"), "a,b\n1,2");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+    );
+
+    const result = await uploadArtifactTool.handler(
+      { cwd, taskId: "task-1", taskRunId: "run-1" },
+      { path: "report.csv", contentType: "text/csv" },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(uploadTaskArtifacts).toHaveBeenCalledWith("task-1", "run-1", [
+      expect.objectContaining({
+        name: "report.csv",
+        content: Buffer.from("a,b\n1,2").toString("base64"),
+        content_encoding: "base64",
+      }),
+    ]);
+    expect(result.content[0]?.text).toContain(
+      "https://app.example/download/artifact-1",
+    );
+  });
+
+  it("surfaces the failure instead of falling back above the inline size limit", async () => {
+    await writeFile(path.join(cwd, "big.bin"), Buffer.alloc(11 * 1024 * 1024));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+    );
+
+    const result = await uploadArtifactTool.handler(
+      { cwd, taskId: "task-1", taskRunId: "run-1" },
+      { path: "big.bin" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("fetch failed");
+    expect(uploadTaskArtifacts).not.toHaveBeenCalled();
   });
 
   it("rejects files outside the session workspace", async () => {
