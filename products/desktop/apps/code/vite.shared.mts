@@ -5,6 +5,57 @@ import type { Alias, Plugin } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// The plugin uploads sourcemaps in its writeBundle hook by shelling out to
+// posthog-cli. When that upload times out the CLI exits non-zero, the hook
+// rejects, and the whole `electron-vite build` fails — which used to sink the
+// desktop release on a single flaky network round trip. Retry the upload a few
+// times, then, if it still fails, warn and let the build continue: a signed,
+// shippable app matters more than a sourcemap upload, and error symbolication
+// for one release degrades gracefully rather than blocking the ship.
+const SOURCEMAP_UPLOAD_ATTEMPTS = 3;
+const SOURCEMAP_UPLOAD_BACKOFF_MS = [10_000, 20_000];
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withResilientSourcemapUpload(plugin: Plugin): Plugin {
+  const hook = plugin.writeBundle;
+  if (!hook || typeof hook !== "object" || typeof hook.handler !== "function") {
+    return plugin;
+  }
+  const originalHandler = hook.handler as (
+    this: unknown,
+    ...args: unknown[]
+  ) => unknown;
+  return {
+    ...plugin,
+    writeBundle: {
+      ...hook,
+      async handler(this: unknown, ...args: unknown[]): Promise<unknown> {
+        for (let attempt = 1; attempt <= SOURCEMAP_UPLOAD_ATTEMPTS; attempt++) {
+          try {
+            return await originalHandler.apply(this, args);
+          } catch (error) {
+            if (attempt >= SOURCEMAP_UPLOAD_ATTEMPTS) {
+              console.warn(
+                `[posthog] sourcemap upload failed after ${SOURCEMAP_UPLOAD_ATTEMPTS} attempts; shipping build without uploaded sourcemaps. Last error: ${error}`,
+              );
+              return undefined;
+            }
+            const wait = SOURCEMAP_UPLOAD_BACKOFF_MS[attempt - 1] ?? 20_000;
+            console.warn(
+              `[posthog] sourcemap upload failed (attempt ${attempt}/${SOURCEMAP_UPLOAD_ATTEMPTS}), retrying in ${wait / 1000}s: ${error}`,
+            );
+            await delay(wait);
+          }
+        }
+        return undefined;
+      },
+    },
+  } as Plugin;
+}
+
 export function createPosthogPlugin(
   env: Record<string, string>,
   project: string,
@@ -12,15 +63,17 @@ export function createPosthogPlugin(
   if (!env.POSTHOG_SOURCEMAP_API_KEY || !env.POSTHOG_ENV_ID) {
     return null;
   }
-  return posthog({
-    personalApiKey: env.POSTHOG_SOURCEMAP_API_KEY,
-    projectId: env.POSTHOG_ENV_ID,
-    host: env.POSTHOG_HOST,
-    sourcemaps: {
-      releaseName: project,
-      deleteAfterUpload: true,
-    },
-  });
+  return withResilientSourcemapUpload(
+    posthog({
+      personalApiKey: env.POSTHOG_SOURCEMAP_API_KEY,
+      projectId: env.POSTHOG_ENV_ID,
+      host: env.POSTHOG_HOST,
+      sourcemaps: {
+        releaseName: project,
+        deleteAfterUpload: true,
+      },
+    }),
+  );
 }
 
 export function createForceDevModeDefine(): Record<string, string> | undefined {
