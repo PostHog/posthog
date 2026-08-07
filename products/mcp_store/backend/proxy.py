@@ -226,6 +226,47 @@ def _gateway_decision(policy_context: PolicyContext, tool: MCPServerInstallation
     return "auto", False
 
 
+def resolve_call_decision(
+    tool: MCPServerInstallationTool,
+    policy_context: PolicyContext | None,
+) -> tuple[str, str | None]:
+    """Decide one tool call outside the JSON-RPC proxy path.
+
+    Returns ``(audit_decision, block_reason)`` where ``block_reason`` is None when
+    the call may proceed, else one of ``"removed"``, ``"needs_approval"`` or
+    ``"disabled"``. Shares :func:`_gateway_decision` with the proxy so policy
+    resolution cannot diverge between the two entry points; the proxy keeps its own
+    JSON-RPC error mapping because its wire format is fixed by the MCP spec.
+    """
+    if tool.removed_at is not None:
+        return "blocked", "removed"
+
+    if policy_context is not None:
+        decision, blocked = _gateway_decision(policy_context, tool)
+        if not blocked:
+            return decision, None
+        return decision, "needs_approval" if decision == "pending" else "disabled"
+
+    # Pre-gateway installations fall back to the cached per-tool approval flag.
+    if tool.approval_state == "approved":
+        return "approved", None
+    if tool.approval_state == "needs_approval":
+        return "pending", "needs_approval"
+    return "blocked", "disabled"
+
+
+def record_tool_call_audit(
+    installation: MCPServerInstallation,
+    gateway_server: MCPGatewayServer,
+    caller: GatewayCaller,
+    actor_label: str,
+    tool_name: str,
+    decision: str,
+) -> None:
+    """Audit a single tool call. Same writer the proxy uses, one entry at a time."""
+    _write_audit_events(installation, gateway_server, caller, actor_label, [(tool_name, decision)])
+
+
 def _evaluate_tool_call(
     tools_by_name: dict[str, MCPServerInstallationTool],
     item: dict[str, Any],

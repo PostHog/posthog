@@ -12,6 +12,7 @@ use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -54,6 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("failed to install rustls ring CryptoProvider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
+    config
+        .validate_lease_timescales()
+        .expect("Invalid lease configuration");
     config
         .validate_fencing_timescales()
         .expect("Invalid fencing configuration");
@@ -118,6 +122,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ComponentOptions::new().with_shutdown_phase(1),
     );
 
+    let authority_metrics_handle = manager.register(
+        "authority-metrics",
+        ComponentOptions::new().is_observability(true),
+    );
+
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
@@ -139,6 +148,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/_liveness", get(move || async move { liveness.check() }));
     let metrics_router = setup_metrics_routes(health_router);
     preregister_metrics();
+    // The refusals the gate can emit: rare by design, and a burst is
+    // exactly what a deploy-window scrape would otherwise miss.
+    for reason in ["surrendered", "stale"] {
+        counter!(
+            "personhog_leader_authority_lapsed_rejections_total",
+            "reason" => reason
+        )
+        .increment(0);
+        for phase in ["warm", "resume"] {
+            counter!(
+                "personhog_leader_authority_lapsed_acquires_total",
+                "phase" => phase,
+                "reason" => reason
+            )
+            .increment(0);
+        }
+    }
+    for phase in ["warm", "resume"] {
+        counter!(
+            "personhog_leader_authority_lapsed_mid_acquire_total",
+            "phase" => phase
+        )
+        .increment(0);
+    }
     counter!("personhog_leader_unresolved_versions_total").increment(0);
     counter!("personhog_leader_unresolved_versions_spilled_total").increment(0);
     gauge!("personhog_leader_unresolved_versions").set(0.0);
@@ -273,6 +306,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // One clock for the process: the coordination session claims and
+    // surrenders it, the data plane reads it per request.
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    // Publish the live headroom whether or not the gate is armed: the
+    // question before enabling it is how close this fleet routinely runs
+    // to the margin, and that has to be answerable from a deployment
+    // that is not yet enforcing anything.
+    //
+    // This says nothing about a process-wide stall — a task that cannot
+    // run cannot report that it cannot run, which is the same limitation
+    // the clock exists to route around, and why enforcement reads the
+    // stamp inline on the request path instead of trusting a publisher.
+    // What it does show is a keepalive falling behind while the rest of
+    // the process is healthy, and the steady-state distance from the
+    // margin.
+    {
+        let authority = Arc::clone(&authority);
+        let handle = authority_metrics_handle;
+        tokio::spawn(async move {
+            let _guard = handle.process_scope();
+            let mut shutdown = std::pin::pin!(handle.shutdown_signal());
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown => break,
+                    _ = tick.tick() => {}
+                }
+                // Before the first grant there is no claim to measure
+                // against: age would read as process uptime and margin as
+                // zero, which any threshold would treat as a permanent
+                // emergency.
+                if !authority.is_claimed() {
+                    continue;
+                }
+                gauge!("personhog_leader_authority_valid").set(if authority.is_valid() {
+                    1.0
+                } else {
+                    0.0
+                });
+                gauge!("personhog_leader_authority_age_ms")
+                    .set(authority.since_confirmed().as_secs_f64() * 1000.0);
+                gauge!("personhog_leader_authority_margin_ms")
+                    .set(authority.margin().as_secs_f64() * 1000.0);
+            }
+        });
+    }
+
+    let gated_authority = if config.lease_gated_authority {
+        tracing::info!(
+            "lease-gated authority enabled: reads and fence acquisition require a \
+                        confirmed lease renewal within the keepalive margin"
+        );
+        Some(Arc::clone(&authority))
+    } else {
+        None
+    };
+
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer.clone(),
@@ -289,6 +379,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         warnings.clone(),
         fenced.clone(),
+        gated_authority.clone(),
         Arc::clone(&emitted_versions),
     );
 
@@ -321,7 +412,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         Arc::clone(&warm_pools),
-        fenced,
+        fenced.clone(),
+        gated_authority.clone(),
         Arc::clone(&emitted_versions),
     );
     let advertise_address =
@@ -397,7 +489,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let pod = PodHandle::new(store, pod_config, Arc::new(handler), k8s_awareness);
+    let pod = PodHandle::new(
+        store,
+        pod_config,
+        Arc::new(handler),
+        k8s_awareness,
+        Arc::clone(&authority),
+    );
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();

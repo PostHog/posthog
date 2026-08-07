@@ -143,6 +143,15 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None
+        except gspread.exceptions.NoValidUrlKeyFound:
+            # gspread couldn't find a spreadsheet key in the value — it isn't a Sheets URL. Its
+            # str() is empty, so the generic fallback below would surface a bare "Invalid
+            # credentials" for what's really a URL-format problem. Guide the user instead.
+            return (
+                False,
+                "That doesn't look like a Google Sheets URL. Paste the full URL of your sheet, "
+                "for example https://docs.google.com/spreadsheets/d/<id>/edit.",
+            )
         except gspread.SpreadsheetNotFound:
             return False, "Spreadsheet not found at URL provided"
         except PermissionError:

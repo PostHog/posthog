@@ -2200,6 +2200,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
+        "$ai_blob_count": {
+            "label": "AI binary payload count (LLM)",
+            "description": "Number of large binary payloads (images, audio, documents, or other base64 content) in this call.",
+            "examples": [2],
+            "type": "Numeric",
+        },
+        "$ai_blob_bytes": {
+            "label": "AI binary payload size (LLM)",
+            "description": "Total decoded size in bytes of the large binary payloads in this call.",
+            "examples": [245760],
+            "type": "Numeric",
+        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",

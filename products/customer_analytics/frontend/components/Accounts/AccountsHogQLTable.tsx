@@ -20,6 +20,7 @@ import { percentage } from 'lib/utils/numbers'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -133,10 +134,28 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 }
 
 function TagsCell({ record }: { record: unknown }): JSX.Element {
+    const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
+    const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
-    const tags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
-    return tags.length > 0 ? <ObjectTags tags={tags} staticOnly /> : <span className="text-muted">—</span>
+    const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
+    const accountId = getNameCell(record, visibleColumnNames)?.id
+    if (!accountId) {
+        return cellTags.length > 0 ? <ObjectTags tags={cellTags} staticOnly /> : <span className="text-muted">—</span>
+    }
+    const tags = tagOverrides[accountId] ?? cellTags
+    return (
+        <ObjectTags
+            tags={tags}
+            onChange={(newTags) => updateAccountTags(accountId, newTags)}
+            onTagClick={addTagToFilter}
+            saving={isTagsSaving(accountId)}
+            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+            data-attr="accounts-tags-cell"
+        />
+    )
 }
 
 function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
