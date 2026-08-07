@@ -3241,6 +3241,8 @@ class LinearIntegration:
         }
         """
         body = self.query(search_query, variables={"term": query, "first": limit})
+        if body.get("errors") or dot_get(body, "data.searchIssues") is None:
+            raise ValidationError("Failed to search Linear issues")
         nodes = dot_get(body, "data.searchIssues.nodes") or []
         results: list[dict[str, Any]] = []
         for node in nodes:
@@ -3431,9 +3433,13 @@ class JiraIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "Accept": "application/json",
             },
-            params={"query": query, "showSubTasks": "true"},
+            # Without currentJQL the picker only returns history suggestions (issues the
+            # user recently viewed); this constant JQL makes it search all accessible issues.
+            params={"query": query, "currentJQL": "order by created DESC", "showSubTasks": "true"},
             timeout=10,
         )
+        if response.status_code != 200:
+            raise ValidationError(f"Failed to search Jira issues (status {response.status_code})")
         body = response.json()
 
         site_url = self.site_url()
@@ -4228,6 +4234,10 @@ class GitLabIntegration:
             allow_redirects=False,
             timeout=10,
         )
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to search issues: {response.text[:300]}",
+            )
         issues = response.json()
         if not isinstance(issues, list):
             return []

@@ -199,6 +199,13 @@ class TestLinearIntegrationModel(BaseTest):
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
 
+    def test_search_issues_raises_on_graphql_errors(self):
+        # An expired token or GraphQL error must not be reported as a valid empty result.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "unauthorized"}]}):
+            with self.assertRaises(ValidationError):
+                linear.search_issues("boom")
+
     def test_create_issue_passes_user_fields_as_graphql_variables(self):
         linear = LinearIntegration(self.create_integration())
         with patch.object(
