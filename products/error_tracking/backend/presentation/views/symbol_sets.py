@@ -137,6 +137,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         "bulk_finish_upload",
         "start_upload",
         "finish_upload",
+        "update",
+        "partial_update",
         "destroy",
         "bulk_delete",
         "create",

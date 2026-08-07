@@ -33,6 +33,7 @@ import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
@@ -262,6 +263,28 @@ export function billingByteReductionForDrops(headerBytes: number, bytesDropped: 
     return Math.round(headerBytes * droppedFraction)
 }
 
+/**
+ * Wraps a hog log transform (mutates the surviving records in place, may drop) as the last pipeline
+ * `filter` stage. Partial transform drops are not billed-credited — only the all-dropped case is
+ * attributed — so it reports no per-rule accounting, just the `transformations` tag when it removed
+ * any record.
+ */
+function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
+    return {
+        kind: 'filter',
+        name: 'transformations',
+        run: async (records) => {
+            const before = records.length
+            await transform(records)
+            const stats = EMPTY_DROP_STATS()
+            if (records.length < before) {
+                stats.droppedBy = 'transformations'
+            }
+            return { kept: records, stats }
+        },
+    }
+}
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
@@ -409,6 +432,17 @@ export class LogsIngestionConsumer {
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
         const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
 
+        // Assemble the ordered decode → transform → encode pipeline: sampling drop rules + rate
+        // limits first, hog transformations last. An empty list (with no metric visitor) leaves the
+        // buffer as a no-decode passthrough inside `processLogMessageBuffer`.
+        const stages: PipelineStage[] = []
+        if (useSamplingPipeline && ruleSet) {
+            stages.push(this.samplingService.makeSamplingStage(ruleSet, message.teamId, message.bytesUncompressed))
+        }
+        if (recordsTransform) {
+            stages.push(makeTransformStage(recordsTransform))
+        }
+
         trace.getActiveSpan()?.setAttributes({
             'logs.sampling.killswitch': this.samplingKillswitch,
             'logs.sampling.enabled_teams_configured': Boolean((this.samplingEnabledTeamsRaw || '').trim()),
@@ -419,80 +453,46 @@ export class LogsIngestionConsumer {
             'logs.transformations.enabled_for_team': Boolean(recordsTransform),
             'logs.sampling.pipeline': useSamplingPipeline
                 ? 'decode_sample_encode'
-                : 'passthrough_processLogMessageBuffer',
+                : recordsTransform
+                  ? 'decode_transform_encode'
+                  : 'passthrough',
         })
 
-        if (useSamplingPipeline && ruleSet) {
-            const sampled = await this.samplingService.processBuffer(
-                message.message.value!,
-                logsSettings,
-                ruleSet,
-                message.teamId,
-                message.bytesUncompressed,
-                onRecordsDecoded,
-                recordsTransform
-            )
-            if (sampled.recordsDropped > 0) {
-                logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
-            }
-            if (sampled.bytesDropped > 0) {
-                logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, sampled.bytesDropped)
-            }
-            if (sampled.allDropped) {
-                return {
-                    outcome: 'all_dropped',
-                    reason:
-                        sampled.allDroppedBy === 'transformations'
-                            ? 'transformations_all_dropped'
-                            : 'sampling_all_dropped',
-                    pii: sampled.pii,
-                    recordsDropped: sampled.recordsDropped,
-                    recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
-                    bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
-                    contentBytesDropped: sampled.contentBytesDropped,
-                    contentBytesTotal: sampled.contentBytesTotal,
-                }
-            }
-            return {
-                outcome: 'produce',
-                processedValue: sampled.value,
-                pii: sampled.pii,
-                recordsDropped: sampled.recordsDropped,
-                recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
-                bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
-                contentBytesDropped: sampled.contentBytesDropped,
-                contentBytesTotal: sampled.contentBytesTotal,
-            }
+        const { value, pii, drops } = await processLogMessageBuffer(message.message.value!, logsSettings, {
+            onRecordsDecoded,
+            stages,
+        })
+
+        // Only the sampling stage attributes per-rule drops; the transform stage reports none, so
+        // these increments are no-ops on the transform-only and passthrough paths.
+        if (drops.recordsDropped > 0) {
+            logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, drops.recordsDropped)
+        }
+        if (drops.bytesDropped > 0) {
+            logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, drops.bytesDropped)
         }
 
-        // Passthrough (sampling disabled / no rules): drop rules removed nothing, so nothing to credit.
-        const res = await processLogMessageBuffer(
-            message.message.value!,
-            logsSettings,
-            onRecordsDecoded,
-            recordsTransform
-        )
-        if (res.value === null) {
+        if (value === null) {
             return {
                 outcome: 'all_dropped',
-                reason: 'transformations_all_dropped',
-                pii: res.pii,
-                recordsDropped: 0,
-                recordsDroppedByRuleId: new Map(),
-                bytesDroppedByRuleId: new Map(),
-                contentBytesDropped: 0,
-                contentBytesTotal: 0,
+                reason: drops.droppedBy === 'transformations' ? 'transformations_all_dropped' : 'sampling_all_dropped',
+                pii,
+                recordsDropped: drops.recordsDropped,
+                recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
+                bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
+                contentBytesDropped: drops.contentBytesDropped,
+                contentBytesTotal: drops.contentBytesTotal,
             }
         }
         return {
             outcome: 'produce',
-            processedValue: res.value,
-            pii: res.pii,
-            recordsDropped: 0,
-            recordsDroppedByRuleId: new Map(),
-            bytesDroppedByRuleId: new Map(),
-            contentBytesDropped: 0,
-            contentBytesTotal: 0,
+            processedValue: value,
+            pii,
+            recordsDropped: drops.recordsDropped,
+            recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
+            bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
+            contentBytesDropped: drops.contentBytesDropped,
+            contentBytesTotal: drops.contentBytesTotal,
         }
     }
 

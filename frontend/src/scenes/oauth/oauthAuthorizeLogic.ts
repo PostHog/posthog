@@ -724,13 +724,22 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         // object. Both the rows and the grant derive from this one set, so the consent
         // screen always displays exactly what authorizing will grant — required scopes
         // the client didn't request get a visible (locked) row, never a silent grant.
+        // Scopes outside the app's ceiling are dropped first: `/authorize` clamps them
+        // away, so rendering them would promise the user access the token won't carry.
+        // `*` survives because the server resolves it separately (`wildcard_read_scopes`)
+        // rather than matching it against the ceiling.
         consentResourceScopes: [
             (s) => [s.scopes, s.oauthApplication],
             (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null): string[] => {
+                const grantable = oauthApplication?.grantable_scopes
+                const grantableSet = grantable ? new Set(grantable) : null
+                const requested = grantableSet
+                    ? scopes.filter((scope) => scope === '*' || !scope.includes(':') || grantableSet.has(scope))
+                    : scopes
                 const required = (oauthApplication?.required_scopes ?? []).filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
-                return getMinimumEquivalentScopes([...scopes, ...required]).filter(
+                return getMinimumEquivalentScopes([...requested, ...required]).filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
             },

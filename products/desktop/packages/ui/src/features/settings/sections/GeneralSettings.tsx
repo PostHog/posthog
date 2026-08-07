@@ -9,10 +9,6 @@ import {
 } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
-  COLLAPSE_MODE_OPTIONS,
-  type CollapseMode,
-} from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
-import {
   ReasoningLevelDropdown,
   type ReasoningLevelOption,
 } from "@posthog/ui/features/sessions/components/ReasoningLevelDropdown";
@@ -99,7 +95,6 @@ export function GeneralSettings() {
     defaultReasoningEffort,
     diffOpenMode,
     sendMessagesWith,
-    conversationCollapseMode,
     hedgehogMode,
     slotMachineMode,
     brainrotMode,
@@ -110,7 +105,6 @@ export function GeneralSettings() {
     setDefaultReasoningEffort,
     setDiffOpenMode,
     setSendMessagesWith,
-    setConversationCollapseMode,
     setHedgehogMode,
     setSlotMachineMode,
     setBrainrotMode,
@@ -200,18 +194,6 @@ export function GeneralSettings() {
       setDefaultReasoningEffort(value);
     },
     [defaultReasoningEffort, setDefaultReasoningEffort],
-  );
-
-  const handleConversationCollapseModeChange = useCallback(
-    (value: CollapseMode) => {
-      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-        setting_name: "conversation_collapse_mode",
-        new_value: value,
-        old_value: conversationCollapseMode,
-      });
-      setConversationCollapseMode(value);
-    },
-    [conversationCollapseMode, setConversationCollapseMode],
   );
 
   const handleSendMessagesWithChange = useCallback(
@@ -448,34 +430,6 @@ export function GeneralSettings() {
             <Select.Item value="split">Split pane</Select.Item>
             <Select.Item value="same-pane">Same pane</Select.Item>
             <Select.Item value="last-active-pane">Last active pane</Select.Item>
-          </Select.Content>
-        </Select.Root>
-      </SettingRow>
-
-      {/* Conversation */}
-      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
-        Conversation
-      </Text>
-
-      <SettingRow
-        label="Collapse tool calls"
-        description="Group each turn's tool calls into a collapsible summary. Partial keeps the active turn expanded and folds completed turns."
-        noBorder
-      >
-        <Select.Root
-          value={conversationCollapseMode}
-          onValueChange={(value) =>
-            handleConversationCollapseModeChange(value as CollapseMode)
-          }
-          size="1"
-        >
-          <Select.Trigger className="min-w-[140px]" />
-          <Select.Content>
-            {COLLAPSE_MODE_OPTIONS.map((opt) => (
-              <Select.Item key={opt.value} value={opt.value}>
-                {opt.label}
-              </Select.Item>
-            ))}
           </Select.Content>
         </Select.Root>
       </SettingRow>

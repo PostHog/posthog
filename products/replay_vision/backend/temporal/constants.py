@@ -33,6 +33,12 @@ VISION_ACTION_RUN_STUCK_CUTOFF = PROCESS_VISION_ACTION_EXECUTION_TIMEOUT * 2
 REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE = 500
 REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT = dt.timedelta(minutes=3)
 
+# An inline scanner is minted just before its scans start, so anything still childless well after a
+# scan could have persisted its first observation never had one.
+INLINE_SCANNER_REAP_GRACE = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
+INLINE_SCANNER_REAP_BATCH_SIZE = 500
+INLINE_SCANNER_REAP_TIMEOUT = dt.timedelta(minutes=3)
+
 
 def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
     """Deterministic id: a still-running action is skipped (WorkflowAlreadyStartedError), not double-fired."""

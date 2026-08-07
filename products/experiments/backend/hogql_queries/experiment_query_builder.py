@@ -684,12 +684,13 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().precomputation_query()
 
-    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+    def get_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
         Returns the SELECT query that the lazy computation system wraps in an
-        INSERT INTO experiment_metric_events_preaggregated. This is the write
-        path — it scans the events table and stores one row per matching event
-        with step indicators packed into an Array(UInt8).
+        INSERT INTO experiment_metric_events_preaggregated, dispatched by metric
+        type. This is the write path — it scans the events table and stores one
+        row per matching event: funnel metrics pack step indicators into an
+        Array(UInt8), mean metrics store the per-event value in numeric_value.
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
@@ -697,6 +698,28 @@ class ExperimentQueryBuilder:
         Returns:
             Tuple of (query_string, placeholders_dict)
         """
+        match self.metric:
+            case ExperimentFunnelMetric():
+                return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
+            case ExperimentMeanMetric():
+                return self._mean_query_builder().get_mean_metric_events_query_for_precomputation()
+            case ExperimentRetentionMetric():
+                return self._retention_query_builder().get_retention_metric_events_query_for_precomputation()
+            case _:
+                raise NotImplementedError(f"Metric-events precomputation is not supported for {type(self.metric)}")
+
+    def get_metric_events_window_extension_seconds(self) -> int:
+        """
+        How far past the experiment end date the metric-events precompute scan must
+        extend. The conversion window for funnel/mean metrics; retention adds the
+        retention window on top (completions can land that much after a start event).
+        """
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            return self._retention_query_builder().get_metric_events_window_extension_seconds()
+        return self._get_conversion_window_seconds()
+
+    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """Funnel-specific write query; prefer get_metric_events_query_for_precomputation()."""
         return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
 
     def _build_variant_expr_for_mean(self) -> ast.Expr:

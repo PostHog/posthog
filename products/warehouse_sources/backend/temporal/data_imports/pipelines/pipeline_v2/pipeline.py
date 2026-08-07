@@ -1,6 +1,6 @@
 import sys
 import time
-from typing import Any, Generic, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -68,6 +68,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+        ImportJobModels,
+    )
+
 
 class PipelineNonDLT(Generic[ResumableData]):
     _resource: SourceResponse
@@ -93,11 +98,9 @@ class PipelineNonDLT(Generic[ResumableData]):
         job_id: str,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
-        job: ExternalDataJob,
-        schema: ExternalDataSchema,
-        source: ExternalDataSource,
-        table: DataWarehouseTable | None,
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
+        *,
+        models: "ImportJobModels",
     ) -> None:
         self._resource = source_response
         self._resource_name = source_response.name
@@ -105,19 +108,19 @@ class PipelineNonDLT(Generic[ResumableData]):
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
         # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
         # intermittently returns nothing.
-        self._resource.primary_keys = resolve_primary_keys(schema, self._resource)
+        self._resource.primary_keys = resolve_primary_keys(models.schema, self._resource)
 
-        self._job = job
+        self._job = models.job
         self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
 
-        self._schema = schema
-        self._source = source
-        self._table = table
+        self._schema = models.schema
+        self._source = models.source
+        self._table = models.table
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
-        self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
+        self._is_incremental = models.schema.is_incremental or models.schema.is_webhook or models.schema.is_xmin
 
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
@@ -142,12 +145,12 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
-            schema.incremental_field_earliest_value, schema.incremental_field_type
+            models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
         # SQL sources project enabled_columns in their SELECT and own schema_metadata via
         # introspection; managed-schema sources don't allow selection. Everything else gets the
         # Delta-write-side drop plus observed-columns capture so the column picker has a catalog.
-        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
     async def run(self) -> PipelineResult:
@@ -163,7 +166,11 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
-            validate_incremental_sync(self._is_incremental, self._resource)
+            validate_incremental_sync(
+                self._is_incremental,
+                self._resource,
+                is_first_sync=self._table is None or self._reset_pipeline,
+            )
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
@@ -347,10 +354,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await self._sinks.stage_chunk(index, pa_table)
 
-        (
-            self._last_incremental_field_value,
-            self._earliest_incremental_field_value,
-        ) = await update_incremental_field_values(
+        incremental_values = await update_incremental_field_values(
             self._schema,
             pa_table,
             self._resource,
@@ -358,6 +362,8 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._earliest_incremental_field_value,
             self._logger,
         )
+        self._last_incremental_field_value = incremental_values.last_value
+        self._earliest_incremental_field_value = incremental_values.earliest_value
 
         await update_row_tracking_after_batch(
             self._job.id, self._job.team_id, self._schema.id, pa_table.num_rows, self._logger

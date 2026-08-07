@@ -7,16 +7,18 @@ import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { STATUS_LABELS, STATUS_TOOLTIPS } from '~/scenes/inbox/components/badges/SignalReportStatusBadge'
-import type { SignalReportStatus } from '~/scenes/inbox/types'
+import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    STATUS_LABELS,
+    STATUS_TOOLTIPS,
+} from 'products/signals/frontend/inbox/components/badges/SignalReportStatusBadge'
+import type { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
     parsePrUrlParts,
     safeHttpUrl,
-} from '~/scenes/inbox/utils/reportPresentation'
-
-import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+} from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import type { TimelineExtra } from '../../components/Chat/MessageList'
 import { TeamOnlyBadge } from '../../components/Chat/TeamOnlyBadge'
@@ -84,13 +86,16 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
                         tokens start at 20px, and it lands just under a message avatar's 18px: small
                         enough to sit on the same rhythm, big enough to still read as the PostHog mark. */}
                     <Logomark variant="mono" color="primary" className="h-4 w-auto shrink-0" />
-                    <span className="text-sm font-medium">Self-driving</span>
+                    {/* The name takes the AI colour, the same one the assistant's byline and notes wear
+                        in this thread. "PostHog agent" stays muted: it qualifies the name rather than
+                        repeating it. */}
+                    <span className="text-sm font-medium text-ai">Self-driving</span>
                     <Tooltip title="A PostHog agent that investigates tickets against your codebase. Not a teammate.">
                         <span className="text-xs text-muted-alt">PostHog agent</span>
                     </Tooltip>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                    <TeamOnlyBadge label="Internal" />
+                    <TeamOnlyBadge label="Internal" tone="agent" />
                     <span className="text-xs text-muted-alt">
                         <TZLabel time={report.updated_at} />
                     </span>
@@ -98,8 +103,10 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
             </div>
             {/* Not a bubble, and marked down its edge, so it never reads as something a person said.
                 The edge is a pseudo-element so it can run the full height without fighting the border
-                radius the way a left border does. */}
-            <div className="relative flex items-start justify-between gap-3 overflow-hidden rounded border border-primary bg-surface-primary transition-colors hover:border-secondary py-2 pl-4 pr-3 after:content-[''] after:absolute after:inset-y-0 after:left-0 after:w-1 after:bg-accent">
+                radius the way a left border does. It carries the AI colour, the same one the
+                assistant's own internal notes wear in this thread, so everything our software leaves
+                on a ticket reads as one voice — distinct from a teammate's amber note. */}
+            <div className="relative flex items-start justify-between gap-3 overflow-hidden rounded border border-primary bg-surface-primary transition-colors hover:border-secondary py-2 pl-4 pr-3 after:content-[''] after:absolute after:inset-y-0 after:left-0 after:w-1 after:bg-ai">
                 {/* The link takes the whole left column so the entry reads as one target, while the
                     state stays a sibling: an anchor can't contain another, and clicking the pull
                     request should open the pull request. */}

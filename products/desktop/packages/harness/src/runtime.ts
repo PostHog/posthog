@@ -43,6 +43,7 @@ async function createCredentialStore(
 export type HarnessRuntimeOptions = HarnessExtensionOptions & {
   credentialStore?: CredentialStore;
   posthogOAuthCredentials?: PosthogOAuthCredentials;
+  projectTrusted?: (cwd: string) => boolean;
 } & Partial<
     Pick<
       PiRuntimeTarget,
@@ -67,8 +68,15 @@ export type HarnessRuntimeOptions = HarnessExtensionOptions & {
 export async function createHarnessRuntime(
   options: HarnessRuntimeOptions = {},
 ): Promise<AgentSessionRuntime> {
-  const { credentialStore, posthogOAuthCredentials, ...runtimeOptions } =
-    options;
+  const {
+    credentialStore,
+    posthogOAuthCredentials,
+    runtimeMcpServers: _runtimeMcpServers,
+    mcpToolPolicies: _mcpToolPolicies,
+    requestMcpToolPermission: _requestMcpToolPermission,
+    projectTrusted,
+    ...runtimeOptions
+  } = options;
   // Pi reads its application branding when the SDK is first evaluated. Keep
   // every runtime import below dynamic so this always happens first.
   installHogBrandEnv();
@@ -112,7 +120,7 @@ export async function createHarnessRuntime(
       settingsManager:
         options.settingsManager ??
         pi.SettingsManager.create(runtimeCwd, runtimeAgentDir, {
-          projectTrusted: false,
+          projectTrusted: projectTrusted?.(runtimeCwd) ?? false,
         }),
       resourceLoaderOptions: {
         ...runtimeOptions.resourceLoaderOptions,

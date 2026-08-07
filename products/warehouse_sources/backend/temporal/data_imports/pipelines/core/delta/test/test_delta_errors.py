@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+    is_offset_overflow_compaction_error,
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
@@ -154,3 +155,25 @@ class TestIsTransientMaintenanceError:
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_maintenance_error(error) is expected
+
+
+class TestIsOffsetOverflowCompactionError:
+    @parameterized.expand(
+        [
+            # delta-rs's Rust task panicking mid-compaction, surfaced as a generic DeltaError
+            # rather than a typed one — see errors.py for why binning already-safe files together
+            # can still overflow a 32-bit string/binary column offset.
+            (
+                "byte_array_offset_overflow_panic",
+                deltalake.exceptions.DeltaError(
+                    'Generic error: task 1237385 panicked with message "byte array offset overflow"'
+                ),
+                True,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # Same message shape but not the DeltaError type delta-rs actually raises for it.
+            ("wrong_exception_type", RuntimeError('panicked with message "byte array offset overflow"'), False),
+        ]
+    )
+    def test_classifies_offset_overflow_errors(self, _name: str, error: Exception, expected: bool):
+        assert is_offset_overflow_compaction_error(error) is expected

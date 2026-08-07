@@ -118,4 +118,50 @@ describe("CloudArtifactDownloads", () => {
       name: "report.pdf",
     });
   });
+
+  it("starts expanded and collapses when the header is clicked", () => {
+    render(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Files (1)" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("report.pdf")).toBeVisible();
+
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("report.pdf")).toBeVisible();
+  });
+
+  it("remembers collapse state per task", () => {
+    const { unmount } = render(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Files (1)" }));
+    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: "Files (1)" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+  });
 });

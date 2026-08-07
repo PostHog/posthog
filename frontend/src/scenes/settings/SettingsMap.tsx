@@ -175,7 +175,12 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import { HomepageSetting, SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
+import {
+    HomepageSetting,
+    SidebarItemsSetting,
+    SidebarLayoutSetting,
+    SidebarMyToolsSetting,
+} from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -362,8 +367,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'mcp-servers-manage',
-                title: 'MCP servers',
-                description: 'Install and manage MCP servers for your PostHog AI and PostHog Desktop agents.',
+                title: null,
                 component: <McpStoreSettings />,
                 keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
@@ -2053,6 +2057,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
                 component: <HomepageSetting />,
                 keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
+            },
+            {
+                id: 'sidebar-layout',
+                title: 'Layout',
+                description: 'Control how dense the sidebar rows are.',
+                component: <SidebarLayoutSetting />,
+                keywords: ['sidebar', 'layout', 'density', 'compact', 'comfortable'],
             },
             {
                 id: 'sidebar-items',

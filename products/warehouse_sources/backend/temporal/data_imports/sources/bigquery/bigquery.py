@@ -698,6 +698,12 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
 # stay in lockstep if BigQuery ever adjusts the phrasing.
 BIGQUERY_RESOURCES_EXCEEDED_ERROR = "Resources exceeded during query execution"
 
+# Stable wording BigQuery puts in a `billingTierLimitExceeded` query failure's message, raised as a
+# 400 BadRequest from `jobs.getQueryResults` when a query's CPU-second usage relative to bytes
+# billed exceeds the ratio the on-demand pricing model allows. Shared with
+# `BigQuerySource.get_non_retryable_errors` so the two stay in lockstep.
+BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR = "exceeds the ratio supported by the on-demand pricing model"
+
 
 def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """True for BigQuery's `resourcesExceeded` query failures.

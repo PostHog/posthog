@@ -10,6 +10,11 @@
 //! | Current, double zombie       | VIOLATED (residual) | VIOLATED (residual)  |
 //! | EpochFenced, double zombie   | holds               | holds                |
 //!
+//! Every row above is about *write* safety. Stale strong reads from a
+//! zombie pod are a separate, still-open residual that fencing does not
+//! address; only the configurations without a zombie window uphold
+//! `strong_reads_complete`.
+//!
 //! The single-zombie row is a result the checker sharpened beyond what
 //! the manual review claimed: a zombie *pod* alone cannot lose an acked
 //! write, because the identity freeze quorum has every registered router
@@ -22,7 +27,7 @@
 
 use std::time::Instant;
 
-use personhog_stateright::model::{HandoffModel, Variant};
+use personhog_stateright::model::{ClaimDetection, HandoffModel, Variant, WarmOrder};
 use stateright::{Checker, Model};
 
 /// Every checker explores in parallel: stateright defaults to a single
@@ -44,6 +49,10 @@ fn base() -> HandoffModel {
         late_routers: 0,
         partitions: 1,
         variant: Variant::Current,
+        warm_order: WarmOrder::FenceFirst,
+        lease_gated_reads: false,
+        claim_recovers: true,
+        claim_detection: ClaimDetection::Prompt,
         writes: 2,
         reads: 1,
         crashes: 0,
@@ -128,9 +137,15 @@ fn current_protocol_double_zombie_loses_acked_writes() {
     );
 }
 
-/// Epoch fencing closes the residual: warming bumps the broker's
-/// producer epoch, so the zombie's produce is rejected before any ack.
-/// All safety properties hold again, zombie window and all.
+/// Epoch fencing closes the *write* half of the residual: warming bumps
+/// the broker's producer epoch, so the zombie's produce is rejected
+/// before any ack. Acked-write loss, split acceptance, and drain-ack
+/// finality all hold again, zombie window and all.
+///
+/// `strong_reads_complete` is deliberately not asserted here: it still
+/// fails, because a zombie pod serves reads from its stale cache and
+/// nothing rejects them when the read gate is off. Turning it on closes
+/// that — see `fencing_and_lease_gated_reads_together_close_the_double_zombie`.
 #[test]
 fn epoch_fenced_double_zombie_is_safe() {
     let checker = model(Variant::EpochFenced, 2, 1)
@@ -150,6 +165,58 @@ fn epoch_fenced_double_zombie_is_safe() {
         checker.discovery("drained_ack_is_final").is_none(),
         "a drained ack must remain final under fencing"
     );
+}
+
+/// The rejected warm ordering — changelog read before fence acquisition
+/// — loses acked writes: a still-unfenced zombie commits a write after
+/// the new owner's cutoff is captured but before the epoch bump exists
+/// to reject it. This is the machine-checked reason `warm_partition`
+/// acquires the fence before the warm read; the FenceFirst tests above
+/// prove the shipped ordering closes the gap under the same budget.
+#[test]
+fn epoch_fenced_read_first_ordering_loses_acked_writes() {
+    let checker = HandoffModel {
+        warm_order: WarmOrder::ReadFirst,
+        ..model(Variant::EpochFenced, 2, 1)
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker.discovery("no_lost_acked_write").is_some(),
+        "read-before-fence must produce an acked-write-loss counterexample"
+    );
+}
+
+/// A cancelled handoff whose target already acquired the fence leaves
+/// the resuming old owner's producer epoch-stale; `resume_partition`
+/// re-acquires before re-admitting writes, or the partition wedges with
+/// every write rejected as fenced. The stability property requires
+/// `write_capable` (not merely warmed + unfenced), so a model without
+/// the resume re-acquisition fails liveness here. The pod churn
+/// (expire, rejoin, expire mid-warm) is what manufactures a registered
+/// old owner whose handoff target dies after the fence bump — two
+/// partitions because a move handoff from a registered old owner only
+/// arises from imbalance, and the minimum router/workload budgets keep
+/// the churn-heavy space tractable (no zombie half is needed here).
+#[test]
+fn epoch_fenced_resume_after_cancelled_handoff_stays_live() {
+    HandoffModel {
+        routers: 1,
+        partitions: 2,
+        variant: Variant::EpochFenced,
+        writes: 1,
+        reads: 0,
+        crashes: 2,
+        rejoins: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
 }
 
 /// Two partitions bring the cross-partition coordinator logic into
@@ -678,4 +745,172 @@ fn rejoin_two_partitions_without_cancellation() {
     .spawn_bfs()
     .join()
     .assert_properties();
+}
+
+/// Fencing under handoff cancellation: every safety and liveness
+/// property must hold when the cancellation budget and the fencing
+/// variant are combined, a pairing no other verdict test covers.
+///
+/// This is breadth, not a pin: it passes with or without the resume's
+/// epoch re-acquisition, because the interleaving that strands a
+/// resuming owner on a stale epoch needs the cancelled target to have
+/// warmed first, which this configuration does not force.
+/// `epoch_fenced_resume_after_cancelled_handoff_stays_live` is the
+/// red-checked pin for that fix.
+#[test]
+fn epoch_fenced_under_cancellation_is_safe_and_live() {
+    HandoffModel {
+        routers: 1,
+        partitions: 2,
+        variant: Variant::EpochFenced,
+        writes: 1,
+        reads: 0,
+        cancels: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// Fencing and the read gate are complementary, not alternative.
+///
+/// Fencing alone leaves `strong_reads_complete` violated under the
+/// double zombie: it rejects a zombie's writes, not its reads, and the
+/// zombie keeps answering from a cache the new owner is already
+/// changing. The gate alone does not close it either — without fencing
+/// the zombie's write is lost, so the *legitimate* owner is the one
+/// serving a read missing an acked write. Only both together hold every
+/// safety property, which is why the leader's read gate is a
+/// prerequisite for enabling fencing rather than an independent
+/// improvement.
+#[test]
+fn fencing_and_lease_gated_reads_together_close_the_double_zombie() {
+    let cfg = |variant, gated| HandoffModel {
+        variant,
+        lease_gated_reads: gated,
+        claim_recovers: true,
+        crashes: 2,
+        zombie_window: 1,
+        ..base()
+    };
+    let stale_reads = |variant, gated| {
+        cfg(variant, gated)
+            .checker()
+            .threads(parallelism())
+            .spawn_bfs()
+            .join()
+            .discovery("strong_reads_complete")
+            .is_some()
+    };
+
+    assert!(
+        stale_reads(Variant::Current, true),
+        "the read gate alone must not close it: the honest owner serves a read missing the \
+         zombie's lost write"
+    );
+    assert!(
+        stale_reads(Variant::EpochFenced, false),
+        "fencing alone must not close it: the zombie still answers reads"
+    );
+    assert!(
+        !stale_reads(Variant::EpochFenced, true),
+        "together they must close it"
+    );
+}
+
+/// The gate makes pods refuse reads, which is exactly the kind of change
+/// that can starve liveness — so a gated configuration has to clear
+/// every property, not just the stale-read one the complementarity
+/// verdict inspects.
+#[test]
+fn a_lease_gated_fleet_is_safe_and_live() {
+    HandoffModel {
+        variant: Variant::EpochFenced,
+        lease_gated_reads: true,
+        claim_recovers: true,
+        crashes: 1,
+        zombie_window: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// The state the stability property's claim conjunct exists for, made
+/// reachable and then made permanent.
+///
+/// Production's clock lapses at two thirds of the TTL while etcd holds
+/// the registration for the full TTL, so for that third a pod refuses
+/// every read while still looking alive to the coordinator — which
+/// therefore reassigns nothing. Tying the claim to the registration, as
+/// the model previously did, made `registered` imply `claims_authority`
+/// and left the conjunct unable to change any verdict.
+///
+/// With recovery available the fleet converges; without it the black
+/// hole is permanent and stability has to notice. If this stops
+/// producing a counterexample, the conjunct has gone back to being
+/// decorative.
+#[test]
+fn a_lapsed_claim_that_never_returns_fails_stability() {
+    let checker = HandoffModel {
+        variant: Variant::EpochFenced,
+        lease_gated_reads: true,
+        claim_recovers: false,
+        crashes: 1,
+        zombie_window: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker.discovery("converges_to_stable").is_some(),
+        "an owner that refuses its own reads while looking alive to the coordinator \
+         must fail stability rather than passing it"
+    );
+}
+
+/// What the registration watch buys, as a verdict rather than prose.
+///
+/// A revoked lease deletes a pod's registration at once, but a pod that
+/// only learns on its next keepalive round keeps claiming the partition
+/// meanwhile — and the coordinator, which saw the deletion immediately,
+/// can reassign inside that window. With detection delayed, the read
+/// gate does not close the stale-read half at all; with the watch, it
+/// does.
+#[test]
+fn prompt_detection_is_what_makes_the_read_gate_hold() {
+    let stale_reads = |detection| {
+        HandoffModel {
+            variant: Variant::EpochFenced,
+            lease_gated_reads: true,
+            claim_recovers: true,
+            claim_detection: detection,
+            crashes: 2,
+            zombie_window: 1,
+            ..base()
+        }
+        .checker()
+        .threads(parallelism())
+        .spawn_bfs()
+        .join()
+        .discovery("strong_reads_complete")
+        .is_some()
+    };
+
+    assert!(
+        stale_reads(ClaimDetection::Delayed),
+        "a claim outliving its lease must still leave stale reads reachable"
+    );
+    assert!(
+        !stale_reads(ClaimDetection::Prompt),
+        "dropping the claim with the registration must close them"
+    );
 }

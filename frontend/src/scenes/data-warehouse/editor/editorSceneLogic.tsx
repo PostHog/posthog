@@ -478,7 +478,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 dashboardId: number | null,
                 featureFlags: import('../../../lib/logic/featureFlagLogic').FeatureFlagsSet
             ): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
-                const endpointsEnabled = !!featureFlags[FEATURE_FLAGS.ENDPOINTS]
                 const metricsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
@@ -497,23 +496,16 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     action: 'metric',
                     label: 'Save as metric',
                 }
-                const extraItems = [
-                    ...(endpointsEnabled ? [saveAsEndpointItem] : []),
-                    ...(metricsEnabled ? [saveAsMetricItem] : []),
-                ]
+                const extraItems = [saveAsEndpointItem, ...(metricsEnabled ? [saveAsMetricItem] : [])]
 
                 if (editorSource === 'metric' && metricsEnabled) {
                     return {
                         primary: saveAsMetricItem,
-                        secondary: [
-                            saveAsInsightItem,
-                            saveAsViewItem,
-                            ...(endpointsEnabled ? [saveAsEndpointItem] : []),
-                        ],
+                        secondary: [saveAsInsightItem, saveAsViewItem, saveAsEndpointItem],
                     }
                 }
 
-                if (editorSource === 'endpoint' && endpointsEnabled) {
+                if (editorSource === 'endpoint') {
                     return {
                         primary: saveAsEndpointItem,
                         secondary: [saveAsInsightItem, saveAsViewItem, ...(metricsEnabled ? [saveAsMetricItem] : [])],

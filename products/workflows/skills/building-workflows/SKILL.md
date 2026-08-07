@@ -57,8 +57,6 @@ Every live-content change appends a snapshot to the workflow's revision history.
 
 A restore returns 409 when a draft is already open; publish or discard it, or pass `overwrite=true` to replace it. Two things a rollback cannot undo: runs that already moved or exited while the newer version was live keep their positions (their side effects happened), and a publish that shortened a delay may have pulled parked wake times earlier — rolling back doesn't push them later again.
 
-If an edit is rejected with "editing an active workflow isn't supported", draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft (`workflows-create`), testing it, and enabling it as a replacement.
-
 ## What the server owns, never send it
 
 The server compiles and manages these. Authoring them by hand is the fastest way to a broken workflow:

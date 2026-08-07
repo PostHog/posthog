@@ -150,6 +150,25 @@ def _stub_picker_facade():
             return None
         return f"Effort '{effort}' not supported on {model}."
 
+    # The catalogue derives the gateway-provider → adapter mapping and the adapter for
+    # a given model from the tasks product rather than restating them, so the stub has
+    # to answer both.
+    providers_by_adapter = {"claude": "anthropic", "codex": "openai"}
+    models_by_adapter = {
+        "claude": ("claude-opus-4-7", "claude-sonnet-4-6"),
+        "codex": ("gpt-5", "gpt-5.5"),
+    }
+
+    def _adapter_value(adapter):
+        return adapter.value if hasattr(adapter, "value") else adapter
+
+    def fake_get_provider(adapter):
+        provider = providers_by_adapter.get(_adapter_value(adapter))
+        return _Adapter(provider) if provider else None
+
+    def fake_get_models(adapter):
+        return models_by_adapter.get(_adapter_value(adapter), ())
+
     facade_name = "products.tasks.backend.facade.run_config"
     # `Any` annotation so mypy accepts the stub-attribute assignments below —
     # the stdlib `ModuleType` rejects them outright, and ruff B010 reverts any
@@ -158,6 +177,8 @@ def _stub_picker_facade():
     fake.RuntimeAdapter = _RuntimeAdapter()
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
+    fake.get_provider_for_runtime_adapter = fake_get_provider
+    fake.get_models_for_runtime_adapter = fake_get_models
     fake.PUBLIC_REASONING_EFFORTS = public_efforts
 
     @dataclass(frozen=True)

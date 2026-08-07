@@ -79,6 +79,59 @@ export interface MessagePreferencesApi {
     preferences: unknown
 }
 
+export interface BulkOptOutEntryApi {
+    /**
+     * The recipient identifier to opt out (e.g. email address).
+     * @maxLength 512
+     */
+    identifier: string
+    /** Message category key for this recipient. Overrides the request-level category_key. */
+    category_key?: string
+}
+
+export interface BulkAddOptOutsRequestApi {
+    /** Recipients to opt out, at most 1000 per request. */
+    opt_outs: BulkOptOutEntryApi[]
+    /** Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages. */
+    category_key?: string
+}
+
+export interface BulkAddOptOutsResultApi {
+    /** Number of opt-out entries received. */
+    total: number
+    /** Number of recipient and category pairs recorded as opted out. */
+    opted_out: number
+    /** Number of entries skipped because their category_key doesn't exist. */
+    skipped: number
+    /** The first few entry-level problems, so the caller can fix their list. */
+    errors: string[]
+}
+
+export interface MessagingErrorApi {
+    /** Human-readable description of what went wrong. */
+    error: string
+}
+
+/**
+ * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+ * {count, next, previous, results} envelope instead of an untyped object.
+ */
+export interface PaginatedOptOutsApi {
+    /** Total number of opted-out recipients for the category. */
+    count: number
+    /**
+     * URL for the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    results: MessagePreferencesApi[]
+}
+
 export interface AddSuppressionRequestApi {
     /**
      * The email address to suppress. Will not receive any messages until removed.
@@ -417,6 +470,22 @@ export type MessagingCategoriesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type MessagingPreferencesExportOptOutsCsvRetrieveParams = {
+    /**
+     * Message category key to export. If omitted, exports recipients opted out of all marketing messages.
+     */
+    category_key?: string
+}
+
+export type MessagingPreferencesOptOutsRetrieveParams = {
+    /**
+     * Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.
+     */
+    category_key?: string
+    page?: number
+    page_size?: number
 }
 
 export type MessagingSuppressionsSuppressionsRetrieveParams = {

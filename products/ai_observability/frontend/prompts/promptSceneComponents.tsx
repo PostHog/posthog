@@ -669,7 +669,7 @@ export function PromptCode({ prompt }: { prompt: LLMPrompt }): JSX.Element {
             <PromptCodeSnippets prompt={prompt} />
 
             <LemonBanner type="info">
-                During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
+                Each prompt fetch is charged as a Product analytics event. See the{' '}
                 <Link to="https://posthog.com/pricing" target="_blank">
                     pricing page
                 </Link>

@@ -104,6 +104,12 @@ SESSIONS_COLUMN_ALIAS = "Sessions"
 # enum so the sides can't drift apart and split one row in two.
 UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 
+# What `$entry_referring_domain` holds when a session arrived with no referrer at all. Stored as a
+# sentinel rather than an empty string, so anything asking "does this session name a referrer?" has
+# to test for it explicitly. Matches the literal the channel-type classifier keys off in
+# posthog/hogql/database/schema/channel_type.py.
+DIRECT_REFERRING_DOMAIN = "$direct"
+
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
 

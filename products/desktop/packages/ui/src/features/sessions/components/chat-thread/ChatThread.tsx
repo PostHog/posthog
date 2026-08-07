@@ -68,8 +68,13 @@ import {
   completedTurnTimestamp,
   countFlatRows,
   type FlatThreadRow,
+  FOLLOWING_END,
   flattenTurnRows,
+  nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
+  SCROLL_UP_KEYS,
+  sampleThreadScroll,
+  type ThreadFollowState,
   type ThreadItem,
   type ThreadScrollResume,
   type TurnRow,
@@ -183,11 +188,10 @@ function isInvisibleItem(item: ConversationItem): boolean {
 }
 
 /**
- * A thought joins a tool run instead of breaking it. Between two calls it is the agent narrating
- * the stretch of work the run already stands for, so folding it in keeps one row for one stretch —
- * the group's body still lists it in order, and the row's own label follows it while it streams.
- * Prose to the user (`agent_message_chunk`) still breaks the run: that is said *to* you, not about
- * the work.
+ * A thought joins a tool run instead of breaking it, because between two calls it narrates the
+ * stretch of work the run already stands for. The group's body still lists it in order. Prose to
+ * the user (`agent_message_chunk`) does break a run, since that is addressed to the reader rather
+ * than describing the work.
  */
 function isThoughtItem(item: ConversationItem): boolean {
   return (
@@ -200,9 +204,35 @@ function isThoughtItem(item: ConversationItem): boolean {
  * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
  * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
- * A lone tool call passes through untouched — it stays a single marker, matching the legacy thread,
- * and so do the thoughts around it: thoughts ride along a run, they never make one.
+ * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
+ * thoughts ride along a run, they never make one.
  */
+/**
+ * Item arrays for settled runs, keyed on the run's (stable) first item.
+ *
+ * Grouping re-runs over the whole thread on every streamed chunk, so a completed run produces a
+ * fresh array with identical contents each time. New identity defeats `ToolGroup`'s `memo`, which
+ * makes every settled group above the live one re-render per chunk. Handing back the previous
+ * array lets them skip the render.
+ *
+ * Only safe once the run's turn is complete, because a live tool's status is mutated in place on
+ * its resolved `ToolCall`: reusing an array mid-turn would leave a spinner on a tool that has
+ * since finished. `len` covers a run that gains items before it settles.
+ */
+const settledRunItems = new WeakMap<
+  ConversationItem,
+  { len: number; items: SessionUpdateItem[] }
+>();
+
+function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
+  if (!run.at(-1)?.turnContext.turnComplete) return run;
+  const key = run[0];
+  const cached = settledRunItems.get(key);
+  if (cached && cached.len === run.length) return cached.items;
+  settledRunItems.set(key, { len: run.length, items: run });
+  return run;
+}
+
 function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
@@ -214,9 +244,9 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
     if (toolCount >= 2) {
       out.push({
         type: "tool_group",
-        // The run's first tool call, so the id is stable as thoughts append around it.
+        // Keyed on the first tool call so the id survives thoughts appending around it.
         id: buffer.filter(isToolCallItem)[0].id,
-        items: buffer.filter(isSessionUpdateItem),
+        items: stableRunItems(buffer.filter(isSessionUpdateItem)),
       });
     } else {
       out.push(...buffer);
@@ -715,7 +745,7 @@ const ThreadRow = memo(function ThreadRow({
 });
 
 /**
- * Keeps the view pinned to the bottom from prompt submit until the user scrolls away.
+ * Keeps the view pinned to the bottom until the user scrolls away, re-arming on each prompt submit.
  *
  * The engine's own follow mode isn't enough on its own:
  * - It only re-engages within `scrollEdgeThreshold` of the exact bottom, so a submit from anywhere
@@ -726,10 +756,20 @@ const ThreadRow = memo(function ThreadRow({
  *   autoscrolling" and silently demote itself to `free-scrolling` mid-reply. While armed, any
  *   commit that leaves content below the fold re-issues `scrollToEnd` to recapture follow.
  *
- * User scroll intent (wheel, touch, pointer, keys — same signals the engine listens to) disarms
- * the pin; the next submit or the scroll-to-bottom button re-engages following.
+ * It arms on mount so a thread the reader is only watching — a cloud task streaming into a command
+ * center panel, with no prompt sent from here — still follows. Scrolling upward disarms it, which
+ * is the half the engine gets wrong: the engine re-derives follow from scroll position and so
+ * overrules the gesture. Scrolling back down to the end re-arms it, a submit or the
+ * scroll-to-bottom button re-arms it from anywhere.
  */
-function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
+function ThreadAutoFollow({
+  items,
+  followRef,
+}: {
+  items: ConversationItem[];
+  /** Owned by the body so the scroll-to-bottom button can re-arm the pin too. */
+  followRef: RefObject<ThreadFollowState>;
+}) {
   const { scrollToEnd } = useChatMessageScroller();
   const { end } = useChatMessageScrollerScrollable();
   const lastItem = items.at(-1);
@@ -739,7 +779,6 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     [items],
   );
   const prevCountRef = useRef(userMessageCount);
-  const armedRef = useRef(false);
   const probeRef = useRef<HTMLSpanElement>(null);
 
   useLayoutEffect(() => {
@@ -747,35 +786,55 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     prevCountRef.current = userMessageCount;
     if (previous === 0 || userMessageCount <= previous) return;
     if (lastItem?.type !== "user_message") return;
-    armedRef.current = true;
+    followRef.current = FOLLOWING_END;
     scrollToEnd({ behavior: "auto" });
-  }, [userMessageCount, lastItem, scrollToEnd]);
+  }, [userMessageCount, lastItem, scrollToEnd, followRef]);
 
   useEffect(() => {
     const viewport = probeRef.current
       ?.closest('[data-slot="chat-message-scroller"]')
       ?.querySelector('[data-slot="chat-message-scroller-viewport"]');
-    if (!viewport) return;
-    const disarm = () => {
-      armedRef.current = false;
+    if (!(viewport instanceof HTMLElement)) return;
+
+    // An upward gesture too small to register as a direction change below still means the reader
+    // is reading, not following.
+    const leaveEnd = () => {
+      if (followRef.current.leftEnd || viewport.scrollTop <= 0) return;
+      followRef.current = { following: false, leftEnd: true };
     };
-    const events = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
-    for (const event of events) {
-      viewport.addEventListener(event, disarm, { passive: true });
-    }
+    const onWheel = (event: Event) => {
+      if ((event as WheelEvent).deltaY < 0) leaveEnd();
+    };
+    const onKeyDown = (event: Event) => {
+      if (SCROLL_UP_KEYS.has((event as KeyboardEvent).key)) leaveEnd();
+    };
+    // Direction, not position: the reader who scrolls back to the bottom while the agent keeps
+    // appending never lands on the exact end, so following has to resume from the gesture.
+    let lastScrollTop = viewport.scrollTop;
+    const onScroll = () => {
+      const sample = sampleThreadScroll(viewport, lastScrollTop);
+      lastScrollTop = viewport.scrollTop;
+      followRef.current = nextThreadFollowState(followRef.current, sample);
+    };
+
+    viewport.addEventListener("wheel", onWheel, { passive: true });
+    viewport.addEventListener("touchmove", leaveEnd, { passive: true });
+    viewport.addEventListener("keydown", onKeyDown, { passive: true });
+    viewport.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      for (const event of events) {
-        viewport.removeEventListener(event, disarm);
-      }
+      viewport.removeEventListener("wheel", onWheel);
+      viewport.removeEventListener("touchmove", leaveEnd);
+      viewport.removeEventListener("keydown", onKeyDown);
+      viewport.removeEventListener("scroll", onScroll);
     };
-  }, []);
+  }, [followRef]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-check on every streamed change — `end` alone doesn't re-notify while it stays true across commits.
   useEffect(() => {
-    if (armedRef.current && end) {
+    if (followRef.current.following && end) {
       scrollToEnd({ behavior: "auto" });
     }
-  }, [items, end, scrollToEnd]);
+  }, [items, end, scrollToEnd, followRef]);
 
   return <span ref={probeRef} className="hidden" aria-hidden="true" />;
 }
@@ -948,6 +1007,8 @@ function ThreadScrollBody({
     }));
   }, [rows]);
 
+  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
+
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
   // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
   // width the query basis for everything inside it — the panel is resizable and splittable, so the
@@ -958,7 +1019,7 @@ function ThreadScrollBody({
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
-      <ThreadAutoFollow items={items} />
+      <ThreadAutoFollow items={items} followRef={autoFollowRef} />
       <ThreadScrollStateRecorder stateRef={resumeStateRef} />
       <ChatMessageScrollerViewport>
         <ChatMessageScrollerContent
@@ -984,7 +1045,12 @@ function ThreadScrollBody({
           )}
         </ChatMessageScrollerContent>
       </ChatMessageScrollerViewport>
-      <ChatMessageScrollerButton />
+      {/* Re-arms the pin as well as scrolling: the button is the reader saying "follow again". */}
+      <ChatMessageScrollerButton
+        onClick={() => {
+          autoFollowRef.current = FOLLOWING_END;
+        }}
+      />
     </ChatMessageScroller>
   );
 }
@@ -1062,6 +1128,14 @@ const FlatRowView = memo(
  * (`ChatMessageFooter`) — see `UserBubble`.
  */
 interface SharedChatThreadProps {
+  /**
+   * Fold each run of tool calls into one collapsible row. Defaults to true.
+   *
+   * Embedded surfaces (the live-agent chat preview) pass false: they are short, they are the whole
+   * point of the pane they sit in, and folding the agent's work behind a chip there hides the only
+   * thing there is to look at.
+   */
+  groupToolCalls?: boolean;
   isPromptPending: boolean | null;
   promptStartedAt?: number | null;
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
@@ -1069,6 +1143,7 @@ interface SharedChatThreadProps {
   task?: Task;
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
+  hasPendingPermission?: boolean;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1135,12 +1210,14 @@ interface ChatThreadRendererProps extends SharedChatThreadProps {
 function ChatThreadRenderer({
   conversationItems,
   footerEvents,
+  groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
   repoPath,
   task,
   taskId,
   footerState,
+  hasPendingPermission,
   promptRecallRef,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
@@ -1162,8 +1239,8 @@ function ChatThreadRenderer({
   );
 
   const rows = useMemo<TurnRow[]>(
-    () => groupIntoTurns(groupToolRuns(items)),
-    [items],
+    () => groupIntoTurns(groupToolCalls ? groupToolRuns(items) : items),
+    [items, groupToolCalls],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and
@@ -1267,6 +1344,7 @@ function ChatThreadRenderer({
         task={task}
         taskId={taskId}
         footerState={footerState}
+        hasPendingPermission={hasPendingPermission}
       />
     </>
   );
@@ -1314,11 +1392,12 @@ function ChatThreadRenderer({
             // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
             autoScroll={!virtualized}
             defaultScrollPosition="end"
-            // Default is 8px: with the thread's bottom padding you're rarely that close, so
-            // auto-follow ("following-bottom") would disengage on any stray trackpad wheel and
-            // never re-engage. Within this band the engine recaptures follow on the next content
-            // change; deliberate upward flicks travel past it and stay free-scrolling.
-            scrollEdgeThreshold={100}
+            // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
+            // re-enters "following-bottom" on *every* scroll event taken within the band, which
+            // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
+            // reader scrolling up out of the bottom, and streamed content yanks them back each
+            // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
+            // unlike the engine it only lets go on a real gesture.
             scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
           >
             {virtualized ? (
