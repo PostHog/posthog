@@ -32,10 +32,10 @@ jobs:
     multinode-migration-smoke:
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
-        # The common path primes Postgres from the master schema artifact (~2 min for
-        # the Postgres phase). The fallback applies every Django migration from
-        # scratch and grows with the migration count (~27 minutes in August 2026), so
-        # the timeout is sized for the fallback. Raise it if migrate keeps creeping up.
+        # The common path primes Postgres from the master schema artifact. The
+        # fallback applies every Django migration from scratch and grows with the
+        # migration count, so the timeout is sized for the fallback. Raise it if
+        # migrate keeps creeping up.
         timeout-minutes: 40
         env:
             DEBUG: '1'
