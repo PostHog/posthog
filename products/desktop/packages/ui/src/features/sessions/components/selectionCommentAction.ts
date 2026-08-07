@@ -152,61 +152,136 @@ export function computeCommentActionPlacement(
 }
 
 export type SelectionSettleGateCallbacks = {
-  // Pointer pressed outside the action UI; hide any visual anchored to the
-  // selection.
+  // A selection gesture started outside the action UI; hide any visual
+  // anchored to the selection.
   onGestureStart?: () => void;
-  // Pointer released after a gesture; re-read the selection, it is final.
+  // The gesture finished and the browser has committed the range; re-read the
+  // selection, it is final.
   onSelectionSettled?: () => void;
-  // Selection changed with no pointer down (keyboard, programmatic).
+  // Selection changed outside a gesture (programmatic, or a click that
+  // collapsed it).
   onIdleSelectionChange?: () => void;
-  // Gesture interrupted before pointerup (window blur).
+  // Gesture interrupted before it finished (pointercancel, window blur).
   onGestureCancel?: () => void;
 };
 
-// While the user drag-selects, the range keeps moving, so an action anchored
-// to the live selection visibly chases the cursor. The gate suppresses
-// selection reporting during the drag and reports the final range on
-// pointerup. Clicks inside the action UI are excluded so pressing the action
-// itself doesn't restart a gesture.
+// While the user selects, the range keeps moving, so an action anchored to the
+// live selection chases the cursor. The gate reports only settled selections,
+// following the pattern the editor toolbars converged on:
+//
+//   selectstart / pointerdown / selection keydown -> hide
+//   selectionchange                               -> ignore while gesturing
+//   pointerup / selection keyup                   -> report, two frames later
+//   pointercancel / blur                          -> cancel
+//
+// The two frames matter: the browser commits the selection AFTER the pointerup
+// handler runs, so reading it synchronously returns the mid-gesture range and
+// anchors the action to the wrong place. Presses inside the action UI are
+// ignored so using the action can't start a gesture.
 export function installSelectionSettleGate(
   doc: Document,
   callbacks: SelectionSettleGateCallbacks,
 ): () => void {
-  let dragging = false;
-  const onPointerDown = (event: Event) => {
-    if (
-      event.target instanceof Element &&
-      event.target.closest("[data-selection-comment-overlay]")
-    ) {
-      return;
+  const view = doc.defaultView;
+  let selecting = false;
+  let frame = 0;
+
+  // Keys that move or extend a selection. "a" only counts with a modifier, so
+  // typing the letter doesn't read as select-all.
+  const isSelectionKey = (event: KeyboardEvent) => {
+    if (event.key === "a" || event.key === "A") {
+      return event.metaKey || event.ctrlKey;
     }
-    dragging = true;
-    callbacks.onGestureStart?.();
+    return (
+      event.key === "Shift" ||
+      event.key === "Home" ||
+      event.key === "End" ||
+      event.key === "PageUp" ||
+      event.key === "PageDown" ||
+      event.key.startsWith("Arrow")
+    );
+  };
+
+  const cancelFrame = () => {
+    if (frame && view?.cancelAnimationFrame) view.cancelAnimationFrame(frame);
+    frame = 0;
   };
   const settle = () => {
-    if (!dragging) return;
-    dragging = false;
-    callbacks.onSelectionSettled?.();
+    cancelFrame();
+    const request = view?.requestAnimationFrame;
+    if (!request) {
+      callbacks.onSelectionSettled?.();
+      return;
+    }
+    frame = request.call(view, () => {
+      frame = request.call(view, () => {
+        frame = 0;
+        callbacks.onSelectionSettled?.();
+      });
+    });
   };
-  const cancel = () => {
-    if (!dragging) return;
-    dragging = false;
+  const inActionUi = (target: EventTarget | null) =>
+    target instanceof Element &&
+    !!target.closest("[data-selection-comment-overlay]");
+  const startGesture = () => {
+    selecting = true;
+    cancelFrame();
+    callbacks.onGestureStart?.();
+  };
+  const cancelGesture = () => {
+    if (!selecting) return;
+    selecting = false;
+    cancelFrame();
     callbacks.onGestureCancel?.();
   };
+
+  const onPointerDown = (event: Event) => {
+    // Secondary buttons open menus; they don't select.
+    if (event instanceof MouseEvent && event.button > 0) return;
+    if (inActionUi(event.target)) return;
+    startGesture();
+  };
+  // Catches drags whose pointerdown we never saw, and keyboard selections.
+  const onSelectStart = (event: Event) => {
+    if (inActionUi(event.target)) return;
+    startGesture();
+  };
+  const onPointerUp = (event: Event) => {
+    if (event instanceof MouseEvent && event.button > 0) return;
+    if (!selecting) return;
+    selecting = false;
+    settle();
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (isSelectionKey(event)) startGesture();
+  };
+  const onKeyUp = (event: KeyboardEvent) => {
+    if (!selecting || !isSelectionKey(event)) return;
+    selecting = false;
+    settle();
+  };
   const onSelectionChange = () => {
-    if (dragging) return;
+    if (selecting) return;
     callbacks.onIdleSelectionChange?.();
   };
+
   doc.addEventListener("pointerdown", onPointerDown, true);
-  doc.addEventListener("pointerup", settle, true);
-  doc.addEventListener("pointercancel", settle, true);
+  doc.addEventListener("selectstart", onSelectStart, true);
+  doc.addEventListener("pointerup", onPointerUp, true);
+  doc.addEventListener("pointercancel", cancelGesture, true);
+  doc.addEventListener("keydown", onKeyDown, true);
+  doc.addEventListener("keyup", onKeyUp, true);
   doc.addEventListener("selectionchange", onSelectionChange);
-  doc.defaultView?.addEventListener("blur", cancel);
+  view?.addEventListener("blur", cancelGesture);
   return () => {
+    cancelFrame();
     doc.removeEventListener("pointerdown", onPointerDown, true);
-    doc.removeEventListener("pointerup", settle, true);
-    doc.removeEventListener("pointercancel", settle, true);
+    doc.removeEventListener("selectstart", onSelectStart, true);
+    doc.removeEventListener("pointerup", onPointerUp, true);
+    doc.removeEventListener("pointercancel", cancelGesture, true);
+    doc.removeEventListener("keydown", onKeyDown, true);
+    doc.removeEventListener("keyup", onKeyUp, true);
     doc.removeEventListener("selectionchange", onSelectionChange);
-    doc.defaultView?.removeEventListener("blur", cancel);
+    view?.removeEventListener("blur", cancelGesture);
   };
 }

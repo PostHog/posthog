@@ -28,8 +28,14 @@ function changeSelection(): void {
   document.dispatchEvent(new Event("selectionchange"));
 }
 
+function settleFrames(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
 describe("selectionCommentAction", () => {
-  it("suppresses selection reporting while the user drags, then reports the settled selection", () => {
+  it("suppresses selection reporting while the user drags, then reports the settled selection", async () => {
     const callbacks = {
       onGestureStart: vi.fn(),
       onSelectionSettled: vi.fn(),
@@ -46,11 +52,35 @@ describe("selectionCommentAction", () => {
     expect(callbacks.onIdleSelectionChange).not.toHaveBeenCalled();
 
     release(target);
+    // The browser commits the range after pointerup, so the report waits.
+    expect(callbacks.onSelectionSettled).not.toHaveBeenCalled();
+    await settleFrames();
     expect(callbacks.onSelectionSettled).toHaveBeenCalledTimes(1);
     remove();
   });
 
-  it("reports immediately when the selection changes without a drag", () => {
+  it("hides on selectstart, for drags whose pointerdown never reached the document", async () => {
+    const callbacks = {
+      onGestureStart: vi.fn(),
+      onIdleSelectionChange: vi.fn(),
+      onSelectionSettled: vi.fn(),
+    } satisfies SelectionSettleGateCallbacks;
+    const remove = installSelectionSettleGate(document, callbacks);
+    const target = eventTarget();
+
+    target.dispatchEvent(new Event("selectstart", { bubbles: true }));
+    expect(callbacks.onGestureStart).toHaveBeenCalledTimes(1);
+
+    changeSelection();
+    expect(callbacks.onIdleSelectionChange).not.toHaveBeenCalled();
+
+    release(target);
+    await settleFrames();
+    expect(callbacks.onSelectionSettled).toHaveBeenCalledTimes(1);
+    remove();
+  });
+
+  it("reports immediately when the selection changes without a gesture", () => {
     const callbacks = { onIdleSelectionChange: vi.fn() };
     const remove = installSelectionSettleGate(document, callbacks);
 
@@ -80,7 +110,19 @@ describe("selectionCommentAction", () => {
     overlay.remove();
   });
 
-  it("cancels the gesture on window blur so a release outside the window can't stick the action hidden", () => {
+  it("ignores secondary buttons, which open menus instead of selecting", () => {
+    const callbacks = { onGestureStart: vi.fn() };
+    const remove = installSelectionSettleGate(document, callbacks);
+    const target = eventTarget();
+
+    target.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 2 }),
+    );
+    expect(callbacks.onGestureStart).not.toHaveBeenCalled();
+    remove();
+  });
+
+  it("cancels the gesture on window blur so a release outside the window can't stick the action hidden", async () => {
     const callbacks = {
       onGestureCancel: vi.fn(),
       onSelectionSettled: vi.fn(),
@@ -93,21 +135,62 @@ describe("selectionCommentAction", () => {
     expect(callbacks.onGestureCancel).toHaveBeenCalledTimes(1);
 
     release(target);
+    await settleFrames();
     expect(callbacks.onSelectionSettled).not.toHaveBeenCalled();
-
-    changeSelection();
-    expect(callbacks.onGestureCancel).toHaveBeenCalledTimes(1);
     remove();
   });
 
-  it("settles on pointercancel so touch gesture interruptions still show the action", () => {
-    const callbacks = { onSelectionSettled: vi.fn() };
+  it("cancels on pointercancel, which trackpads fire mid-drag", async () => {
+    const callbacks = {
+      onSelectionSettled: vi.fn(),
+      onGestureCancel: vi.fn(),
+    } satisfies SelectionSettleGateCallbacks;
     const remove = installSelectionSettleGate(document, callbacks);
     const target = eventTarget();
 
     press(target);
     target.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
+    await settleFrames();
+    expect(callbacks.onGestureCancel).toHaveBeenCalledTimes(1);
+    expect(callbacks.onSelectionSettled).not.toHaveBeenCalled();
+    remove();
+  });
+
+  it("holds keyboard selections until the key is released", async () => {
+    const callbacks = {
+      onGestureStart: vi.fn(),
+      onSelectionSettled: vi.fn(),
+      onIdleSelectionChange: vi.fn(),
+    } satisfies SelectionSettleGateCallbacks;
+    const remove = installSelectionSettleGate(document, callbacks);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+    changeSelection();
+    expect(callbacks.onIdleSelectionChange).not.toHaveBeenCalled();
+
+    document.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
+    );
+    await settleFrames();
     expect(callbacks.onSelectionSettled).toHaveBeenCalledTimes(1);
+    remove();
+  });
+
+  it("treats a plain letter as typing, not as select-all", () => {
+    const callbacks = { onGestureStart: vi.fn() };
+    const remove = installSelectionSettleGate(document, callbacks);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "a", bubbles: true }),
+    );
+    expect(callbacks.onGestureStart).not.toHaveBeenCalled();
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true }),
+    );
+    expect(callbacks.onGestureStart).toHaveBeenCalledTimes(1);
     remove();
   });
 
@@ -144,22 +227,6 @@ describe("selectionCommentAction", () => {
     );
   });
 });
-
-function cssVarField(
-  variable: string,
-): keyof (typeof COMMENT_ACTION_BUTTON_THEMES)["light"] {
-  const fields: Record<
-    string,
-    keyof (typeof COMMENT_ACTION_BUTTON_THEMES)["light"]
-  > = {
-    "--ph-comment-action-bg": "background",
-    "--ph-comment-action-fg": "color",
-    "--ph-comment-action-border": "border",
-    "--ph-comment-action-hover": "hoverBackground",
-    "--ph-comment-action-shadow": "shadow",
-  };
-  return fields[variable];
-}
 
 describe("commentActionAnchorRect", () => {
   const box = (left: number, top: number, right: number, bottom: number) => ({
@@ -241,3 +308,19 @@ describe("computeCommentActionPlacement", () => {
     ).toEqual({ top: 8, left: 10 });
   });
 });
+
+function cssVarField(
+  variable: string,
+): keyof (typeof COMMENT_ACTION_BUTTON_THEMES)["light"] {
+  const fields: Record<
+    string,
+    keyof (typeof COMMENT_ACTION_BUTTON_THEMES)["light"]
+  > = {
+    "--ph-comment-action-bg": "background",
+    "--ph-comment-action-fg": "color",
+    "--ph-comment-action-border": "border",
+    "--ph-comment-action-hover": "hoverBackground",
+    "--ph-comment-action-shadow": "shadow",
+  };
+  return fields[variable];
+}

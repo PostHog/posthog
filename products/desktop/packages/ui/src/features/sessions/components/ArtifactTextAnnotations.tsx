@@ -353,8 +353,12 @@ export function ArtifactTextAnnotations({
       onIdleSelectionChange: scheduleUpdate,
       onGestureCancel: clearOverlay,
     });
+    // Scrolling moves the selection but not the fixed-position action, so
+    // re-anchor it to the live selection instead of leaving it behind.
+    container.addEventListener("scroll", scheduleUpdate, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
+      container.removeEventListener("scroll", scheduleUpdate);
       removeGate();
     };
   }, [clearOverlay, containerRef, rootRef]);
