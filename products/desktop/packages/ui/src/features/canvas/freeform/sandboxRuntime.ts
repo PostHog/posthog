@@ -163,6 +163,15 @@ export function resolveExternalAnchorUrl(target: unknown): string | null {
   }
 }
 
+export function isInteractiveCanvasCommentTarget(target: unknown): boolean {
+  return (
+    target instanceof Element &&
+    !!target.closest(
+      "a,button,input,select,textarea,[role=button],[contenteditable=true],[onclick]",
+    )
+  );
+}
+
 export function buildSandboxDocument(
   mode: SandboxMode,
   // The PostHog host, when in-iframe analytics/replay is enabled. Opens CSP for
@@ -298,9 +307,7 @@ export function buildSandboxDocument(
       const through = document.createRange();
       through.selectNodeContents(document.body);
       through.setEnd(range.endContainer, range.endOffset);
-      const whole = document.createRange();
-      whole.selectNodeContents(document.body);
-      const text = whole.toString();
+      const text = commentTextIndex().text;
       const start = before.toString().length;
       const end = through.toString().length;
       const quote = text.slice(start, end);
@@ -333,7 +340,9 @@ export function buildSandboxDocument(
     document.head.appendChild(commentHighlightStyle);
     let currentCommentHighlights = [];
     let commentRanges = [];
+    let cachedCommentTextIndex = null;
     const commentTextIndex = () => {
+      if (cachedCommentTextIndex) return cachedCommentTextIndex;
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       const entries = [];
       let text = "";
@@ -342,7 +351,8 @@ export function buildSandboxDocument(
         text += node.data;
         entries.push({ node, start, end: text.length });
       }
-      return { text, entries };
+      cachedCommentTextIndex = { text, entries };
+      return cachedCommentTextIndex;
     };
     const commentRangeAt = (index, start, end) => {
       const find = (offset) => {
@@ -384,15 +394,17 @@ export function buildSandboxDocument(
     };
     let commentHighlightTimer = 0;
     new MutationObserver(() => {
+      cachedCommentTextIndex = null;
       if (!currentCommentHighlights.length || commentHighlightTimer) return;
       commentHighlightTimer = setTimeout(() => {
         commentHighlightTimer = 0;
         renderCommentHighlights(currentCommentHighlights);
-      }, 500);
+      }, 2000);
     }).observe(document.body, { childList: true, characterData: true, subtree: true });
+    const isInteractiveCommentTarget = ${isInteractiveCanvasCommentTarget.toString()};
     document.addEventListener("click", (event) => {
       const selection = window.getSelection();
-      if (selection && !selection.isCollapsed) return;
+      if ((selection && !selection.isCollapsed) || isInteractiveCommentTarget(event.target)) return;
       for (const item of commentRanges) {
         for (const rect of item.range.getClientRects()) {
           if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {

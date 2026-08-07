@@ -29,6 +29,7 @@ import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTe
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
+import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useCanvasFrameStore } from "@posthog/ui/features/canvas/freeform/canvasFrameStore";
 import { CANVAS_QUERY_KEY } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -295,10 +296,10 @@ function CanvasBreadcrumb({
     scope: "desktop_canvas" as const,
     itemId: dashboardId,
   };
-  const commentTaskId =
-    dashboard?.generationTaskId ??
-    versions.find((version) => version.taskId)?.taskId ??
-    null;
+  const commentTaskId = canvasCommentTaskId(
+    dashboard?.generationTaskId,
+    versions,
+  );
   const comments = useCommentsQuery(
     commentTaskId ? commentTarget : null,
     commentTaskId ?? "",

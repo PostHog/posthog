@@ -12,8 +12,10 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
+import { translateCanvasTextSelection } from "./canvasSelection";
 
 const log = logger.scope("built-canvas");
+const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 
 function buildArtifactHostDocument(
   artifactUrl: string,
@@ -110,7 +112,7 @@ export function BuiltCanvas({
   onNavigate,
   onTextSelection,
   onCommentActivate,
-  commentHighlights = [],
+  commentHighlights = EMPTY_COMMENT_HIGHLIGHTS,
   clearTextSelectionKey = 0,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -182,15 +184,9 @@ export function BuiltCanvas({
             return;
           }
           const frame = iframeRef.current?.getBoundingClientRect();
-          latest.current.onTextSelection?.({
-            ...selection,
-            rect: {
-              top: selection.rect.top + (frame?.top ?? 0),
-              right: selection.rect.right + (frame?.left ?? 0),
-              bottom: selection.rect.bottom + (frame?.top ?? 0),
-              left: selection.rect.left + (frame?.left ?? 0),
-            },
-          });
+          latest.current.onTextSelection?.(
+            translateCanvasTextSelection(selection, frame),
+          );
         },
         onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),

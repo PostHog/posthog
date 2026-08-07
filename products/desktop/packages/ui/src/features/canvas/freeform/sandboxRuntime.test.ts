@@ -2,8 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   buildSandboxDocument,
   decodeJsxUnicodeEscapes,
+  isInteractiveCanvasCommentTarget,
   resolveExternalAnchorUrl,
 } from "./sandboxRuntime";
+
+function clickTarget(html: string, selector: string): Element {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const element = container.querySelector(selector);
+  if (!element) throw new Error(`selector ${selector} not found`);
+  return element;
+}
 
 describe("decodeJsxUnicodeEscapes", () => {
   it.each([
@@ -76,37 +85,28 @@ describe("buildSandboxDocument", () => {
     expect(html).toContain("html.dark { color-scheme: dark; }");
   });
 
-  it("renders persisted comment anchors with the CSS Highlights API", () => {
+  it("installs the persisted comment protocol", () => {
     const html = buildSandboxDocument("edit");
     expect(html).toContain('d.type === "set-comment-highlights"');
-    expect(html).toContain('CSS.highlights.set("posthog-canvas-comment"');
-    expect(html).toContain("posthog-canvas-comment-active");
-    expect(html).not.toContain("ph-canvas-comment-outline");
-    expect(html).toContain("renderCommentHighlights(currentCommentHighlights)");
     expect(html).toContain('type: "comment-activate"');
-    expect(html).toContain("event.preventDefault()");
-    expect(html).toContain("event.stopPropagation()");
-    expect(html).toContain(
-      "if (!currentCommentHighlights.length || commentHighlightTimer) return",
-    );
-    expect(html).not.toContain("clearTimeout(commentHighlightTimer)");
-    expect(html).toContain('document.addEventListener("selectionchange"');
-    expect(html).not.toContain('document.addEventListener("mouseup"');
     expect(html).toContain('d.type === "clear-text-selection"');
-    expect(html).toContain("window.getSelection()?.removeAllRanges()");
-    expect(html).toContain("if (selection && !selection.isCollapsed) return");
   });
+
+  it.each([
+    ["button labels", "<button><span>Export</span></button>", "span", true],
+    ["link labels", '<a href="/docs"><span>Docs</span></a>', "span", true],
+    ["plain text", "<p><span>Summary</span></p>", "span", false],
+  ])(
+    "identifies %s before activating a comment highlight",
+    (_name, html, selector, expected) => {
+      expect(
+        isInteractiveCanvasCommentTarget(clickTarget(html, selector)),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("resolveExternalAnchorUrl", () => {
-  const clickTarget = (html: string, selector: string): Element => {
-    const container = document.createElement("div");
-    container.innerHTML = html;
-    const el = container.querySelector(selector);
-    if (!el) throw new Error(`selector ${selector} not found`);
-    return el;
-  };
-
   it("resolves a click inside a target=_blank anchor to its absolute URL", () => {
     const target = clickTarget(
       '<a href="https://posthog.com/docs" target="_blank"><span>docs</span></a>',

@@ -16,6 +16,7 @@ import {
   useRef,
 } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
+import { translateCanvasTextSelection } from "./canvasSelection";
 import { buildSandboxDocument, type SandboxMode } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
@@ -169,15 +170,9 @@ export function FreeformCanvas({
             return;
           }
           const frame = iframeRef.current?.getBoundingClientRect();
-          latest.current.onTextSelection?.({
-            ...selection,
-            rect: {
-              top: selection.rect.top + (frame?.top ?? 0),
-              right: selection.rect.right + (frame?.left ?? 0),
-              bottom: selection.rect.bottom + (frame?.top ?? 0),
-              left: selection.rect.left + (frame?.left ?? 0),
-            },
-          });
+          latest.current.onTextSelection?.(
+            translateCanvasTextSelection(selection, frame),
+          );
         },
         onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),

@@ -87,6 +87,20 @@ describe("canvas build lifecycle", () => {
     ).toBe(ready);
   });
 
+  it.each([
+    ["an unfinished build", build("historical", "building")],
+    [
+      "a ready build without a retained artifact",
+      { ...build("historical", "ready"), artifactUrl: null },
+    ],
+  ])("rejects %s for a historical version", (_name, candidate) => {
+    candidate.sourceVersionId = "version-1";
+
+    expect(
+      historicalCanvasBuild(lifecycle([candidate]), "version-1"),
+    ).toBeNull();
+  });
+
   it("surfaces a failed build of the current head even when an older published build is also ready", () => {
     // b_old (sv-old) is the pinned/published live build; a newer publish (b_new,
     // sv-new = current head) failed. latestFinishedCanvasBuild returns the first

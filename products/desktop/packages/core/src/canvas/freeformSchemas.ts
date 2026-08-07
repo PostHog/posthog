@@ -149,6 +149,32 @@ export type CanvasCommentHighlight = z.infer<
   typeof canvasCommentHighlightSchema
 >;
 
+export const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
+export const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
+
+export function limitCanvasCommentHighlights(
+  highlights: CanvasCommentHighlight[],
+): CanvasCommentHighlight[] {
+  const limited: CanvasCommentHighlight[] = [];
+  let textLength = 0;
+  for (const highlight of highlights) {
+    const nextTextLength =
+      textLength +
+      highlight.anchor.quote.length +
+      highlight.anchor.prefix.length +
+      highlight.anchor.suffix.length;
+    if (
+      limited.length >= MAX_CANVAS_COMMENT_HIGHLIGHTS ||
+      nextTextLength > MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH
+    ) {
+      break;
+    }
+    limited.push(highlight);
+    textLength = nextTextLength;
+  }
+  return limited;
+}
+
 // host -> iframe
 export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
   // First frame: hand the iframe its source + the run mode. The iframe does not
@@ -166,7 +192,10 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     // already correct; live theme changes use the `set-theme` frame below
     // (which re-themes without remounting). Absent = light.
     theme: canvasThemeSchema.optional(),
-    highlights: z.array(canvasCommentHighlightSchema).max(500).optional(),
+    highlights: z
+      .array(canvasCommentHighlightSchema)
+      .max(MAX_CANVAS_COMMENT_HIGHLIGHTS)
+      .optional(),
   }),
   // Live theme change: re-apply light/dark WITHOUT remounting the app. Sent on
   // its own (not folded into `init`) so toggling the host theme — or an OS
@@ -179,7 +208,9 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("set-comment-highlights"),
-    highlights: z.array(canvasCommentHighlightSchema).max(500),
+    highlights: z
+      .array(canvasCommentHighlightSchema)
+      .max(MAX_CANVAS_COMMENT_HIGHLIGHTS),
   }),
   z.object({
     channel: z.literal(CANVAS_CHANNEL),

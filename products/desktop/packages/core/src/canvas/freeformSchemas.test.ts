@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canvasToHostMessageSchema,
   hostToCanvasMessageSchema,
+  limitCanvasCommentHighlights,
 } from "./freeformSchemas";
 
 describe("canvasToHostMessageSchema", () => {
@@ -98,6 +99,35 @@ describe("canvasToHostMessageSchema", () => {
         ],
       }).success,
     ).toBe(true);
+  });
+
+  it.each([
+    {
+      name: "protocol item limit",
+      count: 501,
+      quote: "x",
+      expected: 500,
+    },
+    {
+      name: "aggregate anchor text budget",
+      count: 11,
+      quote: "x".repeat(10_000),
+      expected: 10,
+    },
+  ])("limits highlights by $name", ({ count, quote, expected }) => {
+    const highlights = Array.from({ length: count }, (_, index) => ({
+      id: `comment-${index}`,
+      active: false,
+      anchor: {
+        quote,
+        prefix: "",
+        suffix: "",
+        start: 0,
+        end: quote.length,
+      },
+    }));
+
+    expect(limitCanvasCommentHighlights(highlights)).toHaveLength(expected);
   });
 
   it("accepts a host request to clear native text selection", () => {
