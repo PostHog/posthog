@@ -1,28 +1,18 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { CaretDown, CaretRight, DownloadSimple } from "@phosphor-icons/react";
-import {
-  SESSION_SERVICE,
-  type SessionService,
-} from "@posthog/core/sessions/sessionService";
-import { useService } from "@posthog/di/react";
 import { Button, Text } from "@posthog/quill";
-import type { TaskRunArtifact } from "@posthog/shared";
 import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
-import {
-  getAuthIdentity,
-  useAuthStateValue,
-} from "@posthog/ui/features/auth/store";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
   useArtifactFilesCollapsed,
   useSessionViewActions,
 } from "@posthog/ui/features/sessions/sessionViewStore";
+import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
+import { useRunArtifacts } from "@posthog/ui/features/sessions/useRunArtifacts";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
-import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 export function CloudArtifactDownloads({
   taskId,
@@ -31,7 +21,6 @@ export function CloudArtifactDownloads({
   taskId: string | undefined;
   task: Task | undefined;
 }) {
-  const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const sessionArtifacts = useSessionSelector(
     taskId,
@@ -43,20 +32,10 @@ export function CloudArtifactDownloads({
   );
   const collapsed = useArtifactFilesCollapsed(taskId);
   const { setArtifactFilesCollapsed } = useSessionViewActions();
-  const authIdentity = useAuthStateValue(getAuthIdentity);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const { download, downloadingId } = useArtifactDownload();
   const runId = task?.latest_run?.id;
-  const { data: fetchedArtifacts } = useQuery({
-    queryKey: ["cloudRunArtifacts", authIdentity, taskId, runId],
-    queryFn: () =>
-      sessionService.getCloudRunArtifacts(taskId ?? "", runId ?? ""),
-    enabled:
-      authIdentity !== null &&
-      taskId !== undefined &&
-      runId !== undefined &&
-      isTerminalStatus(cloudStatus ?? task?.latest_run?.status),
-    retry: false,
-    staleTime: Infinity,
+  const { data: fetchedArtifacts } = useRunArtifacts(taskId, runId, {
+    enabled: isTerminalStatus(cloudStatus ?? task?.latest_run?.status),
   });
   const artifacts = useMemo(
     () =>
@@ -67,37 +46,6 @@ export function CloudArtifactDownloads({
         []
       ).filter((artifact) => artifact.type === "output"),
     [fetchedArtifacts, sessionArtifacts, task?.latest_run?.artifacts],
-  );
-
-  const downloadArtifact = useCallback(
-    async (artifact: TaskRunArtifact): Promise<void> => {
-      if (!taskId || !runId || !artifact.id) return;
-      setDownloadingId(artifact.id);
-      try {
-        const url = await sessionService.getCloudAttachmentPreviewUrl(
-          taskId,
-          runId,
-          artifact.id,
-        );
-        if (!url) {
-          toast.error("This file is no longer available");
-          return;
-        }
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Artifact download failed");
-        const objectUrl = URL.createObjectURL(await response.blob());
-        const anchor = document.createElement("a");
-        anchor.href = objectUrl;
-        anchor.download = artifact.name;
-        anchor.click();
-        URL.revokeObjectURL(objectUrl);
-      } catch {
-        toast.error("Couldn't download file");
-      } finally {
-        setDownloadingId(null);
-      }
-    },
-    [runId, sessionService, taskId],
   );
 
   if (!runId || artifacts.length === 0) return null;
@@ -152,8 +100,16 @@ export function CloudArtifactDownloads({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!canDownload || downloadingId === artifact.id}
-                  onClick={() => void downloadArtifact(artifact)}
+                  disabled={!canDownload || downloadingId !== null}
+                  onClick={() => {
+                    if (!taskId || !runId || !artifact.id) return;
+                    void download({
+                      taskId,
+                      runId,
+                      artifactId: artifact.id,
+                      name: artifact.name,
+                    });
+                  }}
                 >
                   <DownloadSimple size={14} />
                   {downloadingId === artifact.id ? "Opening..." : "Download"}
