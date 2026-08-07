@@ -7020,8 +7020,11 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
 
-        list(): Promise<PaginatedResponse<Conversation>> {
-            return new ApiRequest().conversations().get()
+        list(params?: { search?: string }): Promise<PaginatedResponse<Conversation>> {
+            return new ApiRequest()
+                .conversations()
+                .withQueryString(params?.search ? { search: params.search } : {})
+                .get()
         },
 
         get(conversationId: string): Promise<ConversationDetail> {

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconExternal, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { urls } from 'scenes/urls'
@@ -21,8 +21,10 @@ export interface ConversationHistoryProps {
 }
 
 export function ConversationHistory({ sidePanel = false, compact = false }: ConversationHistoryProps): JSX.Element {
-    const { conversationHistory, conversationHistoryLoading, conversationId } = useValues(maxLogic)
-    const { toggleConversationHistory, openConversation, deleteConversation } = useActions(maxLogic)
+    const { conversationHistory, conversationHistoryLoading, conversationId, conversationHistorySearchQuery } =
+        useValues(maxLogic)
+    const { toggleConversationHistory, openConversation, deleteConversation, setConversationHistorySearchQuery } =
+        useActions(maxLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     if (compact) {
@@ -52,11 +54,23 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
         )
     }
 
+    const hasSearch = conversationHistorySearchQuery.trim().length > 0
+
     return (
         <div
             className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg"
             data-attr="max-conversation-history"
         >
+            {(conversationHistory.length > 0 || hasSearch) && (
+                <LemonInput
+                    type="search"
+                    placeholder="Search chats"
+                    value={conversationHistorySearchQuery}
+                    onChange={setConversationHistorySearchQuery}
+                    fullWidth
+                    data-attr="max-conversation-history-search"
+                />
+            )}
             {conversationHistory.length > 0 ? (
                 conversationHistory.map((conversation) => (
                     <ConversationCard
@@ -77,6 +91,10 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
                     <LemonSkeleton className="h-14 opacity-10" />
                     <LemonSkeleton className="h-14 opacity-5" />
                 </>
+            ) : hasSearch ? (
+                <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
+                    <p className="text-sm mb-0">No chats match your search</p>
+                </div>
             ) : (
                 <div className="flex items-center flex-1">
                     <ProductIntroduction

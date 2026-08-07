@@ -95,6 +95,22 @@ describe('maxGlobalLogic', () => {
         })
     })
 
+    // Guards the search wiring end to end: setting the query must debounce into a refetch that passes
+    // the trimmed `search` param through to the list endpoint. A regression that drops the listener or
+    // stops threading the param would leave the list unfiltered.
+    describe('conversation history search', () => {
+        it('refetches the history filtered by the trimmed search query', async () => {
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            const listSpy = jest.spyOn(api.conversations, 'list')
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversationHistorySearchQuery('  revenue  ')
+            }).toDispatchActions(['loadConversationHistory', 'loadConversationHistorySuccess'])
+
+            expect(listSpy).toHaveBeenCalledWith({ search: 'revenue' })
+        })
+    })
+
     describe('isMaxAvailable selector', () => {
         it.each([
             { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },

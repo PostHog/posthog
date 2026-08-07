@@ -162,6 +162,7 @@ export interface maxLogicValues {
     actions: ActionType[] // actionsModel
     conversationHistory: ConversationDetail[] // maxGlobalLogic
     conversationHistoryLoading: boolean // maxGlobalLogic
+    conversationHistorySearchQuery: string // maxGlobalLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     dataProcessingApprovalDisabledReason: string | null // maxGlobalLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
@@ -207,6 +208,9 @@ export interface maxLogicActions {
     } // maxContextLogic
     deleteConversation: (id: string) => {
         id: string
+    } // maxGlobalLogic
+    setConversationHistorySearchQuery: (query: string) => {
+        query: string
     } // maxGlobalLogic
     loadConversationHistory: (
         _?:
@@ -380,6 +384,7 @@ export const maxLogic = kea<maxLogicType>([
                 'toolSuggestions',
                 'conversationHistory',
                 'conversationHistoryLoading',
+                'conversationHistorySearchQuery',
                 'effectivePhaiView',
             ],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -397,6 +402,7 @@ export const maxLogic = kea<maxLogicType>([
                 'prependOrReplaceConversation',
                 'loadConversationHistorySuccess',
                 'deleteConversation',
+                'setConversationHistorySearchQuery',
             ],
             tabUiStateLogic,
             ['setChatDraftForTab'],

@@ -625,6 +625,23 @@ class TestConversation(APIBaseTest):
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
 
+    def test_list_conversations_filtered_by_search_query(self):
+        matching = Conversation.objects.create(
+            user=self.user, team=self.team, title="Weekly revenue report", type=Conversation.Type.ASSISTANT
+        )
+        Conversation.objects.create(
+            user=self.user, team=self.team, title="Signup funnel", type=Conversation.Type.ASSISTANT
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/?search=REVENUE")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual([r["id"] for r in response.json()["results"]], [str(matching.id)])
+
+            # A blank search is a no-op — the full list comes back unfiltered.
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/?search=")
+            self.assertEqual(len(response.json()["results"]), 2)
+
     @override_settings(DEBUG=False)
     def test_get_throttles_returns_empty_for_create_action(self):
         """Test that get_throttles returns empty list for create action (throttling is handled in check_throttles)."""

@@ -12,7 +12,7 @@ import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
@@ -289,6 +289,18 @@ class SandboxMessageResponseSerializer(serializers.Serializer):
 
 
 @extend_schema(tags=["max"])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Case-insensitive substring match against the conversation title.",
+            )
+        ]
+    )
+)
 class ConversationViewSet(
     TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
 ):
@@ -335,6 +347,9 @@ class ConversationViewSet(
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
         if self.action == "list":
+            search = self.request.query_params.get("search", "").strip()
+            if search:
+                queryset = queryset.filter(title__icontains=search)
             queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
 
