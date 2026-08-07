@@ -825,6 +825,37 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert sent is False
         assert len(mocked_email_messages) == 0
 
+    def test_send_external_data_failure_digest_new_schema_set_sends_same_day(self, MockEmailMessage: MagicMock) -> None:
+        # Guards the silent-drop bug: a table that breaks after the day's first digest
+        # already went out must still trigger its own email. Before the fingerprint was
+        # part of the campaign key, the second call collided on the day-only key and was
+        # dropped as a duplicate.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        def _items(schema_name: str) -> list[dict]:
+            return [
+                {
+                    "schema_name": schema_name,
+                    "source_type": "Stripe",
+                    "source_id": "abc",
+                    "source_prefix": "",
+                    "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                    "error": "boom",
+                    "paused": False,
+                    "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                }
+            ]
+
+        with freeze_time("2024-05-15 10:00:00"):
+            first = send_external_data_failure_digest(self.team.pk, _items("Charge"), schema_fingerprint="aaaa")
+            # A different table broke later the same day — distinct fingerprint, must send.
+            second = send_external_data_failure_digest(self.team.pk, _items("Invoice"), schema_fingerprint="bbbb")
+            # The original set repeats — same fingerprint, must be deduped.
+            repeat = send_external_data_failure_digest(self.team.pk, _items("Charge"), schema_fingerprint="aaaa")
+
+        assert (first, second, repeat) == (True, True, False)
+        assert len(mocked_email_messages) == 2
+
     def test_send_external_data_failure_digest_all_paused_subject(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

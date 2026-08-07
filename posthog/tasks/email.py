@@ -731,13 +731,17 @@ EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER = Counter(
 )
 
 
-def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
+def send_external_data_failure_digest(
+    team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0, schema_fingerprint: str = ""
+) -> bool:
     """Email a per-team digest of failing external data source syncs.
 
     Runs inside the digest Celery task (products/data_warehouse/backend/tasks.py),
-    so the send is synchronous. The MessagingRecord campaign key embeds the digest
-    day, capping delivery at one email per team per digest day — repeat calls the
-    same day are no-ops.
+    so the send is synchronous. The MessagingRecord campaign key embeds both the
+    digest day and a fingerprint of the failing schema set (`schema_fingerprint`),
+    so a newly broken table always earns its own email while a repeat of the exact
+    same set stays deduped. Without the fingerprint the key would cap delivery at
+    one email per team per digest day, silently dropping the second table to break.
 
     Returns whether the email was actually delivered, so the caller can stamp the
     included schemas as notified.
@@ -750,6 +754,11 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     # (UTC-anchored — date.today() would follow the OS timezone instead).
     digest_day = (timezone.now() - datetime.timedelta(hours=EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC)).date()
     campaign_key = f"external_data_failure_digest_{team_id}_{digest_day.strftime('%Y-%m-%d')}"
+    # Scope the key to the schemas actually reported here. A digest for a table that
+    # broke after today's first digest went out gets a distinct key and sends, instead
+    # of colliding with the day-only key and being swallowed as a duplicate.
+    if schema_fingerprint:
+        campaign_key = f"{campaign_key}_{schema_fingerprint}"
 
     # Every job in a burst schedules its own delayed digest task; the first to send
     # wins and the rest bail here, before the expensive recipient queries and render.

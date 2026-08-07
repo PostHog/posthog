@@ -118,7 +118,8 @@ def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inlin
     """Schedule the per-team failure digest email after the burst-collapse delay.
 
     Safe to call on every failure: the task dedupes via a per-team lock and a
-    per-digest-day campaign key.
+    campaign key scoped to the failing-schema set, so a repeat of the same failures
+    is suppressed while a newly broken table still sends.
     """
     send_external_data_failure_digest_task.apply_async(
         args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
@@ -190,14 +191,13 @@ def sync_team_earliest_event_date(team_id: int) -> None:
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_catchup")
 @skip_team_scope_audit
 def send_external_data_failure_digest_catchup() -> None:
-    """Flush sync failures the one-email-per-day block swallowed.
+    """Flush recent sync failures that never produced an inline digest.
 
     Runs daily just after the digest day rolls over (10:15 UTC, see
-    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC) and the date-keyed campaign
-    block resets. Any team whose schemas failed in the last 24 hours and are
-    still failing gets a fresh digest — this guarantees every error is
-    eventually communicated, including schemas paused by a non-retryable error
-    that will never fail again to re-trigger the inline notification path.
+    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC). Any team whose schemas failed in
+    the last 24 hours and are still failing gets a fresh digest — this guarantees
+    every error is eventually communicated, including schemas paused by a
+    non-retryable error that will never fail again to re-trigger the inline path.
     """
     team_ids = get_team_ids_with_recent_sync_failures()
     for team_id in team_ids:

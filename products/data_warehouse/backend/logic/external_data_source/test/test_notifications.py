@@ -137,6 +137,36 @@ class TestNotifyExternalDataSyncFailures:
 
         mock_sender.assert_not_called()
 
+    def test_schema_fingerprint_tracks_the_failing_set(self):
+        # The email dedup key relies on this fingerprint varying with the failing-schema
+        # set. If it were constant (or empty), a newly broken table would collide with the
+        # earlier digest's key and be dropped — the exact silent-drop bug this fixes.
+        team, source = _create_team_and_source()
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+        with patch(SENDER_PATH, return_value=True) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+        first_fingerprint = mock_sender.call_args.kwargs["schema_fingerprint"]
+        assert first_fingerprint
+
+        ExternalDataSchema.objects.create(
+            name="Invoice",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+        with patch(SENDER_PATH, return_value=True) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+        assert mock_sender.call_args.kwargs["schema_fingerprint"] != first_fingerprint
+
     def test_missing_error_defaults_to_unknown(self):
         team, source = _create_team_and_source()
         ExternalDataSchema.objects.create(

@@ -1,3 +1,4 @@
+import hashlib
 import datetime as dt
 from urllib.parse import quote
 
@@ -22,16 +23,15 @@ MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
 def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=26)) -> list[int]:
     """Teams with still-failing schemas that have an un-communicated recent failure.
 
-    Powers the daily catch-up digest: failures that the one-email-per-day block
-    swallowed get flushed the next day — including schemas that were paused and
-    will never produce another failed run to re-trigger the inline path. A failure
-    counts only if it is newer than the schema's `last_error_notified_at` stamp,
-    so failures already covered by an earlier digest don't trigger a duplicate.
+    Powers the daily catch-up digest: any failure not yet communicated inline gets
+    flushed here — including schemas that were paused and will never produce another
+    failed run to re-trigger the inline path. A failure counts only if it is newer
+    than the schema's `last_error_notified_at` stamp, so failures already covered by
+    an earlier digest don't trigger a duplicate.
 
-    The lookback exceeds the 24h digest day on purpose: a failure just after the
-    10:00 UTC rollover, blocked because that digest day's email already went out,
-    is 24h15m+ old by the next catch-up run — a 24h lookback would drop it forever
-    for paused schemas. The stamp check above keeps the wider window duplicate-free.
+    The lookback exceeds the 24h digest day on purpose so a failure just after the
+    10:00 UTC rollover is still in range at the next catch-up run; the stamp check
+    above keeps the wider window duplicate-free.
     """
     cutoff = dt.datetime.now(dt.UTC) - lookback
     # Drive from the schema side: the jobs table grows with every sync run and has
@@ -60,9 +60,10 @@ def notify_external_data_sync_failures(team_id: int) -> None:
     (deleted source, paused schema) has no newer run, so it drops out after the first
     digest instead of riding every later one. Schemas of a deleted source are excluded
     entirely. Runs inside the digest Celery task; exceptions are swallowed so a
-    notification problem never crash-loops the task. Throttling to one email per team
-    per digest day happens in the email layer via the MessagingRecord campaign key, so
-    scheduling this for every failed job is safe.
+    notification problem never crash-loops the task. Dedup in the email layer keys on
+    the digest day plus a fingerprint of this failing-schema set, so a table that breaks
+    after an earlier digest still earns its own email rather than being swallowed as a
+    same-day duplicate; scheduling this for every failed job stays safe.
     """
     try:
         newer_failed_job = ExternalDataJob.objects.filter(
@@ -122,7 +123,15 @@ def notify_external_data_sync_failures(team_id: int) -> None:
             )
 
         omitted_count = max(0, len(failing_schemas) - MAX_SCHEMAS_PER_DIGEST_EMAIL)
-        sent = send_external_data_failure_digest(team_id, items, omitted_count=omitted_count)
+        # Fingerprint the full failing-schema set (including any omitted beyond the cap,
+        # since those are stamped too) so the email dedup key sends for a changed set and
+        # suppresses an identical repeat within the same digest day.
+        schema_fingerprint = hashlib.sha256(
+            ",".join(sorted(str(schema.id) for schema in failing_schemas)).encode()
+        ).hexdigest()[:16]
+        sent = send_external_data_failure_digest(
+            team_id, items, omitted_count=omitted_count, schema_fingerprint=schema_fingerprint
+        )
         if sent:
             # Mark every listed schema as communicated, so the daily catch-up only
             # re-triggers for failures that happened after this email went out.
