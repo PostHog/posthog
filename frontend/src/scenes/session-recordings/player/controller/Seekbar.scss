@@ -103,22 +103,22 @@
                     background-color: var(--color-neutral-500);
                 }
             }
+        }
 
-            .PlayerSeekbar__observation {
-                position: absolute;
-                width: 3px;
-                height: 100%;
-                margin-left: -1.5px;
-                pointer-events: auto;
-                cursor: pointer;
-                background-color: var(--color-accent);
-                border-radius: 2px;
-                opacity: 0.75;
-                transition: opacity 150ms ease;
+        .PlayerSeekbar__observation {
+            position: absolute;
+            z-index: 4;
+            width: 3px;
+            height: 100%;
+            margin-left: -1.5px;
+            cursor: pointer;
+            background-color: var(--color-accent);
+            border-radius: 2px;
+            opacity: 0.75;
+            transition: opacity 150ms ease;
 
-                &:hover {
-                    opacity: 1;
-                }
+            &:hover {
+                opacity: 1;
             }
         }
 

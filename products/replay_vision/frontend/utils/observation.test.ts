@@ -2,6 +2,7 @@ import type { ReplayObservationApi } from '../generated/api.schemas'
 import { ObservationSeekbarMark, observationClipboardText, observationSeekbarMarks } from './observation'
 
 const summarizerEntry = { scannerName: 'Session summarizer', headline: null, snippet: 'Rage clicked pay' }
+const longSentence = 'x'.repeat(200)
 
 function makeObservation(
     scannerType: string,
@@ -115,6 +116,35 @@ describe('observation utils', () => {
                 name: 'non-succeeded observations contribute no marks',
                 observations: [makeObservation('monitor', { reasoning: 'Saw it (t 42).' }, 'failed')],
                 expected: [],
+            },
+            {
+                name: 'snippets longer than 160 characters are truncated with an ellipsis',
+                observations: [makeObservation('monitor', { reasoning: `${longSentence} (t 42).` })],
+                expected: [
+                    {
+                        timestampMs: 42_000,
+                        entries: [
+                            { scannerName: 'Scanner', headline: null, snippet: `${longSentence.slice(0, 159)}…` },
+                        ],
+                    },
+                ],
+            },
+            {
+                name: 'output without citations yields no marks',
+                observations: [makeObservation('monitor', { verdict: 'yes', reasoning: 'Error toast shown.' })],
+                expected: [],
+            },
+            {
+                name: 'citation with no preceding text yields a null snippet',
+                observations: [
+                    makeObservation('summarizer', {
+                        summary: 'Rage clicked pay',
+                        summary_segments: [{ kind: 'chip', timestamp_ms: 42_000 }],
+                    }),
+                ],
+                expected: [
+                    { timestampMs: 42_000, entries: [{ scannerName: 'Scanner', headline: null, snippet: null }] },
+                ],
             },
         ])('$name', ({ observations, expected }) => {
             expect(observationSeekbarMarks(observations)).toEqual(expected)

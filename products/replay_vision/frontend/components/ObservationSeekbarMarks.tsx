@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import React from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -15,16 +16,20 @@ interface ObservationSeekbarMarksProps {
     onSeek: (timestampMs: number) => void
 }
 
-// Unlike the dock this ignores noMeta, so noMeta surfaces show marks without a dock.
-export function ObservationSeekbarMarks(props: ObservationSeekbarMarksProps): JSX.Element | null {
+// Same gate as the observations dock: marks only appear where the dock does, so no player fetches observations that didn't already.
+export const ObservationSeekbarMarks = React.memo(function ObservationSeekbarMarks(
+    props: ObservationSeekbarMarksProps
+): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const hasReplayVision = useFeatureFlag('REPLAY_VISION')
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    if (!hasReplayVision || mode !== SessionRecordingPlayerMode.Standard || !sessionRecordingId) {
+    const dockShown =
+        hasReplayVision && mode === SessionRecordingPlayerMode.Standard && !logicProps.noMeta && !logicProps.noDock
+    if (!dockShown || !sessionRecordingId) {
         return null
     }
     return <ObservationSeekbarMarksContent sessionId={sessionRecordingId} {...props} />
-}
+})
 
 function ObservationSeekbarMarksContent({
     sessionId,
@@ -38,7 +43,7 @@ function ObservationSeekbarMarksContent({
     }
 
     return (
-        <div className="PlayerSeekbar__segments">
+        <>
             {seekbarMarks.map((mark) => {
                 const position = (mark.timestampMs / endTimeMs) * 100
                 if (position < 0 || position > 100) {
@@ -78,6 +83,6 @@ function ObservationSeekbarMarksContent({
                     </Tooltip>
                 )
             })}
-        </div>
+        </>
     )
 }
