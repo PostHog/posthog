@@ -367,7 +367,7 @@ async function main() {
             .sort((a, b) => b.ms - a.ms)
             .slice(0, 25)
     }
-    console.log(JSON.stringify(out, null, 1))
+    console.info(JSON.stringify(out, null, 1))
 }
 
 main().catch((e) => {
