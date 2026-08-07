@@ -30,6 +30,11 @@ prompts as shorthand for any alert direction unless the prompt clearly says incr
 | `posthog:billing-spend-retrieve` | Optional spend context when the user asks about dollars                 |
 | `posthog:execute-sql`            | Product-specific drilldown after the alert day and project are known    |
 
+Only use this skill when the Billing read tools above are available. If the user asks
+about a billing usage spike/change and those tools are not available, do not continue
+with this workflow; briefly say that Billing usage-change investigation is not enabled
+for this organization or MCP session.
+
 Read `references/spike-alert-mechanics.md` when you need alert detector thresholds,
 URL parameter meanings, or usage type mappings.
 
