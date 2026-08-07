@@ -782,6 +782,13 @@ class SignalReportViewSet(
     }
 
     def safely_get_queryset(self, queryset):
+        if self.action == "viewed":
+            # Passive telemetry fired right after the detail request that already rendered the
+            # report: only visibility matters here, so skip the rendering annotations and
+            # prefetches every other action's serializer needs.
+            qs = queryset.filter(team=self.team)
+            qs = self._exclude_deleted_signal_reports(qs)
+            return self._apply_signal_report_status_filter(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         qs = self._exclude_deleted_signal_reports(qs)
@@ -1258,6 +1265,10 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
+        if self.action == "viewed":
+            # The lightweight viewed queryset skips the annotations the default ordering sorts
+            # by, and a by-ID lookup has nothing to order anyway.
+            return queryset
         return self._apply_signal_report_ordering(queryset)
 
     def _parse_ordering_string(self, raw: str) -> list[str]:
@@ -1834,7 +1845,11 @@ class SignalReportViewSet(
         request=None,
         responses={204: None},
     )
-    @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["task:write"])
+    # task:read, not task:write: recording that someone read a report is part of reading it.
+    # Under resource-level RBAC a `:write` scope demands editor access, which would 403 the
+    # viewer-level members whose reads this endpoint exists to capture. Token automation is
+    # already excluded by the session-authentication gate, not by scope.
+    @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["task:read"])
     def viewed(self, request, pk=None, **kwargs):
         """Upsert a per-person view record for the report.
 

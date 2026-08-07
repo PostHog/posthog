@@ -415,6 +415,7 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
             last_at__gte=window_start,
         )
         .values_list("report_id", flat=True)
+        .distinct()
     }
     return engaged
 
