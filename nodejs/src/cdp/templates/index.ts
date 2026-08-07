@@ -22,6 +22,7 @@ import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.templa
 import { template as gleapTemplate } from './_destinations/gleap/gleap.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
+import { template as gcsTemplate } from './_destinations/google_cloud_storage/gcs.template'
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
 import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubspot.template'
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
@@ -124,6 +125,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     discordTemplate,
     engageTemplate,
     gleapTemplate,
+    gcsTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
