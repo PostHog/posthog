@@ -9,8 +9,8 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import exceptions, pagination, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -38,6 +38,8 @@ from posthog.models.comment.utils import (
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
+
+from products.conversations.backend import reply_dedupe
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -515,6 +517,11 @@ class CommentSerializer(serializers.ModelSerializer):
         return updated_instance
 
 
+class CommentErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Human-readable explanation of what went wrong.")
+    error_type = serializers.CharField(required=False, help_text="Stable machine-readable identifier for the failure.")
+
+
 class CommentPagination(pagination.CursorPagination):
     ordering = "-created_at"
     page_size = 100
@@ -655,6 +662,79 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     @extend_schema(parameters=[CommentListQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    def _build_reply_fingerprint(self, validated_data: dict[str, Any]) -> "reply_dedupe.ReplyFingerprint | None":
+        created_by = validated_data.get("created_by")
+        source_comment = validated_data.get("source_comment")
+        return reply_dedupe.ReplyFingerprint.build(
+            team_id=self.team_id,
+            created_by_id=getattr(created_by, "id", None),
+            scope=validated_data.get("scope"),
+            item_id=validated_data.get("item_id"),
+            content=validated_data.get("content"),
+            rich_content=validated_data.get("rich_content"),
+            item_context=validated_data.get("item_context"),
+            source_comment_id=getattr(source_comment, "id", None),
+            is_task=validated_data.get("is_task"),
+            has_unverifiable_metadata=bool(validated_data.get("mentions") or validated_data.get("slug")),
+        )
+
+    def _created_response(self, serializer: serializers.BaseSerializer[Any]) -> Response:
+        data = serializer.data
+        return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=CommentSerializer,
+                description=(
+                    "An identical support message was already created by a recent request. "
+                    "The original comment is returned and nothing new is written."
+                ),
+            ),
+            201: OpenApiResponse(response=CommentSerializer),
+            409: OpenApiResponse(
+                response=CommentErrorSerializer,
+                description="An identical support message is still being created by another request.",
+            ),
+        },
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Create a comment.
+
+        Support messages are deduplicated: an identical message from the same author on the same
+        ticket within a short window returns the original comment with a 200 instead of creating a
+        second one, and a 409 while a concurrent request is still creating it.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Validate first, so the guard runs behind the ticket-editor check in the serializer rather
+        # than reserving a key for a request that was never allowed to write.
+        fingerprint = self._build_reply_fingerprint(serializer.validated_data)
+        if fingerprint is None:
+            self.perform_create(serializer)
+            return self._created_response(serializer)
+
+        def save_comment() -> Comment:
+            self.perform_create(serializer)
+            return cast(Comment, serializer.instance)
+
+        guarded = reply_dedupe.create_deduplicated(fingerprint, save_comment)
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.REPLY_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.REPLY_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if guarded.outcome is reply_dedupe.CreateOutcome.REPLAYED:
+            # Serialize the stored row directly. Going back through save() would re-fire the
+            # mention notifications the original request already sent.
+            return Response(self.get_serializer(guarded.comment).data)
+
+        return self._created_response(serializer)
 
     def _slack_mirror_flag_enabled(self) -> bool:
         """Whether discussions↔Slack sync is on for this user/team.
