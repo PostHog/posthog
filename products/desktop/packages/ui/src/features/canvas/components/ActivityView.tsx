@@ -54,6 +54,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
+  activityUnreadTotalForLabel,
   getUnreadActivityItems,
   getVisibleActivityItems,
   markLoadedReadLabel,
@@ -329,7 +330,12 @@ export function ActivityView() {
     () => getUnreadActivityItems(visibleItems),
     [visibleItems],
   );
-  const visibleUnreadCount = commentsEnabled ? unreadCount : unreadItems.length;
+  const visibleUnreadCount = activityUnreadTotalForLabel({
+    commentsEnabled,
+    unreadCount,
+    loadedVisibleUnread: unreadItems.length,
+    hasNextPage,
+  });
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(

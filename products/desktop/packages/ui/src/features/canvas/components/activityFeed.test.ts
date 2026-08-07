@@ -1,6 +1,10 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { describe, expect, it } from "vitest";
-import { getVisibleActivityItems } from "./activityFeed";
+import {
+  activityUnreadTotalForLabel,
+  getVisibleActivityItems,
+  markLoadedReadLabel,
+} from "./activityFeed";
 
 describe("activityFeed", () => {
   it("hides comment activity without hiding existing task mentions", () => {
@@ -17,5 +21,16 @@ describe("activityFeed", () => {
     expect(
       getVisibleActivityItems([taskMention, commentMention], false),
     ).toEqual([taskMention]);
+  });
+
+  it("labels a partial read action as visible only", () => {
+    const total = activityUnreadTotalForLabel({
+      commentsEnabled: false,
+      unreadCount: 8,
+      loadedVisibleUnread: 3,
+      hasNextPage: true,
+    });
+
+    expect(markLoadedReadLabel(3, total)).toBe("Mark visible as read");
   });
 });

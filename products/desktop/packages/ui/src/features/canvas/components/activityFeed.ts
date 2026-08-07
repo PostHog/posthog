@@ -29,3 +29,18 @@ export function markLoadedReadLabel(
     ? "Mark all as read"
     : "Mark visible as read";
 }
+
+export function activityUnreadTotalForLabel({
+  commentsEnabled,
+  unreadCount,
+  loadedVisibleUnread,
+  hasNextPage,
+}: {
+  commentsEnabled: boolean;
+  unreadCount: number;
+  loadedVisibleUnread: number;
+  hasNextPage: boolean;
+}): number {
+  if (commentsEnabled) return unreadCount;
+  return loadedVisibleUnread + (hasNextPage ? 1 : 0);
+}
