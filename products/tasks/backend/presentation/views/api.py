@@ -1062,8 +1062,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         application = access_token.application
         if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
             return False
-        return access_token.sandbox_task_id == UUID(task_id) or "internal_run:read" in get_authenticator_scopes(
-            authenticator
+        return access_token.sandbox_task_id == UUID(task_id) or "internal_run:read" in (
+            get_authenticator_scopes(authenticator) or []
         )
 
     # Actions that only read run state. Everything else mutates or drives the
