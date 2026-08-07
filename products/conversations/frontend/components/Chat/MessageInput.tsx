@@ -37,6 +37,9 @@ export interface MessageInputProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button */
     extraActions?: React.ReactNode
+    /** Team-only actions for the composer's left cell, beside the private-note checkbox. Kept apart from
+     * `extraActions` because that cluster is about how this draft reaches the customer; this one isn't. */
+    composerLeftActions?: React.ReactNode
     /** Blocks sending customer-facing messages (private notes stay available). Shown as the button's disabled tooltip. */
     replyDisabledReason?: string | JSX.Element
     /** Blocks sending entirely, including private notes (e.g. the user lacks edit access). Takes precedence. */
@@ -70,6 +73,7 @@ export function MessageInput({
     isPrivate: controlledIsPrivate,
     onPrivateChange,
     extraActions,
+    composerLeftActions,
     replyDisabledReason,
     sendDisabledReason,
     draftMode = false,
@@ -263,25 +267,28 @@ export function MessageInput({
                 }
             />
             <div className="flex justify-between items-center mt-2">
-                {showPrivateOption ? (
-                    <Tooltip title="Private notes are only visible to your team, not to the customer.">
-                        <span>
-                            <LemonCheckbox
-                                checked={isPrivate || isEditing}
-                                onChange={setIsPrivate}
-                                disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
-                                label={
-                                    <span className="inline-flex items-center gap-1">
-                                        <IconLock className="text-sm" />
-                                        {isEditing ? 'Editing private note' : 'Attach as private note'}
-                                    </span>
-                                }
-                            />
-                        </span>
-                    </Tooltip>
-                ) : (
-                    <div />
-                )}
+                {/* The team-only cell. Always rendered, even when empty, so `justify-between` keeps the
+                    send cluster on the right. */}
+                <div className="flex items-center gap-3">
+                    {showPrivateOption ? (
+                        <Tooltip title="Private notes are only visible to your team, not to the customer.">
+                            <span>
+                                <LemonCheckbox
+                                    checked={isPrivate || isEditing}
+                                    onChange={setIsPrivate}
+                                    disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
+                                    label={
+                                        <span className="inline-flex items-center gap-1">
+                                            <IconLock className="text-sm" />
+                                            {isEditing ? 'Editing private note' : 'Attach as private note'}
+                                        </span>
+                                    }
+                                />
+                            </span>
+                        </Tooltip>
+                    ) : null}
+                    {composerLeftActions}
+                </div>
                 <div className="flex items-center gap-2">
                     {onDraftModeChange && (
                         <Tooltip

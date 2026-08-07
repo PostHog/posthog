@@ -28,6 +28,7 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { objectsEqual } from 'lib/utils/objects'
 import { fullName } from 'lib/utils/strings'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -72,6 +73,8 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+/** Discussions ride the message timer at 1/4 the rate, so ~20s. */
+const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
 
@@ -232,6 +235,7 @@ export interface supportTicketSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
+    discussionsEnabled: boolean
     draftContent: string | JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
@@ -387,6 +391,9 @@ export interface supportTicketSceneLogicActions {
     loadTicket: () => {
         value: true
     }
+    pollDiscussionCount: () => {
+        value: true
+    }
     recordAiReplyFeedback: (
         messageId: string,
         rating: AiReplyFeedbackRating
@@ -496,7 +503,8 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => EmailReplyBlockedReason | null
-        sidePanelContext: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => SidePanelSceneContext | null
+        discussionsEnabled: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => boolean
+        sidePanelContext: (ticket: Ticket | null, discussionsEnabled: boolean) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -563,6 +571,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setMessages: (messages: CommentType[]) => ({ messages }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
         appendMessage: (message: CommentType) => ({ message }),
+
+        pollDiscussionCount: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -912,9 +922,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
         ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
+        // Whether this ticket has a discussion at all. The side-panel context, the in-thread discussion
+        // cards and the "Discuss with team" button all hang off this one gate so they can't drift into
+        // a state where one of them offers a discussion the others don't know about.
+        discussionsEnabled: [
             (s) => [s.ticket, s.featureFlags],
-            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): SidePanelSceneContext | null =>
+            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): boolean =>
+                !!ticket?.id && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket, s.discussionsEnabled],
+            (ticket: Ticket | null, discussionsEnabled: boolean): SidePanelSceneContext | null =>
                 ticket?.id
                     ? {
                           access_control_resource: 'ticket',
@@ -922,7 +940,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                           // Scoping the discussion thread to the ticket is still flag-gated; the
                           // access control fields above are not, so the panel stays gated on
                           // ticket access either way.
-                          ...(featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+                          ...(discussionsEnabled
                               ? {
                                     activity_scope: ActivityScope.TICKET,
                                     activity_item_id: `${ticket.id}`,
@@ -1155,9 +1173,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Start message polling using disposables pattern
                 cache.disposables.dispose('messagePolling')
+                cache.lastDiscussionCount = null
+                cache.discussionPollTick = 0
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
                         actions.loadMessages()
+                        // A discussion is a slower conversation than the ticket itself, and a Slack
+                        // reply landing a few seconds late costs nothing — so it rides the same timer
+                        // at a fraction of the rate rather than starting a second one.
+                        cache.discussionPollTick = (cache.discussionPollTick ?? 0) + 1
+                        if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
+                            actions.pollDiscussionCount()
+                        }
                     }, MESSAGE_POLL_INTERVAL)
                     return () => clearInterval(intervalId)
                 }, 'messagePolling')
@@ -1223,6 +1250,36 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
                 }
+            }
+        },
+        // Counts first, reloads only on a change. Reloading the discussion outright on every tick would
+        // be simpler, but `commentsLogic` scrolls its list to the bottom on every successful load — so a
+        // teammate reading back through a long discussion in the side panel would be yanked to the
+        // newest comment every few seconds. Gating on the count means that only happens when something
+        // actually arrived, which is the moment you'd want to be moved anyway.
+        pollDiscussionCount: async () => {
+            const ticketId = values.ticket?.id
+            if (!values.discussionsEnabled || !ticketId) {
+                return
+            }
+            try {
+                const count = await api.comments.getCount({
+                    scope: ActivityScope.TICKET,
+                    item_id: ticketId,
+                    exclude_emoji_reactions: true,
+                })
+                const previous = cache.lastDiscussionCount
+                cache.lastDiscussionCount = count
+                // First tick only establishes the baseline: the thread was already loaded when the
+                // scene mounted, so there is nothing to catch up on yet.
+                if (previous === null || previous === undefined || count === previous) {
+                    return
+                }
+                // Only refresh a discussion someone is actually looking at — findMounted, so a ticket
+                // whose thread has never been opened doesn't pay for a list request.
+                commentsLogic.findMounted({ scope: ActivityScope.TICKET, item_id: ticketId })?.actions.loadComments()
+            } catch {
+                // A dropped poll is not worth a toast; the next tick tries again.
             }
         },
         loadMessages: async () => {

@@ -344,6 +344,26 @@ describe('commentsLogic', () => {
         expect(footerEditor.focus).toHaveBeenCalledWith('end')
     })
 
+    // How "Discuss with team" opens the panel: start a fresh comment, then point it at Slack. The
+    // order matters - leaving reply mode resets the composer's Slack state, so arming it first would
+    // silently drop the toggle and open a plain comment box instead.
+    it('keeps the Slack toggle armed after exiting reply mode, and still focuses the composer', () => {
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        logic.actions.setReplyingComment('thread-1')
+
+        logic.actions.startNewComment()
+        logic.actions.setComposerSendToSlack(true)
+        logic.actions.setComposerSlackIntegrationId(7)
+
+        expect(logic.values.composerSendToSlack).toBe(true)
+        expect(logic.values.composerSlackIntegrationId).toBe(7)
+
+        const footerEditor = createEditor(null)
+        logic.actions.setRichContentEditor(footerEditor)
+        expect(footerEditor.focus).toHaveBeenCalledWith('end')
+        expect(logic.values.composerSendToSlack).toBe(true)
+    })
+
     it('a send that bails on empty content leaves stashed drafts untouched', async () => {
         logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
         logic.actions.setReplyingComment('thread-1') // stashes the footer draft

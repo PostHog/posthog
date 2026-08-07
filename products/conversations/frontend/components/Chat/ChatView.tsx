@@ -42,6 +42,8 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Team-only actions for the composer's left cell, beside the private-note checkbox */
+    composerLeftActions?: React.ReactNode
     /** Non-message thread entries, placed by their own timestamp (e.g. team-only agent findings) */
     threadExtras?: TimelineExtra[]
     /** Blocks sending customer-facing messages (private notes stay available) */
@@ -93,6 +95,7 @@ export function ChatView({
     threadExtras,
     onPrivateChange,
     extraActions,
+    composerLeftActions,
     replyDisabledReason,
     sendDisabledReason,
     draftMode,
@@ -151,6 +154,7 @@ export function ChatView({
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
+                    composerLeftActions={composerLeftActions}
                     replyDisabledReason={replyDisabledReason}
                     sendDisabledReason={sendDisabledReason}
                     draftMode={draftMode}

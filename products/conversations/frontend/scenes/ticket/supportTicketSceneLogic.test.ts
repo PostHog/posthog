@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -35,6 +36,7 @@ jest.mock('~/lib/api', () => {
                 ...actual.default?.comments,
                 create: jest.fn().mockResolvedValue(undefined),
                 list: jest.fn().mockResolvedValue({ results: [] }),
+                getCount: jest.fn().mockResolvedValue(0),
             },
             persons: {
                 ...actual.default?.persons,
@@ -939,5 +941,71 @@ describe('supportTicketSceneLogic sidePanelContext', () => {
             access_control_resource: 'ticket',
             access_control_resource_id: 'ticket-1',
         })
+    })
+})
+
+describe('supportTicketSceneLogic discussion polling', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const getCountMock = api.comments.getCount as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        getCountMock.mockClear()
+        getCountMock.mockResolvedValue(0)
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: true })
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    it('counts the ticket-scoped discussion, excluding emoji reactions', async () => {
+        logic.actions.pollDiscussionCount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(getCountMock).toHaveBeenCalledWith({
+            scope: ActivityScope.TICKET,
+            item_id: 'ticket-1',
+            exclude_emoji_reactions: true,
+        })
+    })
+
+    it('does not count when the discussions flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: false })
+
+        logic.actions.pollDiscussionCount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(getCountMock).not.toHaveBeenCalled()
+    })
+
+    // The whole point of counting first: reloading unconditionally would scroll a reader in the open
+    // side panel back to the newest comment on every tick.
+    it('only reloads the discussion when the count actually changes', async () => {
+        const commentsLogicInstance = commentsLogic({ scope: ActivityScope.TICKET, item_id: 'ticket-1' })
+        commentsLogicInstance.mount()
+        const loadComments = jest.spyOn(commentsLogicInstance.actions, 'loadComments')
+
+        // First tick only establishes the baseline - the thread was already loaded on mount.
+        logic.actions.pollDiscussionCount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(loadComments).not.toHaveBeenCalled()
+
+        // Same count again: nothing arrived, so nothing to reload.
+        logic.actions.pollDiscussionCount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(loadComments).not.toHaveBeenCalled()
+
+        // A Slack reply landed.
+        getCountMock.mockResolvedValue(1)
+        logic.actions.pollDiscussionCount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(loadComments).toHaveBeenCalledTimes(1)
+
+        loadComments.mockRestore()
+        commentsLogicInstance.unmount()
     })
 })
