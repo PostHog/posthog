@@ -27,11 +27,19 @@ export interface AgentPluginSkill {
   path: string;
 }
 
+export interface AgentPluginHttpMcpServer {
+  name: string;
+  type: "streamable-http";
+  url: string;
+  headers?: Record<string, string>;
+}
+
 export interface AgentPluginPreview {
   valid: boolean;
   sourcePath: string;
   manifest: AgentPluginManifest | null;
   skills: AgentPluginSkill[];
+  mcpServers: AgentPluginHttpMcpServer[];
   diagnostics: AgentPluginDiagnostic[];
   selectionToken?: string;
 }
@@ -42,6 +50,7 @@ export interface AgentPluginInstallation {
   enabled: boolean;
   manifest: AgentPluginManifest;
   skills: AgentPluginSkill[];
+  mcpServers: AgentPluginHttpMcpServer[];
   diagnostics: AgentPluginDiagnostic[];
 }
 

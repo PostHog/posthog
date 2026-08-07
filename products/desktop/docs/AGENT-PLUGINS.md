@@ -39,6 +39,22 @@ Each skill must follow the [Agent Skills specification](https://agentskills.io/s
 
 Session snapshots are limited to 256 files and 8 MiB per skill, with a 1 MiB limit for each file. A plugin can contribute up to 1,024 files and 32 MiB across its skill snapshots. Skills that exceed these limits are skipped.
 
+Streamable HTTP MCP servers use the canonical MCP schema:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "example": {
+      "type": "streamable-http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+Invalid MCP configuration does not disable valid skills. Each server is validated independently, so one invalid or unsupported server does not disable its valid siblings. PostHog Desktop sends configured headers only to the server's original origin when following redirects.
+
 ## Current limitations
 
 - Only local directory installation is available.

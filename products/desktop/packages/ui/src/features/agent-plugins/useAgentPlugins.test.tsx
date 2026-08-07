@@ -42,6 +42,7 @@ describe("useAgentPlugins", () => {
       enabled: false,
       manifest: { $schema: "schema", name: "example" },
       skills: [],
+      mcpServers: [],
       diagnostics: [],
     });
     const wrapper = ({ children }: { children: ReactNode }) => (

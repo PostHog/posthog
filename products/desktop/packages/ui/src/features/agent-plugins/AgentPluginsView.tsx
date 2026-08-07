@@ -57,8 +57,8 @@ export function AgentPluginsView(): ReactElement {
           <div className="flex flex-col gap-1">
             <Text weight="semibold">Agent Plugins</Text>
             <Text size="sm" variant="muted">
-              Add local Agent Plugins that provide portable skills. MCP servers
-              are not supported yet.
+              Add local Agent Plugins that provide portable skills and
+              Streamable HTTP MCP servers.
             </Text>
           </div>
           <Button
@@ -93,15 +93,27 @@ export function AgentPluginsView(): ReactElement {
                 {preview.manifest?.description && (
                   <Text size="sm">{preview.manifest.description}</Text>
                 )}
-                <div className="flex flex-wrap gap-2">
-                  {preview.skills.map((skill) => (
-                    <Badge key={skill.path}>{skill.name}</Badge>
-                  ))}
-                  {preview.skills.length === 0 && (
-                    <Text size="sm" variant="muted">
-                      No valid skills found
-                    </Text>
-                  )}
+                <div className="flex flex-col gap-2">
+                  <Text size="xs" variant="muted">
+                    {preview.skills.length} valid skill
+                    {preview.skills.length === 1 ? "" : "s"}
+                  </Text>
+                  <div className="flex flex-wrap gap-2">
+                    {preview.skills.map((skill) => (
+                      <Badge key={skill.path}>{skill.name}</Badge>
+                    ))}
+                  </div>
+                  <Text size="xs" variant="muted">
+                    {preview.mcpServers.length} Streamable HTTP MCP server
+                    {preview.mcpServers.length === 1 ? "" : "s"}
+                  </Text>
+                  <div className="flex flex-wrap gap-2">
+                    {preview.mcpServers.map((server) => (
+                      <Badge key={server.name} variant="info">
+                        {server.name}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
                 {preview.diagnostics.length > 0 && (
                   <div className="flex flex-col gap-2 rounded-md border border-border p-3">
@@ -198,8 +210,10 @@ export function AgentPluginsView(): ReactElement {
                           variant="muted"
                           className="block break-all"
                         >
-                          {plugin.skills.length} valid skill
-                          {plugin.skills.length === 1 ? "" : "s"} from{" "}
+                          {plugin.skills.length} skill
+                          {plugin.skills.length === 1 ? "" : "s"} and{" "}
+                          {plugin.mcpServers.length} MCP server
+                          {plugin.mcpServers.length === 1 ? "" : "s"} from{" "}
                           {plugin.sourcePath}
                         </Text>
                       </div>
@@ -262,8 +276,8 @@ export function AgentPluginsView(): ReactElement {
               </EmptyMedia>
               <EmptyTitle>No Agent Plugins added</EmptyTitle>
               <EmptyDescription>
-                Choose a local plugin directory to make its valid skills
-                available to agents.
+                Choose a local plugin directory to make its valid skills and MCP
+                servers available to agents.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

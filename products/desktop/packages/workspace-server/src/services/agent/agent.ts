@@ -891,12 +891,6 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           await this.agentPluginsService.prepareRuntimePlugins(
             taskRunId,
             reservedSkillNames,
-            (pluginName, skillName) =>
-              this.log.warn("Skipped Agent Plugin skill name collision", {
-                pluginName,
-                skillName,
-                adapter,
-              }),
           );
       } catch (err) {
         this.log.warn("Failed to prepare Agent Plugins", {
@@ -1011,15 +1005,29 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         })),
       );
 
+      let pluginMcpServers: McpServerConnection[] = [];
+      try {
+        pluginMcpServers =
+          await this.agentPluginsService.prepareRuntimeMcpServers(
+            taskRunId,
+            new Set(mcpServers.map((server) => server.name)),
+          );
+      } catch (err) {
+        this.log.warn("Failed to prepare Agent Plugin MCP servers", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
       // codex-acp connects to every MCP server eagerly during session creation
       // and treats an unreachable one as fatal, which kills the session
       // ("ACP connection closed") and makes the host silently fall back to a
       // Claude/Opus session. Claude connects lazily and is unaffected, so only
       // the Codex server list is pruned to the reachable ones.
+      const allMcpServers = [...mcpServers, ...pluginMcpServers];
       const sessionMcpServers =
         adapter === "codex"
-          ? await this.filterReachableMcpServers(mcpServers, taskRunId)
-          : mcpServers;
+          ? await this.filterReachableMcpServers(allMcpServers, taskRunId)
+          : allMcpServers;
 
       const plugins = [
         {
@@ -1398,10 +1406,11 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       } catch {
         // ignore body cleanup failures
       }
-      // Any HTTP response means the endpoint is reachable. codex-acp only treats
-      // transport failures (connection refused, DNS, timeout) as fatal; HTTP or
-      // JSON-RPC error responses are handled gracefully.
-      return true;
+      // The neutral Agent Plugin proxy marks upstream transport failures. Other
+      // HTTP responses still prove that codex-acp can establish the transport.
+      return (
+        response.headers?.get?.("x-posthog-agent-plugin-proxy-error") !== "1"
+      );
     } catch (err) {
       this.log.debug("MCP server reachability probe failed", {
         url: server.url,

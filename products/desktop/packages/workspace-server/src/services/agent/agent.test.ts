@@ -189,6 +189,7 @@ function createMockDependencies() {
     },
     agentPluginsService: {
       prepareRuntimePlugins: vi.fn().mockResolvedValue([]),
+      prepareRuntimeMcpServers: vi.fn().mockResolvedValue([]),
       cleanupRuntimePlugins: vi.fn().mockResolvedValue(undefined),
     },
     agentAuthAdapter: {
@@ -586,6 +587,64 @@ describe("AgentService", () => {
           }),
         ]),
       );
+    });
+
+    it.each(["claude", "codex"] as const)(
+      "passes Agent Plugin HTTP MCP servers to the %s adapter",
+      async (adapter) => {
+        deps.agentPluginsService.prepareRuntimeMcpServers.mockResolvedValue([
+          {
+            name: "agent-plugin-example-12345678-abcdef12",
+            type: "http",
+            url: "http://127.0.0.1:4567/server",
+            headers: [],
+          },
+        ]);
+
+        await service.startSession({ ...baseSessionParams, adapter });
+
+        expect(mockNewSession.mock.calls[0][0].mcpServers).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: "agent-plugin-example-12345678-abcdef12",
+              type: "http",
+              url: "http://127.0.0.1:4567/server",
+            }),
+          ]),
+        );
+        expect(
+          deps.agentPluginsService.prepareRuntimeMcpServers,
+        ).toHaveBeenCalledWith("run-1", new Set(["posthog"]));
+      },
+    );
+
+    it("drops an unreachable Agent Plugin proxy from Codex without dropping reachable servers", async () => {
+      deps.agentPluginsService.prepareRuntimeMcpServers.mockResolvedValue([
+        {
+          name: "agent-plugin-example-12345678-abcdef12",
+          type: "http",
+          url: "http://127.0.0.1:4567/server",
+          headers: [],
+        },
+      ]);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          if (String(input).includes("127.0.0.1:4567")) {
+            return new Response("proxy error", {
+              status: 502,
+              headers: { "x-posthog-agent-plugin-proxy-error": "1" },
+            });
+          }
+          return new Response("reachable", { status: 401 });
+        }),
+      );
+
+      await service.startSession({ ...baseSessionParams, adapter: "codex" });
+
+      expect(mockNewSession.mock.calls[0][0].mcpServers).toEqual([
+        expect.objectContaining({ name: "posthog" }),
+      ]);
     });
 
     it("passes identical MCP servers to both adapters when all servers are reachable", async () => {

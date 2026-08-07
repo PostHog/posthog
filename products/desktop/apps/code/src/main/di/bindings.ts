@@ -144,7 +144,11 @@ import type {
   AGENT_SLEEP_COORDINATOR,
 } from "@posthog/workspace-server/services/agent/identifiers";
 import type { AgentPluginsService } from "@posthog/workspace-server/services/agent-plugins/agent-plugins";
-import type { AGENT_PLUGINS_SERVICE } from "@posthog/workspace-server/services/agent-plugins/identifiers";
+import type { AgentPluginHttpProxy } from "@posthog/workspace-server/services/agent-plugins/http-proxy";
+import type {
+  AGENT_PLUGIN_HTTP_PROXY,
+  AGENT_PLUGINS_SERVICE,
+} from "@posthog/workspace-server/services/agent-plugins/identifiers";
 import type {
   ARCHIVE_FILE_WATCHER,
   ARCHIVE_SESSION_CANCELLER,
@@ -517,6 +521,7 @@ export interface MainBindings {
   [FS_SERVICE]: FsCapability;
 
   // Typed container.get-only tokens (bound via loaded modules)
+  [AGENT_PLUGIN_HTTP_PROXY]: AgentPluginHttpProxy;
   [AGENT_PLUGINS_SERVICE]: AgentPluginsService;
   [AGENT_SERVICE]: AgentService;
   [OAUTH_SERVICE]: OAuthService;

@@ -2,9 +2,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentPluginsService } from "./agent-plugins";
+import {
+  AgentPluginsService,
+  agentPluginRuntimeMcpName,
+} from "./agent-plugins";
+import type { AgentPluginHttpProxy } from "./http-proxy";
 import { loadAgentPlugin } from "./loader";
-import { AGENT_PLUGINS_MANIFEST_SCHEMA } from "./schemas";
+import {
+  AGENT_PLUGINS_MANIFEST_SCHEMA,
+  AGENT_PLUGINS_MCP_SCHEMA,
+} from "./schemas";
 
 let root: string;
 
@@ -31,6 +38,21 @@ async function writeSparseFile(filePath: string, size: number): Promise<void> {
   }
 }
 
+async function writeMcp(
+  pluginDirectory: string,
+  mcpServers: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  await fs.promises.writeFile(
+    path.join(pluginDirectory, "mcp.json"),
+    JSON.stringify({
+      $schema: AGENT_PLUGINS_MCP_SCHEMA,
+      mcpServers,
+      ...extra,
+    }),
+  );
+}
+
 async function writeSkill(
   pluginDirectory: string,
   name: string,
@@ -48,6 +70,10 @@ async function writeSkill(
 function createService(
   appDataPath: string,
   selectedPaths: string[] = [],
+  httpProxy: AgentPluginHttpProxy = {
+    register: async ({ id }) => `http://127.0.0.1/${id}`,
+    unregisterRun() {},
+  },
 ): AgentPluginsService {
   return new AgentPluginsService(
     {
@@ -62,6 +88,7 @@ function createService(
         return selectedPath ? [selectedPath] : [];
       },
     },
+    httpProxy,
   );
 }
 
@@ -631,5 +658,187 @@ describe("Agent Plugins skills support", () => {
     await expect(
       service.register(preview?.selectionToken ?? ""),
     ).rejects.toThrow("Choose the Agent Plugin directory again");
+  });
+
+  it("isolates a top-level MCP failure from valid skills", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    await writeSkill(pluginDirectory, "summarize");
+    await writeMcp(
+      pluginDirectory,
+      {
+        analytics: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+        },
+      },
+      { unknown: true },
+    );
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.valid).toBe(true);
+    expect(preview.skills.map((skill) => skill.name)).toEqual(["summarize"]);
+    expect(preview.mcpServers).toEqual([]);
+    expect(preview.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_mcp_config" }),
+      ]),
+    );
+  });
+
+  it("isolates invalid and unsupported MCP entries from valid siblings", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      valid: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+      invalid: {
+        type: "streamable-http",
+        url: "http://mcp.example.com/mcp",
+      },
+      local: { type: "stdio", command: "node", args: ["server.js"] },
+      legacy: { type: "sse", url: "https://mcp.example.com/sse" },
+    });
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.mcpServers.map((server) => server.name)).toEqual(["valid"]);
+    expect(preview.diagnostics.map((item) => item.code)).toEqual(
+      expect.arrayContaining([
+        "invalid_mcp_server",
+        "unsupported_mcp_transport",
+        "unsupported_mcp_transport",
+      ]),
+    );
+  });
+
+  it.each([
+    ["HTTPS", "https://mcp.example.com/mcp", true],
+    ["localhost HTTP", "http://localhost:3000/mcp", true],
+    ["IPv4 loopback HTTP", "http://127.1.2.3:3000/mcp", true],
+    ["IPv6 loopback HTTP", "http://[::1]:3000/mcp", true],
+    ["non-loopback HTTP", "http://mcp.example.com/mcp", false],
+    ["relative URL", "./mcp", false],
+    ["userinfo", "https://user:password@mcp.example.com/mcp", false],
+    ["fragment", "https://mcp.example.com/mcp#tools", false],
+  ])("validates %s MCP URLs", async (_label, url, valid) => {
+    const pluginDirectory = path.join(root, _label.replaceAll(" ", "-"));
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      server: { type: "streamable-http", url },
+    });
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.mcpServers).toHaveLength(valid ? 1 : 0);
+  });
+
+  it("rejects case-insensitive duplicate and invalid HTTP headers", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      duplicate: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+        headers: { Authorization: "one", authorization: "two" },
+      },
+      invalidName: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+        headers: { "bad header": "value" },
+      },
+      invalidValue: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+        headers: { "X-Test": "line\nbreak" },
+      },
+    });
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.mcpServers).toEqual([]);
+    expect(
+      preview.diagnostics.filter((item) => item.code === "invalid_mcp_server"),
+    ).toHaveLength(3);
+  });
+
+  it("prepares deterministic MCP names and surfaces reserved-name collisions", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    const appDataPath = path.join(root, "app-data");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      analytics: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+        headers: { "X-Plugin": "example" },
+      },
+    });
+    const register = vi.fn(
+      async ({ id }: { id: string }) => `http://127.0.0.1/${id}`,
+    );
+    const service = createService(appDataPath, [pluginDirectory], {
+      register,
+      unregisterRun: vi.fn(),
+    });
+    const installation = await registerSelectedPlugin(service);
+    const expectedName = agentPluginRuntimeMcpName(
+      installation.id,
+      installation.manifest.name,
+      "analytics",
+    );
+
+    const runtime = await service.prepareRuntimeMcpServers("run-1", new Set());
+    expect(runtime).toEqual([
+      expect.objectContaining({ name: expectedName, type: "http" }),
+    ]);
+    expect(register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        url: "https://mcp.example.com/mcp",
+        headers: { "X-Plugin": "example" },
+      }),
+    );
+
+    const collided = await service.prepareRuntimeMcpServers(
+      "run-2",
+      new Set([expectedName]),
+    );
+    expect(collided).toEqual([]);
+    const [listed] = await service.list();
+    expect(listed.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "mcp_name_collision" }),
+      ]),
+    );
+  });
+
+  it("excludes disabled plugins from MCP runtime preparation", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    const register = vi.fn(async () => "http://127.0.0.1/mcp");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      analytics: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+    });
+    const service = createService(
+      path.join(root, "app-data"),
+      [pluginDirectory],
+      {
+        register,
+        unregisterRun: vi.fn(),
+      },
+    );
+    const installation = await registerSelectedPlugin(service);
+    await service.setEnabled(installation.id, false);
+
+    expect(await service.prepareRuntimeMcpServers("run-1", new Set())).toEqual(
+      [],
+    );
+    expect(register).not.toHaveBeenCalled();
   });
 });

@@ -6,8 +6,11 @@ import {
   type IStoragePaths,
   STORAGE_PATHS_SERVICE,
 } from "@posthog/platform/storage-paths";
+import type { McpServerConnection } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { isSafePathSegment } from "../skills/skill-discovery";
+import type { AgentPluginHttpProxy } from "./http-proxy";
+import { AGENT_PLUGIN_HTTP_PROXY } from "./identifiers";
 import {
   isPathContained,
   loadAgentPlugin,
@@ -15,6 +18,7 @@ import {
 } from "./loader";
 import {
   AGENT_PLUGIN_INSTALLATION_ID_PATTERN,
+  type AgentPluginDiagnostic,
   type AgentPluginInstallation,
   type AgentPluginPreview,
   agentPluginState,
@@ -28,6 +32,20 @@ interface RuntimeAgentPlugin {
 interface PersistedState {
   version: 1;
   installations: AgentPluginInstallation[];
+}
+
+export function agentPluginRuntimeMcpName(
+  installationId: string,
+  pluginName: string,
+  serverName: string,
+): string {
+  const pluginSlug = pluginName.replaceAll(".", "-").slice(0, 32);
+  const serverHash = crypto
+    .createHash("sha256")
+    .update(serverName)
+    .digest("hex")
+    .slice(0, 8);
+  return `agent-plugin-${pluginSlug}-${installationId.slice(0, 8)}-${serverHash}`;
 }
 
 interface PendingSelection {
@@ -52,12 +70,18 @@ const SNAPSHOT_READ_CHUNK_BYTES = 64 * 1024;
 export class AgentPluginsService {
   private stateQueue: Promise<void> = Promise.resolve();
   private readonly pendingSelections = new Map<string, PendingSelection>();
+  private readonly runtimeDiagnostics = new Map<
+    string,
+    AgentPluginDiagnostic[]
+  >();
 
   constructor(
     @inject(STORAGE_PATHS_SERVICE)
     private readonly storagePaths: IStoragePaths,
     @inject(DIALOG_SERVICE)
     private readonly dialog: IDialog,
+    @inject(AGENT_PLUGIN_HTTP_PROXY)
+    private readonly httpProxy: AgentPluginHttpProxy,
   ) {}
 
   list(): Promise<AgentPluginInstallation[]> {
@@ -75,8 +99,13 @@ export class AgentPluginsService {
                 ? preview.manifest
                 : installation.manifest,
             skills: sourceUnchanged && preview.valid ? preview.skills : [],
+            mcpServers:
+              sourceUnchanged && preview.valid ? preview.mcpServers : [],
             diagnostics: sourceUnchanged
-              ? preview.diagnostics
+              ? [
+                  ...preview.diagnostics,
+                  ...(this.runtimeDiagnostics.get(installation.id) ?? []),
+                ]
               : [
                   ...preview.diagnostics,
                   {
@@ -142,12 +171,14 @@ export class AgentPluginsService {
         enabled: existing?.enabled ?? true,
         manifest,
         skills: preview.skills,
+        mcpServers: preview.mcpServers,
         diagnostics: preview.diagnostics,
       };
       const installations = state.installations.filter(
         (item) => item.id !== installation.id,
       );
       installations.push(installation);
+      this.runtimeDiagnostics.delete(installation.id);
       await this.writeState({ version: 1, installations });
       return installation;
     });
@@ -178,11 +209,84 @@ export class AgentPluginsService {
       if (!state.installations.some((item) => item.id === id)) {
         throw new Error("Agent Plugin installation not found.");
       }
+      this.runtimeDiagnostics.delete(id);
       await this.writeState({
         version: 1,
         installations: state.installations.filter((item) => item.id !== id),
       });
     });
+  }
+
+  async prepareRuntimeMcpServers(
+    taskRunId: string,
+    reservedServerNames: ReadonlySet<string>,
+  ): Promise<McpServerConnection[]> {
+    if (!isSafePathSegment(taskRunId)) {
+      throw new Error(`Unsafe taskRunId: ${JSON.stringify(taskRunId)}`);
+    }
+
+    this.runtimeDiagnostics.clear();
+    const claimedServerNames = new Set(reservedServerNames);
+    const state = await this.withStateTransaction(() => this.readState());
+    const installations = state.installations
+      .filter((installation) => installation.enabled)
+      .sort(
+        (left, right) =>
+          left.manifest.name.localeCompare(right.manifest.name) ||
+          left.id.localeCompare(right.id),
+      );
+
+    const runtimeServers: McpServerConnection[] = [];
+    for (const installation of installations) {
+      const preview = await loadAgentPlugin(installation.sourcePath);
+      if (
+        !preview.valid ||
+        !preview.manifest ||
+        preview.sourcePath !== installation.sourcePath
+      )
+        continue;
+
+      for (const server of preview.mcpServers) {
+        const runtimeName = agentPluginRuntimeMcpName(
+          installation.id,
+          preview.manifest.name,
+          server.name,
+        );
+        if (claimedServerNames.has(runtimeName)) {
+          this.addRuntimeDiagnostic(installation.id, {
+            severity: "error",
+            code: "mcp_name_collision",
+            message: `Skipped MCP server ${server.name} because its runtime name conflicts with another server.`,
+            path: `mcp.json/mcpServers/${server.name}`,
+          });
+          continue;
+        }
+
+        try {
+          const url = await this.httpProxy.register({
+            id: `${taskRunId}:${runtimeName}`,
+            runId: taskRunId,
+            url: server.url,
+            headers: server.headers ?? {},
+          });
+          claimedServerNames.add(runtimeName);
+          runtimeServers.push({
+            type: "http",
+            name: runtimeName,
+            url,
+            headers: [],
+          });
+        } catch {
+          this.addRuntimeDiagnostic(installation.id, {
+            severity: "error",
+            code: "mcp_proxy_failed",
+            message: `Skipped MCP server ${server.name} because its local connection could not be prepared.`,
+            path: `mcp.json/mcpServers/${server.name}`,
+          });
+        }
+      }
+    }
+    return runtimeServers;
   }
 
   async prepareRuntimePlugins(
@@ -282,7 +386,17 @@ export class AgentPluginsService {
 
   async cleanupRuntimePlugins(taskRunId: string): Promise<void> {
     if (!isSafePathSegment(taskRunId)) return;
+    this.httpProxy.unregisterRun(taskRunId);
     await this.removeManagedPath(this.runtimeRoot(taskRunId));
+  }
+
+  private addRuntimeDiagnostic(
+    installationId: string,
+    diagnostic: AgentPluginDiagnostic,
+  ): void {
+    const diagnostics = this.runtimeDiagnostics.get(installationId) ?? [];
+    diagnostics.push(diagnostic);
+    this.runtimeDiagnostics.set(installationId, diagnostics);
   }
 
   private takeSelection(selectionToken: string): PendingSelection {

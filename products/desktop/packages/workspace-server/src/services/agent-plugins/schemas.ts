@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const AGENT_PLUGINS_MANIFEST_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+export const AGENT_PLUGINS_MCP_SCHEMA =
+  "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 export const AGENT_PLUGIN_INSTALLATION_ID_PATTERN = /^[a-f0-9]{16}$/;
 
 export const agentPluginDiagnostic = z.object({
@@ -35,11 +37,19 @@ export const agentPluginSkill = z.object({
   path: z.string(),
 });
 
+export const agentPluginHttpMcpServer = z.object({
+  name: z.string(),
+  type: z.literal("streamable-http"),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
 export const agentPluginPreview = z.object({
   valid: z.boolean(),
   sourcePath: z.string(),
   manifest: agentPluginManifest.nullable(),
   skills: z.array(agentPluginSkill),
+  mcpServers: z.array(agentPluginHttpMcpServer),
   diagnostics: z.array(agentPluginDiagnostic),
   selectionToken: z.string().uuid().optional(),
 });
@@ -50,6 +60,7 @@ export const agentPluginInstallation = z.object({
   enabled: z.boolean(),
   manifest: agentPluginManifest,
   skills: z.array(agentPluginSkill),
+  mcpServers: z.array(agentPluginHttpMcpServer),
   diagnostics: z.array(agentPluginDiagnostic),
 });
 
@@ -75,6 +86,7 @@ export const agentPluginState = z.object({
       enabled: z.boolean(),
       manifest: agentPluginManifest,
       skills: z.array(agentPluginSkill),
+      mcpServers: z.array(agentPluginHttpMcpServer).default([]),
       diagnostics: z.array(agentPluginDiagnostic),
     }),
   ),
@@ -83,5 +95,6 @@ export const agentPluginState = z.object({
 export type AgentPluginDiagnostic = z.infer<typeof agentPluginDiagnostic>;
 export type AgentPluginManifest = z.infer<typeof agentPluginManifest>;
 export type AgentPluginSkill = z.infer<typeof agentPluginSkill>;
+export type AgentPluginHttpMcpServer = z.infer<typeof agentPluginHttpMcpServer>;
 export type AgentPluginPreview = z.infer<typeof agentPluginPreview>;
 export type AgentPluginInstallation = z.infer<typeof agentPluginInstallation>;

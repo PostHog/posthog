@@ -1,9 +1,12 @@
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as path from "node:path";
 import { parseDocument } from "yaml";
 import {
   AGENT_PLUGINS_MANIFEST_SCHEMA,
+  AGENT_PLUGINS_MCP_SCHEMA,
   type AgentPluginDiagnostic,
+  type AgentPluginHttpMcpServer,
   type AgentPluginManifest,
   type AgentPluginPreview,
   type AgentPluginSkill,
@@ -25,6 +28,13 @@ const MANIFEST_FIELDS = new Set([
   "extensions",
 ]);
 const AUTHOR_FIELDS = new Set(["name", "email", "url"]);
+const MCP_TOP_LEVEL_FIELDS = new Set(["$schema", "mcpServers"]);
+const REMOTE_MCP_FIELDS = new Set(["type", "url", "headers"]);
+const STDIO_MCP_FIELDS = new Set(["type", "command", "args", "env", "cwd"]);
+const HTTP_HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const HTTP_HEADER_VALUE_PATTERN = /^[\t\x20-\x7e\x80-\xff]*$/;
+const PLUGIN_ROOT_PLACEHOLDER = `\${PLUGIN_ROOT}`;
+const PLUGIN_DATA_PLACEHOLDER = `\${PLUGIN_DATA}`;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -506,6 +516,307 @@ async function loadSkills(
   return skills;
 }
 
+function hasOnlyFields(
+  value: Record<string, unknown>,
+  allowedFields: ReadonlySet<string>,
+): boolean {
+  return Object.keys(value).every((field) => allowedFields.has(field));
+}
+
+function parseHttpHeaders(value: unknown): Record<string, string> | null {
+  if (value === undefined) return {};
+  if (!isObject(value)) return null;
+
+  const headers: Record<string, string> = {};
+  const names = new Set<string>();
+  for (const [name, headerValue] of Object.entries(value)) {
+    const normalizedName = name.toLowerCase();
+    if (
+      names.has(normalizedName) ||
+      !HTTP_HEADER_NAME_PATTERN.test(name) ||
+      typeof headerValue !== "string" ||
+      !HTTP_HEADER_VALUE_PATTERN.test(headerValue)
+    ) {
+      return null;
+    }
+    names.add(normalizedName);
+    headers[name] = headerValue;
+  }
+  return headers;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  if (hostname === "localhost") return true;
+  const unwrappedHostname =
+    hostname.startsWith("[") && hostname.endsWith("]")
+      ? hostname.slice(1, -1)
+      : hostname;
+  const ipVersion = net.isIP(unwrappedHostname);
+  if (ipVersion === 4) {
+    return unwrappedHostname.startsWith("127.");
+  }
+  return ipVersion === 6 && unwrappedHostname === "::1";
+}
+
+function parseRemoteMcpServer(
+  serverName: string,
+  value: Record<string, unknown>,
+): AgentPluginHttpMcpServer | null {
+  if (!hasOnlyFields(value, REMOTE_MCP_FIELDS)) return null;
+  if (value.type !== "streamable-http" && value.type !== "sse") {
+    return null;
+  }
+  if (typeof value.url !== "string") return null;
+
+  let url: URL;
+  try {
+    url = new URL(value.url);
+  } catch {
+    return null;
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hash !== "" ||
+    (url.protocol === "http:" && !isLoopbackHostname(url.hostname))
+  ) {
+    return null;
+  }
+
+  const headers = parseHttpHeaders(value.headers);
+  if (!headers) return null;
+  if (value.type === "sse") return null;
+
+  return {
+    name: serverName,
+    type: "streamable-http",
+    url: url.toString(),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+  };
+}
+
+function isContainedPluginPath(pluginRoot: string, value: string): boolean {
+  return (
+    value.startsWith("./") &&
+    isPathContained(pluginRoot, path.resolve(pluginRoot, value))
+  );
+}
+
+function isValidStdioCwd(pluginRoot: string, value: string): boolean {
+  if (value.startsWith("./")) return isContainedPluginPath(pluginRoot, value);
+  for (const placeholder of [
+    PLUGIN_ROOT_PLACEHOLDER,
+    PLUGIN_DATA_PLACEHOLDER,
+  ]) {
+    if (value === placeholder) return true;
+    if (value.startsWith(`${placeholder}/`)) {
+      const normalizedValue = path.posix.normalize(
+        value.slice(placeholder.length + 1),
+      );
+      return (
+        normalizedValue !== ".." &&
+        !normalizedValue.startsWith("../") &&
+        !path.posix.isAbsolute(normalizedValue)
+      );
+    }
+  }
+  return false;
+}
+
+function isValidUnsupportedMcpServer(
+  pluginRoot: string,
+  value: Record<string, unknown>,
+): value is Record<string, unknown> & { type: "stdio" | "sse" } {
+  if (value.type === "sse") {
+    if (!hasOnlyFields(value, REMOTE_MCP_FIELDS)) return false;
+    if (typeof value.url !== "string") return false;
+    const headers = parseHttpHeaders(value.headers);
+    if (!headers) return false;
+    try {
+      const url = new URL(value.url);
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        url.username === "" &&
+        url.password === "" &&
+        url.hash === "" &&
+        (url.protocol === "https:" || isLoopbackHostname(url.hostname))
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  if (value.type !== "stdio" || !hasOnlyFields(value, STDIO_MCP_FIELDS)) {
+    return false;
+  }
+  if (typeof value.command !== "string" || value.command.length === 0) {
+    return false;
+  }
+  const isPluginCommand = value.command.startsWith("./");
+  const isBareCommand =
+    !value.command.includes("/") &&
+    !value.command.includes("\\") &&
+    !/\s/.test(value.command);
+  if (
+    (isPluginCommand && !isContainedPluginPath(pluginRoot, value.command)) ||
+    (!isPluginCommand && !isBareCommand)
+  ) {
+    return false;
+  }
+  if (
+    value.args !== undefined &&
+    (!Array.isArray(value.args) ||
+      !value.args.every((argument) => typeof argument === "string"))
+  ) {
+    return false;
+  }
+  if (value.env !== undefined) {
+    if (
+      !isObject(value.env) ||
+      Object.keys(value.env).some(
+        (name) => name === "PLUGIN_ROOT" || name === "PLUGIN_DATA",
+      ) ||
+      !Object.values(value.env).every(
+        (environmentValue) => typeof environmentValue === "string",
+      )
+    ) {
+      return false;
+    }
+  }
+  return (
+    value.cwd === undefined ||
+    (typeof value.cwd === "string" && isValidStdioCwd(pluginRoot, value.cwd))
+  );
+}
+
+async function loadMcpServers(
+  pluginRoot: string,
+  diagnostics: AgentPluginDiagnostic[],
+): Promise<AgentPluginHttpMcpServer[]> {
+  const mcpPath = path.join(pluginRoot, "mcp.json");
+  let resolvedMcpPath: string;
+  try {
+    resolvedMcpPath = await fs.promises.realpath(mcpPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    diagnostics.push(
+      diagnostic(
+        "error",
+        "invalid_mcp_config",
+        "Could not read mcp.json. MCP servers from this plugin are disabled.",
+        "mcp.json",
+      ),
+    );
+    return [];
+  }
+
+  if (!isPathContained(pluginRoot, resolvedMcpPath)) {
+    diagnostics.push(
+      diagnostic(
+        "error",
+        "mcp_escape",
+        "mcp.json resolves outside the plugin directory. MCP servers from this plugin are disabled.",
+        "mcp.json",
+      ),
+    );
+    return [];
+  }
+
+  let rawMcp: unknown;
+  try {
+    const stat = await fs.promises.stat(resolvedMcpPath);
+    if (!stat.isFile()) throw new Error("not a file");
+    rawMcp = JSON.parse(await fs.promises.readFile(resolvedMcpPath, "utf8"));
+  } catch (error) {
+    diagnostics.push(
+      diagnostic(
+        "error",
+        "invalid_mcp_config",
+        error instanceof SyntaxError
+          ? "mcp.json is not valid JSON. MCP servers from this plugin are disabled."
+          : "mcp.json is not a regular file. MCP servers from this plugin are disabled.",
+        "mcp.json",
+      ),
+    );
+    return [];
+  }
+
+  if (
+    !isObject(rawMcp) ||
+    !hasOnlyFields(rawMcp, MCP_TOP_LEVEL_FIELDS) ||
+    rawMcp.$schema !== AGENT_PLUGINS_MCP_SCHEMA ||
+    !isObject(rawMcp.mcpServers)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "error",
+        "invalid_mcp_config",
+        `mcp.json must target ${AGENT_PLUGINS_MCP_SCHEMA} and contain only an mcpServers object. MCP servers from this plugin are disabled.`,
+        "mcp.json",
+      ),
+    );
+    return [];
+  }
+
+  const servers: AgentPluginHttpMcpServer[] = [];
+  for (const [serverName, rawServer] of Object.entries(rawMcp.mcpServers).sort(
+    ([left], [right]) => left.localeCompare(right),
+  )) {
+    const serverPath = `mcp.json/mcpServers/${serverName}`;
+    if (!isObject(rawServer)) {
+      diagnostics.push(
+        diagnostic(
+          "error",
+          "invalid_mcp_server",
+          `Skipped MCP server ${serverName} because its configuration is invalid.`,
+          serverPath,
+        ),
+      );
+      continue;
+    }
+
+    if (rawServer.type === "streamable-http") {
+      const server = parseRemoteMcpServer(serverName, rawServer);
+      if (server) {
+        servers.push(server);
+      } else {
+        diagnostics.push(
+          diagnostic(
+            "error",
+            "invalid_mcp_server",
+            `Skipped MCP server ${serverName} because its Streamable HTTP configuration is invalid.`,
+            serverPath,
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (isValidUnsupportedMcpServer(pluginRoot, rawServer)) {
+      diagnostics.push(
+        diagnostic(
+          "warning",
+          "unsupported_mcp_transport",
+          `Skipped MCP server ${serverName} because ${rawServer.type} transport is not supported yet.`,
+          serverPath,
+        ),
+      );
+      continue;
+    }
+
+    diagnostics.push(
+      diagnostic(
+        "error",
+        "invalid_mcp_server",
+        `Skipped MCP server ${serverName} because its configuration is invalid.`,
+        serverPath,
+      ),
+    );
+  }
+  return servers;
+}
+
 export async function loadAgentPlugin(
   sourcePath: string,
 ): Promise<AgentPluginPreview> {
@@ -527,6 +838,7 @@ export async function loadAgentPlugin(
         sourcePath: path.resolve(sourcePath),
         manifest: null,
         skills: [],
+        mcpServers: [],
         diagnostics,
       };
     }
@@ -543,6 +855,7 @@ export async function loadAgentPlugin(
       sourcePath: path.resolve(sourcePath),
       manifest: null,
       skills: [],
+      mcpServers: [],
       diagnostics,
     };
   }
@@ -565,6 +878,7 @@ export async function loadAgentPlugin(
         sourcePath: pluginRoot,
         manifest: null,
         skills: [],
+        mcpServers: [],
         diagnostics,
       };
     }
@@ -589,6 +903,7 @@ export async function loadAgentPlugin(
       sourcePath: pluginRoot,
       manifest: null,
       skills: [],
+      mcpServers: [],
       diagnostics,
     };
   }
@@ -600,16 +915,21 @@ export async function loadAgentPlugin(
       sourcePath: pluginRoot,
       manifest: null,
       skills: [],
+      mcpServers: [],
       diagnostics,
     };
   }
 
-  const skills = await loadSkills(pluginRoot, diagnostics);
+  const [skills, mcpServers] = await Promise.all([
+    loadSkills(pluginRoot, diagnostics),
+    loadMcpServers(pluginRoot, diagnostics),
+  ]);
   return {
     valid: true,
     sourcePath: pluginRoot,
     manifest,
     skills,
+    mcpServers,
     diagnostics,
   };
 }
