@@ -590,6 +590,9 @@ async def run_eval_report_agent_activity(
             return (
                 run_eval_report_agent(
                     team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    trace_id=inputs.trace_id,
+                    session_id=inputs.session_id,
                     evaluation_id=inputs.evaluation_id,
                     evaluation_name=inputs.evaluation_name,
                     evaluation_description=inputs.evaluation_description,
