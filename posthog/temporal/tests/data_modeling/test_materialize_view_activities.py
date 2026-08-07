@@ -856,8 +856,9 @@ class TestMaterializeViewActivity:
             del args, kwargs
 
             async def async_generator():
+                for _ in range(0):  # never runs, but makes this an async generator
+                    yield
                 raise QueryError("Cannot query the `dashboards` table here.")
-                yield  # unreachable, but makes this an async generator
 
             return async_generator()
 
