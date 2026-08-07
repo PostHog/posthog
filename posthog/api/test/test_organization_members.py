@@ -734,7 +734,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             ("enforced_and_licensed", "saml", [{"key": "sso_enforcement"}, {"key": "saml"}], True),
             ("not_enforced", "", [{"key": "sso_enforcement"}, {"key": "saml"}], False),
             ("enforced_without_license", "saml", [], False),
-            ("unrecognized_provider", "okta-legacy", [{"key": "sso_enforcement"}], False),
+            ("unrecognized_provider_still_enforces", "okta-legacy", [{"key": "sso_enforcement"}], True),
         ]
     )
     def test_has_sso_enforcement(self, _name, sso_enforcement, available_product_features, expected):

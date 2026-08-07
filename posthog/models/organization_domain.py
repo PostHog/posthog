@@ -185,7 +185,8 @@ class OrganizationDomainManager(models.Manager):
         organization_id: Any,
     ) -> bool:
         """Whether a domain's configured `sso_enforcement` actually applies — the organization must be
-        licensed for it, and the enforced provider must be configured."""
+        licensed for it, and a recognized provider must be configured. A provider we don't recognize
+        still counts as enforcing, so a broken config can't quietly re-enable password login."""
         available_product_feature_keys = [feature["key"] for feature in available_product_features]
         # Check organization has a license to enforce SSO
         if AvailableFeature.SSO_ENFORCEMENT not in available_product_feature_keys:
@@ -208,9 +209,19 @@ class OrganizationDomainManager(models.Manager):
                 return False
         else:
             sso_providers = get_instance_available_sso_providers()
-            # An unrecognized value (a provider we no longer support, say) counts as not configured.
-            # Subscripting would raise instead, and this now runs per member-list request.
-            if not sso_providers.get(candidate_sso_enforcement, False):
+            if candidate_sso_enforcement not in sso_providers:
+                # A value outside the provider list means the domain's config is broken. Keep
+                # enforcing rather than falling back to password login, which would quietly undo
+                # what the organization asked for; the auth callers already refuse a value they
+                # don't recognize. Subscripting here used to raise instead.
+                logger.warning(
+                    f"SSO is enforced for domain {domain} with an unrecognized provider ({candidate_sso_enforcement}).",
+                    domain=domain,
+                    candidate_sso_enforcement=candidate_sso_enforcement,
+                )
+                return True
+
+            if not sso_providers[candidate_sso_enforcement]:
                 logger.warning(
                     f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
                     domain=domain,
