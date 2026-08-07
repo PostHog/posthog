@@ -6,10 +6,15 @@ FROM posthog-sandbox-base
 
 COPY local-workspace /local-workspace
 
+# The agent pulls a few ~100MB platform binaries (@openai/codex, the Claude agent SDK).
+# pnpm's 60s per-request default expires mid-download on a slow link, and the whole layer
+# is then lost to a timeout after ~9 minutes of work.
+ENV npm_config_fetch_timeout=600000
+
 RUN cd /local-workspace && \
-    pnpm install --filter @posthog/agent... --ignore-scripts --frozen-lockfile && \
+    pnpm install --filter @posthog/agent... --ignore-scripts --frozen-lockfile --config.fetchTimeout=600000 && \
     cd /local-workspace/packages/agent && \
     pnpm pack --pack-destination /tmp && \
     cd /scripts && \
-    pnpm install /tmp/posthog-agent-*.tgz --config.dangerouslyAllowAllBuilds=true && \
+    pnpm install /tmp/posthog-agent-*.tgz --config.dangerouslyAllowAllBuilds=true --config.fetchTimeout=600000 && \
     rm -rf /tmp/posthog-agent-*.tgz /local-workspace

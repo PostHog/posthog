@@ -289,6 +289,18 @@ class TestClerkSourceResumeBehavior:
 
 
 class TestClerkEndpoints:
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            # Clerk renamed these from /commerce/... to /billing/...; the old path now answers
+            # 400 Bad Request instead of serving the list.
+            ("commerce_plans", "/billing/plans"),
+            ("commerce_subscription_items", "/billing/subscription_items"),
+        ],
+    )
+    def test_commerce_endpoints_use_the_renamed_billing_path(self, endpoint: str, path: str) -> None:
+        assert CLERK_ENDPOINTS[endpoint].path == path
+
     @pytest.mark.parametrize("endpoint", sorted(CLERK_ENDPOINTS))
     def test_resource_targets_the_configured_path(self, endpoint: str) -> None:
         config = CLERK_ENDPOINTS[endpoint]

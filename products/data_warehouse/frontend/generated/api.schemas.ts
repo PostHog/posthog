@@ -2647,6 +2647,7 @@ export interface CredentialApi {
  * * `WindsorAi` - WindsorAi
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
+ * * `Motion` - Motion
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3933,6 +3934,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WindsorAi: 'WindsorAi',
     Wix: 'Wix',
     Sevalla: 'Sevalla',
+    Motion: 'Motion',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
