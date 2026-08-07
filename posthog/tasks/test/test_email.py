@@ -2067,7 +2067,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
-                "newly_paused_view_is_included",
+                "unscheduled_failing_view_is_included",
                 {
                     "sync_frequency_interval": None,
                     "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
@@ -2076,7 +2076,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
-                "old_paused_view_is_skipped",
+                "unscheduled_view_with_old_failure_is_skipped",
                 {
                     "sync_frequency_interval": None,
                     "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
@@ -2092,6 +2092,24 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     ("COMPLETED", dt.timedelta(hours=1), None),
                 ],
                 False,
+            ),
+            (
+                "v2_view_with_stale_error_and_completed_run_is_skipped",
+                {
+                    "sync_frequency_interval": None,
+                    "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
+                },
+                [
+                    ("FAILED", dt.timedelta(days=20), "Query exceeded timeout"),
+                    ("COMPLETED", dt.timedelta(hours=1), None),
+                ],
+                False,
+            ),
+            (
+                "v2_failing_view_null_latest_error",
+                {"sync_frequency_interval": None},
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
+                True,
             ),
         ]
     )
@@ -2274,11 +2292,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
-        paused_cases = [
+        unscheduled_cases = [
             ("heavy_joins_with_warehouse", "Query timed out after 900 seconds"),
             ("experimental_feature_funnels", "Query timed out after 900 seconds"),
         ]
-        for name, error in paused_cases:
+        for name, error in unscheduled_cases:
             sq = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=name,
@@ -2298,11 +2316,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         html = mocked_email_messages[0].html_body
-        for name, _ in failed_cases + paused_cases:
+        for name, _ in failed_cases + unscheduled_cases:
             assert name in html
-        assert ">Paused<" in html
-        # Paused views render the check glyph; non-paused render an em-dash.
-        assert "&#10003;" in html
+        # The digest never flags views as paused, so every row renders the em-dash glyph.
+        assert "&#10003;" not in html
         assert "&#8212;" in html
 
     @parameterized.expand(
