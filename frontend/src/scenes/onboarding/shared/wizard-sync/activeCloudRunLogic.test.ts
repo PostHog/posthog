@@ -354,5 +354,95 @@ describe('activeCloudRunLogic', () => {
 
             expect(logic.values.activeCloudRun).toMatchObject({ taskId: 'new-task', runId: 'new-run' })
         })
+
+        describe('serverReportedRun', () => {
+            it('publishes a non-terminal status while keeping the tracked handle', async () => {
+                // Guards against over-correcting: a live-run answer must not read as terminal news.
+                mockActiveWizardRun.mockResolvedValue({
+                    task_id: 'task-1',
+                    run_id: 'run-1',
+                    status: 'in_progress',
+                    started_at: RUN_STARTED_AT,
+                })
+                logic = activeCloudRunLogic()
+                logic.mount()
+                logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
+                await expectLogic(logic).toDispatchActions(['hydrateFromServer'])
+
+                expect(logic.values.activeCloudRun).toMatchObject({ taskId: 'task-1', runId: 'run-1' })
+                expect(logic.values.serverReportedRun).toEqual({ runId: 'run-1', status: 'in_progress' })
+            })
+
+            it('publishes a terminal status without clearing the handle', async () => {
+                // The handle must survive a terminal answer: clearing it here would drop the
+                // finished-run handoff (completion card, PR link) before the user dismissed it.
+                // taskRunStreamLogic is what acts on the terminal status published here.
+                mockActiveWizardRun.mockResolvedValue({
+                    task_id: 'task-1',
+                    run_id: 'run-1',
+                    status: 'failed',
+                    started_at: RUN_STARTED_AT,
+                })
+                logic = activeCloudRunLogic()
+                logic.mount()
+                logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
+                await expectLogic(logic).toDispatchActions(['hydrateFromServer'])
+
+                expect(logic.values.activeCloudRun).not.toBeNull()
+                expect(logic.values.serverReportedRun).toEqual({ runId: 'run-1', status: 'failed' })
+            })
+
+            it('publishes a terminal status for a run adopted from the server', async () => {
+                // The drop-flow adopt path seeds a handle for a run this browser never started. If
+                // the server already reports it finished, the newly-adopted card must not render as
+                // if the run were still live.
+                initAs('provisioned', { ...MOCK_DEFAULT_TEAM, completed_snippet_onboarding: false })
+                mockActiveWizardRun.mockResolvedValue({
+                    task_id: 'srv-task',
+                    run_id: 'srv-run',
+                    status: 'completed',
+                    started_at: '2026-02-02T00:00:00Z',
+                })
+                logic = activeCloudRunLogic()
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['hydrateFromServer', 'setActiveCloudRun'])
+
+                expect(logic.values.activeCloudRun).toMatchObject({ taskId: 'srv-task', runId: 'srv-run' })
+                expect(logic.values.serverReportedRun).toEqual({ runId: 'srv-run', status: 'completed' })
+            })
+
+            it('does not survive onto a different run', async () => {
+                // A stale terminal status about a superseded run must never leak onto whatever run
+                // replaces it, whether that run arrives via a fresh kickoff or a dismiss.
+                mockActiveWizardRun.mockResolvedValueOnce({
+                    task_id: 'task-1',
+                    run_id: 'run-1',
+                    status: 'completed',
+                    started_at: RUN_STARTED_AT,
+                })
+                logic = activeCloudRunLogic()
+                logic.mount()
+                logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
+                await expectLogic(logic).toDispatchActions(['hydrateFromServer'])
+                expect(logic.values.serverReportedRun).toEqual({ runId: 'run-1', status: 'completed' })
+
+                logic.actions.setActiveCloudRun('task-2', 'run-2', '2026-01-02T00:00:00Z', MOCK_TEAM_ID)
+                expect(logic.values.serverReportedRun).toBeNull()
+
+                mockActiveWizardRun.mockResolvedValueOnce({
+                    task_id: 'task-2',
+                    run_id: 'run-2',
+                    status: 'failed',
+                    started_at: '2026-01-02T00:00:00Z',
+                })
+                logic.actions.hydrateFromServer()
+                await expectLogic(logic).toDispatchActions(['hydrateFromServer'])
+                expect(logic.values.serverReportedRun).toEqual({ runId: 'run-2', status: 'failed' })
+
+                logic.actions.clearActiveCloudRun()
+                expect(logic.values.serverReportedRun).toBeNull()
+            })
+        })
     })
 })

@@ -620,4 +620,86 @@ describe('taskRunStreamLogic transport', () => {
         expect(MockEventSource.instances).toHaveLength(2)
         expect(logic.values.isStalled).toBe(true)
     })
+
+    describe('settling from activeCloudRunLogic.serverReportedRun', () => {
+        it('settles a terminal status the server reported when the stream never delivered one', async () => {
+            // THE BUG: a run's terminal outcome is published once over SSE. If the tab is closed (or
+            // the stream never reconnects) at that moment, this logic never sees it any other way —
+            // there is no catch-up on reconnect. Before this fix the card stayed on "Setting up
+            // PostHog" with a running clock for up to 24 hours, and Cancel had nothing left to cancel.
+            // No stream was ever opened here, matching a fresh mount of a tab reopened after the run
+            // already finished.
+            mockRunRetrieve.mockResolvedValue(runDetail({ status: 'failed', error_message: 'boom' }))
+            expect(logic.values.taskRunState).toBeNull()
+
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'failed')
+            await flushFallback()
+
+            expect(mockRunRetrieve).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'task-1', 'run-1')
+            expect(logic.values.taskRunState).toMatchObject({ status: 'failed' })
+            expect(logic.values.isComplete).toBe(true)
+        })
+
+        it('carries the PR url through a server-reported completion', async () => {
+            // The regression the reconcileCloudRun docstring is worried about: a completion the
+            // client never watched live must still render its PR link, not a bare "done" with no
+            // handoff. The thin reconcile payload has no output field, so this only works if the
+            // settle goes through the run's REST detail rather than synthesizing state from it.
+            mockRunRetrieve.mockResolvedValue(
+                runDetail({
+                    status: 'completed',
+                    completed_at: '2026-01-01T00:06:00Z',
+                    output: { pr_url: 'https://x/pull/9' },
+                })
+            )
+
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'completed')
+            await flushFallback()
+
+            expect(logic.values.taskRunState).toMatchObject({
+                status: 'completed',
+                output: { pr_url: 'https://x/pull/9' },
+            })
+            expect(logic.values.isComplete).toBe(true)
+        })
+
+        it('does not fetch run detail for a non-terminal server-reported status', async () => {
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'in_progress')
+            await flushFallback()
+
+            expect(mockRunRetrieve).not.toHaveBeenCalled()
+            expect(logic.values.taskRunState).toBeNull()
+        })
+
+        it('does not re-fetch run detail once the local state is already terminal', async () => {
+            // The reconcile that feeds serverReportedRun runs every 60s. Once this run has settled,
+            // every later tick confirming the same terminal status must not cost another request.
+            mockRunRetrieve.mockResolvedValue(runDetail({ status: 'completed', completed_at: '2026-01-01T00:06:00Z' }))
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'completed')
+            await flushFallback()
+            expect(mockRunRetrieve).toHaveBeenCalledTimes(1)
+
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'completed')
+            await flushFallback()
+
+            expect(mockRunRetrieve).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not re-fetch after a permanent run-detail error', async () => {
+            // A deleted run or revoked access fails the same way every time. Without the permanent-error
+            // guard this would refetch (and fail again) on every 60s reconcile tick for as long as the
+            // server keeps reporting the run terminal.
+            mockRunRetrieve.mockRejectedValue(new ApiError('not found', 404))
+
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'failed')
+            await flushFallback()
+            expect(mockRunRetrieve).toHaveBeenCalledTimes(1)
+            expect(logic.values.isStalled).toBe(true)
+
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'failed')
+            await flushFallback()
+
+            expect(mockRunRetrieve).toHaveBeenCalledTimes(1)
+        })
+    })
 })
