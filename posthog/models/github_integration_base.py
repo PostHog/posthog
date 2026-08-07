@@ -406,6 +406,12 @@ class GitHubIntegrationBase:
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
+        # The token response names the permissions this installation actually holds. Persisting them
+        # lets the warehouse schema picker mark tables the installation can't read without an API
+        # call, and keeps the copy current as the App's requested permissions change: every hourly
+        # refresh rewrites it, including for integrations connected before this key existed.
+        if isinstance(data.get("permissions"), dict):
+            config["permissions"] = data["permissions"]
         config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
         self.integration.config = config
         self.integration.sensitive_config = {
