@@ -134,17 +134,29 @@ WITH per_user AS (
 )
 SELECT
     count() AS users,
-    round(sum(total_cost), 4) AS total_cost,
+    round(sum(total_cost), 4) AS project_total_cost,
     round(avg(total_cost), 4) AS avg_cost_per_user,
     round(quantile(0.5)(total_cost), 4) AS p50_user_cost,
     round(quantile(0.9)(total_cost), 4) AS p90_user_cost,
     round(quantile(0.99)(total_cost), 4) AS p99_user_cost,
-    round(avg(avg_cost_per_generation), 6) AS avg_cost_per_generation,
-    round(avg(avg_input_tokens), 0) AS avg_input_tokens,
-    round(avg(avg_output_tokens), 0) AS avg_output_tokens,
+    round(avg(avg_cost_per_generation), 6) AS mean_user_cost_per_generation,
+    round(avg(avg_input_tokens), 0) AS mean_user_input_tokens,
+    round(avg(avg_output_tokens), 0) AS mean_user_output_tokens,
     round(sum(errors) / nullIf(sum(generations), 0), 4) AS error_rate
 FROM per_user
 ```
+
+The outer aggregate columns are named differently from the CTE columns they
+aggregate (`project_total_cost`, not `total_cost`). HogQL resolves a bare
+`total_cost` inside the outer `sum()`/`avg()` back to the output alias of the
+same name, which nests one aggregate inside another and fails the query with
+`Aggregate function sum(per_user.total_cost) is found inside another aggregate
+function`. Keep the two levels of names distinct.
+
+If the baseline query still errors, report that the baseline is unavailable and
+say so in the response. Do not fabricate p50/p90/p99 figures or claim a user is
+"Nx above the median" without them — rank by absolute cost and share of spend
+instead, and note that the per-user distribution could not be computed.
 
 When reporting top users, include each user's share of total spend and how many
 multiples above p50/p90 they are. That makes the skew obvious.
