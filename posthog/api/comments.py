@@ -524,8 +524,15 @@ class CommentErrorSerializer(serializers.Serializer):
 
 
 class CommentPagination(pagination.CursorPagination):
-    ordering = ("-created_at", "-id")
+    ordering = ("-created_at",)
     page_size = 100
+
+    def get_ordering(self, request: Request, queryset: QuerySet, view: Any) -> tuple[str, ...]:
+        if request.query_params.get("scope") == "task" and str_to_bool(
+            request.query_params.get("include_task_resources")
+        ):
+            return ("-created_at", "-id")
+        return self.ordering
 
 
 class CommentListQueryParamsSerializer(serializers.Serializer):
