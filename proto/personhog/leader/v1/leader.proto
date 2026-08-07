@@ -56,8 +56,9 @@ service PersonHogLeader {
   // changelog, and return it. Properties fold target-wins: the target
   // keeps every key it has, snapshots fill still-absent keys in request
   // order, then the merge event's $set overrides and $set_once fills.
-  // Scalars fold as created_at = min(target, sources) and
-  // is_identified = true; the version is max(target, max sealed) + 1, a
+  // Scalars fold as created_at = min(target, sources),
+  // is_identified = true, and last_seen_at = max(target, sources); the
+  // version is max(target, max sealed) + 1, a
   // max-merge that stays above every sealed source's death document.
   // Safe under at-least-once delivery: re-applying the same fold on
   // unchanged target state changes no content and only bumps the version.

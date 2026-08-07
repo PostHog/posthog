@@ -394,7 +394,8 @@ message FoldPersonDocumentRequest {
 message FoldPersonDocumentResponse {
   // The folded document exactly as produced to the changelog:
   // target-wins properties, created_at = min(target, sources),
-  // is_identified = true, version = max(target, max sealed) + 1.
+  // is_identified = true, last_seen_at = max(target, sources),
+  // version = max(target, max sealed) + 1.
   // One exception: when the target's stored properties violate the size
   // constraint beyond remediation (protected keys alone exceed the
   // ceiling), no applyable document exists — the fold produces nothing
