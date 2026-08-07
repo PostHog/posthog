@@ -71,8 +71,8 @@ def _summarize_trend_kind(
 
 def _sample_notice(shown: int, total: int, *, noun: str, ordered: bool) -> str:
     # Directive, like the exclusion note: a model given only the count still wrote "all series".
-    which = "largest" if ordered else "first"
-    return f"(These are the {shown} {which} of {total} {noun} — describe them as those {shown}, never as all {noun}.)"
+    which = f"{shown} largest" if ordered else f"first {shown}"
+    return f"(These are the {which} of {total} {noun} — describe them as those {shown}, never as all {noun}.)"
 
 
 def _truncate(text: str, total: int, *, noun: str, ordered: bool) -> str:
