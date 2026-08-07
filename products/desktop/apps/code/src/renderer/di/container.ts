@@ -127,6 +127,7 @@ import {
   MCP_APP_HOST_COMPONENT,
   MCP_SANDBOX_PROXY_URL,
 } from "@posthog/ui/features/mcp-apps/identifiers";
+import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrame";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
   localHandoffDialog,
@@ -152,6 +153,7 @@ import {
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 import { HOST_LOGGER } from "@posthog/ui/shell/logger";
 import { posthogAnalyticsTracker } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { ElectronArtifactHtmlFrame } from "@renderer/features/artifact-preview/ElectronArtifactHtmlFrame";
 import {
   diffWorkerFactory,
   reviewHost,
@@ -279,6 +281,10 @@ container.bind(FOCUS_CONTROLLER_DEPS).toConstantValue(focusDeps);
 // code-review host (diff worker factory + expanded-review sidebar)
 container.bind(DIFF_WORKER_FACTORY).toConstantValue(diffWorkerFactory);
 container.bind<ReviewHost>(REVIEW_HOST).toConstantValue(reviewHost);
+
+container
+  .bind(ARTIFACT_HTML_FRAME_COMPONENT)
+  .toConstantValue(ElectronArtifactHtmlFrame);
 
 // sessions MCP tool renderer slot
 container.bind(MCP_TOOL_BLOCK_COMPONENT).toConstantValue(McpToolBlock);
