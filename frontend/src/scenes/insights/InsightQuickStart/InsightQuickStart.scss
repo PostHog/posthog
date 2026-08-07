@@ -1,6 +1,14 @@
 .InsightQuickStart__card {
-    opacity: 0;
-    animation: InsightQuickStart__cardEnter 0.4s ease-out forwards;
+    // Cards are visible at rest; the entrance animation is purely decorative. With
+    // `backwards` fill-mode the transient hidden state only applies during the delay,
+    // so a paused (hidden tab) or replayed (flags resolving) animation can never leave
+    // the grid blank.
+    opacity: 1;
+    animation: InsightQuickStart__cardEnter 0.4s ease-out backwards;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
 }
 
 @keyframes InsightQuickStart__cardEnter {
