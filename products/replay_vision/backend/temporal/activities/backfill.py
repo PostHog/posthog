@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -44,7 +45,6 @@ from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_TYPE,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
-    in_flight_headroom,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_backfill_tick_outcome
@@ -124,10 +124,12 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     if backfill is None:
         return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=False)
 
-    rows = count_in_flight_rows(inputs.team_id, backfill.scanner_id)
-    if in_flight_headroom(rows["scanner"], rows["team"]) <= 0:
+    rows = count_in_flight_rows(inputs.team_id, backfill.scanner_id, backfill.id)
+    capacity = count_in_flight(inputs.team_id, backfill.scanner_id, backfill.id)
+    if backfill_dispatch_budget(capacity["scanner"], capacity["team"], capacity["backfill"]) <= 0:
         # Headroom vanished since the prepare gate; skip the enumeration rather than run the tick's
-        # most expensive query only to refuse every candidate it returns.
+        # most expensive query only to have every candidate refused by the claim below. Checked
+        # against the same caps the claim enforces, sub-cap included, so it can actually fire.
         record_backfill_tick_outcome("throttled")
         return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=True)
 
@@ -153,25 +155,51 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
     ).run()
 
-    # Claim a slot per candidate before the workflow starts its children: a started child is
-    # invisible to the row-count caps until it persists its observation, so concurrent ticks would
-    # otherwise all read the same headroom. `create_observation_activity` releases the claim once
-    # the row exists, and unreleased claims expire on their own TTL.
+    # Dedup at creation only collides with a *running* apply, so without this a re-run over an
+    # already-scanned window pays for a child workflow per session just to no-op.
+    already_observed = set(
+        ReplayObservation.objects.filter(
+            team_id=inputs.team_id,
+            scanner_id=backfill.scanner_id,
+            session_id__in=[c.session_id for c in candidates],
+        ).values_list("session_id", flat=True)
+    )
+    dispatchable = [c for c in candidates if c.session_id not in already_observed]
+
+    # Claim a slot per dispatchable candidate before the workflow starts its children: a started
+    # child is invisible to the row-count caps until it persists its observation, so successive
+    # ticks would otherwise all read the same headroom. `create_observation_activity` releases the
+    # claim once the row exists, and an unreleased claim expires on its own TTL.
     admitted = claim_enqueue_slot_prefix(
         team_id=inputs.team_id,
         scanner_id=backfill.scanner_id,
-        workflow_ids=[build_apply_scanner_workflow_id(backfill.scanner_id, c.session_id) for c in candidates],
+        workflow_ids=[build_apply_scanner_workflow_id(backfill.scanner_id, c.session_id) for c in dispatchable],
         team_in_flight_rows=rows["team"],
         scanner_in_flight_rows=rows["scanner"],
+        backfill_id=backfill.id,
+        backfill_in_flight_rows=rows["backfill"],
     )
 
+    # The cursor may step over an already-observed session, because nothing will ever need doing for
+    # it, but never over one the caps held back. Claiming stops at the first refusal, so the admitted
+    # set is a prefix of `dispatchable` and everything before it in `candidates` is accounted for.
+    truncated_by_caps = admitted < len(dispatchable)
+    if truncated_by_caps:
+        walked_to = dispatchable[admitted - 1] if admitted else None
+    else:
+        walked_to = candidates[-1]
+
     return FindBackfillCandidatesOutput(
+        started_from_cursor_end_time=backfill.cursor_end_time,
+        started_from_cursor_session_id=backfill.cursor_session_id,
         candidates=[
-            CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates[:admitted]
+            CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in dispatchable[:admitted]
         ],
+        next_cursor_end_time=walked_to.session_end if walked_to else None,
+        next_cursor_session_id=walked_to.session_id if walked_to else "",
         # Held-back candidates are still work below the cursor, so a truncated batch must not look
         # like a drained window; that would complete the backfill with sessions left unscanned.
-        more_work_below_cursor=len(candidates) == inputs.candidate_limit or admitted < len(candidates),
+        more_work_below_cursor=len(candidates) == inputs.candidate_limit or truncated_by_caps,
     )
 
 
@@ -189,9 +217,17 @@ def advance_backfill_cursor_activity(inputs: AdvanceBackfillCursorInputs) -> Adv
     if inputs.exhausted:
         updates["status"] = BackfillStatus.COMPLETED
         updates["finished_at"] = timezone.now()
+    # Matching the starting cursor makes this idempotent: Temporal retries an activity whose result
+    # was lost after it committed, and a second blind increment would inflate progress and understate
+    # the backfill's remaining credit commitment.
     updated = (
         ReplayScannerBackfill.objects.for_team(inputs.team_id)
-        .filter(pk=inputs.backfill_id, status=BackfillStatus.RUNNING)
+        .filter(
+            pk=inputs.backfill_id,
+            status=BackfillStatus.RUNNING,
+            cursor_end_time=inputs.expected_cursor_end_time,
+            cursor_session_id=inputs.expected_cursor_session_id,
+        )
         .update(**updates)
     )
     finished = inputs.exhausted and updated > 0

@@ -8,6 +8,7 @@ from temporalio import activity
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.enqueue_claims import (
+    pending_enqueue_claims_for_backfill,
     pending_enqueue_claims_for_scanner,
     pending_enqueue_claims_for_team,
 )
@@ -58,6 +59,10 @@ def count_in_flight(team_id: int, scanner_id: UUID, backfill_id: UUID | None = N
     counts = count_in_flight_rows(team_id, scanner_id, backfill_id)
     counts["team"] += pending_enqueue_claims_for_team(team_id)
     counts["scanner"] += pending_enqueue_claims_for_scanner(scanner_id)
+    if backfill_id is not None:
+        # Without this the sub-cap only ever sees persisted rows, so the next tick re-spends the
+        # slots this one took while its children were still queued.
+        counts["backfill"] += pending_enqueue_claims_for_backfill(backfill_id)
     return counts
 
 

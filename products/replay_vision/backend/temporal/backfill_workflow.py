@@ -89,14 +89,15 @@ class BackfillScannerWorkflow(PostHogWorkflow):
             # a session observed live is skipped here for free.
             await asyncio.gather(*(self._start_child(inputs, c) for c in find_result.candidates))
 
-        # An empty batch leaves the cursor where it is, so a tick that dispatched nothing because the
-        # caps were full retries those sessions rather than stepping over them.
-        last = find_result.candidates[-1] if find_result.candidates else None
+        # The activity decides how far the walk got, since it can step over sessions that were
+        # already observed but must not step over ones the caps held back.
         advance = AdvanceBackfillCursorInputs(
             backfill_id=inputs.backfill_id,
             team_id=inputs.team_id,
-            new_cursor_end_time=last.session_end if last else None,
-            new_cursor_session_id=last.session_id if last else "",
+            new_cursor_end_time=find_result.next_cursor_end_time,
+            new_cursor_session_id=find_result.next_cursor_session_id,
+            expected_cursor_end_time=find_result.started_from_cursor_end_time,
+            expected_cursor_session_id=find_result.started_from_cursor_session_id,
             dispatched_delta=len(find_result.candidates),
             exhausted=not find_result.more_work_below_cursor,
         )

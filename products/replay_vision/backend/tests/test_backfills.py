@@ -219,6 +219,24 @@ class TestBackfillTickActivities:
         assert result.action == BackfillTickAction.DISPATCH
         assert result.dispatch_budget > 0
 
+    def test_advance_is_idempotent_under_retry(self) -> None:
+        # Temporal retries an activity whose result was lost after it committed; a blind second
+        # increment would inflate progress and understate the remaining credit commitment.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        advance = AdvanceBackfillCursorInputs(
+            backfill_id=backfill.id,
+            team_id=backfill.team_id,
+            new_cursor_end_time=_WINDOW_END - dt.timedelta(days=1),
+            new_cursor_session_id="sess-1",
+            dispatched_delta=5,
+            exhausted=False,
+        )
+        advance_backfill_cursor_activity(advance)
+        advance_backfill_cursor_activity(advance)
+        backfill.refresh_from_db()
+        assert backfill.dispatched_count == 5
+
     def test_advance_updates_cursor_and_short_batch_completes(self) -> None:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)

@@ -32,7 +32,12 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
         return _create_observation(inputs)
     finally:
         # Every exit resolves the row's existence, so the enqueue claim is done; TTL covers a crash.
-        release_enqueue_claim(team_id=inputs.team_id, scanner_id=inputs.scanner_id, workflow_id=inputs.workflow_id)
+        release_enqueue_claim(
+            team_id=inputs.team_id,
+            scanner_id=inputs.scanner_id,
+            workflow_id=inputs.workflow_id,
+            backfill_id=inputs.backfill_id,
+        )
 
 
 def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOutput:

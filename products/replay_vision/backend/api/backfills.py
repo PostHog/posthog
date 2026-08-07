@@ -33,7 +33,6 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 )
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
 from products.replay_vision.backend.quota import compute_quota_snapshot
-from products.replay_vision.backend.scanner_access import scanner_for_reading_observations
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -167,7 +166,10 @@ class ReplayScannerBackfillViewSet(
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        scanner = scanner_for_reading_observations(self.team_id, scanner_id)
+        # `objects` is configured-only: an inline scan is a throwaway keyed to one question, so it has
+        # no schedule to backfill and must not be addressable here (unlike the observation read paths,
+        # which opt into `all_origins` to show inline results).
+        scanner = ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).first()
         if scanner is None:
             raise NotFound()
         # Backfills expose and dispatch recording-derived scans, so they inherit the scanner's RBAC

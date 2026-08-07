@@ -41,6 +41,14 @@ class FindBackfillCandidatesInputs(BaseModel, frozen=True):
 
 class FindBackfillCandidatesOutput(BaseModel, frozen=True):
     candidates: list[CandidateSessionPayload]
+    # Where the walk got to, which is not always the last dispatched session: sessions this scanner
+    # already observed are stepped over without dispatching, while sessions held back by the caps
+    # must stay above the cursor so a later tick retries them. None leaves the cursor untouched.
+    next_cursor_end_time: dt.datetime | None = None
+    next_cursor_session_id: str = Field(default="", max_length=MAX_SESSION_ID_LENGTH)
+    # Cursor the walk started from, threaded into the advance so it can match on it.
+    started_from_cursor_end_time: dt.datetime | None = None
+    started_from_cursor_session_id: str = Field(default="", max_length=MAX_SESSION_ID_LENGTH)
     # False only when the walk genuinely reached the window start: a batch the caps truncated still
     # has work below the cursor. The tick completes the backfill exactly when this is False.
     more_work_below_cursor: bool
@@ -49,6 +57,10 @@ class FindBackfillCandidatesOutput(BaseModel, frozen=True):
 class AdvanceBackfillCursorInputs(BaseModel, frozen=True):
     backfill_id: UUID
     team_id: int
+    # Cursor this tick started from. The update matches on it, so a retry after a committed-but-lost
+    # attempt matches nothing and cannot double-count `dispatched_count`.
+    expected_cursor_end_time: dt.datetime | None = None
+    expected_cursor_session_id: str = Field(default="", max_length=MAX_SESSION_ID_LENGTH)
     # None leaves the cursor untouched (the empty-batch completion path).
     new_cursor_end_time: dt.datetime | None = None
     new_cursor_session_id: str = Field(default="", max_length=MAX_SESSION_ID_LENGTH)

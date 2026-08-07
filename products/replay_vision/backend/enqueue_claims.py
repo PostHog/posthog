@@ -14,6 +14,7 @@ import structlog
 from posthog import redis
 
 from products.replay_vision.backend.temporal.constants import (
+    MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
 )
@@ -29,34 +30,33 @@ _RELEASE_GRACE_SECONDS = 60
 
 _TEAM_KEY_PREFIX = "@posthog/replay-vision/enqueued-team"
 _SCANNER_KEY_PREFIX = "@posthog/replay-vision/enqueued-scanner"
+_BACKFILL_KEY_PREFIX = "@posthog/replay-vision/enqueued-backfill"
 
 # Re-claiming an existing member (same deterministic workflow id) never consumes a second slot.
+# Generalized over KEYS: each key is one cap the claim must fit, with its allowance in ARGV[3 + i].
+# Callers pass team and scanner; a backfill adds its own sub-cap key as a third.
 _CLAIM_LUA = """
-local team_key = KEYS[1]
-local scanner_key = KEYS[2]
 local now = tonumber(ARGV[1])
 local member = ARGV[2]
-local team_allowance = tonumber(ARGV[3])
-local scanner_allowance = tonumber(ARGV[4])
-local ttl = tonumber(ARGV[5])
+local ttl = tonumber(ARGV[3])
 
-redis.call('ZREMRANGEBYSCORE', team_key, '-inf', now)
-redis.call('ZREMRANGEBYSCORE', scanner_key, '-inf', now)
+for i, key in ipairs(KEYS) do
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
+end
 
-if not redis.call('ZSCORE', team_key, member) then
-    if redis.call('ZCARD', team_key) >= team_allowance then
-        return 0
-    end
-    if redis.call('ZCARD', scanner_key) >= scanner_allowance then
-        return 0
+if not redis.call('ZSCORE', KEYS[1], member) then
+    for i, key in ipairs(KEYS) do
+        if redis.call('ZCARD', key) >= tonumber(ARGV[3 + i]) then
+            return 0
+        end
     end
 end
 
 local expiry = now + ttl
-redis.call('ZADD', team_key, expiry, member)
-redis.call('ZADD', scanner_key, expiry, member)
-redis.call('EXPIRE', team_key, ttl)
-redis.call('EXPIRE', scanner_key, ttl)
+for i, key in ipairs(KEYS) do
+    redis.call('ZADD', key, expiry, member)
+    redis.call('EXPIRE', key, ttl)
+end
 return 1
 """
 
@@ -69,6 +69,10 @@ def _scanner_key(scanner_id: UUID) -> str:
     return f"{_SCANNER_KEY_PREFIX}:{scanner_id}"
 
 
+def _backfill_key(backfill_id: UUID) -> str:
+    return f"{_BACKFILL_KEY_PREFIX}:{backfill_id}"
+
+
 def try_claim_enqueue_slot(
     *,
     team_id: int,
@@ -76,21 +80,31 @@ def try_claim_enqueue_slot(
     workflow_id: str,
     team_in_flight_rows: int,
     scanner_in_flight_rows: int,
+    backfill_id: UUID | None = None,
+    backfill_in_flight_rows: int = 0,
 ) -> bool:
-    """Atomically claim one enqueue slot against both in-flight caps; True when the scan may start."""
-    team_allowance = MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight_rows
-    scanner_allowance = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight_rows
+    """Atomically claim one enqueue slot against every in-flight cap; True when the scan may start.
+
+    Passing `backfill_id` also holds the claim against that backfill's sub-cap, so successive ticks
+    see the slots an earlier tick took before its children persisted their rows.
+    """
+    keys = [_team_key(team_id), _scanner_key(scanner_id)]
+    allowances = [
+        MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight_rows,
+        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight_rows,
+    ]
+    if backfill_id is not None:
+        keys.append(_backfill_key(backfill_id))
+        allowances.append(MAX_IN_FLIGHT_APPLIES_PER_BACKFILL - backfill_in_flight_rows)
     try:
         allowed = redis.get_client().eval(
             _CLAIM_LUA,
-            2,
-            _team_key(team_id),
-            _scanner_key(scanner_id),
+            len(keys),
+            *keys,
             time.time(),
             workflow_id,
-            team_allowance,
-            scanner_allowance,
             _CLAIM_TTL_SECONDS,
+            *allowances,
         )
         return bool(allowed)
     except Exception:
@@ -106,6 +120,8 @@ def claim_enqueue_slot_prefix(
     workflow_ids: list[str],
     team_in_flight_rows: int,
     scanner_in_flight_rows: int,
+    backfill_id: UUID | None = None,
+    backfill_in_flight_rows: int = 0,
 ) -> int:
     """Claim slots for an ordered batch, returning how many leading ids were admitted.
 
@@ -124,23 +140,34 @@ def claim_enqueue_slot_prefix(
             workflow_id=workflow_id,
             team_in_flight_rows=team_in_flight_rows,
             scanner_in_flight_rows=scanner_in_flight_rows,
+            backfill_id=backfill_id,
+            backfill_in_flight_rows=backfill_in_flight_rows,
         ):
             return admitted
     return len(workflow_ids)
 
 
-def release_enqueue_claim(*, team_id: int, scanner_id: UUID, workflow_id: str, immediately: bool = False) -> None:
+def release_enqueue_claim(
+    *,
+    team_id: int,
+    scanner_id: UUID,
+    workflow_id: str,
+    immediately: bool = False,
+    backfill_id: UUID | None = None,
+) -> None:
     """Decay a claim once its observation row exists (or the start failed); unreleased claims
     self-expire. `immediately` removes it outright, for claims that never covered anything."""
     expiry = time.time() + _RELEASE_GRACE_SECONDS
     try:
+        keys = [_team_key(team_id), _scanner_key(scanner_id)]
+        if backfill_id is not None:
+            keys.append(_backfill_key(backfill_id))
         pipeline = redis.get_client().pipeline()
-        if immediately:
-            pipeline.zrem(_team_key(team_id), workflow_id)
-            pipeline.zrem(_scanner_key(scanner_id), workflow_id)
-        else:
-            pipeline.zadd(_team_key(team_id), {workflow_id: expiry}, xx=True)
-            pipeline.zadd(_scanner_key(scanner_id), {workflow_id: expiry}, xx=True)
+        for key in keys:
+            if immediately:
+                pipeline.zrem(key, workflow_id)
+            else:
+                pipeline.zadd(key, {workflow_id: expiry}, xx=True)
         pipeline.execute()
     except Exception:
         record_enqueue_claim_failure("release")
@@ -150,6 +177,10 @@ def release_enqueue_claim(*, team_id: int, scanner_id: UUID, workflow_id: str, i
 def pending_enqueue_claims_for_team(team_id: int) -> int:
     """Live claims for scans enqueued but not yet persisted."""
     return _pending(_team_key(team_id))
+
+
+def pending_enqueue_claims_for_backfill(backfill_id: UUID) -> int:
+    return _pending(_backfill_key(backfill_id))
 
 
 def pending_enqueue_claims_for_scanner(scanner_id: UUID) -> int:
