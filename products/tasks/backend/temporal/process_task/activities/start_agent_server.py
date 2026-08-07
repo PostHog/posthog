@@ -15,7 +15,12 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
+from products.tasks.backend.exceptions import (
+    OAuthTokenError,
+    SandboxExecutionError,
+    SandboxMissingRepositoryError,
+    SandboxNetworkPolicyError,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
@@ -23,6 +28,7 @@ from products.tasks.backend.temporal.metrics import (
     StepTimer,
     record_agent_server_session_init_ms,
     record_boot_total_ms,
+    record_network_enforcement,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
@@ -190,8 +196,39 @@ class _LaunchParams:
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
-    # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
-    return None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+    if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox:
+        return None
+    if ctx.allowed_domains is not None and ctx.use_modal_network_allowlist and ctx.use_modal_vm_sandbox:
+        if ctx.agentsh_domain_allowlist is None or ctx.network_policy_fingerprint is None:
+            record_network_enforcement("configuration_validation", "vm", "agentsh", "failure")
+            raise SandboxNetworkPolicyError(
+                "The VM sandbox has no valid agentsh network policy. Update its network settings and run the task again.",
+                {"run_id": ctx.run_id, "sandbox_environment_id": ctx.sandbox_environment_id},
+                cause=RuntimeError("compiled agentsh network policy is missing"),
+            )
+        return list(ctx.agentsh_domain_allowlist)
+    if ctx.agentsh_domain_allowlist is not None:
+        return list(ctx.agentsh_domain_allowlist)
+    return ctx.allowed_domains
+
+
+def _network_enforcement_layer(ctx: TaskProcessingContext) -> str:
+    if ctx.allowed_domains is None:
+        return "unrestricted"
+    if ctx.use_modal_network_allowlist and ctx.use_modal_vm_sandbox:
+        return "modal_plus_agentsh"
+    if ctx.use_modal_network_allowlist:
+        return "modal_only"
+    return "agentsh_only"
+
+
+def _record_network_enforcement_ready(ctx: TaskProcessingContext) -> None:
+    runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+    layer = _network_enforcement_layer(ctx)
+    if layer == "modal_plus_agentsh":
+        _agentsh_domains_for(ctx)
+    emit_agent_log(ctx.run_id, "debug", f"Network enforcement ready: {layer}")
+    record_network_enforcement("enforcement_ready", runtime, layer, "success")
 
 
 def _include_personal_mcp_for_task(task: Task) -> bool:
@@ -475,6 +512,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         ) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
+        _record_network_enforcement_ready(ctx)
+
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
@@ -573,6 +612,8 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise
+
+        _record_network_enforcement_ready(ctx)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")

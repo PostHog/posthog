@@ -824,7 +824,7 @@ class ModalSandbox(SandboxBase):
             if config.block_network:
                 create_kwargs["block_network"] = True
 
-            if config.outbound_domain_allowlist:
+            if config.outbound_domain_allowlist is not None:
                 create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
@@ -936,11 +936,11 @@ class ModalSandbox(SandboxBase):
         re-enter this chain (the wedged-restore recovery) can describe what they landed on.
         """
         for index, candidate in enumerate(candidates):
-            create_kwargs["image"] = candidate.image
+            attempt_kwargs = {**create_kwargs, "image": candidate.image}
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
                 if index == len(candidates) - 1:
                     raise

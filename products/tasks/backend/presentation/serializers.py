@@ -3348,6 +3348,14 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                     )
         return value
 
+    def validate_allowed_domains(self, value: list[str]) -> list[str]:
+        try:
+            return tasks_facade.normalize_sandbox_allowed_domains(value)
+        except ValueError as error:
+            raise serializers.ValidationError(
+                f"{error}. Enter domain names such as example.com or *.example.com without a scheme, path, or port."
+            ) from error
+
 
 class SandboxCustomImageSerializer(DataclassSerializer):
     """Detail response for a custom sandbox base image."""

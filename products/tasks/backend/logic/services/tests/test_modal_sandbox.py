@@ -1185,6 +1185,13 @@ class TestModalSandboxCreateAllowlist:
 
         assert "outbound_domain_allowlist" not in mock_create.call_args.kwargs
 
+    def test_create_forwards_empty_allowlist_when_explicitly_set(self):
+        config = SandboxConfig(name="t", outbound_domain_allowlist=[])
+
+        mock_create = self._create_with_config(config)
+
+        assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
+
     def test_create_sets_vm_runtime_experimental_option(self):
         config = SandboxConfig(name="t", vm_runtime=True)
 
@@ -1264,6 +1271,52 @@ class TestModalSandboxCreateImageFallback:
         # The run still restored from the snapshot — the downgrade only cost the overlay.
         assert sandbox.config.snapshot_restored is True
         assert sandbox.config.image_fallback is not None
+
+    def test_image_fallback_preserves_vm_network_policy_on_every_attempt(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            outbound_domain_allowlist=["example.com", "*.posthog.com"],
+            network_policy_fingerprint="policy-hash",
+        )
+        bare_custom = MagicMock(name="bare_custom")
+        overlaid_custom = MagicMock(name="overlaid_custom")
+        mock_sb = MagicMock(object_id="sb-created")
+        attempts: list[dict[str, Any]] = []
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            attempts.append(kwargs)
+            if kwargs["image"] is overlaid_custom:
+                raise RuntimeError("image build failed")
+            return mock_sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                return_value=overlaid_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create",
+                side_effect=sandbox_create,
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            ModalSandbox.create(config)
+
+        assert len(attempts) == 3
+        assert all(attempt["experimental_options"] == {"vm_runtime": True} for attempt in attempts)
+        assert all(attempt["outbound_domain_allowlist"] == ["example.com", "*.posthog.com"] for attempt in attempts)
 
     def _create_with_probe(
         self,

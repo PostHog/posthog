@@ -256,7 +256,7 @@ Agents should stage changes with `git add`, then use the `git_signed_commit` too
 
 |           | Production (Modal)                     | Local dev (Docker)                      |
 | --------- | -------------------------------------- | --------------------------------------- |
-| Isolation | gVisor kernel-level sandboxing         | Standard Docker container               |
+| Isolation | gVisor container or VM microVM         | Standard Docker container               |
 | Network   | Configurable via `SandboxEnvironment`  | Host network via `host.docker.internal` |
 | Image     | `ghcr.io/posthog/posthog-sandbox-base` | Local Dockerfile build                  |
 | Auth      | Modal connect token                    | No token needed                         |
@@ -330,8 +330,11 @@ the dockerd warmup overlaps the repo clone and the environment is usually
 ready by the agent's first command. Running `bootstrap-dev-stack` again is still the right first
 step — it is the synchronization point, blocking until the warmup completes.
 
-Runs with a restricted-egress `SandboxEnvironment` (a custom domain allowlist) always stay on gVisor —
-Modal's outbound domain allowlist is a gVisor-only feature.
+Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
+The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
+and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
+Restricted VM runs use Modal's `outbound_domain_allowlist` and retain agentsh inside the VM.
+Restricted gVisor runs use Modal enforcement when the network flag is enabled and agentsh otherwise.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 
@@ -342,6 +345,15 @@ Network access is configured per-team via `SandboxEnvironment`:
 - **Trusted** — only allows access to a default set of trusted domains (GitHub, npm, PyPI, etc.)
 - **Full** — unrestricted network access
 - **Custom** — explicit allowlist of domains, optionally including the trusted defaults
+
+Allowed-domain values contain a domain name only, such as `example.com` or `*.example.com`.
+Schemes, paths, ports, IP addresses, rooted names, local host aliases, and wildcards in other positions
+are rejected when an environment is created or updated. Values are normalized to lowercase IDNA names,
+and duplicates are removed.
+
+`None` is the internal representation for unrestricted access. A restricted empty list still includes
+the infrastructure domains required to run the sandbox. Modal and agentsh consume provider-specific
+forms of one compiled effective policy, including the same infrastructure domain coverage.
 
 To apply network restrictions from your product code,
 create a `SandboxEnvironment` and pass its ID to `Task.create_and_run`:
@@ -371,10 +383,9 @@ task = Task.create_and_run(
 )
 ```
 
-The temporal workflow resolves the allowed domains at execution time from the environment,
-so updates to the environment take effect on the next run.
-Domain restrictions are enforced at the syscall level by `agentsh` via ptrace —
-the agent cannot bypass them through proxy settings or DNS tricks.
+The temporal workflow resolves and compiles allowed domains at execution time, so environment updates
+take effect on the next run. The compiled policy and its fingerprint stay fixed across activity retries.
+On restricted VM runs, Modal enforces the outer boundary and agentsh enforces the in-VM boundary.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Desktop settings UI.

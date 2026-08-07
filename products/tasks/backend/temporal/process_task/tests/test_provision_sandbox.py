@@ -6,12 +6,15 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from products.tasks.backend.logic.services.sandbox import ExecutionResult
+from products.tasks.backend.exceptions import SandboxNetworkPolicyError
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CheckoutBranchInSandboxOutput,
     PrepareSandboxForRepositoryOutput,
+    _apply_modal_network_policy,
+    _assert_modal_network_policy_retained,
     _build_environment_variables,
     _build_sandbox_tags,
     _to_modal_domain_allowlist,
@@ -126,7 +129,7 @@ def test_build_sandbox_tags_drops_none_values():
             ["*.posthog.com", "api.anthropic.com"],
         ),
         (
-            ["github.com", "localhost", "host.docker.internal", "registry.npmjs.org"],
+            ["github.com", "registry.npmjs.org"],
             ["github.com", "registry.npmjs.org", "*.posthog.com", "api.anthropic.com"],
         ),
         (
@@ -185,6 +188,60 @@ def test_to_modal_domain_allowlist_rejects_malformed_settings_host(hostname):
 def test_to_modal_domain_allowlist_still_admits_hyphenated_host():
     # Guards against over-rejecting: hyphens inside a label are legal.
     assert "ai-gateway.dev.posthog.dev" in _to_modal_domain_allowlist([])
+
+
+def test_restricted_vm_cannot_bypass_modal_network_flag() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=["example.com"],
+        agentsh_domain_allowlist=["example.com", "api.posthog.com"],
+        modal_domain_allowlist=["example.com", "api.posthog.com"],
+        network_policy_fingerprint="policy-hash",
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=False,
+    )
+
+    with pytest.raises(SandboxNetworkPolicyError) as error:
+        _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert error.value.non_retryable is True
+    assert config.outbound_domain_allowlist is None
+
+
+def test_restricted_vm_applies_compiled_modal_policy() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=[],
+        agentsh_domain_allowlist=["api.posthog.com"],
+        modal_domain_allowlist=["api.posthog.com"],
+        network_policy_fingerprint="policy-hash",
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=True,
+    )
+
+    _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert config.outbound_domain_allowlist == ["api.posthog.com"]
+    assert config.network_policy_fingerprint == "policy-hash"
+
+
+def test_restricted_sandbox_is_destroyed_if_provider_drops_policy(mocker) -> None:
+    requested_config = SandboxConfig(
+        name="restricted-vm",
+        vm_runtime=True,
+        outbound_domain_allowlist=["api.posthog.com"],
+        network_policy_fingerprint="policy-hash",
+    )
+    sandbox = MagicMock()
+    sandbox.config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    record_enforcement = mocker.patch(f"{_PROVISION}.record_network_enforcement")
+
+    with pytest.raises(SandboxNetworkPolicyError) as error:
+        _assert_modal_network_policy_retained(sandbox, requested_config, _context(), runtime="vm")
+
+    assert error.value.non_retryable is True
+    sandbox.destroy.assert_called_once_with()
+    record_enforcement.assert_called_once_with("configuration_validation", "vm", "modal", "failure")
 
 
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})

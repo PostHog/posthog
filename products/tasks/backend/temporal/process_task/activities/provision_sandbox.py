@@ -24,15 +24,21 @@ from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
+    SandboxNetworkPolicyError,
     TaskNotFoundError,
 )
-from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
+from products.tasks.backend.logic.services.agentsh import (
+    _get_debug_only_domains,
+    _get_debug_only_ports,
+    enforced_egress_domains,
+)
 from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
+from products.tasks.backend.logic.services.network_policy import compile_network_policy
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     Sandbox,
@@ -49,6 +55,7 @@ from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_snapshot_restore,
     increment_snapshot_usage,
+    record_network_enforcement,
     record_sandbox_created,
     sandbox_runtime_label,
 )
@@ -197,44 +204,70 @@ class InvalidateResumeSnapshotInput:
     snapshot_external_id: str | None = None
 
 
-def _is_covered_by_wildcard(host: str, wildcard_bases: set[str]) -> bool:
-    base = host[2:] if host.startswith("*.") else host
-    for wildcard_base in wildcard_bases:
-        if host.startswith("*.") and base == wildcard_base:
-            continue
-        if base == wildcard_base or base.endswith("." + wildcard_base):
-            return True
-    return False
-
-
 def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
-    """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
+    policy = compile_network_policy(
+        allowed_domains,
+        infrastructure_domains=enforced_egress_domains(),
+        debug_domains=_get_debug_only_domains() if settings.DEBUG else [],
+        debug_ports=_get_debug_only_ports() if settings.DEBUG else [],
+    )
+    return list(policy.modal_domains)
 
-    Modal fences the whole sandbox and supports `*.` wildcards that match the
-    apex and any subdomain, so union in the shared egress source set (infra
-    plus settings-derived sandbox hosts) the agent needs, drop loopback
-    aliases Modal rejects as invalid domains, and collapse entries already
-    covered by a wildcard.
-    """
-    domains = list(allowed_domains)
-    extra = enforced_egress_domains()
-    if settings.DEBUG:
-        extra += _get_debug_only_domains()
-    for domain in extra:
-        if domain not in domains:
-            domains.append(domain)
 
-    fqdns = [d for d in domains if "." in d and d != "host.docker.internal"]
-    wildcard_bases = {d[2:] for d in fqdns if d.startswith("*.")}
+def _apply_modal_network_policy(
+    config: SandboxConfig,
+    ctx: TaskProcessingContext,
+    *,
+    use_vm_sandbox: bool,
+) -> None:
+    if ctx.allowed_domains is None:
+        return
+    if use_vm_sandbox and not ctx.use_modal_network_allowlist:
+        record_network_enforcement("configuration_validation", "vm", "modal", "failure")
+        raise SandboxNetworkPolicyError(
+            "A restricted sandbox cannot start on the VM runtime without Modal network enforcement.",
+            {"run_id": ctx.run_id, "network_policy_fingerprint": ctx.network_policy_fingerprint},
+            cause=RuntimeError("restricted VM network interlock failed"),
+        )
+    if not ctx.use_modal_network_allowlist:
+        return
+    if ctx.modal_domain_allowlist is None or ctx.network_policy_fingerprint is None:
+        record_network_enforcement(
+            "configuration_validation", sandbox_runtime_label(use_vm_sandbox), "modal", "failure"
+        )
+        raise SandboxNetworkPolicyError(
+            "This sandbox environment has no valid Modal network policy. Update its network settings and run the task again.",
+            {"run_id": ctx.run_id, "sandbox_environment_id": ctx.sandbox_environment_id},
+            cause=RuntimeError("compiled Modal network policy is missing"),
+        )
+    config.outbound_domain_allowlist = list(ctx.modal_domain_allowlist)
+    config.network_policy_fingerprint = ctx.network_policy_fingerprint
 
-    result: list[str] = []
-    seen: set[str] = set()
-    for domain in fqdns:
-        if domain in seen or _is_covered_by_wildcard(domain, wildcard_bases):
-            continue
-        seen.add(domain)
-        result.append(domain)
-    return result
+
+def _assert_modal_network_policy_retained(
+    sandbox: SandboxBase,
+    config: SandboxConfig,
+    ctx: TaskProcessingContext,
+    *,
+    runtime: str,
+) -> None:
+    if config.outbound_domain_allowlist is None:
+        return
+    if (
+        sandbox.config.outbound_domain_allowlist == config.outbound_domain_allowlist
+        and sandbox.config.network_policy_fingerprint == config.network_policy_fingerprint
+    ):
+        return
+
+    record_network_enforcement("configuration_validation", runtime, "modal", "failure")
+    try:
+        sandbox.destroy()
+    finally:
+        raise SandboxNetworkPolicyError(
+            "The sandbox provider did not retain the requested network policy.",
+            {"run_id": ctx.run_id, "network_policy_fingerprint": config.network_policy_fingerprint},
+            cause=RuntimeError("sandbox network policy was not retained"),
+        )
 
 
 def _resolve_sandbox_github_token(
@@ -664,30 +697,38 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 f"{int(config.memory_gb * 1024)} MiB",
             )
 
-        # gVisor only — Modal's domain allowlist breaks vm_runtime.
-        if ctx.use_modal_network_allowlist and not use_vm_sandbox and ctx.allowed_domains is not None:
-            config.outbound_domain_allowlist = _to_modal_domain_allowlist(ctx.allowed_domains)
+        runtime = sandbox_runtime_label(use_vm_sandbox)
+        _apply_modal_network_policy(config, ctx, use_vm_sandbox=use_vm_sandbox)
+        if config.outbound_domain_allowlist is not None:
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Using Modal outbound_domain_allowlist ({len(config.outbound_domain_allowlist)} domains) instead of agentsh",
+                f"Requesting Modal network enforcement for {len(config.outbound_domain_allowlist)} domains",
             )
 
-        runtime = sandbox_runtime_label(use_vm_sandbox)
-        with StepTimer(
-            "sandbox_creation",
-            used_snapshot=prepared.used_snapshot,
-            origin_product=ctx.origin_product,
-            runtime=runtime,
-        ) as sandbox_creation_timer:
-            sandbox = Sandbox.create(config)
-            # The provider's TTL clock starts here — the usage ledger anchors its
-            # kill deadline on this boundary, not on when the row is opened below.
-            sandbox_created_at = timezone.now()
-            actual_used_snapshot = bool(
-                (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
-            )
-            sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
+        try:
+            with StepTimer(
+                "sandbox_creation",
+                used_snapshot=prepared.used_snapshot,
+                origin_product=ctx.origin_product,
+                runtime=runtime,
+            ) as sandbox_creation_timer:
+                sandbox = Sandbox.create(config)
+                # The provider's TTL clock starts here — the usage ledger anchors its
+                # kill deadline on this boundary, not on when the row is opened below.
+                sandbox_created_at = timezone.now()
+                actual_used_snapshot = bool(
+                    (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
+                )
+                sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
+        except Exception:
+            if config.outbound_domain_allowlist is not None:
+                record_network_enforcement("modal_policy_accepted", runtime, "modal", "failure")
+            raise
+        if config.outbound_domain_allowlist is not None:
+            _assert_modal_network_policy_retained(sandbox, config, ctx, runtime=runtime)
+            emit_agent_log(ctx.run_id, "debug", "Modal accepted the sandbox network policy")
+            record_network_enforcement("modal_policy_accepted", runtime, "modal", "success")
         if sandbox.config.image_fallback:
             emit_agent_log(
                 ctx.run_id,

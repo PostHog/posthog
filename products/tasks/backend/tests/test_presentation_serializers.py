@@ -7,10 +7,36 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.tasks.backend.presentation.serializers import (
+    SandboxEnvironmentWriteSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
 )
+
+
+class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("scheme", "https://example.com"),
+            ("path", "example.com/path"),
+            ("port", "example.com:443"),
+            ("ip", "127.0.0.1"),
+            ("malformed_wildcard", "api.*.example.com"),
+        ]
+    )
+    def test_rejects_domains_that_cannot_be_enforced(self, _name: str, domain: str) -> None:
+        serializer = SandboxEnvironmentWriteSerializer(data={"name": "Restricted", "allowed_domains": [domain]})
+
+        assert not serializer.is_valid()
+        assert "allowed_domains" in serializer.errors
+
+    def test_normalizes_valid_domains(self) -> None:
+        serializer = SandboxEnvironmentWriteSerializer(
+            data={"name": "Restricted", "allowed_domains": [" EXAMPLE.com ", "example.com"]}
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_domains"] == ["example.com"]
 
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
