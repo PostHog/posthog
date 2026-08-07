@@ -158,9 +158,9 @@ describe('supportLogic', () => {
         // ticket that never got created. That needs the draft and a way back into the session.
         it('carries the draft and session context on a lost submit, so an alert is actionable', async () => {
             ;(posthog.get_session_id as jest.Mock).mockReturnValue('sess-1')
-            // Project-scoped path, the shape posthog-js actually returns
+            // Resolved against ui_host, the shape posthog-js actually returns
             ;(posthog.get_session_replay_url as jest.Mock).mockReturnValue(
-                `${window.location.origin}/project/sTMFPsFhdP1Ssg/replay/sess-1?t=30`
+                'https://us.posthog.com/project/sTMFPsFhdP1Ssg/replay/sess-1?t=30'
             )
             conversationsMock(jest.fn().mockRejectedValue(new Error('network down')))
 
@@ -174,8 +174,7 @@ describe('supportLogic', () => {
                 message_preview: 'Billing is broken',
                 message_truncated: false,
                 session_id: 'sess-1',
-                // Golinked because this is staff-facing triage context, not user-facing
-                session_replay_url: 'http://go/session/sess-1?t=30',
+                session_replay_url: 'https://us.posthog.com/project/sTMFPsFhdP1Ssg/replay/sess-1?t=30',
             })
         })
 

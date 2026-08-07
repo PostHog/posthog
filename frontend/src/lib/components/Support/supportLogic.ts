@@ -15,20 +15,6 @@ import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
 import { getSupportResponseTime } from './supportResponseTime'
 
-// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
-// of, so this is for PostHog staff triaging the ticket or the alert — never the user. posthog-js
-// returns a project-scoped path (`/project/<token>/replay/<id>`), so pull the session id out of the
-// `/replay/` segment rather than assuming the URL starts with the current origin.
-function getSessionReplayGolink(): string | null {
-    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
-    const match = replayUrl?.match(/\/replay\/([^/?#]+)([?#].*)?$/)
-    if (!match) {
-        return null
-    }
-    const [, sessionId, queryAndHash] = match
-    return `http://go/session/${sessionId}${queryAndHash ?? ''}`
-}
-
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     support: 'Contact support',
     feedback: 'Give feedback',
@@ -81,11 +67,12 @@ export const SUPPORT_WIDGET_UNAVAILABLE_MESSAGE =
     "We can't load the support chat, which is usually an ad blocker or a network policy."
 
 // `current_url` is explicit rather than autocapture's `$current_url`, so an alert template reading
-// these properties doesn't depend on autocapture staying enabled.
+// these properties doesn't depend on autocapture staying enabled. The recording lives in PostHog's
+// own telemetry project, so the replay link is for staff triaging the alert, never the reporter.
 function supportFailureContext(): Record<string, any> {
     return {
         session_id: posthog.get_session_id?.() ?? null,
-        session_replay_url: getSessionReplayGolink(),
+        session_replay_url: posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 }) ?? null,
         current_url: window.location.href,
     }
 }
