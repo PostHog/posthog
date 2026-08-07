@@ -599,18 +599,20 @@ export const exportsLogic = kea<exportsLogicType>([
 
                     // A render takes seconds, so the pending frame is where the nudge has the most
                     // time to be read. Fire-and-forget: the export's own feedback never waits on it.
-                    void nudge.settled.then((candidate) => {
-                        if (exportSettled) {
-                            return
-                        }
-                        const renderer = nudge.claim(candidate)
-                        if (renderer) {
-                            lemonToast.updatePendingMessage(
-                                exportToastId,
-                                renderer(EXPORT_PENDING_MESSAGE, viewExportsButton)
-                            )
-                        }
-                    })
+                    void nudge.settled
+                        .then((candidate) => {
+                            if (exportSettled) {
+                                return
+                            }
+                            const renderer = nudge.claim(candidate)
+                            if (renderer) {
+                                lemonToast.updatePendingMessage(
+                                    exportToastId,
+                                    renderer(EXPORT_PENDING_MESSAGE, viewExportsButton)
+                                )
+                            }
+                        })
+                        .catch((error) => posthog.captureException(error))
 
                     void (async () => {
                         try {
