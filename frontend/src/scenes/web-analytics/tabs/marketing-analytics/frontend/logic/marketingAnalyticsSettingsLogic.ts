@@ -91,10 +91,10 @@ export interface marketingAnalyticsSettingsLogicActions {
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     updateCurrentTeamSuccess: (
-        currentTeam: TeamPublicType | TeamType | null,
-        payload?: Partial<TeamType>
+        currentTeam: TeamPublicType | TeamType,
+        payload?: Partial<TeamType> | undefined
     ) => {
-        currentTeam: TeamPublicType | TeamType | null
+        currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
     } // teamLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
