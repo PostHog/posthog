@@ -4,6 +4,7 @@ import {
   type CanvasBuildRecord,
   currentHeadBuildFailure,
   hasActiveCanvasBuild,
+  historicalCanvasBuild,
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
 } from "./canvasBuildSchemas";
@@ -74,6 +75,18 @@ describe("canvas build lifecycle", () => {
     expect(publishedCanvasBuild(value)).toBe(ready);
   });
 
+  it("selects a retained ready artifact for a historical version", () => {
+    const ready = build("historical", "ready");
+    ready.sourceVersionId = "version-1";
+
+    expect(
+      historicalCanvasBuild(
+        lifecycle([build("latest", "ready"), ready]),
+        "version-1",
+      ),
+    ).toBe(ready);
+  });
+
   it("surfaces a failed build of the current head even when an older published build is also ready", () => {
     // b_old (sv-old) is the pinned/published live build; a newer publish (b_new,
     // sv-new = current head) failed. latestFinishedCanvasBuild returns the first
@@ -136,7 +149,7 @@ describe("canvas build lifecycle", () => {
       },
     } as unknown as ProjectApiClient);
 
-    const result = await service.getBuilds("canvas-1");
+    const result = await service.getBuilds({ id: "canvas-1" });
 
     expect(result.publishedBuildId).toBe("b0");
     expect(result.builds[0]).toMatchObject({

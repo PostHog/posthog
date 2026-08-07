@@ -1,6 +1,8 @@
 import {
   type CanvasAnalyticsConfig,
+  type CanvasCommentHighlight,
   type CanvasNavIntent,
+  type CanvasTextSelection,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import { logger } from "@posthog/ui/shell/logger";
@@ -17,6 +19,7 @@ import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 import { buildSandboxDocument, type SandboxMode } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
+const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 
 export interface FreeformCanvasProps {
   /** The single-file React source to render. */
@@ -39,6 +42,10 @@ export interface FreeformCanvasProps {
    * just forwards it — the caller maps it to actual routing.
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
+  commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
   /**
    * Bootstrap config for in-iframe posthog-js (analytics + session replay).
    * Absent = no capture/replay. Only the PUBLIC key is here; the private token
@@ -57,6 +64,10 @@ export function FreeformCanvas({
   onError,
   onRendered,
   onNavigate,
+  onTextSelection,
+  onCommentActivate,
+  commentHighlights = EMPTY_COMMENT_HIGHLIGHTS,
+  clearTextSelectionKey = 0,
   analytics,
 }: FreeformCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -83,20 +94,26 @@ export function FreeformCanvas({
     onError,
     onRendered,
     onNavigate,
+    onTextSelection,
+    onCommentActivate,
     code,
     mode,
     analytics,
     theme,
+    commentHighlights,
   });
   latest.current = {
     onDataRequest,
     onError,
     onRendered,
     onNavigate,
+    onTextSelection,
+    onCommentActivate,
     code,
     mode,
     analytics,
     theme,
+    commentHighlights,
   };
 
   const postInit = useCallback(() => {
@@ -109,6 +126,7 @@ export function FreeformCanvas({
         mode: p.mode,
         analytics: p.analytics,
         theme: p.theme,
+        highlights: p.commentHighlights,
       },
       "*",
     );
@@ -145,6 +163,23 @@ export function FreeformCanvas({
         },
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
+        onTextSelection: (selection) => {
+          if (!selection) {
+            latest.current.onTextSelection?.(null);
+            return;
+          }
+          const frame = iframeRef.current?.getBoundingClientRect();
+          latest.current.onTextSelection?.({
+            ...selection,
+            rect: {
+              top: selection.rect.top + (frame?.top ?? 0),
+              right: selection.rect.right + (frame?.left ?? 0),
+              bottom: selection.rect.bottom + (frame?.top ?? 0),
+              left: selection.rect.left + (frame?.left ?? 0),
+            },
+          });
+        },
+        onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       openExternal: openExternalUrl,
@@ -192,10 +227,31 @@ export function FreeformCanvas({
         mode,
         analytics,
         theme: latest.current.theme,
+        highlights: latest.current.commentHighlights,
       },
       "*",
     );
   }, [code, mode, analytics]);
+
+  useEffect(() => {
+    if (!readyRef.current) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        channel: "posthog-canvas",
+        type: "set-comment-highlights",
+        highlights: commentHighlights,
+      },
+      "*",
+    );
+  }, [commentHighlights]);
+
+  useEffect(() => {
+    if (!readyRef.current || clearTextSelectionKey === 0) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { channel: "posthog-canvas", type: "clear-text-selection" },
+      "*",
+    );
+  }, [clearTextSelectionKey]);
 
   // Live theme change: re-theme the running canvas in place (no remount), so a
   // host theme toggle — or an OS light/dark flip under "system" — preserves all

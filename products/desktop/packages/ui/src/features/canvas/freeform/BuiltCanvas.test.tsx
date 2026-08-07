@@ -178,4 +178,83 @@ describe("BuiltCanvas", () => {
       theme: "light",
     });
   });
+
+  it("opens a comment selected inside the built artifact", async () => {
+    const onCommentActivate = vi.fn();
+    render(
+      <BuiltCanvas
+        artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
+        onDataRequest={vi.fn()}
+        onCommentActivate={onCommentActivate}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
+    const postMessage = vi
+      .spyOn(iframe.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    fireEvent.load(iframe);
+    const calls = postMessage.mock.calls as unknown as [
+      unknown,
+      string,
+      Transferable[],
+    ][];
+    const canvasPort = calls.at(-1)?.[2]?.[0] as MessagePort;
+    canvasPort.postMessage({
+      channel: "posthog-canvas",
+      type: "comment-activate",
+      id: "comment-1",
+    });
+
+    await waitFor(() =>
+      expect(onCommentActivate).toHaveBeenCalledWith("comment-1"),
+    );
+  });
+
+  it("clears native artifact selection when the host dismisses it", async () => {
+    const { rerender } = render(
+      <BuiltCanvas
+        artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
+        onDataRequest={vi.fn()}
+        clearTextSelectionKey={0}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
+    const postMessage = vi
+      .spyOn(iframe.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    fireEvent.load(iframe);
+    const calls = postMessage.mock.calls as unknown as [
+      unknown,
+      string,
+      Transferable[],
+    ][];
+    const canvasPort = calls.at(-1)?.[2]?.[0] as MessagePort;
+    const messages: unknown[] = [];
+    canvasPort.addEventListener("message", (event) =>
+      messages.push((event as MessageEvent).data),
+    );
+    canvasPort.start();
+
+    rerender(
+      <BuiltCanvas
+        artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
+        onDataRequest={vi.fn()}
+        clearTextSelectionKey={1}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(messages).toContainEqual({
+        channel: "posthog-canvas",
+        type: "clear-text-selection",
+      }),
+    );
+  });
 });

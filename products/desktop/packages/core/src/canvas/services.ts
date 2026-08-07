@@ -57,8 +57,11 @@ export interface IDashboardsService {
     versionId: string;
     expectedCurrentVersionId: string | null;
   }): Promise<CanvasBuildRecord>;
-  // Read a canvas's build lifecycle (pointers + recent builds).
-  getBuilds(id: string): Promise<CanvasBuildLifecycle>;
+  // Read a canvas's build lifecycle, optionally including a historical build.
+  getBuilds(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasBuildLifecycle>;
   actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
   delete(id: string): Promise<void>;
