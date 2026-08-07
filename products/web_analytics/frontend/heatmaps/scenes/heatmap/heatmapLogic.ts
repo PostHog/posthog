@@ -148,8 +148,8 @@ export interface heatmapLogicValues {
     screenshotLoaded: boolean
     screenshotLoading: boolean
     screenshotUrl: string | null
-    screenshotWaitSeconds: number | null
     screenshotWaitIsLong: boolean
+    screenshotWaitSeconds: number | null
     sidePanelContext: SidePanelSceneContext | null
     status: HeatmapStatus
     type: HeatmapType
@@ -278,8 +278,8 @@ export interface heatmapLogicMeta {
         pageUrlDraftIsPattern: (pageUrlDraft: string) => boolean
         desiredNumericWidth: (widthOverride: number, containerWidth: number | null) => number
         effectiveWidth: (desiredNumericWidth: number) => number
-        scalePercent: (widthOverride: number, containerWidth: number | null) => number
         screenshotWaitIsLong: (screenshotWaitSeconds: number | null) => boolean
+        scalePercent: (widthOverride: number, containerWidth: number | null) => number
     }
 }
 
