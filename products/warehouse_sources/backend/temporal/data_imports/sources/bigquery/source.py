@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
@@ -260,6 +261,49 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # source view. Matched on BigQuery's stable wording, not the volatile peak-usage percentage
             # or job id.
             BIGQUERY_RESOURCES_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (reason `billingTierLimitExceeded`)
+            # when a query's CPU-second usage relative to the bytes it billed exceeds the ratio the
+            # on-demand pricing model allows, e.g. "Query exceeded resource limits. This query used
+            # <N> CPU seconds but would charge only <M> Analysis bytes. This exceeds the ratio
+            # supported by the on-demand pricing model.". We copy incremental / view / row-filtered
+            # reads into a temp table before reading them (`_run_destination_query_with_job_retry` in
+            # `bigquery.py`), and a CPU-heavy source view or query shape carries this ratio into that
+            # copy. It's a deterministic property of the customer's query shape and billing tier —
+            # retrying the identical query always fails identically, so it just spams error tracking.
+            # BigQuery itself tells the user to move to capacity-based pricing or reduce the workload.
+            # Matched on BigQuery's stable wording, not the volatile CPU-second/byte counts or job id.
+            BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it used too many CPU seconds relative to the data it billed, which exceeds the ratio the on-demand pricing model allows. Retrying won't help — please move this workload to a capacity-based pricing model, or reduce how much data you're syncing (for example add row filters or an incremental field, or simplify the source view), then re-enable the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (the poll `_run_destination_query_
+            # with_job_retry` / `_query_result_with_job_retry` in `bigquery.py` do while awaiting a query
+            # job) when the job's result set holds a NaN in a column typed NUMERIC/BIGNUMERIC — that type
+            # can't represent NaN the way FLOAT64 can. This traces back to the source table or view itself
+            # (a computed column doing arithmetic like division by zero) rather than anything our SELECT
+            # constructs, so it's a deterministic property of the customer's data: the same query keeps
+            # producing the same NaN on every retry, and Google's own default job-retry doesn't cover it.
+            # The user must fix the source view/column; retrying just spams error tracking. Matched on
+            # BigQuery's stable wording, not the volatile job id/URL.
+            "Invalid NUMERIC value: NaN": "BigQuery couldn't complete a query for this source because it produced a NaN (not-a-number) value in a column typed NUMERIC, which that type can't represent. This is usually caused by a computed column or view doing arithmetic like division by zero. Please fix the underlying view or column in BigQuery, then re-enable the source.",
+            # Raised as a 400 BadRequest (reason `invalidQuery`) when the table or view being synced
+            # has a column name BigQuery can't resolve to a single source, e.g. "Column name x is
+            # ambiguous". We select each configured column by its own unqualified name (see
+            # `_get_query`/`_bq_select_clause` in `bigquery.py`), so this only happens when the
+            # underlying relation itself has the conflict — a view that joins tables sharing a column
+            # name, or a table/external table with two columns differing only by letter case. It's a
+            # deterministic property of the customer's view/table definition: the same query fails
+            # identically on every retry, so it just hammers BigQuery and spams error tracking. The
+            # user must fix the view or table definition. Matched on BigQuery's stable wording, not
+            # the volatile column name or [row:col] location.
+            "is ambiguous": "BigQuery couldn't run a query for this source because a column name in the table or view being synced is ambiguous. This usually happens when a view joins tables that share a column name, or two columns differ only by letter case. Retrying won't help — please update the view or table definition to remove the naming conflict (for example by aliasing the duplicate column), then reconnect the source.",
+            # Raised as a 400 BadRequest (reason `invalidQuery`) when a query we build references a
+            # column that no longer exists on the table, e.g. "Unrecognized name: ingested_at at
+            # [1:37]". We only reference columns the customer configured — the incremental field, an
+            # enabled column, or a row filter — so this means that column was renamed or dropped from
+            # the source table after the source (or its incremental field) was set up. It's a
+            # deterministic mismatch between our stored config and the customer's live schema: the
+            # same query fails identically on every retry. The user must update the source's column
+            # selection or incremental field to match the table's current schema. Matched on
+            # BigQuery's stable wording, not the volatile column name or [row:col] location.
+            "Unrecognized name:": "BigQuery couldn't run a query for this source because it referenced a column that no longer exists on the table — usually the configured incremental field, or a column selected for syncing, was renamed or removed. Retrying won't help — please update the source's column selection or incremental field to match the table's current schema, then reconnect the source.",
         }
 
     def validate_credentials(
@@ -295,6 +339,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["bq", "gbq", "sql"],
             featured=True,
             iconPath="/static/services/bigquery.png",
             caption=(

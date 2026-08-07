@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,17 +9,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
-    run_pre_write_defensive_compact,
+    validate_incremental_sync,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -125,79 +134,6 @@ class TestPersistPrimaryKeys:
             await persist_primary_keys(schema, resource, True, logger)
 
         logger.aexception.assert_awaited_once()
-
-
-class TestRunPreWriteDefensiveCompact:
-    @parameterized.expand(
-        [
-            # (schema_partition_count, resource_partition_count, expected_passed_to_run_maintenance)
-            ("schema_value_wins", 10, 72, 10),
-            ("falls_back_to_resource", None, 72, 72),
-            ("both_none_passes_none", None, None, None),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_resolves_partition_count_schema_over_resource(
-        self, _name: str, schema_count: int | None, resource_count: int | None, expected: int | None
-    ):
-        run_maintenance = AsyncMock(return_value=None)
-        helper = MagicMock(run_maintenance=run_maintenance)
-
-        await run_pre_write_defensive_compact(
-            helper,
-            MagicMock(partition_count=schema_count, sync_type_config={}),
-            MagicMock(partition_count=resource_count),
-            MagicMock(aexception=AsyncMock()),
-        )
-
-        assert run_maintenance.await_args is not None
-        assert run_maintenance.await_args.kwargs["partition_count"] == expected
-
-    @pytest.mark.asyncio
-    async def test_swallows_maintenance_failure(self):
-        # The whole point of the wrapper: a maintenance error must never propagate and
-        # block the sync — it's captured and logged instead.
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=RuntimeError("maintenance blew up")))
-        logger = MagicMock(aexception=AsyncMock())
-
-        schema = MagicMock(partition_count=5, sync_type_config={})
-        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
-
-        mock_capture.assert_called_once()
-        logger.aexception.assert_awaited_once()
-
-    @parameterized.expand(
-        [
-            (
-                "credentials_loading",
-                "Operation not supported: an error occurred while loading credentials: dispatch failure: timeout",
-            ),
-            (
-                "credential_provider_not_enabled",
-                "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials",
-            ),
-            (
-                "generic_s3_error",
-                "Generic S3 error: Error getting list response body: operation timed out",
-            ),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_logs_transient_object_store_error_without_capturing(self, _name: str, error_message: str):
-        # A transient blip talking to our own delta S3 bucket (credential-provider or connectivity
-        # errors from delta-rs) isn't a bug in this function — it shouldn't flood error tracking the
-        # way an actual maintenance bug does (see test_swallows_maintenance_failure above).
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=OSError(error_message)))
-        logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
-
-        schema = MagicMock(partition_count=5, sync_type_config={})
-        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
-
-        mock_capture.assert_not_called()
-        logger.awarning.assert_awaited_once()
-        logger.aexception.assert_not_awaited()
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
@@ -360,6 +296,32 @@ class TestHandleCorruptedDeltaLog:
         job.refresh_from_db()
         assert job.billable is True
 
+    def test_is_table_corrupted_transient_object_store_error_skips_without_capturing(self, team):
+        # `is_table_corrupted` opens the table via `DeltaTable.is_deltatable`, which can raise the
+        # same IMDS/STS credential-provider blip as any other delta-rs object-store call. That isn't
+        # evidence of corruption — it must be treated like the reset-path blip above (skip, log a
+        # warning, no error-tracking capture) rather than unconditionally reported as a defect.
+        schema, job = self._schema_and_job(team)
+        corrupt_check_error = OSError(
+            "Operation not supported: an error occurred while loading credentials: dispatch failure: "
+            "timeout: client error (Connect): HTTP connect timeout occurred after 3.1s: timed out"
+        )
+        helper = MagicMock(is_table_corrupted=AsyncMock(side_effect=corrupt_check_error), reset_table=AsyncMock())
+        logger = self._logger()
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, logger)
+
+        assert result is False
+        mock_capture.assert_not_called()
+        helper.reset_table.assert_not_awaited()
+        logger.awarning.assert_awaited()
+        job.refresh_from_db()
+        assert job.billable is True
+
     def test_revive_marker_resets_readable_table(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
@@ -484,3 +446,85 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+
+
+class TestValidateIncrementalSync:
+    @parameterized.expand(
+        [
+            # The failure this guard exists for: a keyless incremental table can never merge into
+            # the Delta table that an earlier run already wrote.
+            ("keyless_incremental_after_first_sync_raises", True, False, None, True),
+            # The first run writes the whole table, so it doesn't need a merge key. Raising here
+            # would break every initial sync of a keyless table.
+            ("keyless_incremental_first_sync_allowed", True, True, None, False),
+            # Full refresh overwrites, so it never merges on a key.
+            ("keyless_full_refresh_allowed", False, False, None, False),
+            ("incremental_with_key_allowed", True, False, ["id"], False),
+        ]
+    )
+    def test_missing_primary_keys(
+        self,
+        _name: str,
+        is_incremental: bool,
+        is_first_sync: bool,
+        primary_keys: list[str] | None,
+        expect_raise: bool,
+    ):
+        resource = MagicMock(primary_keys=primary_keys, has_duplicate_primary_keys=False)
+
+        if not expect_raise:
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+            return
+
+        with pytest.raises(MissingPrimaryKeysException):
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+
+    def test_message_stays_classified_as_non_retryable(self):
+        # The message is what pauses the schema: without a matching Any_Source_Errors entry the
+        # run is retried on every schedule even though only the user can resolve it.
+        message = str(MissingPrimaryKeysException())
+        assert [key for key in Any_Source_Errors if key in message]
+
+
+class TestHandleNonRetryableError:
+    def _fake_get_redis(self, incr_return: int):
+        redis_client = MagicMock(incr=AsyncMock(return_value=incr_return), expire=AsyncMock())
+
+        @asynccontextmanager
+        async def _get_redis():
+            yield redis_client
+
+        return _get_redis
+
+    def test_retry_attempt_is_not_reported_to_error_tracking(self):
+        # `handle_non_retryable_error` only runs once a source has already classified `error` as
+        # a known non-retryable condition (e.g. Meta Ads' "Ad account owner has NOT granted
+        # ads_read permission"). Re-raising the raw `error` on a below-limit attempt reported that
+        # already-understood error to error tracking on every retry; it must come back as a
+        # NonReportableError so the activity interceptor skips capturing it.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=1)):
+            with pytest.raises(NonReportableError) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert not isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_gives_up_after_retry_limit_without_reporting(self):
+        # Past the retry budget, the give-up exception is the exact same already-classified
+        # condition and must stay out of error tracking too.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(
+            f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=NON_RETRYABLE_ERROR_RETRY_LIMIT + 1)
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonReportableError)
+        assert exc_info.value.__cause__ is original_error

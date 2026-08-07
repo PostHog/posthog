@@ -6,6 +6,8 @@ import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
+type AddCellParams = Parameters<typeof addCellHandler>[1]
+
 interface MockState {
     markdown: string
     version: number
@@ -169,11 +171,19 @@ describe('notebook cell tools', () => {
             cell_type: 'markdown',
             markdown: 'Some **notes**.',
         })
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'markdown',
+            markdown: 'More notes.',
+        })
 
         expect(result).toEqual({})
-        expect(state.saveBodies).toHaveLength(1)
-        expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('Some **notes**.')
         expect(state.runBodies).toHaveLength(0)
+        // Each cell is a node of its own: one blank line would fold consecutive prose cells
+        // into a single card in the editor, two keeps them separate.
+        expect(state.saveBodies[1].content.content[0].attrs.markdown).toBe(
+            '# Doc\n\n\nSome **notes**.\n\n\nMore notes.\n'
+        )
     })
 
     it('add component cell inserts the tag with a minted nodeId and no run', async () => {
@@ -193,6 +203,57 @@ describe('notebook cell tools', () => {
         expect(state.runBodies).toHaveLength(0)
     })
 
+    // The header title is what a reader skims instead of the code, so every tag-backed cell type
+    // has to carry it through to the markdown.
+    it.each([
+        ['sql', { cell_type: 'sql', code: 'select 1' }, 'SQLV2'],
+        ['python', { cell_type: 'python', code: 'x = 1' }, 'PythonV2'],
+        ['saved_insight', { cell_type: 'saved_insight', insight_short_id: 'iNs12345' }, 'Query'],
+        ['component', { cell_type: 'component', tag_name: 'Image', props: { src: 'https://ph.com/a.png' } }, 'Image'],
+    ] satisfies [string, Omit<AddCellParams, 'notebook_id' | 'title'>, string][])(
+        'add %s cell writes the title onto the tag',
+        async (_label, params, tagName) => {
+            const state = makeState('# Doc\n')
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            await addCellHandler(context, { ...params, notebook_id: 'aBcD1234', title: 'Weekly signups by source' })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted).toContain(`<${tagName} `)
+            expect(inserted).toContain('title="Weekly signups by source"')
+        }
+    )
+
+    it('markdown cell rejects a title, pointing at a markdown heading instead', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await expect(
+            addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Some notes.',
+                title: 'Notes',
+            })
+        ).rejects.toThrow(/heading in the markdown/)
+        expect(state.saveBodies).toHaveLength(0)
+    })
+
+    it('component cell keeps a title carried in its own props', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'component',
+            tag_name: 'Image',
+            props: { src: 'https://ph.com/a.png', title: 'From props' },
+        })
+
+        expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('title="From props"')
+    })
+
     it('component cell rejects executable tags', async () => {
         const state = makeState('# Doc\n')
         const context = createMockContext(state)
@@ -205,6 +266,26 @@ describe('notebook cell tools', () => {
                 props: { code: 'select 1' },
             })
         ).rejects.toThrow(/cell_type 'sql' or 'python'/)
+        expect(state.saveBodies).toHaveLength(0)
+    })
+
+    // The legacy SQL cell: a Query node rendering HogQL results without a run, a dataframe name, or
+    // run history. Reachable only through the component escape hatch, so it is blocked there too.
+    it.each([
+        ['a SQL chart', { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } }],
+        ['a SQL result table', { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1' } }],
+    ])('component cell rejects %s, directing SQL to a sql cell', async (_label, query) => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await expect(
+            addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'component',
+                tag_name: 'Query',
+                props: { query },
+            })
+        ).rejects.toThrow(/cell_type 'sql'/)
         expect(state.saveBodies).toHaveLength(0)
     })
 

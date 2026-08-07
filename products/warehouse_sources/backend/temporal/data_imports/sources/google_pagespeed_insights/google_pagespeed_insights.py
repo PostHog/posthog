@@ -255,8 +255,14 @@ def validate_credentials(api_key: str, urls_raw: str | None) -> tuple[bool, str 
             "Invalid API key, or the PageSpeed Insights API is not enabled for your Google Cloud project. "
             "Check the key and enable the PageSpeed Insights API, then reconnect."
         )
+    if response.status_code == 429:
+        return False, ("The PageSpeed Insights API is rate limiting requests. Wait a few minutes, then try again.")
+    if response.status_code >= 500:
+        return False, (
+            "The PageSpeed Insights API returned a server error. This is usually temporary. Try again in a few minutes."
+        )
 
-    return False, f"The PageSpeed Insights API returned an unexpected status code: {response.status_code}"
+    return False, ("Could not validate against the PageSpeed Insights API. Check your API key and URL, then try again.")
 
 
 def get_rows(

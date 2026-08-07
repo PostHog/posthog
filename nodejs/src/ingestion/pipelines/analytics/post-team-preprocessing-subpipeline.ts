@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
@@ -23,7 +22,6 @@ import {
     createValidateEventSchemaStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
@@ -55,8 +53,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     groupsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
     flagCalledPersonlessDefaultTeams: string
-    hogTransformer: HogTransformer
-    cdpHogWatcherSampleRate: number
+    personlessWritesDisabledTeams: string
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -83,8 +80,7 @@ export function createPostTeamPreprocessingSubpipeline<
         groupsPrefetchEnabled,
         groupTypeManager,
         flagCalledPersonlessDefaultTeams,
-        hogTransformer,
-        cdpHogWatcherSampleRate,
+        personlessWritesDisabledTeams,
     } = config
 
     return (
@@ -128,7 +124,11 @@ export function createPostTeamPreprocessingSubpipeline<
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
             .pipeChunk(
-                processPersonlessDistinctIdsChunkStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
+                processPersonlessDistinctIdsChunkStep(
+                    personsPrefetchEnabled,
+                    flagCalledPersonlessDefaultTeams,
+                    personlessWritesDisabledTeams
+                ),
                 {
                     retry: {
                         tries: 5,
@@ -137,7 +137,5 @@ export function createPostTeamPreprocessingSubpipeline<
                     },
                 }
             )
-            // Prefetch hog functions for all teams in the batch
-            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )
 }

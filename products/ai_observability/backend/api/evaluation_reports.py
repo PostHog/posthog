@@ -379,6 +379,10 @@ class EvaluationReportCitationSerializer(serializers.Serializer):
         required=False,
         help_text="Identifier of the trace cited by this report.",
     )
+    session_id = serializers.CharField(
+        required=False,
+        help_text="Optional session identifier for session-target report citations.",
+    )
     reason = serializers.CharField(
         required=False,
         help_text="Short explanation of why this example is cited.",

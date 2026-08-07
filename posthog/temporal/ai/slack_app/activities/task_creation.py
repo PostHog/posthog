@@ -16,7 +16,7 @@ from posthog.temporal.ai.slack_app.attachments import (
     prepare_slack_file_artifacts,
 )
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
 logger = structlog.get_logger(__name__)
@@ -517,6 +517,7 @@ def create_posthog_code_task_for_repo_activity(
     repository: str | None,
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -632,9 +633,21 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    ai_prefs = resolve_ai_preferences(integration, slack_user_id)
+    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+
+    # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
+    # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
+    personal_channel_id: uuid.UUID | None = None
+    try:
+        personal_channel_id = tasks_facade.ensure_personal_channel_id(integration.team_id, user_id)
+    except Exception:
+        logger.warning(
+            "posthog_code_personal_channel_resolution_failed",
+            team_id=integration.team_id,
+            user_id=user_id,
+        )
 
     # 1. Create task + run WITHOUT starting the workflow
     try:
@@ -652,9 +665,10 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes="full",
             initial_permission_mode="bypassPermissions",
-            runtime_adapter=ai_prefs.runtime_adapter,
-            model=ai_prefs.model,
-            reasoning_effort=ai_prefs.reasoning_effort,
+            runtime_adapter=run_prefs.runtime_adapter,
+            model=run_prefs.model,
+            reasoning_effort=run_prefs.reasoning_effort,
+            channel_id=personal_channel_id,
         )
     except Exception as e:
         logger.exception(

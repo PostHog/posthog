@@ -675,10 +675,10 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     """
 
     job_config = QueryJobConfig()
-    job = client.query(query, job_config=job_config, project=table.project, retry=BIGQUERY_QUERY_CREATE_RETRY)
+    rows = _query_result_with_job_retry(client, query, job_config=job_config, project=table.project)
 
     primary_keys = []
-    for row in job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY):
+    for row in rows:
         field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:
@@ -697,6 +697,12 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
 # `_is_bigquery_resource_exceeded` and `BigQuerySource.get_non_retryable_errors` so the two sites
 # stay in lockstep if BigQuery ever adjusts the phrasing.
 BIGQUERY_RESOURCES_EXCEEDED_ERROR = "Resources exceeded during query execution"
+
+# Stable wording BigQuery puts in a `billingTierLimitExceeded` query failure's message, raised as a
+# 400 BadRequest from `jobs.getQueryResults` when a query's CPU-second usage relative to bytes
+# billed exceeds the ratio the on-demand pricing model allows. Shared with
+# `BigQuerySource.get_non_retryable_errors` so the two stay in lockstep.
+BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR = "exceeds the ratio supported by the on-demand pricing model"
 
 
 def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:

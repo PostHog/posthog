@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 TOKEN_URL = "/api/agentic/oauth/token"
@@ -53,10 +53,9 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
             algorithm="RS256",
             scopes=TEST_PARTNER_SCOPES,
             is_provisioning_partner=True,
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
     def _assertion(self, **overrides) -> str:

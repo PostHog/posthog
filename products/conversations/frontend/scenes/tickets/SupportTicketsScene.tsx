@@ -313,6 +313,7 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
         setTagsExcludeFilter,
         setDateRange,
         loadTickets,
+        resetFilters,
     } = useActions(logic)
     const { aiEnabled } = useValues(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
@@ -328,6 +329,9 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     onChange={setSearchQuery}
                     size="small"
                     className="min-w-64"
+                    // Matches MAX_SEARCH_LENGTH in ticket_filters.py — the backend ignores
+                    // longer searches and rejects saving them in a view.
+                    maxLength={200}
                 />
                 <Tooltip
                     title={
@@ -602,6 +606,11 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     </LemonButton>
                 </LemonDropdown>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
+                {hasActiveFilters && (
+                    <LemonButton type="secondary" size="small" onClick={resetFilters} data-attr="clear-ticket-filters">
+                        Clear all filters
+                    </LemonButton>
+                )}
             </div>
             <div className="flex items-center gap-2">
                 <SupportTicketsBulkActions />

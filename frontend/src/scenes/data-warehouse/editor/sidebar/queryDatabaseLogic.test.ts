@@ -1,7 +1,12 @@
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
     groupDirectConnectionTableNodesBySchema,
+    queryDatabaseLogic,
     shouldInitializeDirectConnectionExpandedFolders,
 } from './queryDatabaseLogic'
 
@@ -198,5 +203,84 @@ describe('queryDatabaseLogic', () => {
                 ['views', 'schema-system']
             )
         ).toEqual(false)
+    })
+
+    it('opens and focuses a located table after the collapsed tree remounts', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: {
+                events: {
+                    id: 'events',
+                    name: 'events',
+                    type: 'posthog',
+                    fields: {},
+                },
+            },
+            joins: [],
+        })
+        const focusItem = jest.fn()
+
+        logic.actions.locateTable('events')
+
+        expect(logic.values.expandedFolders).toEqual(
+            expect.arrayContaining(['sources', 'source-posthog', 'table-events'])
+        )
+        expect(logic.values.tableToLocate).toEqual('events')
+
+        logic.actions.setTreeRef({
+            current: {
+                focusItem,
+                getVisibleItems: () => [],
+            },
+        })
+
+        expect(focusItem).toHaveBeenCalledWith('table-events', {
+            scrollPosition: 'top-third',
+            behavior: 'smooth',
+        })
+        expect(logic.values.tableToLocate).toBeNull()
+
+        logic.unmount()
+    })
+
+    describe('failed schema load', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+
+        const childNames = (sectionType: string): (string | undefined)[] =>
+            logic.values.treeData
+                .find((item) => item.record?.type === sectionType)
+                ?.children?.map((child) => child.name) ?? []
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = queryDatabaseLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('shows the failure and a retry instead of an empty tree', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseFailure('A server error occurred.')
+
+            expect(childNames('sources')).toEqual(["Couldn't load your schema", 'Try again'])
+            expect(childNames('managed-views')).toEqual(["Couldn't load your schema", 'Try again'])
+        })
+
+        it('retries the schema load when the retry node is clicked', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseFailure('A server error occurred.')
+
+            const retryNode = logic.values.treeData
+                .find((item) => item.record?.type === 'sources')
+                ?.children?.find((child) => child.record?.type === 'schema-load-retry')
+
+            retryNode?.onClick?.()
+
+            expect(logic.values.databaseLoadError).toEqual(null)
+            expect(childNames('sources')).not.toContain("Couldn't load your schema")
+        })
     })
 })

@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 export enum ReplayScannerTab {
     Overview = 'overview',
     Observations = 'observations',
-    Quality = 'quality',
+    Calibration = 'calibration',
     OnDemand = 'on-demand',
     Configuration = 'configuration',
     Actions = 'actions',

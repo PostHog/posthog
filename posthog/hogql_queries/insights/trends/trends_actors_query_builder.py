@@ -38,6 +38,9 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    first_pageview_aware_properties_to_expr,
+)
 
 
 class TrendsActorsQueryBuilder:
@@ -384,7 +387,18 @@ class TrendsActorsQueryBuilder:
 
         # Properties
         if self.trends_query.properties is not None and self.trends_query.properties != []:
-            conditions.append(property_to_expr(self.trends_query.properties, self.team))
+            conditions.append(
+                first_pageview_aware_properties_to_expr(
+                    self.trends_query.properties,
+                    team=self.team,
+                    modifiers=self.modifiers,
+                    # Mirrors `_date_where_expr`: on the previous-period side the
+                    # session's first pageview has to be looked for in that
+                    # period, or the modal drops actors the graph point counted.
+                    date_range=self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range,
+                    timings=self.timings,
+                )
+            )
 
         return conditions
 

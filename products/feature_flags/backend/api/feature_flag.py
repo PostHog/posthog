@@ -14,10 +14,12 @@ from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
+from django.db.models.functions import JSONObject
 
 import grpc
 import requests
 import structlog
+from cryptography.fernet import InvalidToken
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import exceptions, request, serializers, status, viewsets
@@ -61,6 +63,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
@@ -129,6 +132,8 @@ EARLY_EXIT_FLAG = "feature-flag-early-exit"
 # period so we can notify affected customers before flipping it on per-org, then
 # to 100%. Remove the gate and make enforcement unconditional once fully rolled out.
 ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
+
+ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for flags with encrypted payloads."
 
 
 def parse_created_by_ids(value: Any) -> list[int]:
@@ -382,6 +387,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "not_in",
         "flag_evaluates_to",
     }
+    | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
 
 FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
@@ -1508,12 +1514,16 @@ class FeatureFlagSerializer(
                             code="invalid_date",
                         )
 
-                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                # make sure regex, icontains, starts/ends_with, gte, lte, lt, and gt properties have string values
                 if prop.operator in [
                     "regex",
                     "icontains",
                     "not_regex",
                     "not_icontains",
+                    "starts_with",
+                    "not_starts_with",
+                    "ends_with",
+                    "not_ends_with",
                     "gte",
                     "lte",
                     "gt",
@@ -2069,6 +2079,10 @@ class FeatureFlagSerializer(
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
+            if instance.has_feature_enrollment:
+                from products.feature_flags.backend.tasks import migrate_feature_enrollment_on_key_change
+
+                migrate_feature_enrollment_on_key_change.delay(instance.team_id, old_key, instance.id)
 
         report_user_action(
             request.user,
@@ -2885,19 +2899,15 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Annotate with replay settings usage to avoid N+1 queries
-        # This checks if any team in the same project uses this flag for session recording
-        # Extract the 'id' key from the JSONB field and cast to integer for safe comparison
-        from django.db.models import IntegerField
-        from django.db.models.functions import Cast
-
+        # Matches the containment check in FeatureFlagSerializer.get_is_used_in_replay_settings,
+        # so the annotated and unannotated paths agree. Containment never casts, so a
+        # non-integer id in the JSON yields False instead of erroring the query.
         queryset = queryset.annotate(
             is_used_in_replay_settings_annotation=Exists(
                 Team.objects.filter(
                     project_id=OuterRef("team__project_id"),
+                    session_recording_linked_flag__contains=JSONObject(id=OuterRef("id")),
                 )
-                .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
-                .filter(json_flag_id=OuterRef("id"))
             )
         )
 
@@ -3177,7 +3187,7 @@ class FeatureFlagViewSet(
         ],
         responses={
             200: FeatureFlagVersionResponseSerializer,
-            400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
+            400: OpenApiResponse(description=ENCRYPTED_VERSION_HISTORY_UNAVAILABLE),
             404: OpenApiResponse(description="Version not found."),
             422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
         },
@@ -3191,9 +3201,11 @@ class FeatureFlagViewSet(
     def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
         feature_flag: FeatureFlag = self.get_object()
 
-        if feature_flag.is_remote_configuration or feature_flag.has_encrypted_payloads:
+        # Only encrypted payloads are withheld. A plaintext remote configuration payload is already
+        # served to every SDK through normal flag evaluation, so gating it here protects nothing.
+        if feature_flag.has_encrypted_payloads:
             return Response(
-                {"detail": "Version history is not available for remote configuration or encrypted flags."},
+                {"detail": ENCRYPTED_VERSION_HISTORY_UNAVAILABLE},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -3214,6 +3226,15 @@ class FeatureFlagViewSet(
             return Response(
                 {"detail": str(e)},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        # `has_encrypted_payloads` is mutable: a flag can be downgraded to plaintext, which strips
+        # ciphertext from the live row but not from the activity log the reconstruction reads. Gate
+        # on the reconstructed version's own state so pre-downgrade versions don't return ciphertext.
+        if result["has_encrypted_payloads"]:
+            return Response(
+                {"detail": ENCRYPTED_VERSION_HISTORY_UNAVAILABLE},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(FeatureFlagVersionResponseSerializer(instance=result).data)
@@ -4375,9 +4396,31 @@ class FeatureFlagViewSet(
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
         # method used to make the request as it is used in non-protected endpoints.
-        decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
-            request, feature_flag.filters.get("payloads", {})
-        )
+        try:
+            decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
+                request, feature_flag.filters.get("payloads", {})
+            )
+        except InvalidToken as e:
+            # The stored ciphertext can't be decrypted by any key in FLAGS_SECRET_KEYS (e.g. it
+            # predates a key rotation and was never re-encrypted). Surface a typed JSON error
+            # instead of letting the exception become an unhandled 500 with an HTML body, which
+            # SDKs can't parse as JSON. The body mirrors the drf-exceptions-hog envelope the Rust
+            # feature-flags service returns for this same failure, so the phase-2 shadow-compare
+            # (shadow_compare_remote_config) sees identical bodies on both paths.
+            logger.exception(
+                "Failed to decrypt remote config payload",
+                extra={"team_id": self.team_id, "feature_flag_id": feature_flag.id},
+            )
+            capture_exception(e)
+            return Response(
+                {
+                    "type": "server_error",
+                    "code": "remote_config_decrypt_failed",
+                    "detail": "Failed to decrypt the remote config payload. Please contact support if the problem persists.",
+                    "attr": None,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         # Count after a successful decryption so a decrypt failure (500) is never counted.
         if should_count:

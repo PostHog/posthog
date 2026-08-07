@@ -156,7 +156,14 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # resolver PostHog's worker queries, unrelated to the user's cluster hostname — so Temporal
         # retrying the whole activity is self-recovering. Match dnspython's fixed message prefix,
         # not the variable timeout duration or nameserver address it's followed by.
-        return {"The resolution lifetime expired"}
+        #
+        # pymongo also raises a bare AutoReconnect("<address>: connection pool paused ...") when a
+        # connection checkout finds the pool not yet READY after an earlier network blip — the
+        # pool's background monitor clears this on its own once it reconnects, so it's distinct
+        # from the persistent "Topology Description:" server-selection failures above. Match the
+        # fixed "connection pool paused" phrase pymongo always uses for this state, not the
+        # surrounding host/timeout values.
+        return {"The resolution lifetime expired", "connection pool paused"}
 
     def get_schemas(
         self,

@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.tools.report import (
     InvalidScoutReportError,
     ReportChartInput,
     _build_charts,
+    _build_edit_charts,
     _chart_event_key,
     _forwarded_summary,
     _report_event_uuid,
@@ -1231,6 +1232,13 @@ class TestBuildCharts:
     def test_no_charts_yields_nothing(self) -> None:
         assert _build_charts(None) == []
         assert _build_charts([]) == []
+
+    def test_an_edit_keeps_omitted_and_emptied_charts_apart(self) -> None:
+        # Emit collapses both to "no charts", but an edit has to tell them apart: None leaves the
+        # report's charts alone while an empty list takes them down. Collapsing them here is what
+        # made a chart unretractable, since every clear read as "the scout didn't mention charts".
+        assert _build_edit_charts(None) is None
+        assert _build_edit_charts([]) == []
 
     def test_duplicate_chart_id_in_one_call_raises(self) -> None:
         # Two charts sharing an id in a single call make a `[label](chart:id)` reference in the summary

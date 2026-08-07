@@ -1,0 +1,167 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1772809171049,
+      "tag": "0000_red_jigsaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1773063486685,
+      "tag": "0001_tan_lifeguard",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1773335630838,
+      "tag": "0002_massive_bishop",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1774890000000,
+      "tag": "0003_fair_whiplash",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774891000000,
+      "tag": "0004_auth_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1775755977659,
+      "tag": "0005_youthful_scarlet_spider",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777639303535,
+      "tag": "0006_youthful_warstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1779747695687,
+      "tag": "0007_futuristic_domino",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779747695688,
+      "tag": "0008_stiff_reptil",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1779747695689,
+      "tag": "0009_bake_default_directories",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1782258190575,
+      "tag": "0010_wet_norrin_radd",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1782359760458,
+      "tag": "0011_spotty_paibok",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1782484832959,
+      "tag": "0012_claude_session_imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1782738796498,
+      "tag": "0013_noisy_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1782742082904,
+      "tag": "0014_futuristic_captain_britain",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1782752756621,
+      "tag": "0015_bright_shard",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1782781314961,
+      "tag": "0016_add_channel_section",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1783005202636,
+      "tag": "0017_nice_bloodaxe",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1783430845937,
+      "tag": "0018_add_pr_urls",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1783430845938,
+      "tag": "0019_add_app_view",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1783685997328,
+      "tag": "0020_repair_browser_tabs_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1783956659993,
+      "tag": "0021_famous_bloodaxe",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1784804000000,
+      "tag": "0022_archive_task_details",
+      "breakpoints": true
+    }
+  ]
+}

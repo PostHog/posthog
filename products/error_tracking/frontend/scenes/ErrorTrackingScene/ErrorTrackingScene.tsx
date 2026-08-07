@@ -32,7 +32,6 @@ import {
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
-import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
@@ -54,7 +53,6 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
-    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
     // Same gate as the settings section: configuration endpoints require error tracking viewer access.
     const configurationAccessDeniedReason = getAccessControlDisabledReason(
         AccessControlResourceType.ErrorTracking,
@@ -85,10 +83,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 <ErrorTrackingSetupPrompt>
                     <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                    {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-                    <div className="border rounded bg-surface-primary p-2">
-                        <IssuesFilters />
-                    </div>
+                    <SourceMapsBanner />
                     <IssuesList />
                 </ErrorTrackingSetupPrompt>
             ),

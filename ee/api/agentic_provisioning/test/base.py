@@ -35,6 +35,28 @@ TEST_PARTNER_SCOPES = [
 ]
 
 
+# A partner granted everything, so a test narrows to the one capability it is about rather
+# than restating the other eight. `provisioning_config(can_start_wizard_runs=False)` reads as
+# the thing under test; a literal dict at each call site does not.
+TEST_PARTNER_PROVISIONING: dict[str, bool] = {
+    "active": True,
+    "can_create_accounts": True,
+    "can_provision_resources": True,
+    "can_use_github_grants": True,
+    "can_start_wizard_runs": True,
+    "can_issue_deep_links": True,
+    # Stands in for the one grandfathered app that still mints a provisioned PAT.
+    "issues_personal_api_key": True,
+}
+
+
+def provisioning_config(**overrides) -> dict:
+    """The stored form of the test partner's config. Goes into ``_provisioning_config``."""
+    from posthog.models.oauth_provisioning import ProvisioningConfig
+
+    return ProvisioningConfig(**{**TEST_PARTNER_PROVISIONING, **overrides}).model_dump(mode="json")
+
+
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -55,13 +77,7 @@ class ProvisioningTestBase(APIBaseTest):
                 "algorithm": "RS256",
                 "scopes": TEST_PARTNER_SCOPES,
                 "is_provisioning_partner": True,
-                "provisioning_partner_type": "test_partner",
-                "provisioning_active": True,
-                "provisioning_can_create_accounts": True,
-                "provisioning_can_provision_resources": True,
-                "provisioning_can_issue_deep_links": True,
-                # Stands in for the one grandfathered app that still mints a provisioned PAT.
-                "provisioning_issues_personal_api_key": True,
+                "_provisioning_config": provisioning_config(),
             },
         )
         return app

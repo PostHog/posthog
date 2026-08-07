@@ -278,17 +278,31 @@ class TestFetch:
 
 
 class TestValidateCredentials:
+    # 418 is an unmapped status that exercises the catch-all branch.
     @pytest.mark.parametrize(
         "status, expected_valid",
-        [(200, True), (400, False), (403, False), (500, False)],
+        [(200, True), (400, False), (403, False), (429, False), (500, False), (503, False), (418, False)],
     )
     def test_status_mapping(self, status, expected_valid):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.return_value = _response(status)
 
-            is_valid, _ = validate_credentials("test-key", "https://posthog.com")
+            is_valid, message = validate_credentials("test-key", "https://posthog.com")
 
         assert is_valid is expected_valid
+        if not expected_valid:
+            # No error branch, including the catch-all, may echo the raw status code.
+            assert message is not None
+            assert str(status) not in message
+
+    def test_server_error_shows_transient_copy(self):
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(503)
+
+            _, message = validate_credentials("test-key", "https://posthog.com")
+
+        assert message is not None
+        assert "temporary" in message
 
     def test_malformed_urls_is_invalid_without_request(self):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
