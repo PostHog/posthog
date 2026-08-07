@@ -19,7 +19,7 @@ export function InsightAIAnalysis(): JSX.Element | null {
 
     // The consent popover asks the user to approve AI data processing. Only reveal it once they've
     // actually clicked "Explain this insight" — gating on consent state alone made it auto-open over
-    // the chart on every page load for orgs that hadn't approved yet.
+    // the chart on every page load for any org that hadn't approved AI data processing yet.
     const [explainRequested, setExplainRequested] = useState(false)
 
     if (!insight.id) {
