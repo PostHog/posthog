@@ -65,10 +65,10 @@ describe('ticketUtils', () => {
     describe('composeTicketBody', () => {
         it.each([
             [
-                'note leads with summary attached',
+                'note leads with summary attached under a bare delimiter, so the summary heading is not repeated',
                 'It still repros in prod',
                 SUMMARY,
-                `It still repros in prod\n\n----\nPostHog AI's analysis:\n${SUMMARY}`,
+                `It still repros in prod\n\n----\n${SUMMARY}`,
             ],
             ['summary alone when note is empty', '', SUMMARY, SUMMARY],
             ['summary alone when note is whitespace', '   ', SUMMARY, SUMMARY],
