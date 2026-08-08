@@ -52,13 +52,17 @@ pub struct WarmState {
     /// `init_transactions` under the `EpochFenced` variant; the broker
     /// rejects produces bearing a stale epoch).
     pub epoch: u8,
-    /// The changelog HWM captured at warm time — everything below it is
-    /// visible to this pod's cache.
-    pub cutoff: u8,
-    /// Writes this pod itself accepted since warming. `cutoff + accepted`
-    /// is the pod's visible prefix of the changelog; a strong read served
-    /// while `changelog.len` exceeds it returns stale data.
-    pub accepted: u8,
+    /// How much of the changelog this pod's cache reflects: the HWM
+    /// captured at warm time, plus every write it has accepted since. A
+    /// strong read served while `changelog.len` exceeds this returns state
+    /// missing at least one acked write.
+    ///
+    /// The two halves are deliberately one number. Nothing reads them
+    /// apart — the cutoff is never consulted on its own, and the accept
+    /// count only ever advances the same total — so keeping them separate
+    /// would only split behaviorally identical states (warmed at 1 and
+    /// accepted nothing, versus warmed at 0 and accepted one).
+    pub visible: u8,
 }
 
 /// A warm caught between its two steps, under the rejected read-first
@@ -215,9 +219,9 @@ pub struct SystemState {
     /// in-flight handoff, clobbering it — the overlap
     /// `plan_partial_rebalance`'s pinning must make unreachable.
     pub double_planned_handoff: bool,
-    /// Set when a strong read is served by a pod whose visible prefix
-    /// (`cutoff + accepted`) is behind the changelog — the read returned
-    /// state missing at least one acked write.
+    /// Set when a strong read is served by a pod whose `WarmState::visible`
+    /// prefix is behind the changelog — the read returned state missing at
+    /// least one acked write.
     pub stale_strong_read: bool,
 
     // ── reachability flags (probe evidence, history encoding) ──

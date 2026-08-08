@@ -28,17 +28,17 @@ web explorer.
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
 minimum viable scale or not at all.
-The suite explores ~47M states across 31 runs.
+The suite explores ~45M states across 31 runs.
 Its long pole is the two-partition double-zombie pair, which is most of the wall clock on its own:
 
 | Scenario | Unique states | Wall time |
 |---|---|---|
-| `epoch_fenced_two_partitions_double_zombie_is_safe` | 21.1M | 25s |
-| `two_partitions_double_zombie_loses_acked_writes` | 15.9M | 20s |
-| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.8M | 3.0s |
-| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 1.6M | 1.5s |
-| `current_two_partitions_single_zombie_is_safe` | 1.0M | 1.1s |
-| *everything else (26 runs)* | 2.6M | 5s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 20.3M | 26s |
+| `two_partitions_double_zombie_loses_acked_writes` | 15.3M | 19s |
+| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 2.9s |
+| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 1.5M | 1.5s |
+| `current_two_partitions_single_zombie_is_safe` | 1.0M | 1.2s |
+| *everything else (26 runs)* | 4.6M | 5s |
 
 Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
 Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
@@ -62,6 +62,7 @@ Two kinds of change, two different expectations:
   Each one needs an argument in its commit message for why forgetting that information is a bisimulation, because a collapse that is wrong does not fail loudly: it quietly stops exploring states where a bug could live.
 
 `generated / unique` is the duplicate-successor ratio, and `depth` is a racing maximum across checker threads, so it varies run to run and means nothing on its own.
+Wall times move by up to 10% between runs of the same binary, so judge a change by its state counts and treat a timing difference under that as no difference.
 
 ## Coupling to production (drift prevention)
 

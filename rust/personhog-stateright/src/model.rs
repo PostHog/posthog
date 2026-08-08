@@ -272,8 +272,7 @@ impl HandoffModel {
                 WarmState {
                     for_handoff,
                     epoch: log.epoch,
-                    cutoff: log.len,
-                    accepted: 0,
+                    visible: log.len,
                 }
             };
             let pod = state.pods.get_mut(&x).unwrap();
@@ -305,8 +304,7 @@ impl HandoffModel {
                     WarmState {
                         for_handoff,
                         epoch: log.epoch,
-                        cutoff,
-                        accepted: 0,
+                        visible: cutoff,
                     }
                 };
                 let pod = state.pods.get_mut(&x).unwrap();
@@ -346,10 +344,9 @@ impl HandoffModel {
     }
 
     /// Serve a strong read at pod `x`, if it can (running, partition
-    /// warmed). Sets the staleness flag when the pod's visible prefix
-    /// (warm cutoff + own accepted writes) is behind the changelog — the
-    /// read returned state missing at least one acked write. Returns
-    /// whether the read was served.
+    /// warmed). Sets the staleness flag when the pod's visible prefix is
+    /// behind the changelog — the read returned state missing at least one
+    /// acked write. Returns whether the read was served.
     fn serve_read(&self, state: &mut SystemState, x: PodId, partition: Partition) -> bool {
         let pod = &state.pods[&x];
         if !pod.running {
@@ -375,8 +372,7 @@ impl HandoffModel {
         let Some(warm) = pod.warmed.get(&partition) else {
             return false;
         };
-        let visible = warm.cutoff.saturating_add(warm.accepted);
-        if visible < state.changelogs[&partition].len {
+        if warm.visible < state.changelogs[&partition].len {
             state.stale_strong_read = true;
         }
         state.read_served = true;
@@ -405,7 +401,8 @@ impl HandoffModel {
 
         let pod = state.pods.get_mut(&x).unwrap();
         if let Some(warm) = pod.warmed.get_mut(&partition) {
-            warm.accepted = warm.accepted.saturating_add(1);
+            // Its own write is immediately visible to it.
+            warm.visible = warm.visible.saturating_add(1);
         }
         if !pod.registered {
             pod.zombie_writes_left = pod.zombie_writes_left.saturating_sub(1);
