@@ -14,7 +14,13 @@ import {
     hasCreditLimit,
     projectQuota,
 } from '../../utils/quotaProjection'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
+import {
+    QUOTA_METER_BACKFILL_CLASS,
+    QUOTA_METER_FREE_CLASS,
+    QuotaMeterBar,
+    QuotaMeterLegendItem,
+    quotaMeterWidths,
+} from './QuotaMeterBar'
 
 interface Props {
     estimate: BackfillEstimateResponseApi | null
@@ -124,7 +130,7 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                             usedPct={projection.usedPct}
                             usedFreePct={projection.usedFreePct}
                             projected={[
-                                { pct: backfillPct, barClass: 'bg-warning' },
+                                { pct: backfillPct, barClass: QUOTA_METER_BACKFILL_CLASS },
                                 { pct: projection.projectedPct, barClass: 'bg-danger', striped: true },
                             ]}
                             valueNow={Math.round(endOfPeriodPct)}
@@ -139,7 +145,7 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                             {freeWidth > 0 ? 'Billed' : 'Spent'}
                         </QuotaMeterLegendItem>
                         {estimate && (
-                            <QuotaMeterLegendItem barClass="bg-warning" width={backfillWidth}>
+                            <QuotaMeterLegendItem barClass={QUOTA_METER_BACKFILL_CLASS} width={backfillWidth}>
                                 This backfill
                             </QuotaMeterLegendItem>
                         )}

@@ -15,6 +15,14 @@ export interface QuotaMeterSegment {
 /** Shading for the non-billable slice of spend, so free credits don't read as money spent. */
 export const QUOTA_METER_FREE_CLASS = 'QuotaMeterBar__free'
 
+/**
+ * Backfill commitments, wherever they appear.
+ *
+ * Deliberately a hue no quota status uses: the projection segments take the status color, so a warning-band
+ * forecast next to a warning-colored backfill was two adjacent yellows separated only by stripes.
+ */
+export const QUOTA_METER_BACKFILL_CLASS = 'bg-brand-blue'
+
 interface QuotaMeterBarProps {
     /** Solid segment: actual usage as a percentage of the cap. */
     usedPct: number

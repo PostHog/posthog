@@ -18,7 +18,13 @@ import {
     splitProjectedPct,
 } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
+import {
+    QUOTA_METER_BACKFILL_CLASS,
+    QUOTA_METER_FREE_CLASS,
+    QuotaMeterBar,
+    QuotaMeterLegendItem,
+    quotaMeterWidths,
+} from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
 interface Props {
@@ -178,7 +184,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                             usedPct={usedPct}
                             usedFreePct={usedFreePct}
                             projected={[
-                                { pct: backfillPct, barClass: 'bg-warning' },
+                                { pct: backfillPct, barClass: QUOTA_METER_BACKFILL_CLASS },
                                 { pct: othersPct, barClass: 'bg-accent' },
                                 { pct: thisScannerPct, barClass: styles.bar, striped: true },
                             ]}
@@ -195,7 +201,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         <QuotaMeterLegendItem width={billedWidth}>
                             {freeWidth > 0 ? 'Billed' : 'Spent'}
                         </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass="bg-warning" width={backfillWidth}>
+                        <QuotaMeterLegendItem barClass={QUOTA_METER_BACKFILL_CLASS} width={backfillWidth}>
                             Backfills
                         </QuotaMeterLegendItem>
                         <QuotaMeterLegendItem barClass="bg-accent" width={othersWidth}>
