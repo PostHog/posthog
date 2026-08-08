@@ -111,12 +111,12 @@ export const setAgentPluginEnabledInput = z.object({
 export const agentPluginState = z.object({
   version: z.literal(1),
   installations: z.array(
-    agentPluginInstallation.extend({
-      id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
-      mcpServers: z.array(agentPluginMcpServerSummary).default([]),
-      stdioApprovalRequired: z.boolean().default(false),
-      approvedStdioDigests: z.record(z.string(), z.string()).default({}),
-    }),
+    agentPluginInstallation
+      .omit({ mcpServers: true, stdioApprovalRequired: true })
+      .extend({
+        id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
+        approvedStdioDigests: z.record(z.string(), z.string()).default({}),
+      }),
   ),
 });
 

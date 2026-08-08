@@ -1009,6 +1009,27 @@ describe("Agent Plugins skills support", () => {
     ).toHaveLength(0);
   });
 
+  it("rejects case-insensitive duplicate stdio environment names", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      local: {
+        type: "stdio",
+        command: "node",
+        env: { NODE_OPTIONS: "first", Node_Options: "second" },
+      },
+    });
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.mcpServers).toEqual([]);
+    expect(preview.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_mcp_server" }),
+      ]),
+    );
+  });
+
   it("prepares deterministic MCP names and revokes disabled installations", async () => {
     const pluginDirectory = path.join(root, "plugin");
     const appDataPath = path.join(root, "app-data");
@@ -1218,12 +1239,14 @@ describe("Agent Plugins skills support", () => {
     });
     expect(installation.mcpServers[0]).not.toHaveProperty("digest");
     expect(JSON.stringify(installation)).not.toContain("not-for-renderer");
-    expect(
-      await fs.promises.readFile(
-        path.join(appDataPath, "agent-plugins", "installations.json"),
-        "utf8",
-      ),
-    ).not.toContain("not-for-renderer");
+    const persistedState = await fs.promises.readFile(
+      path.join(appDataPath, "agent-plugins", "installations.json"),
+      "utf8",
+    );
+    expect(persistedState).not.toContain("not-for-renderer");
+    expect(JSON.parse(persistedState).installations[0]).not.toHaveProperty(
+      "mcpServers",
+    );
 
     await writeMcp(pluginDirectory, {
       local: { type: "stdio", command: "node", args: ["two"] },
@@ -1259,5 +1282,42 @@ describe("Agent Plugins skills support", () => {
     const removed = (await service.list())[0];
     expect(removed.stdioApprovalRequired).toBe(false);
     expect(removed.mcpServers).toEqual([]);
+  });
+
+  it("keeps active HTTP servers registered when approving stdio changes", async () => {
+    const pluginDirectory = path.join(root, "mixed-plugin");
+    const appDataPath = path.join(root, "mixed-app-data");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      remote: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+      local: { type: "stdio", command: "node", args: ["one"] },
+    });
+    const httpProxy = createHttpProxy();
+    const stdioBridge = createStdioBridge();
+    const service = createService(
+      appDataPath,
+      [pluginDirectory],
+      httpProxy,
+      stdioBridge,
+    );
+    const installation = await registerSelectedPlugin(service);
+    await service.prepareRuntimeMcpServers("task-1", "run-1", new Set());
+
+    await writeMcp(pluginDirectory, {
+      remote: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+      local: { type: "stdio", command: "node", args: ["two"] },
+    });
+    await service.approveStdio(installation.id);
+
+    expect(httpProxy.unregisterInstallation).not.toHaveBeenCalled();
+    expect(stdioBridge.unregisterInstallation).toHaveBeenCalledWith(
+      installation.id,
+    );
   });
 });

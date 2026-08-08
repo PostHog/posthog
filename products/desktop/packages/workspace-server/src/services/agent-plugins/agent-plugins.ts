@@ -257,14 +257,7 @@ export class AgentPluginsService {
         enabled: existing?.enabled ?? true,
         manifest,
         skills: preview.skills,
-        mcpServers: summarizeMcpServers(
-          preview.mcpServers,
-          id,
-          manifest.name,
-          approvedStdioDigests,
-        ),
         diagnostics: preview.diagnostics,
-        stdioApprovalRequired: false,
         approvedStdioDigests,
       };
       const installations = state.installations.filter(
@@ -337,7 +330,6 @@ export class AgentPluginsService {
         ...installation,
         enabled: true,
         approvedStdioDigests,
-        stdioApprovalRequired: false,
       };
       await this.writeState({
         version: 1,
@@ -346,7 +338,6 @@ export class AgentPluginsService {
         ),
       });
       this.runtimeDiagnostics.delete(id);
-      this.httpProxy.unregisterInstallation(id);
       await this.stdioBridge.unregisterInstallation(id);
       return this.toPublicInstallation(updated, preview);
     });

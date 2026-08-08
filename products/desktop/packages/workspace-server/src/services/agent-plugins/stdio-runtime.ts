@@ -91,24 +91,60 @@ export function buildStdioEnvironment(
   return environment;
 }
 
+async function createContainedDirectory(
+  root: string,
+  candidate: string,
+): Promise<void> {
+  const relativePath = path.relative(root, candidate);
+  let currentPath = root;
+  for (const segment of relativePath.split(path.sep).filter(Boolean)) {
+    currentPath = path.join(currentPath, segment);
+    try {
+      await fs.promises.mkdir(currentPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const currentStat = await fs.promises.lstat(currentPath);
+    if (currentStat.isSymbolicLink() || !currentStat.isDirectory()) {
+      throw new Error(
+        "The stdio working directory escapes its allowed root through a symbolic link.",
+      );
+    }
+    const resolvedCurrentPath = await fs.promises.realpath(currentPath);
+    if (!isPathContained(root, resolvedCurrentPath)) {
+      throw new Error("The stdio working directory escapes its allowed root.");
+    }
+  }
+}
+
 async function resolveContainedDirectory(
   root: string,
   candidate: string,
   create: boolean,
 ): Promise<string> {
+  const absoluteRoot = path.resolve(root);
   const absoluteCandidate = path.resolve(candidate);
-  if (!isPathContained(root, absoluteCandidate)) {
+  if (!isPathContained(absoluteRoot, absoluteCandidate)) {
     throw new Error("The stdio working directory escapes its allowed root.");
   }
-  if (create) await fs.promises.mkdir(absoluteCandidate, { recursive: true });
-  const candidateStat = await fs.promises.lstat(absoluteCandidate);
+  const resolvedRoot = await fs.promises.realpath(absoluteRoot);
+  const candidateWithinResolvedRoot = path.join(
+    resolvedRoot,
+    path.relative(absoluteRoot, absoluteCandidate),
+  );
+  if (create) {
+    await createContainedDirectory(resolvedRoot, candidateWithinResolvedRoot);
+  }
+  const candidateStat = await fs.promises.lstat(candidateWithinResolvedRoot);
   if (candidateStat.isSymbolicLink()) {
     throw new Error(
       "The stdio working directory escapes its allowed root through a symbolic link.",
     );
   }
-  const resolvedCandidate = await fs.promises.realpath(absoluteCandidate);
-  if (!isPathContained(root, resolvedCandidate)) {
+  const resolvedCandidate = await fs.promises.realpath(
+    candidateWithinResolvedRoot,
+  );
+  if (!isPathContained(resolvedRoot, resolvedCandidate)) {
     throw new Error("The stdio working directory escapes its allowed root.");
   }
   const stat = await fs.promises.stat(resolvedCandidate);
