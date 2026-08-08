@@ -407,12 +407,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Team metadata cache verification - hourly at minute 20
+    # expires_seconds omitted — defaults to 1.5x interval so a tick queued behind a
+    # slow run still executes. The sweep is idempotent and lock-guarded, so a late run
+    # repairs caches rather than being silently dropped when it lands == its interval.
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="*", minute="20"),
         verify_and_fix_team_metadata_cache_task.s(),
         name="verify and fix team metadata cache",
-        expires_seconds=60 * 60,
     )
 
     # Flags cache verification - every 30 minutes
@@ -422,7 +424,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/30"),
         verify_and_fix_flags_cache_task.s(),
         name="verify and fix flags cache",
-        expires_seconds=30 * 60,
     )
 
     # Flag definitions cache verification - hourly at minute 50
@@ -431,7 +432,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="50"),
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache",
-        expires_seconds=60 * 60,
     )
 
     # Flag definitions self-heal - every minute. Drains the queue the Rust
