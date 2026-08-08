@@ -32,6 +32,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -172,9 +173,57 @@ class FeedbackThemesSerializer(serializers.Serializer):
     generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
 
 
+class ScannerExperimentTargetingSerializer(serializers.Serializer):
+    """The experiment a scanner's targeting watches. Metadata only; scanning never reads it."""
+
+    experiment_id = serializers.IntegerField(
+        min_value=1,
+        help_text="The experiment the scanner watches.",
+    )
+    variant_keys = serializers.ListField(
+        child=serializers.CharField(max_length=400, allow_blank=False),
+        allow_empty=True,
+        max_length=50,
+        help_text="Targeted experiment variants. Empty means every variant.",
+    )
+    use_exposure_fallback = serializers.BooleanField(
+        help_text=(
+            "True when the exposure event is captured server-side and the query filters on the "
+            "`$feature/<flag_key>` property instead."
+        ),
+    )
+
+
+@extend_schema_field(ScannerExperimentTargetingSerializer(allow_null=True))
+class ScannerExperimentTargetingField(serializers.JSONField):
+    """The experiment-targeting blob, always validated whole.
+
+    A JSONField subclass rather than a nested serializer field so a partial PATCH can't save a
+    half-filled object: DRF propagates the parent's `partial` into nested serializers, but this
+    validates every write through a fresh non-partial serializer. Decorating the class (not an
+    instance) is what makes `extend_schema_field` land, so the generated types get the real shape.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        data = super().to_internal_value(data)
+        if data is None:
+            return None
+        nested = ScannerExperimentTargetingSerializer(data=data)
+        nested.is_valid(raise_exception=True)
+        return dict(nested.validated_data)
+
+
 class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A Replay Vision scanner: its type, targeting query, and AI configuration."""
 
+    experiment_targeting = ScannerExperimentTargetingField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The experiment this scanner's targeting watches, if any. "
+            "Set null when the experiment targeting is removed."
+        ),
+    )
     name = serializers.CharField(
         max_length=255,
         help_text="Human-readable scanner name. Unique within the team.",
@@ -303,6 +352,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "model",
             "enabled",
             "emits_signals",
+            "experiment_targeting",
             "scanner_version",
             "estimated_monthly_observations",
             "credits_per_observation",
@@ -376,6 +426,23 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         self._validate_and_strip_query(attrs)
         return attrs
 
+    def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        # The field already validated the blob's shape; this adds the access check, which needs the
+        # request context the field lacks. Filtered by the caller's experiment access (not just the
+        # team) so a scanner-editor can't confirm an experiment they can't view exists — a denied or
+        # cross-team id reads as not-found. Falls back to team scoping when there's no request context.
+        if value is None:
+            return None
+        team_experiments = Experiment.objects.filter(team=self.context["get_team"]())
+        accessible = (
+            self.user_access_control.filter_queryset_by_access_level(team_experiments)
+            if self.user_access_control
+            else team_experiments
+        )
+        if not accessible.filter(id=value["experiment_id"]).exists():
+            raise serializers.ValidationError("Experiment not found in this project.")
+        return value
+
     def validate_sampling_rate(self, value: float) -> float:
         # Below one modulo bucket the candidate query samples nothing — reject instead of silently scanning zero.
         if 0 < value < MIN_SAMPLING_RATE:
@@ -423,7 +490,27 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             except PydanticValidationError:
                 logger.exception("replay_vision.scanner.malformed_query", scanner_id=str(instance.id))
                 data["query"] = None
+        # Don't disclose an experiment (its id and variants) to a viewer who can't access it: a
+        # scanner is viewable at a coarser grain than its targeted experiment. Mirrors the write-side
+        # check in validate_experiment_targeting — a caller without experiment access sees null.
+        if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
+            data["experiment_targeting"] = None
         return data
+
+    def _can_view_targeted_experiment(self, targeting: dict[str, Any]) -> bool:
+        experiment_id = targeting.get("experiment_id")
+        if experiment_id is None:
+            return False
+        get_team = self.context.get("get_team")
+        if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
+            return True
+        team_experiments = Experiment.objects.filter(team=get_team())
+        accessible = (
+            self.user_access_control.filter_queryset_by_access_level(team_experiments)
+            if self.user_access_control
+            else team_experiments
+        )
+        return accessible.filter(id=experiment_id).exists()
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
@@ -577,13 +664,17 @@ class ReplayScannerFilter(django_filters.FilterSet):
         method="_filter_search",
         help_text="Case-insensitive substring match across name, description, and the prompt in scanner_config.",
     )
+    experiment_id = django_filters.CharFilter(
+        method="_filter_experiment_id",
+        help_text="Filter to scanners whose targeting watches the given experiment.",
+    )
     order_by = _ScannerOrderByFilter(
         help_text=f"Sort scanners by {', '.join(SCANNER_ORDER_FIELDS)}. Prefix with `-` for descending.",
     )
 
     class Meta:
         model = ReplayScanner
-        fields = ["enabled", "scanner_type", "emits_signals", "created_by", "search"]
+        fields = ["enabled", "scanner_type", "emits_signals", "created_by", "search", "experiment_id"]
 
     @staticmethod
     def _filter_enabled(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
@@ -599,10 +690,18 @@ class ReplayScannerFilter(django_filters.FilterSet):
         tokens = split_csv(value)
         if not tokens:
             return queryset
-        invalid = sorted(t for t in tokens if not t.isdigit())
+        invalid = sorted(t for t in tokens if not t.isdecimal())
         if invalid:
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
         return queryset.filter(created_by_id__in=tokens)
+
+    @staticmethod
+    def _filter_experiment_id(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+        # An int, not NumberFilter's Decimal, which the JSONField lookup can't serialize to JSON.
+        # isdecimal, not isdigit: isdigit accepts characters like superscripts that int() rejects.
+        if not value.strip().isdecimal() or int(value) < 1:
+            raise ValidationError({"experiment_id": "Must be a positive integer."})
+        return queryset.filter(experiment_targeting__experiment_id=int(value))
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
