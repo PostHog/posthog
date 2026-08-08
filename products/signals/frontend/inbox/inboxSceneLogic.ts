@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -415,7 +416,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as SignalReport | null,
             {
                 loadSelectedReport: async ({ id }: { id: string }) => {
-                    return await api.signalReports.get(id)
+                    try {
+                        return await api.signalReports.get(id)
+                    } catch (error) {
+                        // An unresolvable id (a stale deep link, or the onboarding sample card) 404s.
+                        // Return null so the scene shows a "not found" empty state instead of the
+                        // global raw error toast. Let every other failure surface as before.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],

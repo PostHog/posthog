@@ -7,6 +7,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -312,8 +313,16 @@ export function InboxScene(): JSX.Element {
                             <ReportDetailSkeleton />
                         </div>
                     ) : (
-                        <div className="flex flex-1 items-center justify-center text-sm text-tertiary">
-                            Report not found.
+                        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+                            <div>
+                                <h3 className="m-0 text-base font-semibold">Report not found</h3>
+                                <p className="m-0 mt-1 text-sm text-tertiary">
+                                    This report does not exist. It may have been removed.
+                                </p>
+                            </div>
+                            <LemonButton type="secondary" to={urls.inbox(activeTab)}>
+                                Back to inbox
+                            </LemonButton>
                         </div>
                     )}
                 </div>
