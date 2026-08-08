@@ -5463,6 +5463,7 @@ export const INTEGRATION_KINDS = [
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
+    'linkedin-pages',
     'snapchat',
     'stripe',
     'intercom',

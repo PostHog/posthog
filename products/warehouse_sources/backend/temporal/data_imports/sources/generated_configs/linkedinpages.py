@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class LinkedinPagesSourceConfig(config.Config):
-    pass
+    linkedin_pages_integration_id: int = config.value(converter=config.str_to_int)
+    organization_ids: list[str] | None = config.value(
+        converter=config.str_to_optional_list, default_factory=lambda: None
+    )
