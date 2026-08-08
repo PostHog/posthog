@@ -95,6 +95,8 @@ class TestYouTubeAnalyticsSource:
 
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert not config.unreleasedSource
+        # Dropping the flag would expose the source to every project, not just the ones opted in.
+        assert config.featureFlag == "dwh_youtube_analytics"
         assert config.iconPath == "/static/services/youtube_analytics.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/youtube-analytics"
 
