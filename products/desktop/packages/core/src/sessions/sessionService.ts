@@ -9,6 +9,10 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import type {
+  CreateResourceCommentRequest,
+  ResourceComment,
+} from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
   type Adapter,
@@ -49,6 +53,7 @@ import {
   isTerminalStatus,
   type Task,
 } from "@posthog/shared/domain-types";
+import type { CommentTarget } from "../comments/anchors";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -7495,6 +7500,69 @@ export class SessionService {
     }
   }
 
+  async getResourceComments(
+    target: CommentTarget,
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") return [];
+    return authStatus.auth.client.getResourceComments(
+      target.scope,
+      target.itemId,
+      taskId,
+    );
+  }
+
+  /**
+   * Comments for several resources at once, for surfaces that centralize threads
+   * across a task's artifacts and canvases. Returns one flat list — every row
+   * already carries `scope` and `item_id`, so callers group without bookkeeping.
+   * Fanning out here (rather than in a hook) keeps the multi-source read in a
+   * service and lets the caller hold a single query.
+   */
+  async getResourceCommentsForTargets(
+    targets: CommentTarget[],
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready" || targets.length === 0) return [];
+    const client = authStatus.auth.client;
+    const pages: ResourceComment[][] = Array.from(
+      { length: targets.length },
+      () => [],
+    );
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < targets.length) {
+        const index = nextIndex++;
+        const target = targets[index];
+        try {
+          pages[index] = await client.getResourceComments(
+            target.scope,
+            target.itemId,
+            taskId,
+          );
+        } catch {
+          pages[index] = [];
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, targets.length) }, worker),
+    );
+    return pages.flat();
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Sign in to comment");
+    }
+    return authStatus.auth.client.createResourceComment(request);
+  }
+
   async getCloudRunArtifacts(
     taskId: string,
     runId: string,
@@ -7507,6 +7575,25 @@ export class SessionService {
       `${authStatus.auth.apiHost}:${authStatus.auth.projectId}`,
       taskId,
       runId,
+    );
+  }
+
+  async setCloudRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+
+    return authStatus.auth.client.setTaskRunArtifactsDismissed(
+      taskId,
+      runId,
+      artifactIds,
+      dismissed,
     );
   }
 
