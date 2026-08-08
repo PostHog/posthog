@@ -38,10 +38,22 @@ When someone wants the **key numbers from an existing dashboard or insight** pos
 - **Offer the AI summary, don't assume it.** Per step 6, ask before enabling it, then set `summary_enabled: true` once the user agrees — it has AI-consent, quota, and budget gates that can reject the create, so keep it opt-in.
 - The attached **tile snapshots are exact**. The AI summary text is model-written, so treat any figure it quotes as approximate (the same drift caveat as a prompt subscription) and lean on the snapshot for exact numbers.
 
-Usually a better fit than a **prompt subscription** (`creating-ai-subscription`) or a **Signals scout**.
-A prompt subscription composes its own HogQL and can drift from the dashboard's numbers; a scout is for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
-Don't override a user who's certain they want one of those — but when the ask is ambiguous (e.g. "set up a scout to post this daily"), suggest the subscription and confirm before building: _"A dashboard subscription is a better fit for a recurring message. Want me to set that up?"_
-Reach for a prompt subscription when the user specifically asks for a free-text AI report, or when no existing insight/dashboard covers the ask.
+### Choosing between a subscription and a scout
+
+A subscription and a Signals scout can **both** post to a channel on a schedule, so "it's recurring" doesn't decide it.
+The real axis is **fixed metrics vs. judgment** — what is the user actually asking for?
+
+- **They know which numbers they want** → **dashboard/insight subscription** (this skill).
+  It re-runs the saved queries and delivers the exact tile snapshots on schedule.
+  Predictable, cheap, and the tiles are exact — but it can't tell them whether the numbers matter.
+- **They want something to decide what's worth surfacing** → **Signals scout** (`authoring-scouts`).
+  Each run is an autonomous agent that explores the project and reports only when it judges something notable.
+  That judgment is the whole value, and it costs an agent run every tick whether or not it finds anything, so don't reach for it just to deliver a known metric on a cadence.
+- **They want a recurring free-text AI write-up** → **prompt subscription** (`creating-ai-subscription`).
+  It composes its own HogQL, so its numbers can drift from a saved dashboard's; use it only when the value is the analysis itself, or no existing insight/dashboard covers the ask.
+
+Don't override a user who's certain they want a scout or a prompt subscription.
+When the ask is ambiguous (e.g. "set up a scout to post this daily"), name the tradeoff and confirm before building: _"A dashboard subscription is a better fit for a recurring message. Want me to set that up?"_
 
 ## Workflow
 
