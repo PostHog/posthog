@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { delay } from 'lib/utils/async'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
@@ -149,8 +150,22 @@ export const quickFiltersLogic = kea<quickFiltersLogicType>([
                     if (isSharedView()) {
                         return []
                     }
-                    const response = await api.quickFilters.list(props.context)
-                    return response.results
+                    // Quick filters are a supplementary surface, so a transient network failure
+                    // (gateway timeout, dropped body stream) must not throw an unhandled error.
+                    // Retry a few times, then fall back to an empty list — a reload recovers them.
+                    const maxAttempts = 3
+                    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                        try {
+                            const response = await api.quickFilters.list(props.context)
+                            return response.results
+                        } catch {
+                            if (attempt === maxAttempts) {
+                                return []
+                            }
+                            await delay(200 * attempt)
+                        }
+                    }
+                    return []
                 },
                 createFilter: async ({ payload }) => {
                     const newFilter = await api.quickFilters.create({
