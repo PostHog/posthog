@@ -35,6 +35,7 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 # Temporal patch IDs — arbitrary strings recorded in workflow history.
 _PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
 _PATCH_ID_MODEL_CLASSIFIER = "slack-app-model-classifier-v1"
+_PATCH_ID_NO_PERSONAL_GITHUB_GATE = "slack-no-personal-github-gate-v1"
 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")
@@ -215,40 +216,30 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if cascade.mode == "auto":
                 repository = cascade.repository
             elif cascade.mode == "no_repo":
-                # Cascade emits `no_repo` whenever the mentioning user resolves no
-                # repos. Classify first so non-coding asks ("how do I configure
-                # retention?") still answer with no repo; coding asks surface the
-                # connect-personal-GitHub prompt instead of silently no-op'ing.
+                # Cascade emits `no_repo` whenever the mentioning user resolves no repos.
+                # The mention still becomes a task. Whether the ask needs code is the
+                # agent's call once it can see the request, and the agent is the one that
+                # tells the user to connect GitHub if it turns out to need a repo. Deciding
+                # that here meant a single false positive from the needs-repo classifier
+                # walled a plain analytics question behind a Connect button.
                 repository = None
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
-                    event.get("text", ""),
-                    thread_messages,
-                )
-                if needs_repo:
-                    blocked = await _execute_posthog_code_activity(
-                        block_posthog_code_task_if_no_personal_github_activity,
-                        inputs,
-                        channel,
-                        thread_ts,
-                        user_id,
+                if not workflow.patched(_PATCH_ID_NO_PERSONAL_GITHUB_GATE):
+                    # Replay-only, for executions that recorded the classify-then-block pair.
+                    needs_repo = await _execute_posthog_code_activity(
+                        classify_posthog_code_task_needs_repo_activity,
+                        event.get("text", ""),
+                        thread_messages,
                     )
-                    if blocked:
-                        return
-            elif cascade.mode == "needs_user_github":
-                # Replay-only: the cascade no longer emits this mode, because gating on a
-                # missing personal install before classifying the ask walled analytics
-                # questions behind the Connect button. Kept so executions that recorded it
-                # before the change still replay against the same command sequence; drop it
-                # once the workflow history retention window has elapsed.
-                await _execute_posthog_code_activity(
-                    block_posthog_code_task_if_no_personal_github_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
-                    user_id,
-                )
-                return
+                    if needs_repo:
+                        blocked = await _execute_posthog_code_activity(
+                            block_posthog_code_task_if_no_personal_github_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            user_id,
+                        )
+                        if blocked:
+                            return
             else:
                 # Multiple candidates and no explicit mention. Cheap Haiku
                 # check first to skip the agent entirely for analytics/config
@@ -304,10 +295,11 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             return
                         repository = self._selected_repo
             if repository:
-                if workflow.patched("posthog-code-authorship-confirm-2026-06"):
-                    if await self._resolve_authorship(inputs, channel, thread_ts, slack_user_id, user_id, repository):
-                        return
-                elif await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+                # A resolved repository is the one place a GitHub requirement is not a
+                # guess, so authorship is still settled before the sandbox starts: without
+                # a usable install the run would fail partway through the clone.
+                workflow.deprecate_patch("posthog-code-authorship-confirm-2026-06")
+                if await self._resolve_authorship(inputs, channel, thread_ts, slack_user_id, user_id, repository):
                     return
             # Read a per-task model choice ("use fable for this one") out of the
             # mention. Runs here, past every gate that can still abandon the
@@ -355,22 +347,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 channel,
                 thread_ts,
             )
-
-
-async def _gate_on_personal_github(
-    inputs: PostHogCodeSlackMentionWorkflowInputs,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-) -> bool:
-    """Return True when the workflow must abort because the mentioner has no personal GitHub."""
-    return await _execute_posthog_code_activity(
-        block_posthog_code_task_if_no_personal_github_activity,
-        inputs,
-        channel,
-        thread_ts,
-        user_id,
-    )
 
 
 async def _execute_posthog_code_activity(activity_fn: Any, *args: Any) -> Any:

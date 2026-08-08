@@ -62,6 +62,10 @@ class _Recorder:
         self.forward_results: dict[str, bool] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
+        # ts per personal-GitHub gate call, in execution order.
+        self.github_gate_calls: list[str] = []
+        # event text per needs-repo classifier call, in execution order.
+        self.needs_repo_calls: list[str] = []
         # ts -> gate the create-task fake blocks on, to hold a message mid-processing.
         self.create_gates: dict[str, asyncio.Event] = {}
         self.create_reached: dict[str, asyncio.Event] = {}
@@ -117,6 +121,7 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
     async def needs_repo(event_text: str, thread_messages: list[dict[str, str]]) -> bool:
+        rec.needs_repo_calls.append(event_text)
         return True
 
     @activity.defn(name="discover_posthog_code_repository_via_agent_activity")
@@ -164,7 +169,10 @@ def _fake_activities(rec: _Recorder) -> list:
         user_id: int,
         allow_bot_prs: bool = False,
     ) -> bool:
-        return False
+        rec.github_gate_calls.append(inputs.event["ts"])
+        # Blocks whenever it is reached, so a test that expects a task can only pass
+        # by not reaching it.
+        return True
 
     @activity.defn(name="classify_slack_app_model_override_activity")
     async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
@@ -381,6 +389,22 @@ async def test_duplicate_slack_event_id_is_processed_once():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_mention_resolving_no_repo_creates_a_task_without_the_github_gate():
+    """A mention that resolves no repository becomes a repo-less task rather than a
+    Connect-GitHub refusal, and neither the gate nor the needs-repo classifier runs."""
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "no_repo"
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", None)]
+    assert rec.github_gate_calls == []
+    assert rec.needs_repo_calls == []
 
 
 @pytest.mark.asyncio
