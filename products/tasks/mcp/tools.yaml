@@ -314,6 +314,9 @@ tools:
     tasks-artifacts-list:
         operation: tasks_artifacts_list
         enabled: false
+    tasks-comments-counts:
+        operation: tasks_comments_counts
+        enabled: false
     tasks-comments-list:
         operation: tasks_comments_list
         enabled: false
