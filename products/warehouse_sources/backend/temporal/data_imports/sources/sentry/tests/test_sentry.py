@@ -216,6 +216,21 @@ class TestSentryTransport:
 
     @parameterized.expand(
         [
+            ("issue_events",),
+            ("project_events",),
+        ]
+    )
+    def test_events_endpoints_default_to_date_received(self, endpoint) -> None:
+        # Both endpoints fetch full event bodies (child_params full=true), which carry a
+        # `dateReceived` timestamp rather than the `dateCreated` field the lightweight
+        # issue/event list serializers use. Defaulting to `dateCreated` here made every
+        # incremental sync of these tables fail with IncrementalFieldMissingFromDataError.
+        config = SENTRY_ENDPOINTS[endpoint]
+        assert config.default_incremental_field == "dateReceived"
+        assert [incremental_field["field"] for incremental_field in config.incremental_fields] == ["dateReceived"]
+
+    @parameterized.expand(
+        [
             ("projects", "/organizations/acme/projects/"),
             ("teams", "/organizations/acme/teams/"),
             ("members", "/organizations/acme/members/"),
@@ -1462,6 +1477,33 @@ class TestSentryCustomIteratorEndpoints:
         assert rows[0]["quantity"] == 5
         assert rows[0]["period_start"] == "2026-01-01T00:00:00Z"
         assert rows[0]["period_end"] == "2026-03-01T00:00:00Z"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_stats_summary_requests_a_clamped_window_not_a_boundary_stats_period(self, mock_request) -> None:
+        # A relative statsPeriod of the full retention length lands on the retention boundary,
+        # which Sentry rejects with a 400 — the request must send an explicit clamped window.
+        seen_params: list[dict | None] = []
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            seen_params.append(params)
+            return _response({"start": "s", "end": "e", "projects": []})
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats_summary",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        list(cast(Any, resp.items()))
+
+        assert seen_params[0] is not None
+        assert "statsPeriod" not in seen_params[0]
+        assert seen_params[0]["start"] and seen_params[0]["end"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_stats_summary_skips_when_token_has_no_project_access(self, mock_request) -> None:

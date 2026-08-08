@@ -1,5 +1,6 @@
 import {
   ArrowClockwiseIcon,
+  ChatCircleIcon,
   DotsThreeIcon,
   LinkIcon,
   PencilSimpleIcon,
@@ -28,20 +29,29 @@ import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTe
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
+import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useCanvasFrameStore } from "@posthog/ui/features/canvas/freeform/canvasFrameStore";
 import { CANVAS_QUERY_KEY } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import {
+  useCanvasVersions,
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import {
+  MentionAvailabilityProvider,
+  PRIVATE_SPACE_MENTIONS_DISABLED,
+} from "@posthog/ui/features/sessions/mentionAvailability";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -278,8 +288,26 @@ function CanvasBreadcrumb({
   trailing?: ReactNode;
 }) {
   const { dashboard } = useDashboard(dashboardId);
+  const { versions } = useCanvasVersions(dashboardId);
   const { renameDashboard } = useDashboardMutations();
+  const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
+  const commentTarget = {
+    scope: "desktop_canvas" as const,
+    itemId: dashboardId,
+  };
+  const commentTaskId = canvasCommentTaskId(
+    dashboard?.generationTaskId,
+    versions,
+  );
+  const comments = useCommentsQuery(
+    commentTaskId ? commentTarget : null,
+    commentTaskId ?? "",
+    { live: true },
+  );
+  const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
+    (thread) => !thread.resolved,
+  ).length;
 
   return (
     <ChannelBreadcrumb
@@ -294,7 +322,20 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
-      trailing={trailing}
+      trailing={
+        <>
+          {commentTaskId && (
+            <Button size="sm" variant="outline" onClick={openComments}>
+              <ChatCircleIcon />
+              Comments
+              {openCommentCount > 0 && (
+                <span className="tabular-nums">{openCommentCount}</span>
+              )}
+            </Button>
+          )}
+          {trailing}
+        </>
+      }
     />
   );
 }
@@ -325,6 +366,11 @@ export function WebsiteLayout() {
     : undefined;
 
   const { channels } = useChannels();
+  const mentionsDisabledReason =
+    channels.find((channel) => channel.id === channelId)?.channelType ===
+    "personal"
+      ? PRIVATE_SPACE_MENTIONS_DISABLED
+      : null;
   const channelName = channelId
     ? (channels.find((c) => c.id === channelId)?.name ??
       (spacesLayout ? "Space" : "Channel"))
@@ -397,7 +443,9 @@ export function WebsiteLayout() {
         </Flex>
       )}
       <Box flexGrow="1" overflow="hidden">
-        <Outlet />
+        <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
+          <Outlet />
+        </MentionAvailabilityProvider>
       </Box>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's

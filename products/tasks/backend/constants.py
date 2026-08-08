@@ -187,9 +187,13 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "inbox-reports-set-state",
     "llma-prompt-label-set",
     "opt-outs-add",
+    "opt-outs-remove",
     "organization-enforce-2fa",
     "organization-enforce-2fa-execute",
-    "posthog-connection-forward-execute",
+    # Relayed on every call, not because every call writes: the client decides from the tool it
+    # runs in the connected project, which only it can read out of the arguments.
+    "posthog-connection-call",
+    "posthog-connection-forward",
     "scout-scratchpad-forget",
     "signals-scout-scratchpad-forget",
     "skill-archive",

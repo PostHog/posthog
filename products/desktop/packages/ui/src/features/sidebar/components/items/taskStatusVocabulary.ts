@@ -148,12 +148,14 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: props.isGenerating ? "Working" : "Starting",
     };
   }
-  // The statuses that lie. Nothing writes a terminal status when a local agent
-  // goes idle, and the cloud workflow holds in_progress while it babysits CI, so
-  // the claim outlives the work, sometimes for the row's whole life. Live, but
-  // nothing moving: the still dot.
+  // Only a background run's status is a claim about work. An interactive run is
+  // left `in_progress` after it succeeds, deliberately — the session stays open
+  // for a follow-up, so the status says "followable", not "working". Reading it
+  // as a claim marked every finished session as pending, on a row nobody could
+  // clear: opening the session writes a viewed timestamp, not a status.
   const runClaimsWork =
-    props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued";
+    props.runMode === "background" &&
+    (props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued");
   if (runClaimsWork && !hasPullRequest(props)) {
     return {
       tone: "yellow",
