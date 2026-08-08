@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -11,7 +11,6 @@ import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
@@ -25,6 +24,7 @@ import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
+import { buildGithubSetupNext } from './githubSetupNext'
 import { InboxUsageWidget } from './InboxUsageWidget'
 import { InstallationSetupSection } from './InstallationSetupSection'
 import { SetupSection } from './SetupSection'
@@ -296,18 +296,9 @@ function NotificationsWidget(): JSX.Element {
     )
 }
 
-/**
- * The GitHub OAuth round trip returns to `next`, and this modal opens from the rail beside any of the
- * list tabs – so `next` has to be wherever the user actually started, not a fixed tab. `setup=github`
- * comes back with them so the modal reopens showing the result.
- *
- * `GithubIntegration` adds the `/project/<id>` prefix itself, so pass a project-relative path here –
- * `location.pathname` already carries the prefix and would otherwise be doubled into a dead route.
- */
 function GithubSetupBody(): JSX.Element {
     const { location, searchParams } = useValues(router)
-    const path = removeProjectIdIfPresent(location.pathname)
-    return <GithubIntegration next={combineUrl(path, { ...searchParams, setup: 'github' }).url} />
+    return <GithubIntegration next={buildGithubSetupNext(location.pathname, searchParams)} />
 }
 
 const SETUP_MODALS: Record<
