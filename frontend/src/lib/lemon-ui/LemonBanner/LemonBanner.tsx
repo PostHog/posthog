@@ -67,7 +67,7 @@ export function LemonBanner({
                 square && 'LemonBanner--square'
             )}
         >
-            <div className="flex items-center gap-2 grow @md:!px-1">
+            <div className="flex flex-wrap items-center gap-2 grow @md:!flex-nowrap @md:!px-1">
                 {!hideIcon &&
                     (icon ? (
                         icon
@@ -81,12 +81,20 @@ export function LemonBanner({
                         <IconInfo className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
                     ))}
                 <div className="grow overflow-hidden">{children}</div>
-                {action && <LemonButton className="!hidden @md:!flex" type="secondary" {...action} />}
+                {/* One action button that keeps its place: full width on its own wrapped row below @md,
+                    inline above @md. It never toggles visibility, so a width change during load can't
+                    hide the copy under the pointer and swallow the click. */}
+                {action && (
+                    <LemonButton
+                        className="order-last !w-full @md:!order-none @md:!w-auto"
+                        type="secondary"
+                        {...action}
+                    />
+                )}
                 {showCloseButton && (
                     <LemonButton size="xsmall" icon={<IconX />} onClick={_onClose} aria-label="close" />
                 )}
             </div>
-            {action && <LemonButton className="@md:!hidden" type="secondary" fullWidth {...action} />}
         </div>
     )
 }

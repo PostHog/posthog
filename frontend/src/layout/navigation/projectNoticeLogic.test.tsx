@@ -7,6 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -259,6 +260,25 @@ describe('projectNoticeLogic', () => {
 
             logic.unmount()
         })
+
+        it('holds the rendered notice back until the authoritative feature flags arrive', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
+            reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(false)
+            logic.actions.loadRecordsSuccess([])
+
+            // The flags decide the notice shape (canAccessBilling reads OWNER_ONLY_BILLING). Until they
+            // land the blueprint that drives the banner must stay null, so nothing mounts, reshapes,
+            // and unmounts during page load — even though the variant is already known.
+            expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
+            expect(logic.values.projectNotice).toBeNull()
+
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            expect(logic.values.projectNotice).not.toBeNull()
+
+            logic.unmount()
+        })
     })
 
     describe('unverified email banner CTA', () => {
@@ -321,6 +341,8 @@ describe('projectNoticeLogic', () => {
         it('navigates to the reverse proxy settings when the banner CTA is clicked', async () => {
             const logic = projectNoticeLogic()
             logic.mount()
+            // The blueprint stays null until the authoritative flags land, so mark them received.
+            featureFlagLogic.actions.setFeatureFlags([], {})
             await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
             reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(false)
             logic.actions.loadRecordsSuccess([])
@@ -334,11 +356,13 @@ describe('projectNoticeLogic', () => {
                 </LemonBanner>
             )
 
-            // The banner renders the action at two responsive breakpoints, both sharing the data-attr.
-            const cta = container.querySelector<HTMLElement>('[data-attr="missing-reverse-proxy-settings_link"]')
-            expect(cta).not.toBeNull()
+            // Exactly one action button — the banner no longer renders two responsive copies that
+            // swap visibility on width, which used to hide the copy under the pointer and swallow the
+            // click. One stable button is what keeps the CTA clickable while the layout settles.
+            const ctas = container.querySelectorAll<HTMLElement>('[data-attr="missing-reverse-proxy-settings_link"]')
+            expect(ctas).toHaveLength(1)
 
-            await userEvent.click(cta!)
+            await userEvent.click(ctas[0])
 
             // Routing prefixes the current project, so assert the settings target rather than an exact path.
             expect(router.values.location.pathname).toMatch(/\/settings\/organization-proxy$/)

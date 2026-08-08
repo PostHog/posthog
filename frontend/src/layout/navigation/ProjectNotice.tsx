@@ -21,12 +21,15 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const requiresHorizontalMargin = sceneConfig?.layout && LAYOUT_WITH_HORIZONTAL_MARGIN.includes(sceneConfig.layout)
 
     // KLUDGE: We can't really depend on `projectNotice` being set inside the logic
-    // to trigger the action from inside the logic, so let's do it here.
+    // to trigger the action from inside the logic, so let's do it here. Gate on the
+    // resolved `projectNotice` blueprint, not just the variant — the blueprint stays
+    // null until the feature flags land, so this reports the notice only once it is
+    // actually on screen.
     useEffect(() => {
-        if (projectNoticeVariant && !hideProjectNotice) {
+        if (projectNotice && projectNoticeVariant && !hideProjectNotice) {
             reportNoticeShown()
         }
-    }, [projectNoticeVariant, reportNoticeShown, hideProjectNotice])
+    }, [projectNotice, projectNoticeVariant, reportNoticeShown, hideProjectNotice])
 
     if (!projectNotice || hideProjectNotice) {
         return null
