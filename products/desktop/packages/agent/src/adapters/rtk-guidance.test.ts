@@ -54,6 +54,32 @@ describe("rtk guidance for codex", () => {
       const guidance = buildRtkGuidance("rtk");
       expect(guidance).toContain("Never prefix `git commit`, `git push`");
     });
+
+    // Parity with the Claude hook's find allowlist: rtk hard-fails on
+    // unsupported predicates, so guided models must not prefix those shapes.
+    test("advertises the find predicate allowlist", () => {
+      const guidance = buildRtkGuidance("rtk");
+      expect(guidance).toContain("`-name`");
+      expect(guidance).toContain("`-maxdepth`");
+      expect(guidance).toContain("-not");
+      expect(guidance).toContain("unprefixed");
+    });
+
+    // rtk rg execs a real rg binary; advertising it where rg is only a shell
+    // function would make every guided rg command fail.
+    test("advertises rg only when it is a real PATH executable", () => {
+      expect(buildRtkGuidance("rtk", { rgOnPath: true })).toContain("`rg`");
+      expect(buildRtkGuidance("rtk", { rgOnPath: false })).not.toContain(
+        "`rg`",
+      );
+      expect(buildRtkGuidance("rtk")).not.toContain("`rg`");
+    });
+
+    // Parity with the Claude hook's chain-segment rewriting.
+    test("allows prefixing eligible segments of && chains", () => {
+      const guidance = buildRtkGuidance("rtk");
+      expect(guidance).toContain("cd pkg && rtk git status");
+    });
   });
 
   describe("appendRtkGuidanceForCodex", () => {

@@ -134,8 +134,9 @@ export function splitTopLevelSegments(
 // with exit 1 on anything else — `-not`, `!`, `-and`, `-newer`, `-mtime`,
 // `-exec`, `-delete`, …). Rewriting an unsupported invocation would replace the
 // file list with an error, costing a raw retry, so only invocations whose
-// every `-flag` token is in this allowlist are rewritten.
-const RTK_FIND_SUPPORTED_FLAGS = new Set([
+// every `-flag` token is in this allowlist are rewritten. Exported so the
+// instruction-level Codex guidance advertises the same constraint.
+export const RTK_FIND_SUPPORTED_FLAGS = new Set([
   "-name",
   "-iname",
   "-path",
