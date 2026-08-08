@@ -498,11 +498,10 @@ async def _spawn_and_run(
         network_access_level,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
-    # Per-skill opt-in user writes (`allowed_tools` → `OPT_IN_USER_WRITE_TOOLS`, e.g. the
-    # insight-hygiene scout's `update_insights` → `insight:write`): resolve the scout preset
-    # through the PUBLIC `resolve_scopes` API here and carry the result as an explicit scope
-    # list with the opt-ins appended — the shared OAuth token code in `posthog/temporal/oauth.py`
-    # stays completely scout-agnostic. A plain preset string when nothing is opted in.
+    # Per-skill user-write opt-ins (see OPT_IN_USER_WRITE_TOOLS).
+    # When a skill opts in, resolve the scout preset through the public resolve_scopes() here and
+    # append the opted-in scopes as an explicit list. The shared OAuth token code keeps no scout
+    # knowledge. When nothing opts in, pass the plain preset string.
     scope_preset: McpScopePreset = "signals_scout_reports" if report_channel else "signals_scout"
     opted_in_write_scopes = skill_opted_in_user_write_scopes(skill.allowed_tools)
     scout_mcp_scopes: PosthogMcpScopes = scope_preset

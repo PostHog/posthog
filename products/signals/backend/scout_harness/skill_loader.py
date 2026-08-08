@@ -20,30 +20,29 @@ SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
 # and the viewset fail-closes the write on it (`views.py`). Keep them resolving the same set.
 REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
 
-# Per-skill opt-in user-facing WRITE scopes, keyed by the `allowed_tools` entry a skill lists to
-# request them — the same opt-in pattern as the report channel, but for ordinary product writes
-# (anything already in the fleet-wide `SCOUT_USER_WRITE_SCOPES` needs no opt-in). The runner adds
-# the mapped scope to the run's MCP token posture (`["<preset>", "<scope>"]` — see resolve_scopes),
-# so the scope reaches the sandbox ONLY when the skill asked for it: the MCP server filters its
-# tool catalog by token scopes (a scout without `insight:write` never even sees `insight-update`),
-# and the PostHog API re-checks the scope on the call itself. Add an entry only when a scout
-# genuinely needs that write unattended; the value must be a scope the MCP server advertises
-# (a member of `MCP_WRITE_SCOPES`) or token resolution raises.
+# Per-skill opt-in user-facing WRITE scopes.
+# A skill lists one of these tool names in `allowed_tools` to request the mapped scope.
+# This mirrors the report-channel opt-in, but grants ordinary product writes.
+# Scopes already in the fleet-wide `SCOUT_USER_WRITE_SCOPES` need no opt-in.
+# The runner adds the mapped scope to the sandbox token of the scout that asked.
+# The MCP server filters its tool catalog by token scope, so a scout without
+# `insight:write` never sees `insight-update`. The PostHog API re-checks the scope on the call.
+# Add an entry only when a scout genuinely needs that write unattended. The value must belong to
+# `MCP_WRITE_SCOPES`, or token resolution raises.
 OPT_IN_USER_WRITE_TOOLS: dict[str, str] = {
-    # Lets a scout fix a saved insight's name/description in place (the insight-hygiene scout).
-    # Grants the full `insight:write` object — create/update/delete all surface — so the skill body
-    # must constrain itself to metadata-only edits; the alternative (fleet-wide insight:write) is
-    # exactly what SCOUT_USER_WRITE_SCOPES exists to avoid.
+    # Lets a scout fix a saved insight's name or description in place (the insight-hygiene scout).
+    # Grants the full `insight:write` object: create, update, and delete all surface.
+    # The skill body must restrict itself to metadata-only edits.
     "update_insights": "insight:write",
 }
 
 
 def skill_opted_in_user_write_scopes(allowed_tools: list[str] | None) -> list[str]:
-    """The user-facing write scopes a skill opted into via `allowed_tools`, in stable order.
+    """The user-facing write scopes a skill requested in `allowed_tools`, in stable order.
 
-    Validates each mapped scope against the advertised MCP surface (imported lazily to keep this
-    module's import graph small): a bad entry in the repo-controlled map fails LOUD here, one hop
-    from where the runner consumes it, instead of minting a token with a scope nothing understands.
+    Validate each mapped scope against `MCP_WRITE_SCOPES` (imported lazily to keep the import
+    graph small). A bad entry in the repo-controlled map raises here, close to the runner,
+    instead of minting a token that carries a scope nothing understands.
     """
     from posthog.temporal.oauth import MCP_WRITE_SCOPES
 

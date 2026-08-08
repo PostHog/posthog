@@ -1,18 +1,17 @@
-"""The insight-hygiene scout's "does it really work" suite.
+"""Test suite for the insight-hygiene scout. Three layers:
 
-Three layers:
-
-1. **Scenario corpus** — named (name, description, query) cases with an expected verdict and
-   action, run through the mechanical rule engine
-   (`products/signals/backend/scout_harness/insight_hygiene.py`) whose rules the scout's
-   `references/queries.md` encodes verbatim. This is the behavioral contract: every confusing
-   shape the scout is trusted to catch, and every clean shape it must leave alone.
-2. **Scope wiring** — the `update_insights` allowed-tool opt-in is the ONLY way a scout token
-   gains `insight:write`: the skill-loader mapping, `resolve_scopes`' preset+extras resolution
-   and validation, and the runner's end-to-end sandbox posture.
-3. **Static skill tests** — the SKILL.md parses, carries the opt-in, keeps the required anatomy
-   sections, ships its referenced `references/queries.md`, and still encodes the mechanical
-   rules the corpus asserts (so the prompt and the tested rules can't silently drift apart).
+1. **Scenario corpus**. Named (name, description, query) cases with an expected verdict and
+   action. The corpus runs through the mechanical rule engine in
+   `products/signals/backend/scout_harness/insight_hygiene.py`. The scout's
+   `references/queries.md` states the same rules. This is the behavioral contract: every
+   confusing shape the scout must catch, and every clean shape it must leave alone.
+2. **Scope wiring**. The `update_insights` allowed-tool opt-in is the only way a scout token
+   gains `insight:write`. Covers the skill-loader mapping, its scope validation, and the
+   runner's sandbox posture end to end.
+3. **Static skill tests**. The SKILL.md must parse. It must carry the opt-in and the required
+   anatomy sections. Its bundled `references/queries.md` must exist. The body must still state
+   the mechanical rules the corpus asserts. This keeps the prompt and the tested rules from
+   drifting apart silently.
 """
 
 from __future__ import annotations
@@ -444,8 +443,8 @@ class TestScenarioCorpus(SimpleTestCase):
         assert len(names) == len(set(names))
 
     def test_renames_change_only_the_day_count(self) -> None:
-        """Every suggested rename must differ from the original title by the digit run only — a
-        rename that restructures the title is taste, not mechanics."""
+        """Every suggested rename must differ from the original title by the digit run only.
+        A rename that restructures the title is taste, not mechanics."""
         for _, name, _desc, query, legacy, known, _conf, action, suggested in SCENARIOS:
             if action != Action.RENAME or suggested is None:
                 continue
@@ -496,8 +495,8 @@ class TestRuleEngineUnits(SimpleTestCase):
         assert check_date_range("Pageviews (last 14 days)", None, "-2w") is None
         assert check_date_range("Pageviews (last week)", None, "-7d") is None
         assert check_date_range("Pageviews (last week)", None, "-14d") == Verdict.STALE_DATE_RANGE
-        # deliberate approximation: "-1m" is treated as 30 days symbolically (NOT calendar-aware) —
-        # a calendar-aware comparison would flip verdicts month to month (see parse_relative_days)
+        # Deliberate approximation: "-1m" reads as 30 days symbolically, not calendar-aware.
+        # A calendar-aware comparison would flip verdicts month to month (see parse_relative_days).
         assert check_date_range("Pageviews (last month)", None, "-30d") is None
 
     def test_event_display_forms_cover_common_events(self) -> None:
@@ -632,8 +631,8 @@ async def ateam(aorganization):
 
 
 def _make_fake_session(team: Team) -> tuple[MagicMock, MagicMock]:
-    """The (session, result) pair `MultiTurnSession.start` returns — session carries a saved
-    task_run so the bridge insert (FK requirement) succeeds."""
+    """Build the (session, result) pair that `MultiTurnSession.start` returns. The session
+    carries a saved task_run, so the bridge insert (an FK requirement) succeeds."""
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
@@ -695,8 +694,8 @@ async def _capture_mcp_scopes(ateam: Team, *, allowed_tools: list[str]) -> objec
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_opted_in_scout_gets_insight_write_on_top_of_report_posture(ateam):
-    # The runner resolves the scout preset through the PUBLIC resolve_scopes API and appends the
-    # opt-in scope — no change to the shared OAuth token code, which only ever sees a plain list.
+    # The runner resolves the scout preset through the public resolve_scopes API and appends
+    # the opt-in scope. The shared OAuth token code only ever sees a plain list.
     from posthog.temporal.oauth import resolve_scopes
 
     scopes = await _capture_mcp_scopes(ateam, allowed_tools=["emit_report", "edit_report", "update_insights"])
@@ -785,7 +784,7 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
 
     def test_body_reuses_fleet_scratchpad_prefixes_only(self) -> None:
         """Fleet rule: a new scout introduces its own domain label but reuses the canonical key
-        prefixes (dedupe-and-memory.md) — no invented ones."""
+        prefixes (dedupe-and-memory.md). No invented ones."""
         canonical_prefixes = {
             "pattern",
             "noise",
@@ -802,8 +801,8 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
         body_prefixes = set(re.findall(r"`([a-z\-]+):" + r"insight_hygiene", self.skill_md))
         assert body_prefixes, "no scoped scratchpad keys found in the body"
         assert body_prefixes <= canonical_prefixes, (
-            f"invented scratchpad prefixes: {sorted(body_prefixes - canonical_prefixes)} — "
-            "use the fleet vocabulary (see authoring-scouts/references/dedupe-and-memory.md)"
+            f"invented scratchpad prefixes: {sorted(body_prefixes - canonical_prefixes)}. "
+            "Use the fleet vocabulary (see authoring-scouts/references/dedupe-and-memory.md)."
         )
 
     def test_body_carries_sibling_courtesy(self) -> None:
@@ -831,8 +830,9 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
             assert token in self.references, f"references/queries.md is missing rule token {token!r}"
 
     def test_worked_examples_agree_with_the_corpus(self) -> None:
-        """Every worked-example row in references/queries.md whose name also appears in the corpus
-        must carry the same verdict — the table is what the scout imitates; the corpus is tested."""
+        """Every worked-example row in references/queries.md whose name also appears in the
+        corpus must carry the same verdict. The table is what the scout imitates. The corpus is
+        tested."""
         for case_name, name, _desc, _q, _l, _k, expected_confusing, _action, _s in SCENARIOS:
             expected_words = ("stale", "broken", "confusing") if expected_confusing else ("clean",)
             matching_rows = [line for line in self.references.splitlines() if line.startswith(f"| {name}")]
@@ -843,7 +843,7 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
             )
 
     def test_sweep_sql_parses_as_hogql(self) -> None:
-        """Every fenced SQL block in the references must be syntactically valid HogQL — a broken
+        """Every fenced SQL block in the references must be syntactically valid HogQL. A broken
         query here means every run of this scout crashes at step one."""
         from posthog.hogql.parser import parse_select
 
@@ -865,7 +865,7 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
         assert "system.information_schema.columns" in self.references
         # no query reads the bare table name (word-boundary check, `system.insights` must not match)
         assert not re.search(r"FROM\s+insights\b", self.references), (
-            "found a bare `FROM insights` — must be `system.insights`"
+            "found a bare `FROM insights`. Use `system.insights`."
         )
 
 

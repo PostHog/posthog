@@ -1,14 +1,12 @@
-# Insight-hygiene scout: queries & rules
+# Insight-hygiene scout: queries and rules
 
-The sweep SQL, the query formats to parse, the exact mechanical rules, and worked examples.
-The scenario-tested reference implementation is
-`products/signals/backend/scout_harness/insight_hygiene.py`
-(corpus: `products/signals/backend/test/test_insight_hygiene.py`) — keep this file and that
-module saying the same thing; the corpus suite fails when they drift.
+This file holds the sweep SQL, the query formats to parse, the exact mechanical rules, and worked examples.
+A scenario-tested Python reference implements the same rules at `products/signals/backend/scout_harness/insight_hygiene.py`.
+The corpus lives in `products/signals/backend/test/test_insight_hygiene.py`. Keep this file and that module in sync. The corpus suite fails when they drift.
 
-## §Sweep — pull every saved insight with its definition
+## §Sweep: pull every saved insight with its definition
 
-Per the `execute-sql` contract, confirm the columns first — `system.*` column sets drift:
+Per the `execute-sql` contract, confirm the columns first. `system.*` column sets drift:
 
 ```sql
 SELECT column_name, data_type
@@ -17,7 +15,7 @@ WHERE table_name = 'system.insights'
 ORDER BY column_name
 ```
 
-Count form (quick close-out):
+Count form (for the quick close-out):
 
 ```sql
 SELECT count()
@@ -25,7 +23,7 @@ FROM system.insights
 WHERE saved = 1 AND deleted = 0
 ```
 
-Sweep form (page through `last_modified_at DESC`, ~200 rows per run is plenty):
+Sweep form. Page through rows in `last_modified_at DESC` order. ~200 rows per run is plenty:
 
 ```sql
 SELECT short_id, name, description, query, filters, last_modified_at, created_by_id, last_modified_by_id
@@ -35,8 +33,7 @@ ORDER BY last_modified_at DESC
 LIMIT 200
 ```
 
-The tracked-event vocabulary for the stale-event check — events any insight's series references
-(your positive-evidence set; fold it into `pattern:insight_hygiene:events` memory):
+The tracked-event vocabulary for the stale-event check: every event that any insight's series references. This is your positive-evidence set. Fold it into `pattern:insight_hygiene:events` memory:
 
 ```sql
 SELECT DISTINCT JSONExtractString(series.value, 'event') AS event
@@ -47,35 +44,25 @@ WHERE saved = 1 AND deleted = 0
   AND event != ''
 ```
 
-human-renamed-vs-query-edited follow-up, per candidate (who touched it last, and what changed):
-`insights-activity-retrieve` with the insight's `short_id` — look at the most recent activities:
-a `name` change after the last `query`/`filters` change means the name is deliberate.
+For the human-renamed-vs-query-edited check on a candidate, call `insights-activity-retrieve` with the insight's `short_id`. Read the most recent activities. A `name` change after the last `query` or `filters` change means the name is deliberate.
 
 ## Query formats
 
-**New-style (`query` JSON)** — the trend-family kinds are `TrendsQuery`, `StickinessQuery`,
-`LifecycleQuery`:
+**New-style (`query` JSON).** The trend-family kinds are `TrendsQuery`, `StickinessQuery`, and `LifecycleQuery`:
 
-- window: `query.dateRange.date_from` (e.g. `-7d`, `-30d`, `-0mStart`; `null`/absent = the
-  project default, treat as no contradiction; `"all"` = all time).
-- series: `query.series[]` — `{kind: "EventsNode", event: "..."`, optional `name` for a display
-  alias`}`, `{kind: "ActionsNode", id, name?}`. An ActionsNode tracks whatever the action
-  definition captures — its `name` is the display label; use it for matching, never parse it
-  apart. `DataWarehouseNode` series: judgment-only.
-- breakdown: `query.breakdownFilter.breakdown` — a name claiming "by browser" with no
-  `breakdownFilter` is judgment-confusing (report), not a mechanical check.
+- Window: `query.dateRange.date_from` (e.g. `-7d`, `-30d`, `-0mStart`). Absent or `null` means the project default: treat it as no contradiction. `"all"` means all time.
+- Series: `query.series[]`. An `EventsNode` entry has an `event` field and an optional `name` display alias. An `ActionsNode` entry has an `id` and an optional `name` display label; the name is what you match against, never parse it. A `DataWarehouseNode` series is judgment-only.
+- Breakdown: `query.breakdownFilter.breakdown`. A name claiming "by browser" on a query with no `breakdownFilter` is judgment-confusing: report it. This is not a mechanical check.
 
-**Legacy (`filters` JSON, `query` empty)** — window: `filters.date_from`; series:
-`filters.events[]` (`{name}`) + `filters.actions[]` (`{name}`).
+**Legacy (`filters` JSON, `query` empty).** Window: `filters.date_from`. Series: `filters.events[]` (each has a `name`) plus `filters.actions[]` (each has a `name`).
 
-**Out of mechanical scope** — `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `HogQLQuery`,
-`InsightVizNode` wrapping any of those: verdicts there are judgment-only, report-only.
+**Out of mechanical scope.** `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `HogQLQuery`, and any `InsightVizNode` that wraps those kinds get judgment-only verdicts and report-only actions.
 
 ## Mechanical rules
 
 ### 1. Stale window
 
-Extract the strongest date-range claim from name, then description (first match wins):
+Extract the strongest date-range claim from the name, then from the description. First match wins:
 
 | Phrase shape                                   | Claim (`date_from` form)                        |
 | ---------------------------------------------- | ----------------------------------------------- |
@@ -83,36 +70,29 @@ Extract the strongest date-range claim from name, then description (first match 
 | "last/past week·fortnight·month·quarter·year"  | `-1w` · `-2w` · `-1m` · `-1q` · `-1y`           |
 | "last/past N weeks·months·quarters·years·hours" | `-Nw/m/q/y/h`                                   |
 | "today", "this week·month·quarter·year"        | `-0dStart`, `-0wStart`, `-0mStart`, `-0qStart`, `-0yStart` |
-| "daily/weekly/monthly/hourly" (+ users/usage)  | cadence claim — grain of the metric, NOT a window |
+| "daily/weekly/monthly/hourly" (+ users/usage)  | cadence claim: the metric's grain, NOT a window |
 
 Rules:
 
-- A claim that equals `date_from` (canonical form) → clean.
-- A cadence claim is satisfied by any window **at least as long** (WAU over 90d is still WAU;
-  WAU over `-1d` is stale — report, never rename).
-- A claimed window on an all-time (`"all"`) insight is stale; an unclaimed window is clean.
-- **Digit guard:** window claims need the day-unit glue ("days", "d") — bare digits never claim a
-  window, and runs of 3+ digits are identifiers ("2024", "404 errors", "project 725"), not dates.
-- **Rename-eligible** only for exact-day claims with an exact-day replacement: substitute the
-  phrase, keep the rest of the title identical, e.g. `Pageviews (last 14 days)` +
-  `date_from=-30d` → `Pageviews (last 30 days)`. `-Nw/-Nm/-Ny` replacements rephrase as
-  "last M days" using 7/30/365-day conversion; `*Start`/ISO windows have no substitution → report.
+- A claim that equals `date_from` (in canonical form) is clean.
+- Compare windows symbolically, not by string: `-2w` and "last 14 days" are the same window. Day equivalences: `w=7`, `m=30`, `y=365`. This mapping is fixed on purpose; a calendar-aware comparison would flip verdicts month to month.
+- A cadence claim is satisfied by any window **at least as long**. WAU over 90 days is still WAU. WAU over one day is stale: report it, never rename it.
+- A claimed window on an all-time (`"all"`) insight is stale.
+- **Digit guard.** A window claim needs day-unit glue ("days" or "d"). Bare digits never claim a window. Runs of 3+ digits are identifiers ("2024", "404 errors", "project 725"), not dates.
+- **Rename-eligible** only for exact-day claims with an exact-day replacement. Substitute the phrase and keep the rest of the title identical. Example: `Pageviews (last 14 days)` + `date_from=-30d` → `Pageviews (last 30 days)`. Keep the shorthand style: `All pageviews, last 7d` + `-14d` → `All pageviews, last 14d`. `-Nw`, `-Nm`, and `-Ny` replacements rephrase as "last M days" using the fixed day equivalences. `*Start`, ISO, and all-time windows have no substitution: report them.
 
 ### 2. Stale event
 
-The name/description references a **known-tracked** event absent from the current series.
-Event display forms: `$pageview` → "pageview(s)", "page view(s)"; `$exception` →
-"exception(s)", "error(s)"; `$autocapture` → "autocapture(s)"; `$screen` →
-"screenview(s)", "screen view(s)"; `$rageclick` → "rageclick(s)", "rage click(s)";
-`$dead_click` → "deadclick(s)", "dead click(s)"; custom events: raw name, `$`-stripped, and
-separators-to-spaces (`signed_up` → "signed up"). Longest phrase wins ("page views" before
-"view"). The event must be in your positive-evidence set (this insight's own query or
-`pattern:insight_hygiene:events` memory) — an unknown word never fires. **Always report-only:**
-which event the insight is "about" after a swap is a human call.
+The name or description references a **known-tracked** event that is absent from the current series.
+Event display forms: `$pageview` → "pageview(s)", "page view(s)"; `$exception` → "exception(s)", "error(s)"; `$autocapture` → "autocapture(s)"; `$screen` → "screenview(s)", "screen view(s)"; `$rageclick` → "rageclick(s)", "rage click(s)"; `$dead_click` → "deadclick(s)", "dead click(s)".
+Custom events use three forms: the raw name, the `$`-stripped name, and the separators-to-spaces form (`signed_up` → "signed up").
+Longest phrase wins: "page views" beats "view".
+The event must sit in your positive-evidence set (this insight's own query, or `pattern:insight_hygiene:events` memory). An unknown word never fires.
+**Always report-only.** Which event the insight is "about" after a swap is a human call.
 
 ### 3. Broken comparison
 
-Name matches `A vs B` and the query holds fewer than two series. Report-only.
+The name matches `A vs B` and the query holds fewer than two series. Report-only.
 
 ## Worked examples
 

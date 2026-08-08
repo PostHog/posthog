@@ -1,24 +1,23 @@
-"""Reference implementation of the insight-hygiene scout's mechanical name/description checks.
+"""Testable reference for the insight-hygiene scout's name and description checks.
 
-The scout (`products/signals/skills/signals-scout-insight-hygiene`) is an LLM agent and judges
-every insight itself in the sandbox, so nothing at runtime imports this module — it exists to
-make the mechanical core of that judgment **testable**. Its rules are written down inline in the
-scout's `references/queries.md`; the scenario suite
-(`products/signals/backend/test/test_insight_hygiene.py`) pins this implementation against a
-corpus of confusing/clean insights and asserts the SKILL.md still encodes the same rules, so an
-edit to one that forgets the other fails loudly.
+The scout (`products/signals/skills/signals-scout-insight-hygiene`) is an LLM agent. It judges
+each insight in the sandbox, so nothing at runtime imports this module. The module exists so
+tests can pin the mechanical core of that judgment. The scout writes the same rules down in its
+`references/queries.md`. The scenario suite (`products/signals/backend/test/test_insight_hygiene.py`)
+runs this implementation against a corpus of confusing and clean insights. It also asserts that
+the SKILL.md still states the same rules. An edit to one surface that forgets the other fails the
+suite.
 
-Scope of the mechanical core (everything subtler stays LLM judgment):
+What the mechanical core covers (anything subtler stays LLM judgment):
 
-- extract a *date-range claim* from a name/description ("last 14 days", "30d", "past week",
-  "this month", ...) and compare it against the query's `dateRange.date_from`
-- extract the tracked events/actions from a Trends/Stickiness/Lifecycle query (`query` JSON, or
-  legacy `filters` JSON) and match natural-language event mentions in the name ("pageviews",
-  "sign ups", "$pageview") against them
-- detect a name that implies one series ("X" / "A vs B") while the query carries a different
-  count of series
-- suggest a *mechanical* new name only when the fix is replacing the stale token with the
-  query-authoritative value; anything ambiguous downgrades to report-only
+- Read a date-range claim from a name or description ("last 14 days", "30d", "past week",
+  "this month"). Compare it with the query's `dateRange.date_from`.
+- Read the tracked events and actions from a Trends, Stickiness, or Lifecycle query
+  (`query` JSON, or legacy `filters` JSON). Match event mentions in the name ("pageviews",
+  "sign ups", "$pageview") against them.
+- Detect names that imply a comparison ("A vs B") when the query holds one series.
+- Suggest a mechanical new name only when the fix swaps the stale token for the value from the
+  query. Anything ambiguous downgrades to report-only.
 """
 
 from __future__ import annotations
@@ -27,16 +26,6 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-
-_CONSECUTIVE_DIGITS_RUN = 3  # longer digit runs (2024, 404) are treated as identifiers
-_FRACTION_CHARS = r",./:;"  # characters that make a digit-run read as a count, not a day count
-
-_DECIMALISH_AROUND = re.compile(r"[\d.,]")
-
-
-def _contains_long_digit_run(text: str) -> bool:
-    """Whether stripped text still holds an identifier-ish digit run (years, error codes)."""
-    return bool(re.search(rf"\d{{{_CONSECUTIVE_DIGITS_RUN},}}", text))
 
 
 class Verdict(str, Enum):
@@ -48,8 +37,8 @@ class Verdict(str, Enum):
 
 class Action(str, Enum):
     NONE = "none"  # nothing wrong
-    RENAME = "rename"  # mechanical fix — the scout may rename the title in place
-    REPORT = "report"  # confusing, but the fix needs human judgment — list it in the report
+    RENAME = "rename"  # mechanical fix. The scout renames the title in place.
+    REPORT = "report"  # confusing, but the fix needs human judgment. List it in the report.
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +59,7 @@ class DateRangeClaim:
     kind: str = "window"  # "window" (last 14 days) | "cadence" (weekly users)
 
     def canonical(self) -> str:
-        """The dateRange.date_from form this claim asserts the insight uses."""
+        """The dateRange.date_from form this claim expects the insight to use."""
         if self.days is not None:
             return f"-{self.days}d"
         prefix = "d" if self.unit == "d" else self.unit
@@ -81,8 +70,9 @@ class DateRangeClaim:
 
     @property
     def is_cadence(self) -> bool:
-        """A metric-cadence claim ("weekly active users"), not a window claim — satisfied by any
-        window at least as long as the cadence, and NEVER mechanically renamable."""
+        """True for a metric-cadence claim ("weekly active users"), not a window claim.
+        A cadence claim is satisfied by any window at least as long as the cadence.
+        Cadence claims are never mechanically renamable."""
         return self.kind == "cadence"
 
 
@@ -143,7 +133,7 @@ def _day_count(m: re.Match[str]) -> int:
     return _DAY_WORDS[raw.lower()]
 
 
-# date_from values that mean "all time" — a name claiming a window on an all-time insight is stale.
+# Values of date_from that mean "all time". A name that claims a window on an all-time insight is stale.
 _ALL_TIME_DATE_FROM = {"all"}
 
 
@@ -167,8 +157,8 @@ def check_date_range(name: str | None, description: str | None, date_from: str |
         claim = extract_date_claim(text)
         if claim is None:
             continue
-        # an absent window means the project default — a claimed window can be right or wrong and
-        # we can't tell, so it never contradicts; only ALL-TIME contradicts a claim outright
+        # An absent window means the project default. A claimed window can then be right or
+        # wrong, and we cannot tell. Only an all-time range contradicts a claim outright.
         if date_from is None:
             continue
         if date_from in _ALL_TIME_DATE_FROM:
@@ -179,8 +169,8 @@ def check_date_range(name: str | None, description: str | None, date_from: str |
         actual_days = parse_relative_days(date_from)
         if claim_days is not None and actual_days is not None and claim_days == actual_days:
             continue
-        # A cadence claim ("weekly active users") is satisfied by any window at least as long —
-        # "WAU" over the last 90 days is still WAU; over the last day it isn't.
+        # A cadence claim ("weekly active users") is satisfied by any window at least as long.
+        # "WAU" over the last 90 days is still WAU. "WAU" over the last day is not.
         if claim.is_cadence and claim.days is not None and actual_days is not None and actual_days >= claim.days:
             continue
         return Verdict.STALE_DATE_RANGE
@@ -188,12 +178,13 @@ def check_date_range(name: str | None, description: str | None, date_from: str |
 
 
 def parse_relative_days(date_from: str) -> int | None:
-    """Days spanned by a `-N{d|w|m|y}` date_from (rough month/year), None for anchored/ISO forms.
+    """Days spanned by a `-N{d|w|m|y}` date_from (rough month and year). None for anchored or ISO forms.
 
-    DELIBERATELY a fixed mapping (m=30, y=365), NOT the product's calendar-aware parser
-    (`relative_date_parse`): a title claim compares against a saved window _symbolically_, and a
-    calendar-aware comparison would flip verdicts month to month ("-1m" ≈ 31 days in July, 30 in
-    June) — flaky findings are worse than a documented approximation."""
+    Use a fixed mapping (m=30, y=365), not the product's calendar-aware parser
+    `relative_date_parse`. A title claim compares with a saved window symbolically. A
+    calendar-aware comparison would flip verdicts month to month: "-1m" spans 31 days in July
+    and 30 in June. Flaky findings cost more than this approximation does.
+    """
     m = re.fullmatch(r"-(\d+)([dwmy])", date_from)
     if not m:
         return None
@@ -231,15 +222,15 @@ def event_display_forms(event: str) -> tuple[str, ...]:
     """Natural-language forms of an event name that may appear in an insight title."""
     if event in _EVENT_DISPLAY_FORMS:
         return _EVENT_DISPLAY_FORMS[event]
-    # Custom events: the raw name, a $-stripped form, and a humanized (spaces-for-separators) form.
+    # Custom events: the raw name, the $-stripped form, and a humanized form (separators become spaces).
     forms = {event, event.lstrip("$"), re.sub(r"[_\-\s]+", " ", event.lstrip("$")).strip()}
     return tuple(f for f in forms if f)
 
 
 def normalize_event_mention(text: str, candidates_names: set[str]) -> str | None:
-    """Return the event a phrase in `text` refers to, matched against `candidates_names` display
-    forms; None when no candidate's form appears. Matching is word-boundary-first and favors
-    longer phrases ("page views" before "views").
+    """Return the event a phrase in `text` refers to, matched against the display forms of
+    `candidates_names`. None when no candidate's form appears. Matching is word-boundary-first
+    and favors longer phrases ("page views" before "views").
     """
     lowered = re.sub(r"[_\-]+", " ", text.lower())
     candidates: list[tuple[str, str]] = []  # (display form, series name)
@@ -268,12 +259,12 @@ def check_series_event(
     *,
     known_events: set[str] | None = None,
 ) -> Verdict | None:
-    """STALE_EVENT when the name/description names a known-tracked event the query dropped.
+    """STALE_EVENT when the name or description names a known-tracked event the query dropped.
 
     Fires only when the mentioned event resolves against `known_events` (the caller's watch
-    vocabulary — the insight's own query plus prior sightings) but is absent from the query's
-    current series. Unknown words never fire: with no evidence an event was ever tracked, the
-    bare word "errors" in a title is a naming choice, not a staleness clue.
+    vocabulary: the insight's own query plus prior sightings) and is absent from the current
+    series. Unknown words never fire. With no evidence that an event was ever tracked, the bare
+    word "errors" in a title is a naming choice, not a staleness clue.
     """
     tracked = {s.name for s in series}
     candidates = tracked | set(known_events or set())
@@ -287,8 +278,8 @@ def check_series_event(
 
 
 def check_series_count(name: str | None, series: list[SeriesInfo]) -> Verdict | None:
-    """SERIES_COUNT_MISMATCH for the two clear-cut shapes: an 'A vs B' name with a single series,
-    or a name naming exactly one metric while the query tracks several series with no breakdown."""
+    """SERIES_COUNT_MISMATCH when the name promises an "A vs B" comparison and the query holds
+    fewer than two series."""
     if not name:
         return None
     if re.search(r"\bvs\.?\b", name, re.I) and len(series) < 2:
@@ -302,9 +293,10 @@ def check_series_count(name: str | None, series: list[SeriesInfo]) -> Verdict | 
 
 
 def extract_series(query_json: dict[str, Any] | None, legacy_filters: dict[str, Any] | None) -> list[SeriesInfo]:
-    """Series for trend-family queries (TrendsQuery/StickinessQuery/LifecycleQuery or legacy
-    filter insights). Funnels/retention/paths return empty — their names describe flows, and this
-    detector deliberately stays out of flow-land (the scout's LLM judgment still applies)."""
+    """Read the series of trend-family queries (TrendsQuery, StickinessQuery, LifecycleQuery, or
+    legacy filter insights). Funnel, retention, and paths queries return empty. Their names
+    describe flows, and this detector stays out of flows on purpose. The scout's LLM judgment
+    still applies there."""
     series: list[SeriesInfo] = []
     if isinstance(query_json, dict) and isinstance(query_json.get("series"), list):
         for node in query_json["series"]:
@@ -329,7 +321,8 @@ def extract_series(query_json: dict[str, Any] | None, legacy_filters: dict[str, 
 
 
 def extract_date_from(query_json: dict[str, Any] | None, legacy_filters: dict[str, Any] | None) -> str | None:
-    """The query's dateRange.date_from across new-query and legacy-filter insight formats."""
+    """Read the query's dateRange.date_from. Supported formats: new-style query JSON and legacy
+    filters JSON."""
     if isinstance(query_json, dict):
         date_range = query_json.get("dateRange")
         if isinstance(date_range, dict) and isinstance(date_range.get("date_from"), str):
@@ -347,12 +340,12 @@ def extract_date_from(query_json: dict[str, Any] | None, legacy_filters: dict[st
 def suggest_renamed_name(
     old_name: str, verdict: Verdict, *, claim: DateRangeClaim | None, date_from: str | None
 ) -> str | None:
-    """A strictly mechanical replacement, or None when any judgment is needed.
+    """Build a strictly mechanical replacement title. None when the fix needs judgment.
 
-    Date-range: swap the stale phrase for the query's actual window ("Pageviews (last 14 days)" →
-    "Pageviews (last 30 days)") — only for exact-day window claims; cadence claims ("weekly
-    users") and start-anchored/ISO/all-time windows get no suggestion, because rephrasing them is
-    taste, not mechanics. A shorthand claim ("7d") keeps the shorthand style ("14d").
+    Only exact-day window claims qualify: swap the stale phrase for the query's actual window
+    ("Pageviews (last 14 days)" becomes "Pageviews (last 30 days)"). Cadence claims and
+    start-anchored, ISO, or all-time windows get no suggestion. Rephrasing those is taste, not
+    mechanics. Keep the shorthand style for shorthand claims: "7d" becomes "14d".
     """
     if (
         verdict is Verdict.STALE_DATE_RANGE
@@ -395,9 +388,10 @@ def assess_insight(
     legacy_filters: dict[str, Any] | None,
     known_events: set[str] | None = None,
 ) -> InsightAssessment:
-    """Score one saved insight for name/description staleness. The rules are conservative:
-    unknown shapes score OK rather than guessing, and a suggested rename is only produced for a
-    strictly mechanical token swap."""
+    """Score one saved insight for staleness of its name or description. The rules are
+    conservative: unknown shapes score OK instead of guessing, and a rename suggestion exists
+    only for a strictly mechanical token swap.
+    """
     assessment = InsightAssessment()
 
     date_from = extract_date_from(query_json, legacy_filters)
