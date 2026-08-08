@@ -21,7 +21,7 @@
                     "type": "null"
                 }
             ],
-            "description": "End date (YYYY-MM-DD), inclusive."
+            "description": "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
         },
         "interval": {
             "anyOf": [
@@ -43,7 +43,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Start date (YYYY-MM-DD), or \"all\" for earliest available data."
+            "description": "Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use \"all\", also pass end_date."
         },
         "team_ids": {
             "anyOf": [
