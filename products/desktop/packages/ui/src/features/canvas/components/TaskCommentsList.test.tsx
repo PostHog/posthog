@@ -2,7 +2,14 @@ import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
 import type { TaskThreadMessage } from "@posthog/shared/domain-types";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -23,6 +30,9 @@ const mocks = vi.hoisted(() => ({
   resolvedFor: [] as unknown[],
   queriedTargets: [] as unknown[],
   queriedTaskIds: [] as string[],
+  taskHasNextPage: false,
+  taskIsError: false,
+  taskFetchNextPage: vi.fn(),
   prCommentUrls: [] as string[],
   prReviewUrls: [] as string[],
   prTitleUrls: [] as string[],
@@ -189,10 +199,11 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
         pageParams: [null],
       },
       isLoading: false,
-      isError: false,
-      hasNextPage: false,
+      isError: mocks.taskIsError,
+      hasNextPage: mocks.taskHasNextPage,
       isFetchingNextPage: false,
-      fetchNextPage: vi.fn(),
+      isFetchNextPageError: false,
+      fetchNextPage: mocks.taskFetchNextPage,
     };
   },
   useCreateComment: (target: unknown) => {
@@ -310,6 +321,9 @@ describe("TaskCommentsList", () => {
     mocks.resolvedFor = [];
     mocks.queriedTargets = [];
     mocks.queriedTaskIds = [];
+    mocks.taskHasNextPage = false;
+    mocks.taskIsError = false;
+    mocks.taskFetchNextPage.mockReset();
     mocks.prCommentUrls = [];
     mocks.prReviewUrls = [];
     mocks.prTitleUrls = [];
@@ -508,6 +522,34 @@ describe("TaskCommentsList", () => {
       artifactId: "a",
       name: "report.md",
     });
+  });
+
+  it("loads another page when activity focuses an older thread", async () => {
+    mocks.taskHasNextPage = true;
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "task_artifact", itemId: "a" },
+          "older-comment",
+        );
+    });
+
+    await waitFor(() => expect(mocks.taskFetchNextPage).toHaveBeenCalledOnce());
+  });
+
+  it("keeps loaded comments visible after a page error", () => {
+    mocks.taskIsError = true;
+
+    render(<TaskCommentsList task={task} timeline={[]} />);
+
+    expect(screen.getByText("Tighten this summary")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Couldn't load comments"),
+    ).not.toBeInTheDocument();
   });
 
   it("opens the saved canvas version when activity requests its thread", () => {

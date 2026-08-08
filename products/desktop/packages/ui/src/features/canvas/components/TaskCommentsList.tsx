@@ -314,11 +314,13 @@ export function TaskCommentsList({
   const sourceFilterTouched = useRef(false);
   const previousTaskId = useRef(task.id);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const loadMoreIntersectingRef = useRef(false);
 
   useEffect(() => {
     if (previousTaskId.current === task.id) return;
     previousTaskId.current = task.id;
     sourceFilterTouched.current = false;
+    loadMoreIntersectingRef.current = false;
     setSourceFilter(ALL_SOURCES);
     setDraft("");
   }, [task.id]);
@@ -337,7 +339,6 @@ export function TaskCommentsList({
   );
   const taskComments = useTaskCommentsQuery(task.id, {
     enabled: !onlySource,
-    live: true,
   });
   const taskCommentRows = useMemo(
     () => taskComments.data?.pages.flatMap((page) => page.comments) ?? [],
@@ -538,8 +539,17 @@ export function TaskCommentsList({
     const focusKey = focus ? `${task.id}:${focus.nonce}` : null;
     if (!focus || handledFocusRef.current === focusKey) return;
     const focused = threads.find((thread) => thread.id === focus.threadId);
-    // The thread may still be loading, so wait rather than guess its filters.
-    if (!focused) return;
+    if (!focused) {
+      if (
+        !onlySource &&
+        taskComments.hasNextPage &&
+        !taskComments.isFetchingNextPage &&
+        !taskComments.isFetchNextPageError
+      ) {
+        void taskComments.fetchNextPage();
+      }
+      return;
+    }
     handledFocusRef.current = focusKey;
     setStateFilter(focused.resolved ? "resolved" : "open");
     setSourceFilter((current) =>
@@ -556,7 +566,17 @@ export function TaskCommentsList({
         )
         ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
-  }, [focus, openThread, threads, task.id]);
+  }, [
+    focus,
+    onlySource,
+    openThread,
+    task.id,
+    taskComments.fetchNextPage,
+    taskComments.hasNextPage,
+    taskComments.isFetchNextPageError,
+    taskComments.isFetchingNextPage,
+    threads,
+  ]);
   // The pulse fades on its own; owning the timer in its own effect keeps it
   // cleaned up on the next pulse or on unmount, without a stray ref.
   useEffect(() => {
@@ -577,7 +597,15 @@ export function TaskCommentsList({
     }
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry?.isIntersecting && !taskComments.isFetchingNextPage) {
+        if (!entry?.isIntersecting) {
+          loadMoreIntersectingRef.current = false;
+          return;
+        }
+        if (
+          !loadMoreIntersectingRef.current &&
+          !taskComments.isFetchingNextPage
+        ) {
+          loadMoreIntersectingRef.current = true;
           void taskComments.fetchNextPage();
         }
       },
@@ -597,7 +625,7 @@ export function TaskCommentsList({
     : taskComments.isLoading;
   const commentsFailed = onlySource
     ? singleSourceComments.isError
-    : taskComments.isError;
+    : taskComments.isError && !taskComments.data;
   const loading =
     commentsLoading || prConversation.isLoading || prReviews.isLoading;
   const loadFailed =

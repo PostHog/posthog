@@ -122,7 +122,7 @@ export function useCommentsQuery(
 
 export function useTaskCommentsQuery(
   taskId: string,
-  options: { enabled?: boolean; live?: boolean } = {},
+  options: { enabled?: boolean } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
@@ -140,8 +140,6 @@ export function useTaskCommentsQuery(
     getNextPageParam: (page) => page.next,
     enabled: options.enabled !== false && authIdentity !== null && !!taskId,
     staleTime: 3_000,
-    refetchInterval: options.live ? 30_000 : false,
-    refetchIntervalInBackground: false,
     meta: AUTH_SCOPED_QUERY_META,
   });
 }
