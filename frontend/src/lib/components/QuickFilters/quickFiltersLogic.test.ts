@@ -13,7 +13,7 @@ describe('quickFiltersLogic', () => {
         logic?.unmount()
     })
 
-    it('falls back to an empty list when the request keeps failing', async () => {
+    it('falls back to an empty list when the request fails', async () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/quick_filters/': () => [504],
