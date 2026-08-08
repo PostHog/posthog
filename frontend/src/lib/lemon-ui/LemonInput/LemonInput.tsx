@@ -124,6 +124,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
 
     const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
+    // A cleared number field reports NaN, which consumers routinely collapse back into a default and
+    // echo into the input. While the user is still editing, their empty text wins over that default.
+    const [numberDraftEmpty, setNumberDraftEmpty] = useState<boolean>(false)
 
     if (autoWidth && fullWidth) {
         throw new Error('Cannot use `autoWidth` and `fullWidth` props together')
@@ -178,6 +181,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     }
                     if (onChange) {
                         if (type === 'number') {
+                            setNumberDraftEmpty(false)
                             // @ts-expect-error - onChange is typed as never, force it to match the right one
                             onChange(0)
                         } else {
@@ -239,11 +243,22 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                     // A cleared controlled number input holds NaN; pass '' so the input stays
                     // controlled instead of feeding NaN to the DOM (undefined stays uncontrolled)
-                    value={type === 'number' && typeof value === 'number' && Number.isNaN(value) ? '' : value}
+                    value={
+                        type === 'number' &&
+                        ((focused && numberDraftEmpty) || (typeof value === 'number' && Number.isNaN(value)))
+                            ? ''
+                            : value
+                    }
                     disabled={disabled || !!disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {
                             event.stopPropagation()
+                        }
+
+                        if (type === 'number') {
+                            // Keyed on the text, not valueAsNumber, which is also NaN for intermediate
+                            // states like '-' and '1e' that the user is still in the middle of typing
+                            setNumberDraftEmpty(event.currentTarget.value === '')
                         }
 
                         if (onChange) {
@@ -268,6 +283,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                             event.stopPropagation()
                         }
                         setFocused(false)
+                        setNumberDraftEmpty(false)
                         onBlur?.(event)
                     }}
                     onKeyDown={(event) => {
