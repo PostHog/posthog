@@ -1689,6 +1689,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 let errorCount = 0
                 for (const event of eventsData || []) {
+                    // A malformed or missing event row must not crash the whole inspector list.
+                    if (!event) {
+                        continue
+                    }
+
                     let isMatchingEvent = false
 
                     if (event.event === '$exception') {
