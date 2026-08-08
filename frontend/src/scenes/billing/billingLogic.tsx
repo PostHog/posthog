@@ -47,6 +47,9 @@ export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 
 // How often we check whether the cached billing snapshot has outlived the period or org it describes.
 const BILLING_STALENESS_CHECK_INTERVAL_MS = 60_000
+// Minimum gap between refetches while the snapshot stays stale, so a failed or not-yet-rolled-over
+// refresh retries later instead of hammering the API every check or giving up after one attempt.
+const BILLING_STALENESS_REFRESH_BACKOFF_MS = 5 * 60_000
 
 const BILLING_ALERT_DISMISS_PREFIX = 'scenes.billing.billingLogic.billingAlertDismissed.'
 
@@ -1304,7 +1307,7 @@ export const billingLogic = kea<billingLogicType>([
             }),
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
@@ -1342,6 +1345,9 @@ export const billingLogic = kea<billingLogicType>([
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
         loadBillingSuccess: async (_, breakpoint) => {
+            // Record the org this snapshot belongs to so the staleness poller can tell when a later
+            // snapshot describes a different organization.
+            cache.billingSnapshotOrgId = values.currentOrganizationId
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
             actions.loadCreditOverview()
@@ -1646,23 +1652,23 @@ export const billingLogic = kea<billingLogicType>([
                     const orgId = values.currentOrganizationId
                     const periodEnd = billing.billing_period?.current_period_end
 
-                    if (cache.billingSnapshotOrgId === undefined) {
-                        cache.billingSnapshotOrgId = orgId
-                    }
-
                     if (!isBillingSnapshotStale(periodEnd, cache.billingSnapshotOrgId, orgId)) {
                         return
                     }
 
-                    // Only refetch a given stale snapshot once, so a backend that has not rolled the period
-                    // over yet does not make us refetch on every tick.
-                    const snapshotKey = `${orgId}:${periodEnd?.valueOf() ?? ''}`
-                    if (cache.lastRefreshedSnapshotKey === snapshotKey) {
+                    // Back off between refetches so a failed refresh, or a backend that has not rolled the
+                    // period over yet, retries on a later tick instead of blocking retries forever.
+                    const nowMs = Date.now()
+                    if (
+                        cache.lastBillingStaleRefreshAt &&
+                        nowMs - cache.lastBillingStaleRefreshAt < BILLING_STALENESS_REFRESH_BACKOFF_MS
+                    ) {
                         return
                     }
-                    cache.lastRefreshedSnapshotKey = snapshotKey
-                    cache.billingSnapshotOrgId = orgId
+                    cache.lastBillingStaleRefreshAt = nowMs
 
+                    // The alert was computed from a snapshot that no longer applies; drop it now, then refetch
+                    // so loadBillingSuccess recomputes it from current billing.
                     actions.setBillingAlert(null)
                     actions.loadBilling()
                 }
