@@ -19,6 +19,7 @@ import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
 import { pendingInvitesLogic } from './pendingInvitesLogic'
+import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
 import { ProjectName } from './ProjectMenu'
 
 export function ProjectCombobox(): JSX.Element | null {
@@ -57,7 +58,8 @@ export function ProjectCombobox(): JSX.Element | null {
                                 className="pr-12"
                             >
                                 <IconCheck className="text-tertiary" />
-                                <ProjectName team={currentTeam} />
+                                <ProjectName team={currentTeam} className="flex-1 min-w-0" />
+                                <ProjectFreshnessIndicator teamId={currentTeam.id} />
                             </ButtonPrimitive>
                         </Combobox.Item>
 
@@ -115,7 +117,8 @@ export function ProjectCombobox(): JSX.Element | null {
                                             data-attr="tree-navbar-project-dropdown-other-project-button"
                                         >
                                             <IconBlank />
-                                            <ProjectName team={team} />
+                                            <ProjectName team={team} className="flex-1 min-w-0" />
+                                            <ProjectFreshnessIndicator teamId={team.id} />
                                         </Link>
                                     </Combobox.Item>
 
@@ -169,36 +172,39 @@ export function ProjectCombobox(): JSX.Element | null {
                             ))}
                     </>
                 )}
-
-                <MenuSeparator />
-                {preflight?.can_create_org && (
-                    <Combobox.Item
-                        asChild
-                        onClick={() => {
-                            // The button below is rendered disabled when creation is forbidden, but the
-                            // Combobox still fires onClick/Enter — enforce the disabled state here too.
-                            if (projectCreationForbiddenReason) {
-                                return
-                            }
-                            guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                                currentUsage: currentOrganization?.teams?.length,
-                            })
-                        }}
-                    >
-                        <ButtonPrimitive
-                            menuItem
-                            data-attr="new-project-button"
-                            tooltip="Create a new project"
-                            tooltipPlacement="right"
-                            className="shrink-0"
-                            disabled={!!projectCreationForbiddenReason}
-                        >
-                            <IconPlusSmall className="text-tertiary" />
-                            New project
-                        </ButtonPrimitive>
-                    </Combobox.Item>
-                )}
             </Combobox.Content>
+
+            {/* Outside the scroll area for the same reason as in ProjectSwitcher: with a long
+                project list, reaching it otherwise means scrolling past all of them. It stays
+                inside `Combobox`, whose ListBox wraps every child, so it's still arrow-key
+                reachable despite sitting outside the scrolling content. */}
+            {preflight?.can_create_org && (
+                <Combobox.Item
+                    asChild
+                    onClick={() => {
+                        // The button below is rendered disabled when creation is forbidden, but the
+                        // Combobox still fires onClick/Enter — enforce the disabled state here too.
+                        if (projectCreationForbiddenReason) {
+                            return
+                        }
+                        guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
+                            currentUsage: currentOrganization?.teams?.length,
+                        })
+                    }}
+                >
+                    <ButtonPrimitive
+                        menuItem
+                        data-attr="new-project-button"
+                        tooltip="Create a new project"
+                        tooltipPlacement="right"
+                        className="shrink-0 border-t border-primary rounded-none"
+                        disabled={!!projectCreationForbiddenReason}
+                    >
+                        <IconPlusSmall className="text-tertiary" />
+                        New project
+                    </ButtonPrimitive>
+                </Combobox.Item>
+            )}
         </Combobox>
     )
 }

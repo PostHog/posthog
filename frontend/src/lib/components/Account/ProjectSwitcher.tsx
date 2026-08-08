@@ -9,7 +9,6 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -234,15 +233,16 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     </label>
                 </div>
 
-                {/* Results */}
-                <ScrollableShadows
-                    direction="vertical"
-                    styledScrollbars
-                    className="flex-1 overflow-y-auto max-h-[400px]"
-                >
-                    <Combobox.List
-                        className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
-                        tabIndex={-1}
+                {/* Results — the list is the layout column, and only the project rows inside it
+                    scroll. The create row is a sibling of the scroll area rather than content
+                    within it, so it holds its place however long the project list gets. Both stay
+                    inside `Combobox.List`, which is what registers them for arrow-key navigation. */}
+                <Combobox.List className="flex flex-col min-h-0 bg-surface-primary" tabIndex={-1}>
+                    <ScrollableShadows
+                        direction="vertical"
+                        styledScrollbars
+                        className="flex-1 min-h-0 max-h-[400px]"
+                        contentClassName={cn('flex flex-col gap-px', spacingClass, !dialog && 'pt-0.5')}
                     >
                         {/* Current Project */}
                         {currentProject && (
@@ -276,13 +276,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                             value={item}
                                             onClick={() => handleItemClick(item)}
                                             render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    className="flex-1"
-                                                    tabIndex={-1}
-                                                    hasSideActionRight
-                                                >
+                                                <ButtonPrimitive {...props} menuItem className="flex-1" tabIndex={-1}>
                                                     <IconBlank />
                                                     <ProjectName team={item.team} className="flex-1 min-w-0" />
                                                     <ProjectFreshnessIndicator teamId={item.team.id} />
@@ -326,43 +320,43 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                 </Combobox.Collection>
                             </Combobox.Group>
                         )}
+                    </ScrollableShadows>
 
-                        <MenuSeparator />
-
-                        {/* Create New Project */}
-                        {createItem && (
-                            <Combobox.Group items={[createItem]}>
-                                <Combobox.Collection>
-                                    {(item: CreateProjectItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    fullWidth
-                                                    disabled={!canCreateProject}
-                                                    tooltip={
-                                                        !canCreateProject
-                                                            ? projectCreationForbiddenReason ||
-                                                              'You do not have permission to create a project'
-                                                            : undefined
-                                                    }
-                                                    tooltipPlacement="right"
-                                                >
-                                                    <IconPlusSmall className="text-tertiary" />
-                                                    <span className="truncate">{item.label}</span>
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
-                    </Combobox.List>
-                </ScrollableShadows>
+                    {/* Create New Project — outside the scroll area, so reaching it never means
+                        scrolling past every project. The border replaces the separator that used
+                        to sit above it and scroll away with the rows. */}
+                    {createItem && (
+                        <Combobox.Group items={[createItem]} className={`border-t border-primary ${spacingClass}`}>
+                            <Combobox.Collection>
+                                {(item: CreateProjectItem) => (
+                                    <Combobox.Item
+                                        key={item.id}
+                                        value={item}
+                                        onClick={() => handleItemClick(item)}
+                                        render={(props) => (
+                                            <ButtonPrimitive
+                                                {...props}
+                                                menuItem
+                                                fullWidth
+                                                disabled={!canCreateProject}
+                                                tooltip={
+                                                    !canCreateProject
+                                                        ? projectCreationForbiddenReason ||
+                                                          'You do not have permission to create a project'
+                                                        : undefined
+                                                }
+                                                tooltipPlacement="right"
+                                            >
+                                                <IconPlusSmall className="text-tertiary" />
+                                                <span className="truncate">{item.label}</span>
+                                            </ButtonPrimitive>
+                                        )}
+                                    />
+                                )}
+                            </Combobox.Collection>
+                        </Combobox.Group>
+                    )}
+                </Combobox.List>
 
                 {/* Footer */}
                 {dialog && (
