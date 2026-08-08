@@ -1,10 +1,15 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import type { PostHogAPIClient } from "../../../posthog-api";
 import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
+import type { TaskRunArtifact } from "../../../types";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 
 const MAX_ARTIFACT_UPLOAD_BYTES = 30 * 1024 * 1024;
+// The inline fallback base64-encodes the file into a JSON body, so it is held to a lower
+// ceiling than a direct-to-storage POST to stay under the API's request size limit.
+const MAX_INLINE_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export const uploadArtifactTool = defineLocalTool({
   name: "upload_artifact",
@@ -12,6 +17,8 @@ export const uploadArtifactTool = defineLocalTool({
     "Deliver a file you created to the user as a downloadable task artifact. " +
     "Call this for every non-code deliverable (reports, images, archives, data files, and similar output) " +
     "before your final response. The file must be inside the session workspace. Repository changes belong in git and should not be uploaded. " +
+    "To revise a file you already delivered, upload it again under the same name: the app shows the newest version " +
+    "and keeps the earlier ones available. " +
     "On success the result includes a download URL for the uploaded file, which you can reference in your final response.",
   schema: {
     path: z
@@ -65,72 +72,41 @@ export const uploadArtifactTool = defineLocalTool({
         );
       }
 
-      const name = args.name ?? path.basename(artifactPath);
-      const contentType = args.contentType ?? "application/octet-stream";
-      const prepared = await client.prepareTaskArtifactUploads(
-        ctx.taskId,
-        ctx.taskRunId,
-        [
-          {
-            name,
-            type: "output",
-            source: "agent_output",
-            size: fileStat.size,
-            content_type: contentType,
-          },
-        ],
-      );
-      const upload = prepared[0];
-      if (!upload) {
-        return errorResult("PostHog did not prepare the artifact upload.");
-      }
+      const upload = {
+        name: args.name ?? path.basename(artifactPath),
+        contentType: args.contentType ?? "application/octet-stream",
+        content: await readFile(artifactPath),
+      };
 
-      const form = new FormData();
-      for (const [key, value] of Object.entries(upload.presigned_post.fields)) {
-        form.append(key, value);
-      }
-      form.append(
-        "file",
-        new Blob([await readFile(artifactPath)], { type: contentType }),
-        name,
-      );
-      const response = await fetch(upload.presigned_post.url, {
-        method: "POST",
-        body: form,
-      });
-      if (!response.ok) {
-        return errorResult(
-          `Artifact storage upload failed (${response.status}).`,
+      let downloadUrl: string | undefined;
+      try {
+        downloadUrl = await uploadDirect(
+          client,
+          ctx.taskId,
+          ctx.taskRunId,
+          upload,
+        );
+      } catch (error) {
+        // A direct upload needs the agent to reach object storage itself, which fails in
+        // any environment where the sandbox can reach the PostHog API but not the storage
+        // host (a split network, or an egress allowlist that omits the bucket). The inline
+        // upload goes through the API instead, so retry there before surfacing a failure.
+        if (upload.content.byteLength > MAX_INLINE_UPLOAD_BYTES) {
+          throw error;
+        }
+        downloadUrl = await uploadInline(
+          client,
+          ctx.taskId,
+          ctx.taskRunId,
+          upload,
         );
       }
 
-      const finalized = await client.finalizeTaskArtifactUploads(
-        ctx.taskId,
-        ctx.taskRunId,
-        [
-          {
-            id: upload.id,
-            name,
-            type: "output",
-            source: "agent_output",
-            storage_path: upload.storage_path,
-            content_type: contentType,
-          },
-        ],
-      );
-      const finalizedEntry = finalized.find(
-        (artifact) => artifact.storage_path === upload.storage_path,
-      );
-      if (!finalizedEntry) {
-        return errorResult("PostHog did not confirm the artifact upload.");
-      }
-
-      // The finalize endpoint returns a presigned download URL on each artifact.
-      // Read it defensively: the field rides in on TaskRunArtifact once the
-      // api-client is regenerated against the updated OpenAPI spec, and older
-      // backends simply omit it.
-      const downloadUrl = (finalizedEntry as { url?: string }).url;
-      const linkText = downloadUrl ? ` Download URL: ${downloadUrl}` : "";
+      const { name } = upload;
+      const referenceUrl = getArtifactReferenceUrl(downloadUrl);
+      const linkText = referenceUrl
+        ? ` Reference it as a markdown link: [${escapeMarkdownLinkLabel(name)}](<${referenceUrl}>)`
+        : "";
 
       return {
         content: [
@@ -147,6 +123,130 @@ export const uploadArtifactTool = defineLocalTool({
     }
   },
 });
+
+interface ArtifactUpload {
+  name: string;
+  contentType: string;
+  content: Buffer;
+}
+
+/** Reserve a storage key, POST the bytes straight to object storage, then attach them. */
+async function uploadDirect(
+  client: PostHogAPIClient,
+  taskId: string,
+  taskRunId: string,
+  { name, contentType, content }: ArtifactUpload,
+): Promise<string | undefined> {
+  const [prepared] = await client.prepareTaskArtifactUploads(
+    taskId,
+    taskRunId,
+    [
+      {
+        name,
+        type: "output",
+        source: "agent_output",
+        size: content.byteLength,
+        content_type: contentType,
+      },
+    ],
+  );
+  if (!prepared) {
+    throw new Error("PostHog did not prepare the artifact upload.");
+  }
+
+  const form = new FormData();
+  for (const [key, value] of Object.entries(prepared.presigned_post.fields)) {
+    form.append(key, value);
+  }
+  form.append(
+    "file",
+    new Blob([new Uint8Array(content)], { type: contentType }),
+    name,
+  );
+  const response = await fetch(prepared.presigned_post.url, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(`Artifact storage upload failed (${response.status}).`);
+  }
+
+  const finalized = await client.finalizeTaskArtifactUploads(
+    taskId,
+    taskRunId,
+    [
+      {
+        id: prepared.id,
+        name,
+        type: "output",
+        source: "agent_output",
+        storage_path: prepared.storage_path,
+        content_type: contentType,
+      },
+    ],
+  );
+  const entry = finalized.find(
+    (artifact) => artifact.storage_path === prepared.storage_path,
+  );
+  if (!entry) {
+    throw new Error("PostHog did not confirm the artifact upload.");
+  }
+  return readDownloadUrl(entry);
+}
+
+/** Send the bytes through the PostHog API and let the backend write them to storage. */
+async function uploadInline(
+  client: PostHogAPIClient,
+  taskId: string,
+  taskRunId: string,
+  { name, contentType, content }: ArtifactUpload,
+): Promise<string | undefined> {
+  const manifest = await client.uploadTaskArtifacts(taskId, taskRunId, [
+    {
+      name,
+      type: "output",
+      source: "agent_output",
+      content: content.toString("base64"),
+      content_encoding: "base64",
+      content_type: contentType,
+    },
+  ]);
+  // The endpoint returns the run's whole manifest with the new entry appended last.
+  const entry = manifest.at(-1);
+  if (!entry) {
+    throw new Error("PostHog did not confirm the artifact upload.");
+  }
+  return readDownloadUrl(entry);
+}
+
+// Read the download URL defensively: the field rides in on TaskRunArtifact once the
+// api-client is regenerated against the updated OpenAPI spec, and older backends simply
+// omit it.
+function readDownloadUrl(artifact: TaskRunArtifact): string | undefined {
+  return (artifact as { url?: string }).url;
+}
+
+function getArtifactReferenceUrl(
+  downloadUrl: string | undefined,
+): string | null {
+  if (!downloadUrl) return null;
+
+  try {
+    const referenceUrl = new URL(downloadUrl);
+    // Legacy backends return bearer credentials in the query string; stable API URLs do not.
+    referenceUrl.search = "";
+    referenceUrl.hash = "";
+    referenceUrl.username = "";
+    referenceUrl.password = "";
+    return referenceUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+  return label.replace(/([\\[\]])/g, "\\$1");
+}
 
 function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };

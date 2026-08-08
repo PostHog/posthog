@@ -17,6 +17,7 @@ import {
   SlackLogo,
   WarningCircle,
 } from "@phosphor-icons/react";
+import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
 import {
   isTerminalStatus,
@@ -274,6 +275,8 @@ export interface TaskIconProps {
   isSuspended?: boolean;
   needsPermission?: boolean;
   taskRunStatus?: TaskRunStatus;
+  /** Whether anyone follows this run. Only a background run's status claims work. */
+  runMode?: RunMode;
   originProduct?: string;
   /** Pre-built URL to the originating Slack thread (read from
    * `task.latest_run.state.slack_thread_url`). When set, the Slack icon
