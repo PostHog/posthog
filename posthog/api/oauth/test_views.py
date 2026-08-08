@@ -638,7 +638,9 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("refresh_token", body)
         self.assertTrue(OAuthRefreshToken.objects.filter(application=other_app).exists())
 
-    def _create_private_key_jwt_app_and_grant(self) -> tuple[OAuthApplication, OAuthGrant, object]:
+    def _create_private_key_jwt_app_and_grant(
+        self,
+    ) -> tuple[OAuthApplication, OAuthGrant, rsa.RSAPrivateKey]:
         cimd_url = "https://partner.example.com/oauth/client-metadata"
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         app = OAuthApplication.objects.create(
@@ -668,6 +670,7 @@ class TestOAuthAPI(APIBaseTest):
         )
         return app, grant, private_key
 
+    @freeze_time("2025-01-01 00:00:00")
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_cimd_client_completes_token_exchange(self):
         # Regression: a CIMD client registered with private_key_jwt is confidential but holds
