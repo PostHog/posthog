@@ -160,6 +160,20 @@ describe('summarizing insights', () => {
             expect(result).toEqual('')
         })
 
+        // A localStorage draft can hold a query with a kind but no series (see isValidDraftInsightQuery).
+        // Reading query.series then threw during render and crashed the whole saved insights list.
+        it.each([NodeKind.TrendsQuery, NodeKind.FunnelsQuery, NodeKind.StickinessQuery, NodeKind.LifecycleQuery])(
+            'returns an empty summary for a %s with no series',
+            (kind) => {
+                const result = summarizeInsight(
+                    { kind: NodeKind.InsightVizNode, source: { kind } } as InsightVizNode,
+                    summaryContext
+                )
+
+                expect(result).toEqual('')
+            }
+        )
+
         it('summarizes a Trends insight with event property breakdown', () => {
             const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
