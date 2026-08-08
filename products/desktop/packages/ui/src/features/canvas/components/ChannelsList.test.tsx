@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   }[],
   totals: {} as Record<string, number>,
   unreadSessions: {} as Record<string, number>,
+  blockedSessions: {} as Record<string, number>,
   channelsLayout: true,
   navigate: vi.fn(),
 }));
@@ -47,6 +48,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadSessionCount", () => ({
   useUnreadSessionCount: () => (channelId: string | undefined) =>
     mocks.unreadSessions[channelId ?? ""] ?? 0,
+}));
+// Reads the live session store and the task list, neither of which this file
+// mounts.
+vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
+  useBlockedSessionCount: () => (channelId: string | undefined) =>
+    mocks.blockedSessions[channelId ?? ""] ?? 0,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
@@ -150,6 +157,7 @@ describe("ChannelsList", () => {
     vi.clearAllMocks();
     mocks.channels = [ME, ENG, DESIGN];
     mocks.unreadSessions = {};
+    mocks.blockedSessions = {};
     mocks.channelsLayout = true;
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
@@ -458,7 +466,7 @@ describe("ChannelsList", () => {
       await user.keyboard(
         "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}",
       );
-      expect(screen.getByText("View all")).toBeTruthy();
+      expect(screen.getByText("view all")).toBeTruthy();
 
       // Past both sessions and onto the row below them.
       await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");

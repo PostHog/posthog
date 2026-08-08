@@ -124,11 +124,18 @@ export interface TaskDot {
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
   if (props.needsPermission) {
+    // Not flashing. Blue already reads as the one thing in the list that is
+    // yours to answer, and a blink on top of that argues with every quiet row
+    // around it — in a sidebar of a dozen spaces it is the whole tree moving.
     return {
       tone: "blue",
       style: "solid",
-      pulse: true,
-      label: "Needs permission — blocked on you",
+      pulse: false,
+      // What the agent is asking for varies: permission to run a tool, an
+      // answer to a question it asked with one. Both reach the reader as the
+      // same prompt in the same place, so the row names the ask rather than the
+      // mechanism behind it.
+      label: "Needs your input",
     };
   }
   // Spinning means something is moving on its own: a prompt in flight, or a

@@ -71,11 +71,7 @@ describe("ChannelItemRow", () => {
   // run mechanics (queued, failed) resolve to a dot that describes the work
   // rather than the status: starting, live but stalled, or something to read.
   it.each([
-    [
-      "a permission prompt",
-      { needsPermission: true },
-      "Needs permission — blocked on you",
-    ],
+    ["a permission prompt", { needsPermission: true }, "Needs your input"],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
       // A background run is one-shot and unattended, so its in_progress really

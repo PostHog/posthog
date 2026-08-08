@@ -34,6 +34,7 @@ import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLi
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
+import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   PageHeader,
   PageHeaderActions,
@@ -180,6 +181,10 @@ export function ActivityRow({
     item.activityKind === "awaiting_input" ||
     item.activityKind === "completed" ||
     (item.activityKind === "message" && !item.author);
+  // The one row here that is blocked on you, and the sidebar's session rows
+  // already say that in blue. Yellow is everything else the feed carries:
+  // something happened that you haven't read.
+  const awaitsReply = item.activityKind === "awaiting_input";
   const openTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "open_task",
@@ -234,8 +239,15 @@ export function ActivityRow({
           )}
           {item.isUnread && (
             <span
-              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full bg-primary"
-              title="New activity"
+              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full"
+              // Off the table the status dots read, so a row that says the agent
+              // is waiting is the same blue as the session it is waiting in.
+              style={{
+                backgroundColor: awaitsReply
+                  ? DOT_TONE_VAR.blue
+                  : "var(--primary)",
+              }}
+              title={awaitsReply ? "Waiting on you" : "New activity"}
             />
           )}
         </span>

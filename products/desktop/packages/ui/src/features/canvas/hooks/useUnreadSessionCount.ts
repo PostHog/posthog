@@ -23,7 +23,10 @@ import { useMemo } from "react";
  * can undercount a session that started moving since the last poll, never
  * overcount one.
  */
-function wantsAttention(task: Task, lastViewedAt: TaskTimestamps): boolean {
+export function wantsAttention(
+  task: Task,
+  lastViewedAt: TaskTimestamps,
+): boolean {
   const { tone } = taskDot({
     isUnread: isTaskUnread(task.updated_at, lastViewedAt[task.id]),
     taskRunStatus: task.latest_run?.status ?? undefined,
@@ -34,7 +37,7 @@ function wantsAttention(task: Task, lastViewedAt: TaskTimestamps): boolean {
   return tone !== "gray";
 }
 
-type TaskTimestamps = ReturnType<typeof useTaskViewed>["timestamps"];
+export type TaskTimestamps = ReturnType<typeof useTaskViewed>["timestamps"];
 
 /**
  * How many sessions in a channel want attention, by channel id — what a space

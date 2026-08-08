@@ -57,6 +57,7 @@ import {
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
+import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
   type Channel,
@@ -101,7 +102,10 @@ import {
   TaskStatusDot,
   TaskStatusTooltips,
 } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
-import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  DOT_TONE_VAR,
+  taskDot,
+} from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   OverflowTickerText,
@@ -276,10 +280,18 @@ function moveHighlight(
  */
 function SpaceAttentionDot({
   count,
+  tone = "attention",
   faded,
   className,
 }: {
   count: number;
+  /**
+   * Which of the two things the space is saying. Blue is the session rows' own
+   * "blocked on you", so a space whose sessions are waiting on an answer shows
+   * that alongside the yellow rather than folding it in — one of these you can
+   * clear from here, the other you have to go in and read.
+   */
+  tone?: "attention" | "blocked";
   /**
    * The sessions it stands for are on screen, wearing dots of their own. It
    * still marks which space they belong to, so it stays — at a weight that
@@ -290,17 +302,28 @@ function SpaceAttentionDot({
   className?: string;
 }) {
   if (count === 0) return null;
+  const sessions = `${count} ${count === 1 ? "session" : "sessions"}`;
   return (
     <span
       // The dot is one mark whatever the number, but the number is still the
       // useful fact for anyone who can't see it.
-      aria-label={`${count} ${count === 1 ? "session" : "sessions"} waiting`}
+      aria-label={
+        tone === "blocked"
+          ? `${sessions} waiting on you`
+          : `${sessions} waiting`
+      }
       role="img"
       className={cn(
-        "size-2 shrink-0 rounded-full bg-primary",
+        "size-2 shrink-0 rounded-full",
         faded && "opacity-40",
         className,
       )}
+      // The session rows' own tone, off the one table that decides what a dot's
+      // colour means, so the space and the rows inside it can't drift.
+      style={{
+        backgroundColor:
+          tone === "blocked" ? DOT_TONE_VAR.blue : "var(--primary)",
+      }}
     />
   );
 }
@@ -880,6 +903,7 @@ const ChannelSection = memo(
     channel,
     isUnread,
     unreadSessions = 0,
+    blockedSessions = 0,
     hotkeySlot,
     expanded = false,
     tasks,
@@ -890,6 +914,8 @@ const ChannelSection = memo(
     isUnread?: boolean;
     /** How many sessions inside are unread. A number, so the memo can compare it. */
     unreadSessions?: number;
+    /** How many sessions inside are waiting on an answer from you. */
+    blockedSessions?: number;
     /** ⌘1-9 slot, shown as a hint while the row isn't hovered. */
     hotkeySlot?: number;
     expanded?: boolean;
@@ -915,7 +941,7 @@ const ChannelSection = memo(
     // while open.
     const [newMenuOpen, setNewMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
-    const hasAttention = unreadSessions > 0;
+    const hasAttention = unreadSessions > 0 || blockedSessions > 0;
     const prefetchSessions = usePrefetchSpaceTasks();
     const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined,
@@ -1013,14 +1039,31 @@ const ChannelSection = memo(
                   >
                     {channel.name}
                   </OverflowTickerText>
-                  <SpaceAttentionDot
-                    count={unreadSessions}
-                    faded={expanded}
-                    className={cn(
-                      "group-hover/chan:mr-11",
-                      menuOpen && "mr-11",
-                    )}
-                  />
+                  {/* Both dots in one slot, so the hover margin belongs to the
+                      pair rather than to whichever of them happens to end the
+                      row. */}
+                  {hasAttention && (
+                    <span
+                      className={cn(
+                        "flex shrink-0 items-center gap-1",
+                        "group-hover/chan:mr-11",
+                        menuOpen && "mr-11",
+                      )}
+                    >
+                      {/* Blue first, because the rows below are sorted with
+                          what wants you at the top — the pair reads as a
+                          summary of that list, in its order. */}
+                      <SpaceAttentionDot
+                        count={blockedSessions}
+                        tone="blocked"
+                        faded={expanded}
+                      />
+                      <SpaceAttentionDot
+                        count={unreadSessions}
+                        faded={expanded}
+                      />
+                    </span>
+                  )}
                   {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
                   which is meant to let a shortcut hang into a button's own
                   padding. Here `ml-auto` takes every pixel of slack, so the
@@ -1187,6 +1230,7 @@ const ChannelSection = memo(
     prev.expanded === next.expanded &&
     prev.isUnread === next.isUnread &&
     prev.unreadSessions === next.unreadSessions &&
+    prev.blockedSessions === next.blockedSessions &&
     prev.hotkeySlot === next.hotkeySlot &&
     prev.tasks === next.tasks &&
     prev.onToggleExpanded === next.onToggleExpanded &&
@@ -1289,6 +1333,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const meChannel = channels.find((c) => c.channelType === "personal");
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
+  const blockedSessions = useBlockedSessionCount()(meChannel?.id);
   const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
   const isActive =
     !!meChannel &&
@@ -1367,7 +1412,14 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           >
             {PERSONAL_CHANNEL_NAME}
           </span>
-          <SpaceAttentionDot count={unreadSessions} faded={expanded} />
+          <span className="mt-[2px] flex shrink-0 items-center gap-1">
+            <SpaceAttentionDot
+              count={blockedSessions}
+              tone="blocked"
+              faded={expanded}
+            />
+            <SpaceAttentionDot count={unreadSessions} faded={expanded} />
+          </span>
           {hotkeySlot != null && (
             <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
               {formatHotkey(`mod+${hotkeySlot}`)}
@@ -1554,6 +1606,7 @@ export function ChannelsList() {
 
   const isUnread = useIsChannelUnread();
   const unreadSessions = useUnreadSessionCount();
+  const blockedSessions = useBlockedSessionCount();
 
   const [query, setQuery] = useState("");
   const normalizedQuery = channelsLayout ? query.trim().toLowerCase() : "";
@@ -1797,6 +1850,7 @@ export function ChannelsList() {
           channel={channel}
           isUnread={isUnread(channel.id)}
           unreadSessions={unreadSessions(channel.id)}
+          blockedSessions={blockedSessions(channel.id)}
         />
       ))}
       {noMatches && (
@@ -1829,6 +1883,7 @@ export function ChannelsList() {
             channel={channel}
             isUnread={isUnread(channel.id)}
             unreadSessions={unreadSessions(channel.id)}
+            blockedSessions={blockedSessions(channel.id)}
             hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
@@ -1857,6 +1912,7 @@ export function ChannelsList() {
             channel={channel}
             isUnread={isUnread(channel.id)}
             unreadSessions={unreadSessions(channel.id)}
+            blockedSessions={blockedSessions(channel.id)}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
             onToggleExpanded={toggleSpace}
