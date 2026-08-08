@@ -265,12 +265,12 @@ export interface inboxSceneLogicActions {
         errorObject?: any
     }
     loadSelectedReportSuccess: (
-        selectedReportResponse: SignalReport,
+        selectedReportResponse: SignalReport | null,
         payload?: {
             id: string
         }
     ) => {
-        selectedReportResponse: SignalReport
+        selectedReportResponse: SignalReport | null
         payload?: {
             id: string
         }
