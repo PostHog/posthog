@@ -2,7 +2,7 @@ import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api
 
 import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import { startedByFromSession } from './helpers'
-import { installationErrorCopy } from './installationErrorCopy'
+import { cloudErrorCopy, gatewayErrorCopy } from './installationErrorCopy'
 import type {
     InstallationPhase,
     InstallationProgress,
@@ -233,7 +233,7 @@ export function cloudProgress(
               // Recognized gateway 403s (paid-plan model gate, org usage limit, provider terms of
               // service) name a cause and a next step; anything else gets a generic line rather than
               // the provider's raw error string.
-              installationErrorCopy(
+              cloudErrorCopy(
                   taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
                   taskRunState?.status === 'cancelled'
               ))
@@ -313,10 +313,10 @@ export function localProgress(
 
     let error: { title: string; detail: string | null } | null = null
     if (latestSession.run_phase === 'error') {
-        error = {
-            title: 'Wizard hit an error',
-            detail: (latestSession.error as { message?: string } | null)?.message ?? null,
-        }
+        // A local run can hit the same gateway 403 as the cloud run — map those to safe copy;
+        // other wizard errors keep their raw detail, which is useful to a developer at the terminal.
+        const rawMessage = (latestSession.error as { message?: string } | null)?.message ?? null
+        error = gatewayErrorCopy(rawMessage) ?? { title: 'Wizard hit an error', detail: rawMessage }
     } else if (stalled) {
         error = {
             title: 'Setup lost contact',
@@ -345,7 +345,10 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
         steps: handle.tasks.map((t) => ({ id: t.id, label: t.title, status: stepStatus(t.status), detail: null })),
         error:
             handle.runPhase === 'error'
-                ? { title: 'Wizard hit an error', detail: handle.error?.message ?? null }
+                ? (gatewayErrorCopy(handle.error?.message ?? null) ?? {
+                      title: 'Wizard hit an error',
+                      detail: handle.error?.message ?? null,
+                  })
                 : null,
         prUrl: null,
         prMerged: false,

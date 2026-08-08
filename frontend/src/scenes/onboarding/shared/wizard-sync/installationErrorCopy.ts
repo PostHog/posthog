@@ -1,7 +1,6 @@
-// A run's terminal error, mapped to failure-banner copy. The onboarding cloud run can die on a
-// gateway 403, and the LLM gateway hands back the provider's raw body, which names no cause to a
-// brand-new user. Map the ones we recognize to a cause and a next step, and fall back to a generic
-// line rather than the raw provider string for anything else.
+// A run's terminal error, mapped to failure-banner copy. The onboarding run can die on a gateway
+// 403, and the LLM gateway hands back the provider's raw body, which names no cause to a user. Map
+// the ones we recognize to a cause and a next step.
 
 export interface InstallationError {
     title: string
@@ -30,13 +29,10 @@ function includesAny(value: string, patterns: readonly string[]): boolean {
     return patterns.some((pattern) => lower.includes(pattern))
 }
 
-export function installationErrorCopy(rawMessage: string | null, cancelled: boolean): InstallationError {
-    // A cancel is a deliberate stop, not a broken install, and never carries a gateway 403, so keep
-    // its own reason verbatim.
-    if (cancelled) {
-        return { title: 'Run cancelled', detail: rawMessage }
-    }
-
+// Copy for a recognized gateway 403, or null when the message is not one we recognize. Every
+// onboarding surface (cloud task run, local run, finished local run) can hit the same 403, so each
+// routes its terminal error through here before falling back to its own default.
+export function gatewayErrorCopy(rawMessage: string | null): InstallationError | null {
     const message = rawMessage ?? ''
 
     if (includesAny(message, MODEL_GATE_PATTERNS)) {
@@ -60,10 +56,23 @@ export function installationErrorCopy(rawMessage: string | null, cancelled: bool
         }
     }
 
-    return {
-        title: 'Installation failed',
-        // Never surface the raw provider string to a new user; a message we don't recognize still
-        // means the run failed, so guide them to the same recovery.
-        detail: rawMessage ? `Automated setup ran into a problem. Start setup again. ${MANUAL_FALLBACK}` : null,
+    return null
+}
+
+// The cloud onboarding banner shows a brand-new user this failure, so it never surfaces the raw
+// provider string: a recognized gateway 403 gets mapped copy, a cancel keeps its own reason, and
+// any other failure gets a generic line.
+export function cloudErrorCopy(rawMessage: string | null, cancelled: boolean): InstallationError {
+    // A cancel is a deliberate stop, not a broken install, and never carries a gateway 403, so keep
+    // its own reason verbatim.
+    if (cancelled) {
+        return { title: 'Run cancelled', detail: rawMessage }
     }
+
+    return (
+        gatewayErrorCopy(rawMessage) ?? {
+            title: 'Installation failed',
+            detail: rawMessage ? `Automated setup ran into a problem. Start setup again. ${MANUAL_FALLBACK}` : null,
+        }
+    )
 }

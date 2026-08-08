@@ -340,6 +340,21 @@ describe('installationProgressLogic merge', () => {
             })
         })
 
+        it('maps a gateway 403 in the session error instead of showing it raw', () => {
+            // A local run hits the same 403 as the cloud run, so the local banner must not leak the
+            // raw provider string either.
+            expect(
+                localProgress(
+                    session({
+                        run_phase: 'error',
+                        error: { message: "Model 'claude-sonnet-5' needs a paid PostHog plan" },
+                    }),
+                    'open',
+                    true
+                ).error?.title
+            ).toBe('Add a payment method to keep going')
+        })
+
         it('has no error outside the error phase', () => {
             expect(localProgress(session({ run_phase: 'running' }), 'open', true).error).toBeNull()
         })
@@ -474,6 +489,13 @@ describe('installationProgressLogic merge', () => {
             const result = progressFromFinishedLocalRun(handle({ runPhase: 'error', error: { message: 'boom' } }))
             expect(result.phase).toBe('error')
             expect(result.error).toEqual({ title: 'Wizard hit an error', detail: 'boom' })
+        })
+
+        it('maps a gateway 403 in the persisted error instead of showing it raw', () => {
+            const result = progressFromFinishedLocalRun(
+                handle({ runPhase: 'error', error: { message: "Model 'claude-sonnet-5' needs a paid PostHog plan" } })
+            )
+            expect(result.error?.title).toBe('Add a payment method to keep going')
         })
     })
 
