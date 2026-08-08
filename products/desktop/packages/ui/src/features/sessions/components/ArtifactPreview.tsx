@@ -16,6 +16,7 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
 import { Button, Spinner } from "@posthog/quill";
+import type { TaskRun, TaskRunArtifact } from "@posthog/shared";
 import {
   getAuthIdentity,
   useAuthStateValue,
@@ -54,6 +55,33 @@ import { useCommentsQuery, useCreateComment } from "./useComments";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
 
+type ArtifactVersion = TaskRunArtifact & { runId: string };
+
+function artifactVersionsFromRuns(
+  runs: TaskRun[],
+  name: string,
+): ArtifactVersion[] {
+  const files = runs.flatMap((run) =>
+    parseRunArtifacts(run.artifacts, OUTPUT_ARTIFACT_TYPES).flatMap((file) =>
+      file.name === name && file.id
+        ? [
+            {
+              ...file,
+              id: file.id,
+              name: file.name,
+              type: file.type as TaskRunArtifact["type"],
+              runId: run.id,
+            },
+          ]
+        : [],
+    ),
+  );
+  return (
+    groupRunArtifactVersions(files).find((candidate) => candidate.name === name)
+      ?.versions ?? []
+  );
+}
+
 /** The artifact is the whole pane: its threads are listed in the task's
  *  Comments tab, and this only renders and locates their anchors. */
 export function ArtifactPreview({
@@ -81,22 +109,18 @@ export function ArtifactPreview({
     () => countCompletedArtifactUploads(events ?? []),
     [events],
   );
-  const { runs } = useTaskRuns(taskId, completedUploads);
-  const versions = useMemo(() => {
-    const files = runs.flatMap((run) =>
-      parseRunArtifacts(
-        (run as { artifacts?: unknown }).artifacts,
-        OUTPUT_ARTIFACT_TYPES,
-      ).flatMap((file) =>
-        file.name === name && file.id ? [{ ...file, runId: run.id }] : [],
-      ),
-    );
-    return (
-      groupRunArtifactVersions(files).find(
-        (candidate) => candidate.name === name,
-      )?.versions ?? []
-    );
-  }, [runs, name]);
+  const {
+    runs,
+    isLoading: runsLoading,
+    refreshRuns,
+  } = useTaskRuns(taskId, completedUploads);
+  const versions = useMemo(
+    () => artifactVersionsFromRuns(runs, name),
+    [runs, name],
+  );
+  const refreshVersions = useCallback(async (): Promise<ArtifactVersion[]> => {
+    return artifactVersionsFromRuns(await refreshRuns(), name);
+  }, [name, refreshRuns]);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
   );
@@ -150,6 +174,10 @@ export function ArtifactPreview({
   const editing = useArtifactEditing({
     sessionService,
     artifactResult,
+    versions:
+      versions.length > 0 ? versions : (artifactResult?.artifacts ?? []),
+    versionsLoading: runsLoading,
+    refreshVersions,
     taskId,
     runId: activeRunId,
     name,

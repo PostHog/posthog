@@ -1,5 +1,6 @@
 import type { TaskRun } from "@posthog/shared/domain-types";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { useCallback } from "react";
 
 const TASK_RUNS_POLL_INTERVAL_MS = 30_000;
 
@@ -15,6 +16,7 @@ export function useTaskRuns(
 ): {
   runs: TaskRun[];
   isLoading: boolean;
+  refreshRuns: () => Promise<TaskRun[]>;
 } {
   const query = useAuthenticatedQuery<TaskRun[]>(
     ["task-runs", taskId ?? "none", refreshKey],
@@ -24,5 +26,10 @@ export function useTaskRuns(
       refetchInterval: TASK_RUNS_POLL_INTERVAL_MS,
     },
   );
-  return { runs: query.data ?? [], isLoading: query.isLoading };
+  const refreshRuns = useCallback(async (): Promise<TaskRun[]> => {
+    const result = await query.refetch();
+    if (result.error) throw result.error;
+    return result.data ?? [];
+  }, [query.refetch]);
+  return { runs: query.data ?? [], isLoading: query.isLoading, refreshRuns };
 }

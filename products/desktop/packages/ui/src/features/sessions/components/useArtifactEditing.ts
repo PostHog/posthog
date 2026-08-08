@@ -19,6 +19,9 @@ interface SaveArtifactVariables {
 export function useArtifactEditing({
   sessionService,
   artifactResult,
+  versions,
+  versionsLoading,
+  refreshVersions,
   taskId,
   runId,
   name,
@@ -27,6 +30,9 @@ export function useArtifactEditing({
 }: {
   sessionService: SessionService;
   artifactResult: ArtifactPreviewResult | undefined;
+  versions: TaskRunArtifact[];
+  versionsLoading: boolean;
+  refreshVersions: () => Promise<TaskRunArtifact[]>;
   taskId: string;
   runId: string;
   name: string;
@@ -59,13 +65,11 @@ export function useArtifactEditing({
     ? editableArtifactKind(artifactResult.artifact)
     : null;
   const latest = artifactResult
-    ? newestUndismissedVersion(
-        artifactResult.artifacts,
-        artifactResult.artifact.name,
-      )
+    ? newestUndismissedVersion(versions, artifactResult.artifact.name)
     : undefined;
   const canEdit = Boolean(
     editableKind &&
+      !versionsLoading &&
       artifactResult?.source !== undefined &&
       latest &&
       artifactResult &&
@@ -122,12 +126,9 @@ export function useArtifactEditing({
     setCheckingLatest(true);
     let currentLatest: TaskRunArtifact | undefined;
     try {
-      const artifacts = await sessionService.getCloudRunArtifacts(
-        taskId,
-        runId,
-      );
+      const refreshedVersions = await refreshVersions();
       currentLatest = newestUndismissedVersion(
-        artifacts,
+        refreshedVersions,
         artifactResult.artifact.name,
       );
     } catch {

@@ -36,7 +36,11 @@ const artifactComments = vi.hoisted(() => ({
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
 const commentsFlag = vi.hoisted(() => ({ enabled: true }));
-const taskRuns = vi.hoisted(() => ({ data: [] as unknown[] }));
+const taskRuns = vi.hoisted(() => ({
+  data: [] as unknown[],
+  isLoading: false,
+  refreshRuns: vi.fn(),
+}));
 const orgMembersOptions = vi.hoisted(() => vi.fn());
 const artifactMocks = vi.hoisted(() => ({
   getCloudRunArtifacts: vi.fn(),
@@ -75,7 +79,11 @@ vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
-  useTaskRuns: () => ({ runs: taskRuns.data, isLoading: false }),
+  useTaskRuns: () => ({
+    runs: taskRuns.data,
+    isLoading: taskRuns.isLoading,
+    refreshRuns: taskRuns.refreshRuns,
+  }),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
@@ -218,6 +226,9 @@ describe("ArtifactPreview", () => {
     artifactComments.data = [];
     artifactComments.isError = false;
     taskRuns.data = [];
+    taskRuns.isLoading = false;
+    taskRuns.refreshRuns.mockReset();
+    taskRuns.refreshRuns.mockImplementation(async () => taskRuns.data);
     createComment.mockReset();
     createComment.mockResolvedValue({ id: "created-comment" });
     useQuery.mockReset();
@@ -927,12 +938,20 @@ describe("ArtifactPreview", () => {
   ])("does not offer editing for $name", ({ artifact, newerVersion }) => {
     const data = editablePreview(artifact);
     if (newerVersion) {
-      data.artifacts.push({
-        ...data.artifact,
-        id: "artifact-2",
-        storage_path: "runs/1/report-v2.md",
-        uploaded_at: "2026-08-07T11:00:00Z",
-      });
+      taskRuns.data = [
+        { id: "run-1", artifacts: data.artifacts },
+        {
+          id: "run-2",
+          artifacts: [
+            {
+              ...data.artifact,
+              id: "artifact-2",
+              storage_path: "runs/2/report-v2.md",
+              uploaded_at: "2026-08-07T11:00:00Z",
+            },
+          ],
+        },
+      ];
     }
     useQuery.mockReturnValue({ data, isLoading: false, isError: false });
 
@@ -1020,8 +1039,8 @@ describe("ArtifactPreview", () => {
 
   it("saves edited source as a new output version under the same name", async () => {
     const data = editablePreview();
+    taskRuns.data = [{ id: "run-1", artifacts: data.artifacts }];
     useQuery.mockReturnValue({ data, isLoading: false, isError: false });
-    artifactMocks.getCloudRunArtifacts.mockResolvedValue(data.artifacts);
 
     render(
       <ArtifactPreview
@@ -1059,16 +1078,22 @@ describe("ArtifactPreview", () => {
 
   it("asks before saving over a version that arrived during editing", async () => {
     const data = editablePreview();
-    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
-    artifactMocks.getCloudRunArtifacts.mockResolvedValue([
-      ...data.artifacts,
+    taskRuns.data = [{ id: "run-1", artifacts: data.artifacts }];
+    taskRuns.refreshRuns.mockResolvedValue([
+      { id: "run-1", artifacts: data.artifacts },
       {
-        ...data.artifact,
-        id: "artifact-2",
-        storage_path: "runs/1/report-v2.md",
-        uploaded_at: "2026-08-07T11:00:00Z",
+        id: "run-2",
+        artifacts: [
+          {
+            ...data.artifact,
+            id: "artifact-2",
+            storage_path: "runs/2/report-v2.md",
+            uploaded_at: "2026-08-07T11:00:00Z",
+          },
+        ],
       },
     ]);
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
 
     render(
       <ArtifactPreview
