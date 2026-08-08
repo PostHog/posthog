@@ -726,34 +726,29 @@ fn fencing_and_lease_gated_reads_together_close_the_double_zombie() {
         ..base()
     };
     // The two arms below that expect a stale read stop at it; the arm that
-    // asserts none exists has to explore everything.
-    let stale_reads_reachable = |variant, gated| {
+    // asserts none exists has to explore everything. Each arm reports under
+    // its own label, so their state counts stay comparable separately.
+    let stale_reads_reachable = |scenario, variant, gated| {
         cfg(variant, gated)
-            .explore_until(
-                "fencing_and_lease_gated_reads_together_close_the_double_zombie",
-                &["strong_reads_complete"],
-            )
-            .discovery("strong_reads_complete")
-            .is_some()
-    };
-    let stale_reads = |variant, gated| {
-        cfg(variant, gated)
-            .explore("fencing_and_lease_gated_reads_together_close_the_double_zombie")
+            .explore_until(scenario, &["strong_reads_complete"])
             .discovery("strong_reads_complete")
             .is_some()
     };
 
     assert!(
-        stale_reads_reachable(Variant::Current, true),
+        stale_reads_reachable("read_gate_alone", Variant::Current, true),
         "the read gate alone must not close it: the honest owner serves a read missing the \
          zombie's lost write"
     );
     assert!(
-        stale_reads_reachable(Variant::EpochFenced, false),
+        stale_reads_reachable("fencing_alone", Variant::EpochFenced, false),
         "fencing alone must not close it: the zombie still answers reads"
     );
     assert!(
-        !stale_reads(Variant::EpochFenced, true),
+        cfg(Variant::EpochFenced, true)
+            .explore("fencing_and_read_gate_together")
+            .discovery("strong_reads_complete")
+            .is_none(),
         "together they must close it"
     );
 }
@@ -835,17 +830,14 @@ fn prompt_detection_is_what_makes_the_read_gate_hold() {
     // asserts there is none, so it has to explore everything.
     assert!(
         cfg(ClaimDetection::Delayed)
-            .explore_until(
-                "prompt_detection_is_what_makes_the_read_gate_hold",
-                &["strong_reads_complete"],
-            )
+            .explore_until("delayed_claim_detection", &["strong_reads_complete"])
             .discovery("strong_reads_complete")
             .is_some(),
         "a claim outliving its lease must still leave stale reads reachable"
     );
     assert!(
         cfg(ClaimDetection::Prompt)
-            .explore("prompt_detection_is_what_makes_the_read_gate_hold")
+            .explore("prompt_claim_detection")
             .discovery("strong_reads_complete")
             .is_none(),
         "dropping the claim with the registration must close them"

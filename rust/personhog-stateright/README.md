@@ -77,8 +77,22 @@ Everything asserting that a property *holds* still explores exhaustively — an 
 The rule for touching one of these tests: adding an assertion that a discovery is *absent* means moving that run back to `explore`.
 The early exit makes the run prove less, not less well.
 
+### How the threads are divided
+
+Every checker explores with as many threads as the machine has, and `.config/nextest.toml` reserves the whole thread budget for the one scenario big enough to want it (`epoch_fenced_two_partitions_double_zombie_is_safe`) so it does not contend with the rest of the suite mid-explore.
+
+Two things worth knowing before tuning this.
+BFS parallelizes poorly here — 14 checker threads buy under a 3x speedup — so a checker asking for every core does not get every core's worth of work done.
+And a single-threaded BFS reports the *shortest* path to each discovery, which makes a failure far easier to read, so there is a real argument for exploring the small scenarios on one thread and letting nextest supply the parallelism instead.
+
+That argument has not been measured on a CI-sized machine, and it is not measurable on a large one: reducing nextest's lane count on a 14-core laptop just idles cores rather than emulating a 4-core runner.
+Reserving judgement until it can be measured where it matters.
+
 `generated / unique` is the duplicate-successor ratio, and `depth` is a racing maximum across checker threads, so it varies run to run and means nothing on its own.
 Wall times move by up to 10% between runs of the same binary, so judge a change by its state counts and treat a timing difference under that as no difference.
+
+Only the exhaustive runs have stable counts.
+A run that stops at its counterexample (see below) reports how far it happened to get, which depends on thread count and scheduling, so its numbers are informational and not a gate.
 
 ## Coupling to production (drift prevention)
 
