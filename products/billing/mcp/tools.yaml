@@ -159,8 +159,8 @@ tools:
         param_overrides:
             start_date:
                 description: >
-                    Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as
-                    the last 30 days. If you use "all", also pass end_date.
+                    Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the
+                    last 30 days. If you use "all", also pass end_date.
             end_date:
                 description: >
                     End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user
@@ -212,8 +212,8 @@ tools:
         param_overrides:
             start_date:
                 description: >
-                    Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as
-                    the last 30 days. If you use "all", also pass end_date.
+                    Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the
+                    last 30 days. If you use "all", also pass end_date.
             end_date:
                 description: >
                     End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user
