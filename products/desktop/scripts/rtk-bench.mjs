@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Stress benchmark of the RTK rewrite policy: candidate (working tree) vs
-// baseline (main's policy, materialized via `git show`) vs raw, on a fixed
+// baseline (the base branch's policy, materialized via `git show`) vs raw, on a fixed
 // command corpus against this repo's own files. Both arms apply the REAL
 // `rewriteBashForRtk` (imported via tsx), so policy drift between bench and
 // production is impossible, and the reported delta is candidate-vs-baseline —
@@ -11,7 +11,7 @@
 // the exact uncapped totals survive in the summary header, since rtk
 // truncates shown results by design). A candidate-only failure fails the run —
 // a rewrite that errors into empty output registers as a REGRESSION, never as
-// savings; a baseline-only failure is a main bug the candidate fixed.
+// savings; a baseline-only failure is a base-branch bug the candidate fixed.
 //
 // SCOPE — what this bench does and does not prove. The corpus intentionally
 // overrepresents large compressible commands and is not a production-traffic
@@ -37,6 +37,12 @@ const repoRoot = path.resolve(
   "..",
 );
 const RTK_MODULE_DIR = "packages/agent/src/adapters/claude/session";
+// This tree is nested inside the monorepo, so repo-root-relative paths need the
+// products/desktop/ prefix before they mean anything to `git show`.
+const GIT_PREFIX = execFileSync("git", ["rev-parse", "--show-prefix"], {
+  cwd: repoRoot,
+  encoding: "utf8",
+}).trim();
 
 const lines = (s) => s.split("\n").filter(Boolean);
 // rtk's search/list filters are lossy by design past their result caps but
@@ -213,10 +219,12 @@ function runShell(cmd) {
   };
 }
 
-// Materialize main's policy module so the baseline arm runs the code actually
-// shipped, not a reimplementation of it.
+// Materialize the base branch's policy module so the baseline arm runs the code
+// actually shipped, not a reimplementation of it.
+const BASELINE_REFS = ["master", "origin/master", "main", "origin/main"];
+
 function resolveBaselineRef() {
-  for (const ref of ["main", "origin/main"]) {
+  for (const ref of BASELINE_REFS) {
     try {
       execFileSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
         cwd: repoRoot,
@@ -226,7 +234,7 @@ function resolveBaselineRef() {
     } catch {}
   }
   console.error(
-    "Neither `main` nor `origin/main` resolves here (shallow or detached checkout?) — cannot materialize the baseline policy arm.",
+    `None of ${BASELINE_REFS.join(", ")} resolve here (shallow or detached checkout?) — cannot materialize the baseline policy arm.`,
   );
   process.exit(2);
 }
@@ -239,11 +247,15 @@ function materializeBaselinePolicy() {
     [`${RTK_MODULE_DIR}/rtk.ts`, "session/rtk.ts"],
     ["packages/agent/src/adapters/claude/git-command.ts", "git-command.ts"],
   ]) {
-    const content = execFileSync("git", ["show", `${ref}:${gitPath}`], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    const content = execFileSync(
+      "git",
+      ["show", `${ref}:${GIT_PREFIX}${gitPath}`],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
     fs.writeFileSync(path.join(dir, outPath), content);
   }
   return path.join(dir, "session", "rtk.ts");
@@ -326,14 +338,14 @@ if (process.argv.includes("--json")) {
   );
 } else {
   console.log(
-    "RTK stress bench -- raw vs baseline(main) vs candidate; tokens = bytes/4 heuristic",
+    "RTK stress bench -- raw vs baseline(base branch) vs candidate; tokens = bytes/4 heuristic",
   );
   console.log("=".repeat(78));
   for (const r of rows) {
     const fid = r.cand.issues.length
       ? "REGRESSION"
       : r.base.issues.length
-        ? "fixed-vs-main"
+        ? "fixed-vs-baseline"
         : "ok";
     console.log(
       `${r.label.padEnd(20)} raw=${String(r.rawTokens).padStart(7)}  base=${String(r.base.tokens).padStart(7)}  cand=${String(r.cand.tokens).padStart(7)}  fid=${fid}`,
@@ -358,7 +370,7 @@ if (process.argv.includes("--json")) {
   );
   if (preexisting.length) {
     console.log(
-      `\n${preexisting.length} row(s) broken on main's policy are fixed by the candidate.`,
+      `\n${preexisting.length} row(s) broken on the baseline policy are fixed by the candidate.`,
     );
   }
   if (regressions.length) {

@@ -80,6 +80,13 @@ The tree is a verbatim copy of the source at the pinned SHA except:
   `execFile` instead of simple-git. The upstream attempt (PostHog/code#4030) was closed
   unmerged, so these stay local patches; restoring the four files from the previous
   monorepo commit and refreshing the nested lockfile is the reapply.
+- RTK bash-rewrite policy (reapply on resync until the pin includes it):
+  `packages/agent/src/adapters/claude/session/rtk.ts`, `packages/agent/src/adapters/rtk-guidance.ts`,
+  their tests, `packages/agent/e2e/rtk-context-fidelity.e2e.test.ts` and `scripts/rtk-bench.mjs`
+  carry the chain/`find`/`rg` rewrite work from PostHog/code#3773, which was closed unmerged
+  when the source repo froze, so it exists only here.
+  `scripts/rtk-bench.mjs` additionally resolves its baseline arm from `master` before `main`
+  and prefixes git paths with `git rev-parse --show-prefix`, since the tree is nested.
 
 The nested workspace is intentional: `products/desktop/` keeps its own `pnpm-workspace.yaml`,
 lockfile, Biome config and Node 22, and is NOT in the root `pnpm-workspace.yaml` globs.
