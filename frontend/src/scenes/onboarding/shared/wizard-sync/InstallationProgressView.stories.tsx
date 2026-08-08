@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { installationErrorCopy } from './installationErrorCopy'
 import { InstallationProgressContent } from './InstallationProgressContent'
 import { InstallationProgress, InstallationStepStatus } from './installationProgressLogic'
 
@@ -214,6 +215,18 @@ export const FailedWizard: Story = {
     },
 }
 
+// A gateway 403 mapped through installationErrorCopy: the failure reached the PR step, and the
+// banner names a cause and a next step instead of the provider's raw internal string.
+export const FailedGatewayModelGate: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: steps(['completed', 'completed', 'completed', 'failed']),
+            error: installationErrorCopy("Internal error: Model 'claude-sonnet-5' needs a paid PostHog plan", false),
+        }),
+    },
+}
+
 // A run whose stream never delivered any state: no pipeline steps to show, only the recovery CTAs.
 export const LostContact: Story = {
     args: {
@@ -272,6 +285,7 @@ export const AllStates: Story = {
             { label: 'Completed: local handoff', args: CompletedLocalHandoff.args },
             { label: 'Failed: provisioning', args: FailedProvisioning.args },
             { label: 'Failed: wizard', args: FailedWizard.args },
+            { label: 'Failed: gateway 403', args: FailedGatewayModelGate.args },
             { label: 'Failed: no detail', args: FailedNoDetail.args },
         ]
         return (

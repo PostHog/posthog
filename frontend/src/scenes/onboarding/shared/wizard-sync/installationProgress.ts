@@ -2,6 +2,7 @@ import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api
 
 import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import { startedByFromSession } from './helpers'
+import { installationErrorCopy } from './installationErrorCopy'
 import type {
     InstallationPhase,
     InstallationProgress,
@@ -228,13 +229,14 @@ export function cloudProgress(
 
     const error =
         phase === 'error'
-            ? (stalledError ?? {
-                  // A cancelled run is a deliberate stop (Cancel button or closing the setup PR),
-                  // not a broken installation — presenting it as a failure reads as a bug.
-                  title: taskRunState?.status === 'cancelled' ? 'Run cancelled' : 'Installation failed',
-                  detail:
-                      taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
-              })
+            ? (stalledError ??
+              // Recognized gateway 403s (paid-plan model gate, org usage limit, provider terms of
+              // service) name a cause and a next step; anything else gets a generic line rather than
+              // the provider's raw error string.
+              installationErrorCopy(
+                  taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
+                  taskRunState?.status === 'cancelled'
+              ))
             : null
 
     // The doc rides the run-window check, not the recency gate: the cloud wizard finishes (and

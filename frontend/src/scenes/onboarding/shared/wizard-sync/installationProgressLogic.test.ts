@@ -85,7 +85,16 @@ describe('installationProgressLogic merge', () => {
         ])('titles a terminal %s run as %s', (status, expectedTitle) => {
             const result = cloudProgress(taskState({ status, error_message: 'Stopped by user' }), [], 'open', null)
             expect(result.error?.title).toBe(expectedTitle)
-            expect(result.error?.detail).toBe('Stopped by user')
+        })
+
+        it('keeps a cancelled run reason verbatim', () => {
+            const result = cloudProgress(
+                taskState({ status: 'cancelled', error_message: 'Stopped by user' }),
+                [],
+                'open',
+                null
+            )
+            expect(result.error).toEqual({ title: 'Run cancelled', detail: 'Stopped by user' })
         })
 
         it('surfaces a stalled queued run as an error instead of an eternal spinner', () => {
@@ -204,26 +213,39 @@ describe('installationProgressLogic merge', () => {
             expect(result.steps.find((s) => s.id === 'setup:wizard')).toBeUndefined()
         })
 
-        it('uses the task run error message on failure', () => {
+        it('maps a gateway 403 error message instead of showing it raw', () => {
+            // Wiring guard: the run's raw error goes through installationErrorCopy, so a paid-plan
+            // model gate lands as readable copy rather than the provider's internal string.
             expect(
-                cloudProgress(taskState({ status: 'failed', error_message: 'boom' }), [], 'open', null).error
-            ).toEqual({
-                title: 'Installation failed',
-                detail: 'boom',
-            })
+                cloudProgress(
+                    taskState({
+                        status: 'failed',
+                        error_message: "Model 'claude-sonnet-5' needs a paid PostHog plan",
+                    }),
+                    [],
+                    'open',
+                    null
+                ).error?.title
+            ).toBe('Add a payment method to keep going')
         })
 
-        it('falls back to the wizard session error message', () => {
+        it('does not leak an unrecognized raw error message', () => {
+            const result = cloudProgress(taskState({ status: 'failed', error_message: 'boom' }), [], 'open', null)
+            expect(result.error?.title).toBe('Installation failed')
+            expect(result.error?.detail).not.toContain('boom')
+        })
+
+        it('classifies the wizard session error message when the task has none', () => {
             expect(
                 cloudProgress(
                     taskState({ status: 'failed', error_message: null }),
                     [],
                     'open',
-                    session({ error: { message: 'wizard boom' } }),
+                    session({ error: { message: "Model 'claude-sonnet-5' needs a paid PostHog plan" } }),
                     false,
                     NOW
-                ).error
-            ).toEqual({ title: 'Installation failed', detail: 'wizard boom' })
+                ).error?.title
+            ).toBe('Add a payment method to keep going')
         })
 
         it('error detail is null when neither source has a message', () => {
