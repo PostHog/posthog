@@ -32,10 +32,11 @@ If the user says "send me this every morning", use subscriptions.
 
 ## The happy path: recurring numbers from a dashboard or insight
 
-When someone wants the **key numbers from an existing dashboard or insight** posted to a channel on a schedule — "post the top-line from this dashboard in #launch once a day", "send the team these metrics every morning", or even "set up a scout/bot to post this daily" — the right tool is a **dashboard (or insight) subscription with the AI summary enabled**:
+When someone wants the **key numbers from an existing dashboard or insight** posted to a channel on a schedule — "post the top-line from this dashboard in #launch once a day", "send the team these metrics every morning", or even "set up a scout/bot to post this daily" — the right tool is a **dashboard (or insight) subscription**, and an AI summary is its natural companion:
 
-- Set `dashboard` (or `insight`), pick the tiles via `dashboard_export_insights`, deliver to Slack or email, and set `summary_enabled: true` so each delivery carries a short written summary alongside the snapshot.
-- This sends the **actual rendered tiles**, so the quoted numbers are exact — no LLM re-deriving them.
+- Set `dashboard` (or `insight`) and deliver to Slack or email. For a **dashboard** subscription, pick the tiles via `dashboard_export_insights` — that field is dashboard-only, and an insight subscription is rejected if you send it (an insight subscription needs no tile list).
+- **Offer the AI summary, don't assume it.** Per step 6, ask before enabling it, then set `summary_enabled: true` once the user agrees — it has AI-consent, quota, and budget gates that can reject the create, so keep it opt-in.
+- The attached **tile snapshots are exact**. The AI summary text is model-written, so treat any figure it quotes as approximate (the same drift caveat as a prompt subscription) and lean on the snapshot for exact numbers.
 
 Usually a better fit than a **prompt subscription** (`creating-ai-subscription`) or a **Signals scout**.
 A prompt subscription composes its own HogQL and can drift from the dashboard's numbers; a scout is for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
