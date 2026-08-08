@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { openDesktopApp } from 'scenes/code-canvas/openDesktopApp'
 
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
@@ -52,7 +53,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                     type="secondary"
                     size="small"
                     icon={<IconExternal />}
-                    onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
+                    onClick={() => openDesktopApp(`task/${task.id}`)}
                     className="hidden lg:inline-flex"
                 >
                     Open in PostHog Desktop

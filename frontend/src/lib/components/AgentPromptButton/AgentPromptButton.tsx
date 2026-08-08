@@ -22,6 +22,8 @@ import {
     type ButtonProps as QuillButtonProps,
 } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { DESKTOP_SCHEME } from 'scenes/code-canvas/desktopScheme'
+import { openDeepLinkWithFallback, openDesktopDeepLink } from 'scenes/code-canvas/openDesktopApp'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './AgentLogo'
@@ -96,13 +98,16 @@ function withLimit(prompt: string, maxChars: number, build: (p: string) => strin
     return build(prompt.slice(0, maxChars))
 }
 
-function openDeepLink(buildDeepLink: (prompt: string) => string): (prompt: string) => void {
-    return (prompt: string) => window.open(buildDeepLink(prompt), '_blank')
+function openAgentDeepLink(agentName: string, buildDeepLink: (prompt: string) => string): (prompt: string) => void {
+    return (prompt: string) =>
+        openDeepLinkWithFallback(buildDeepLink(prompt), {
+            missingMessage: `${agentName} didn't open. Is it installed?`,
+        })
 }
 
 export function buildPostHogCodeDeepLink(prompt: string, repository?: string): string {
     const repoParam = repository ? `&repo=${encodeURIComponent(repository)}` : ''
-    return `posthog-code://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
+    return `${DESKTOP_SCHEME}://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
 }
 
 const AGENTS: AgentDef[] = [
@@ -118,7 +123,7 @@ const AGENTS: AgentDef[] = [
         name: 'PostHog Desktop',
         logo: <IconLogomark className="size-4 shrink-0" />,
         verb: 'Open',
-        open: (prompt, { repository }) => window.open(buildPostHogCodeDeepLink(prompt, repository), '_blank'),
+        open: (prompt, { repository }) => openDesktopDeepLink(buildPostHogCodeDeepLink(prompt, repository)),
     },
     {
         key: 'claude-code',
@@ -128,7 +133,9 @@ const AGENTS: AgentDef[] = [
         open: (prompt, { repository }) => {
             const query = withLimit(prompt, LIMIT_CLAUDE, (t) => encodeURIComponent(t))
             const repoParam = repository ? `repo=${encodeURIComponent(repository)}&` : ''
-            window.open(`claude-cli://open?${repoParam}q=${query}`, '_blank')
+            openDeepLinkWithFallback(`claude-cli://open?${repoParam}q=${query}`, {
+                missingMessage: "Claude Code didn't open. Is it installed?",
+            })
         },
     },
     {
@@ -138,7 +145,7 @@ const AGENTS: AgentDef[] = [
         // Cursor wordmark is solid black; invert in dark mode so it stays visible
         logoClassName: 'dark:invert',
         verb: 'Open',
-        open: openDeepLink((p) =>
+        open: openAgentDeepLink('Cursor', (p) =>
             // Cursor decodes the full deeplink before parsing query params, so reserved chars need an extra escape layer.
             withLimit(
                 p,
@@ -152,7 +159,9 @@ const AGENTS: AgentDef[] = [
         name: 'Codex',
         logo: openaiLogo,
         verb: 'Open',
-        open: openDeepLink((p) => withLimit(p, LIMIT_SHORT, (t) => `codex://new?prompt=${encodeURIComponent(t)}`)),
+        open: openAgentDeepLink('Codex', (p) =>
+            withLimit(p, LIMIT_SHORT, (t) => `codex://new?prompt=${encodeURIComponent(t)}`)
+        ),
     },
     {
         key: 'clipboard',
