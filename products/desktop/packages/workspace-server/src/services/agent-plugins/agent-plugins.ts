@@ -137,7 +137,6 @@ function summarizeMcpServers(
       args: server.args ?? [],
       cwd: server.cwd ?? "${PLUGIN_ROOT}",
       envNames: Object.keys(server.env ?? {}).sort(),
-      digest,
       approval:
         approvedStdioDigests[server.name] === digest
           ? ("approved" as const)

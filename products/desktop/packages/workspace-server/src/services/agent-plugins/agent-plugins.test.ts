@@ -1216,6 +1216,7 @@ describe("Agent Plugins skills support", () => {
       envNames: ["PRIVATE_VALUE"],
       approval: "approved",
     });
+    expect(installation.mcpServers[0]).not.toHaveProperty("digest");
     expect(JSON.stringify(installation)).not.toContain("not-for-renderer");
     expect(
       await fs.promises.readFile(
