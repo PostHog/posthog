@@ -24,6 +24,7 @@ import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import {
   type ReactElement,
@@ -43,6 +44,7 @@ import {
   type CommentLocateRequest,
   type HighlightResolution,
 } from "./commentViewTypes";
+import { countCompletedArtifactUploads } from "./countArtifactUploads";
 import { useArtifactEditing } from "./useArtifactEditing";
 import {
   editorFilePath,
@@ -71,8 +73,15 @@ export function ArtifactPreview({
   const [showRendered, setShowRendered] = useState(true);
   // Every version of this file across the task's runs, newest first - the
   // same grouping the artifact list shows. Stepping through them swaps what
-  // this tab renders without opening more tabs.
-  const { runs } = useTaskRuns(taskId);
+  // this tab renders without opening more tabs. A finished upload_artifact
+  // tool call re-keys the runs query so a just-delivered version is steppable
+  // right away.
+  const events = useSessionSelector(taskId, (session) => session?.events);
+  const completedUploads = useMemo(
+    () => countCompletedArtifactUploads(events ?? []),
+    [events],
+  );
+  const { runs } = useTaskRuns(taskId, completedUploads);
   const versions = useMemo(() => {
     const files = runs.flatMap((run) =>
       parseRunArtifacts(
