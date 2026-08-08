@@ -42,9 +42,10 @@ REVIEW_RESOURCE_NAME = "Review"
 EARLY_FRAUD_WARNING_RESOURCE_NAME = "EarlyFraudWarning"
 SHIPPING_RATE_RESOURCE_NAME = "ShippingRate"
 
-# Vendor API version the sync pipeline pins by default. One constant so the source's version
-# declaration (`StripeSource.supported_versions`) and the request layer share a single label.
+# Vendor API versions the sync pipeline can pin. One constant per label so the source's version
+# declaration (`StripeSource.supported_versions`) and the request layer share a single string.
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+STRIPE_API_VERSION_DAHLIA = "2026-07-29.dahlia"
 
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 #

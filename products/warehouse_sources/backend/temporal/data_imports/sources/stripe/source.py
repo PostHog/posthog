@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_DAHLIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -104,8 +105,10 @@ class StripeSource(
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
-    supported_versions = (STRIPE_API_VERSION_ACACIA,)
-    default_version = STRIPE_API_VERSION_ACACIA
+    # Oldest→newest; the default is always the newest (enforced by test_source_versions). Existing
+    # rows keep their own pin, so an acacia-pinned source is unaffected by the default flip.
+    supported_versions = (STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_DAHLIA)
+    default_version = STRIPE_API_VERSION_DAHLIA
     api_docs_url = "https://docs.stripe.com/changelog"
 
     @property
@@ -462,7 +465,13 @@ If automatic creation failed due to a permissions error and you're using a restr
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
-        return create_webhook(api_key, config.stripe_account_id, webhook_url, auth_method=config.auth_method.selection)
+        return create_webhook(
+            api_key,
+            config.stripe_account_id,
+            webhook_url,
+            api_version=self.resolve_api_version(api_version),
+            auth_method=config.auth_method.selection,
+        )
 
     def get_desired_webhook_events(
         self, config: StripeSourceConfig, eligible_schema_names: list[str]
@@ -481,19 +490,29 @@ If automatic creation failed due to a permissions error and you're using a restr
     ) -> WebhookSyncResult:
         api_key = self._get_api_key(config, team_id)
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
-        return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
+        return update_webhook_events(
+            api_key,
+            config.stripe_account_id,
+            webhook_url,
+            desired_events,
+            api_version=self.resolve_api_version(api_version),
+        )
 
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         api_key = self._get_api_key(config, team_id)
-        return get_external_webhook_info(api_key, config.stripe_account_id, webhook_url)
+        return get_external_webhook_info(
+            api_key, config.stripe_account_id, webhook_url, api_version=self.resolve_api_version(api_version)
+        )
 
     def delete_webhook(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookDeletionResult:
         api_key = self._get_api_key(config, team_id)
-        return delete_webhook(api_key, config.stripe_account_id, webhook_url)
+        return delete_webhook(
+            api_key, config.stripe_account_id, webhook_url, api_version=self.resolve_api_version(api_version)
+        )
 
     def source_for_pipeline(
         self,

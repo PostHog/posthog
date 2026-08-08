@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_DAHLIA,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -1134,6 +1135,87 @@ class TestSchemaWebhookCapability:
             assert schema.supports_webhooks is expected, name
 
 
+class TestStripeApiVersionDispatch:
+    def setup_method(self):
+        self.source = StripeSource()
+
+    def test_dahlia_is_default_and_acacia_stays_supported(self):
+        # New sources are stamped with the newest version; acacia must remain so existing pins keep
+        # a supported version behind them (dropping it would strand every acacia-pinned source).
+        assert self.source.default_version == STRIPE_API_VERSION_DAHLIA
+        assert STRIPE_API_VERSION_ACACIA in self.source.supported_versions
+
+    @parameterized.expand([(STRIPE_API_VERSION_ACACIA,), (STRIPE_API_VERSION_DAHLIA,)])
+    def test_get_rows_pins_stripe_client_to_the_resolved_version(self, api_version):
+        # The sync client must carry whatever version the source resolved — a regression that
+        # hardcodes one version again would send every pinned source's reads under the wrong shape.
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList([])))
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            patch.object(stripe_module, "StripeClient") as mock_client_cls,
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=api_version,
+                )
+            )
+
+        assert mock_client_cls.call_args.kwargs["stripe_version"] == api_version
+
+    @parameterized.expand(
+        [
+            # Hints were shaped from acacia responses, so they apply only under acacia.
+            (STRIPE_API_VERSION_ACACIA, True),
+            # Newer versions restructure objects, so the pipeline infers columns from the data instead.
+            (STRIPE_API_VERSION_DAHLIA, False),
+        ]
+    )
+    def test_managed_table_column_hints_are_gated_by_version(self, api_version, expect_hints):
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = mock.AsyncMock(return_value=False)
+        response = stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=CHARGE_RESOURCE_NAME,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=api_version,
+        )
+        assert bool(response.column_hints) is expect_hints
+
+    @parameterized.expand(
+        [
+            # An unpinned source resolves to the default, so its webhook is stamped dahlia.
+            (None, STRIPE_API_VERSION_DAHLIA),
+            # An acacia-pinned source keeps stamping its webhook acacia.
+            (STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_ACACIA),
+        ]
+    )
+    def test_create_webhook_stamps_endpoint_with_resolved_version(self, pin, expected):
+        # Stripe delivers events shaped by the endpoint's version, so a webhook must be created under
+        # the source's resolved pin — otherwise webhook-fed rows drift from the API-swept ones.
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            self.source.create_webhook(config, "https://example.com/webhook", team_id=1, api_version=pin)
+
+        assert mock_client_cls.call_args.kwargs["stripe_version"] == expected
+
+
 class TestCreateWebhookPermissionErrorCopy:
     # Regression test: a permission-denied webhook creation used to always tell the user to add
     # the "Write" permission to their API key, even when the source was connected via OAuth and
@@ -1153,6 +1235,7 @@ class TestCreateWebhookPermissionErrorCopy:
                 api_key="sk_test_123",
                 stripe_account_id=None,
                 webhook_url="https://example.com/webhook",
+                api_version=STRIPE_API_VERSION_ACACIA,
                 auth_method=auth_method,
             )
 
