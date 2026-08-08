@@ -205,10 +205,13 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                 taxonomicGroupTypes={scannerFilterTypes}
                                 onChange={(filterGroup) => applyUniversal({ ...universal, filter_group: filterGroup })}
                             >
+                                {/* One logic owns the inner group: the add-filter search bar and the filter chips
+                                    below share this single binding. A second binding over the same group would drop
+                                    a value the moment its edit re-rendered the tree. */}
                                 {universal.filter_group.values.length > 0 &&
                                     isUniversalGroupFilterLike(universal.filter_group.values[0]) && (
                                         <UniversalFilters
-                                            rootKey={`replay-scanner-${scanner.id}.nested`}
+                                            rootKey={`replay-scanner-${scanner.id}.group_0`}
                                             group={universal.filter_group.values[0]}
                                             taxonomicGroupTypes={scannerFilterTypes}
                                             onChange={(nestedGroup) =>
@@ -228,9 +231,9 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                                 categoryDropdownVariant={categoryDropdownVariant}
                                                 taxonomicGroupTypes={scannerFilterTypes}
                                             />
+                                            <ScannerFilterGroup />
                                         </UniversalFilters>
                                     )}
-                                <ScannerFilterGroup />
                                 <div className="space-y-1">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <span className="font-medium">Duration</span>

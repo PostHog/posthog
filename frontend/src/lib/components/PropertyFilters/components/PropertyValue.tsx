@@ -414,6 +414,17 @@ export function PropertyValue({
         : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
           ? 'Suggested values'
           : null
+
+    // Explain an empty suggestion list so it doesn't look broken. Event and feature suggestions only
+    // look at the last 7 days, so an older value won't appear even though the filter still accepts it.
+    const hasSearchInput = (propertyOptions?.searchInput ?? '') !== ''
+    const emptyStateReason = `${hasSearchInput ? 'No values match your search' : 'No values found'}${
+        PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type) ? ' in the last 7 days' : ''
+    }.${(propertyOptions?.allowCustomValues ?? true) ? ' Type a value and press Enter to use it.' : ''}`
+    const emptyStateComponent =
+        propertyOptions?.status === 'loaded' && !isRefreshing ? (
+            <p className="text-secondary italic p-1">{emptyStateReason}</p>
+        ) : undefined
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
     const titleNode = suggestionsLabel ? (
@@ -487,6 +498,7 @@ export function PropertyValue({
                 disableCommaSplitting={isUserAgentProperty}
                 status={validationError ? 'danger' : 'default'}
                 title={titleNode}
+                emptyStateComponent={emptyStateComponent}
                 popoverClassName="max-w-200"
                 options={[
                     ...displayOptions.map(({ name: _name }, index) => {

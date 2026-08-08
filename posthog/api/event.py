@@ -433,6 +433,8 @@ class EventViewSet(
         query_params: EventValueQueryParams,
         refresh: bool | str = False,
     ) -> response.Response:
+        from posthog.schema import CacheMissResponse
+
         from posthog.hogql_queries.property_values_query_runner import (
             CachedPropertyValuesQueryResponse,
             PropertyType,
@@ -477,16 +479,20 @@ class EventViewSet(
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
                 execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
-            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
-            is_refreshing = (
-                isinstance(result, CachedPropertyValuesQueryResponse)
-                and result.query_status is not None
-                and not result.query_status.complete
+            assert isinstance(
+                result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse, CacheMissResponse)
             )
-            span.set_attribute("result_count", len(result.results))
+            # A poll (`refresh=force_cache`) can land before the async calculation has written the
+            # cache entry. That returns a CacheMissResponse with no results. Report `refreshing` from
+            # the in-flight query status alone, so the client keeps polling on a cold cache instead of
+            # stopping on an empty list.
+            query_status = result.query_status
+            is_refreshing = query_status is not None and not query_status.complete
+            results = getattr(result, "results", None) or []
+            span.set_attribute("result_count", len(results))
             span.set_attribute("is_refreshing", is_refreshing)
             return self._return_with_short_cache(
-                [item.model_dump(exclude_none=True) for item in result.results], refreshing=is_refreshing
+                [item.model_dump(exclude_none=True) for item in results], refreshing=is_refreshing
             )
 
     def _event_property_values_filtered(

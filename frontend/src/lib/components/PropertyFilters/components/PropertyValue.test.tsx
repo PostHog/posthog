@@ -78,6 +78,35 @@ describe('PropertyValue', () => {
         expect(loadPropertyValuesSpy.mock.calls.length).toBe(callCountAfterLoad)
     })
 
+    it('explains why the suggestion list is empty instead of showing a blank box', async () => {
+        useMocks({
+            get: {
+                '/api/event/values': { results: [], refreshing: false },
+            },
+        })
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="app_version"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByRole('textbox'))
+
+        expect(
+            await screen.findByText(
+                'No values found in the last 7 days. Type a value and press Enter to use it.',
+                {},
+                { timeout: 3000 }
+            )
+        ).toBeInTheDocument()
+    })
+
     it('renders with showInlineValidationErrors prop', () => {
         const onSet = jest.fn()
         render(

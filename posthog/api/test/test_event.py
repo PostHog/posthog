@@ -512,6 +512,30 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             assert args[0] == ExecutionMode[expected_mode_name]
             assert "analytics_props" in kwargs
 
+    @parameterized.expand(
+        [
+            # A poll that lands before the async calculation wrote the cache entry gets a cold-cache
+            # miss with an in-flight status: keep the client polling instead of stopping on an empty list.
+            ("cold_cache_still_calculating", False, True),
+            # The calculation finished, so stop polling even though the list is genuinely empty.
+            ("calculation_complete", True, False),
+        ]
+    )
+    @freeze_time("2020-01-10")
+    def test_event_property_values_poll_reports_refreshing(self, _name, status_complete, expected_refreshing):
+        from posthog.schema import CacheMissResponse, QueryStatus
+
+        query_status = QueryStatus(id="q", team_id=self.team.pk, complete=status_complete)
+        with patch(
+            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
+            return_value=CacheMissResponse(cache_key="k", query_status=query_status),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=browser&refresh=force_cache")
+            assert response.status_code == 200
+            body = response.json()
+            assert body["results"] == []
+            assert body["refreshing"] is expected_refreshing
+
     @also_test_with_materialized_columns(["test_prop"])
     @freeze_time("2020-01-20 20:00:00")
     @snapshot_clickhouse_queries
