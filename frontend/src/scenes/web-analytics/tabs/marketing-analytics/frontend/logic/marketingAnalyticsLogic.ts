@@ -1204,51 +1204,57 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     }),
     actionToUrl(({ values }) => {
         const buildUrl = (): [string, string] => {
-            const searchParams = new URLSearchParams()
+            // Seed from the current query string so params owned by other logics
+            // (e.g. the table's `select`, `pinned_columns`, `order_column`, `order_direction`)
+            // survive. Set-or-delete every param this logic owns so it leaves no stale values.
+            const searchParams = new URLSearchParams(window.location.search)
+            const setOrDelete = (key: string, value: string | null | undefined): void => {
+                if (value) {
+                    searchParams.set(key, value)
+                } else {
+                    searchParams.delete(key)
+                }
+            }
 
             // Tab
-            if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
-                searchParams.set('tab', values.activeTab)
-            }
+            setOrDelete(
+                'tab',
+                values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD ? values.activeTab : null
+            )
 
             // Date filters
-            if (values.dateFilter.dateFrom) {
-                searchParams.set('date_from', values.dateFilter.dateFrom)
-            }
-            if (values.dateFilter.dateTo) {
-                searchParams.set('date_to', values.dateFilter.dateTo)
-            }
-            if (values.dateFilter.interval) {
-                searchParams.set('interval', values.dateFilter.interval)
-            }
+            setOrDelete('date_from', values.dateFilter.dateFrom)
+            setOrDelete('date_to', values.dateFilter.dateTo)
+            setOrDelete('interval', values.dateFilter.interval)
 
             // Compare filter
-            if (values.compareFilter?.compare !== undefined) {
-                searchParams.set('compare', values.compareFilter.compare ? 'true' : 'false')
-            }
-            if (values.compareFilter?.compare_to) {
-                searchParams.set('compare_to', values.compareFilter.compare_to)
-            }
+            setOrDelete(
+                'compare',
+                values.compareFilter?.compare !== undefined ? (values.compareFilter.compare ? 'true' : 'false') : null
+            )
+            setOrDelete('compare_to', values.compareFilter?.compare_to)
 
             // Integration filter
-            if (values.integrationFilter?.integrationSourceIds?.length) {
-                searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
-            }
+            setOrDelete(
+                'integration_sources',
+                values.integrationFilter?.integrationSourceIds?.length
+                    ? values.integrationFilter.integrationSourceIds.join(',')
+                    : null
+            )
 
             // Chart display type
-            if (values.chartDisplayType) {
-                searchParams.set('chart_display_type', values.chartDisplayType)
-            }
+            setOrDelete('chart_display_type', values.chartDisplayType)
 
             // Tile column selection
-            if (values.tileColumnSelection) {
-                searchParams.set('tile_column', values.tileColumnSelection)
-            }
+            setOrDelete('tile_column', values.tileColumnSelection)
 
             // Drill-down level
-            if (values.drillDownLevel && values.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign) {
-                searchParams.set('drill_down_level', values.drillDownLevel)
-            }
+            setOrDelete(
+                'drill_down_level',
+                values.drillDownLevel && values.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign
+                    ? values.drillDownLevel
+                    : null
+            )
 
             return [window.location.pathname, searchParams.toString()]
         }
