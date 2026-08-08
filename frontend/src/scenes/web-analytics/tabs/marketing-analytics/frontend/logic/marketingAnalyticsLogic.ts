@@ -549,6 +549,70 @@ export interface marketingAnalyticsLogicMeta {
     }
 }
 
+// Params this logic owns in the URL query string. The table logic owns a
+// disjoint set (`select`, `pinned_columns`, `order_column`, `order_direction`).
+interface MarketingAnalyticsUrlValues {
+    activeTab: MarketingAnalyticsTab
+    dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType }
+    compareFilter?: CompareFilter
+    integrationFilter?: IntegrationFilter
+    chartDisplayType?: ChartDisplayType | null
+    tileColumnSelection?: validColumnsForTiles | null
+    drillDownLevel?: MarketingAnalyticsDrillDownLevel
+}
+
+// Build the query string from the current one plus this logic's state. Seeding from
+// `currentSearch` keeps params owned by other logics (the table's column layout).
+// Every param this logic owns is set or deleted, so it leaves no stale value.
+export function buildMarketingAnalyticsSearchParams(
+    currentSearch: string,
+    values: MarketingAnalyticsUrlValues
+): string {
+    const searchParams = new URLSearchParams(currentSearch)
+    const setOrDelete = (key: string, value: string | null | undefined): void => {
+        if (value) {
+            searchParams.set(key, value)
+        } else {
+            searchParams.delete(key)
+        }
+    }
+
+    setOrDelete(
+        'tab',
+        values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD ? values.activeTab : null
+    )
+
+    setOrDelete('date_from', values.dateFilter.dateFrom)
+    setOrDelete('date_to', values.dateFilter.dateTo)
+    setOrDelete('interval', values.dateFilter.interval)
+
+    setOrDelete(
+        'compare',
+        values.compareFilter?.compare !== undefined ? (values.compareFilter.compare ? 'true' : 'false') : null
+    )
+    setOrDelete('compare_to', values.compareFilter?.compare_to)
+
+    setOrDelete(
+        'integration_sources',
+        values.integrationFilter?.integrationSourceIds?.length
+            ? values.integrationFilter.integrationSourceIds.join(',')
+            : null
+    )
+
+    setOrDelete('chart_display_type', values.chartDisplayType)
+
+    setOrDelete('tile_column', values.tileColumnSelection)
+
+    setOrDelete(
+        'drill_down_level',
+        values.drillDownLevel && values.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign
+            ? values.drillDownLevel
+            : null
+    )
+
+    return searchParams.toString()
+}
+
 export type marketingAnalyticsLogicType = MakeLogicType<
     marketingAnalyticsLogicValues,
     marketingAnalyticsLogicActions,
@@ -1203,61 +1267,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     }),
     actionToUrl(({ values }) => {
-        const buildUrl = (): [string, string] => {
-            // Seed from the current query string so params owned by other logics
-            // (e.g. the table's `select`, `pinned_columns`, `order_column`, `order_direction`)
-            // survive. Set-or-delete every param this logic owns so it leaves no stale values.
-            const searchParams = new URLSearchParams(window.location.search)
-            const setOrDelete = (key: string, value: string | null | undefined): void => {
-                if (value) {
-                    searchParams.set(key, value)
-                } else {
-                    searchParams.delete(key)
-                }
-            }
-
-            // Tab
-            setOrDelete(
-                'tab',
-                values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD ? values.activeTab : null
-            )
-
-            // Date filters
-            setOrDelete('date_from', values.dateFilter.dateFrom)
-            setOrDelete('date_to', values.dateFilter.dateTo)
-            setOrDelete('interval', values.dateFilter.interval)
-
-            // Compare filter
-            setOrDelete(
-                'compare',
-                values.compareFilter?.compare !== undefined ? (values.compareFilter.compare ? 'true' : 'false') : null
-            )
-            setOrDelete('compare_to', values.compareFilter?.compare_to)
-
-            // Integration filter
-            setOrDelete(
-                'integration_sources',
-                values.integrationFilter?.integrationSourceIds?.length
-                    ? values.integrationFilter.integrationSourceIds.join(',')
-                    : null
-            )
-
-            // Chart display type
-            setOrDelete('chart_display_type', values.chartDisplayType)
-
-            // Tile column selection
-            setOrDelete('tile_column', values.tileColumnSelection)
-
-            // Drill-down level
-            setOrDelete(
-                'drill_down_level',
-                values.drillDownLevel && values.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign
-                    ? values.drillDownLevel
-                    : null
-            )
-
-            return [window.location.pathname, searchParams.toString()]
-        }
+        const buildUrl = (): [string, string] => [
+            window.location.pathname,
+            buildMarketingAnalyticsSearchParams(window.location.search, values),
+        ]
 
         return {
             setActiveTab: buildUrl,

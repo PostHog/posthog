@@ -1,52 +1,40 @@
-import { router } from 'kea-router'
+import { IntervalType } from '~/types'
 
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
+import { buildMarketingAnalyticsSearchParams, MarketingAnalyticsTab } from './marketingAnalyticsLogic'
 
-import { marketingAnalyticsLogic, MarketingAnalyticsTab } from './marketingAnalyticsLogic'
+describe('buildMarketingAnalyticsSearchParams', () => {
+    // The column layout params are owned by marketingAnalyticsTableLogic, seeded into the URL.
+    const columnParams =
+        'select=campaign_name%2Ctotal_cost&pinned_columns=campaign_name&order_column=total_cost&order_direction=DESC'
 
-describe('marketingAnalyticsLogic', () => {
-    let logic: ReturnType<typeof marketingAnalyticsLogic.build>
+    const values = {
+        activeTab: MarketingAnalyticsTab.ATTRIBUTION,
+        dateFilter: { dateFrom: '-30d', dateTo: null, interval: 'day' as IntervalType },
+    }
 
-    beforeEach(() => {
-        useMocks({
-            get: {
-                '/api/environments/:team/warehouse_saved_queries/': { results: [] },
-                '/api/projects/:team/warehouse_saved_queries/': { results: [] },
-                '/api/environments/:team/external_data_sources/': { results: [] },
-                '/api/projects/:team/external_data_sources/': { results: [] },
-                '/api/environments/:team/warehouse_tables/': { results: [] },
-                '/api/projects/:team/warehouse_tables/': { results: [] },
-                '/api/environments/:team/integrations/': { results: [] },
-                '/api/projects/:team/integrations/': { results: [] },
-            },
-        })
-        initKeaTests()
-        // buildUrl reads window.location.search directly, so seed the real jsdom URL
-        // with the column params owned by marketingAnalyticsTableLogic.
-        window.history.replaceState(
-            {},
-            '',
-            '/web/marketing?select=campaign_name%2Ctotal_cost&pinned_columns=campaign_name&order_column=total_cost&order_direction=DESC'
+    it('keeps the table column params when writing its own params', () => {
+        const params = new URLSearchParams(buildMarketingAnalyticsSearchParams(columnParams, values))
+
+        // The column layout survives alongside the params this logic writes.
+        expect(params.get('select')).toBe('campaign_name,total_cost')
+        expect(params.get('pinned_columns')).toBe('campaign_name')
+        expect(params.get('order_column')).toBe('total_cost')
+        expect(params.get('order_direction')).toBe('DESC')
+        expect(params.get('tab')).toBe(MarketingAnalyticsTab.ATTRIBUTION)
+        expect(params.get('date_from')).toBe('-30d')
+    })
+
+    it('deletes a stale param when its value returns to the default', () => {
+        // `tab` is present in the seed but the tab is now the default DASHBOARD.
+        const params = new URLSearchParams(
+            buildMarketingAnalyticsSearchParams(`${columnParams}&tab=attribution`, {
+                ...values,
+                activeTab: MarketingAnalyticsTab.DASHBOARD,
+            })
         )
-        logic = marketingAnalyticsLogic()
-        logic.mount()
-    })
 
-    afterEach(() => {
-        logic.unmount()
-    })
-
-    it('keeps the table column params in the URL when a filter changes', () => {
-        // Changing a filter (here the tab) must not wipe the column layout the table logic wrote.
-        logic.actions.setActiveTab(MarketingAnalyticsTab.ATTRIBUTION)
-
-        expect(router.values.searchParams).toMatchObject({
-            select: 'campaign_name,total_cost',
-            pinned_columns: 'campaign_name',
-            order_column: 'total_cost',
-            order_direction: 'DESC',
-            tab: MarketingAnalyticsTab.ATTRIBUTION,
-        })
+        expect(params.has('tab')).toBe(false)
+        // A foreign param is still preserved.
+        expect(params.get('select')).toBe('campaign_name,total_cost')
     })
 })
