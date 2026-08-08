@@ -229,6 +229,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # user must fix their key file; retrying can't recover. Matched on ngrok's stable
             # offline-endpoint code rather than the volatile tunnel subdomain in the page.
             "ERR_NGROK_3200": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an offline endpoint, not Google's OAuth token endpoint. Please re-upload your service account key file and verify its token_uri.",
+            # A service-account key whose `token_uri` points at a non-globally-routable address
+            # (for example a cloud metadata endpoint). PostHog's egress proxy denies the request
+            # before it leaves our network and google-auth surfaces that denial as a `RefreshError`
+            # naming the proxy's stable rule. The proxy rejects the same non-public host on every
+            # retry, so retrying just hammers a request that can never succeed. Google's real OAuth
+            # token endpoint is always a public host, so this is a misconfigured `token_uri` — the
+            # user must fix their key file. Matched on the proxy's stable rule name rather than the
+            # volatile denied host.
+            "denied by rule 'Deny: Not Global Unicast'": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an address PostHog can't reach. Please re-upload your service account key file and verify its token_uri is Google's OAuth token endpoint.",
             # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
             # project hits an administrator-configured custom cost control, e.g. "Custom quota
             # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by
