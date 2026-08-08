@@ -459,6 +459,19 @@ export class ApiConfig {
     static setCurrentProjectId(id: ProjectType['id']): void {
         this._currentProjectId = id
     }
+
+    // Network retries use real-time backoff, so they are disabled under unit tests by default:
+    // otherwise a test that mocks a failing request leaks the delayed retry past teardown
+    // ("Cannot log after tests are done"). Tests that cover the retry path re-enable it.
+    private static _networkRetriesEnabled = process.env.NODE_ENV !== 'test'
+
+    static getNetworkRetriesEnabled(): boolean {
+        return this._networkRetriesEnabled
+    }
+
+    static setNetworkRetriesEnabled(enabled: boolean): void {
+        this._networkRetriesEnabled = enabled
+    }
 }
 
 export class ApiRequest {
@@ -7519,7 +7532,11 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
-        if (NETWORK_RETRYABLE_METHODS.has(method.toUpperCase()) && networkRetryCount < MAX_NETWORK_RETRIES) {
+        if (
+            ApiConfig.getNetworkRetriesEnabled() &&
+            NETWORK_RETRYABLE_METHODS.has(method.toUpperCase()) &&
+            networkRetryCount < MAX_NETWORK_RETRIES
+        ) {
             await delay(250 * 2 ** networkRetryCount)
             return await handleFetch(url, method, fetcher, isRetry, networkRetryCount + 1)
         }

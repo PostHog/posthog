@@ -346,10 +346,12 @@ describe('API helper', () => {
     describe('transient network retries', () => {
         beforeEach(() => {
             jest.useFakeTimers()
+            ApiConfig.setNetworkRetriesEnabled(true) // disabled by default under jest
         })
 
         afterEach(() => {
             jest.useRealTimers()
+            ApiConfig.setNetworkRetriesEnabled(false)
         })
 
         const okResponse = (): any => ({
