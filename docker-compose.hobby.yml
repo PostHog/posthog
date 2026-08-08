@@ -234,11 +234,15 @@ services:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # The combined-mode AI consumer reads persons through PersonHog
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             - db
             - redis7
             - clickhouse
             - kafka
+            - personhog-router
 
     ingestion-sessionreplay:
         extends:
@@ -597,6 +601,7 @@ services:
                     clickhouse_heatmap_events \
                     clickhouse_flag_evaluations \
                     clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_ai \
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \

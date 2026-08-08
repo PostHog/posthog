@@ -34,7 +34,7 @@ import {
   taskCommentTarget,
 } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import {
-  byNewestActivity,
+  byNewestThread,
   prCommentThreads,
   resourceCommentThreads,
   type SourceKind,
@@ -405,7 +405,6 @@ export function TaskCommentsList({
 
   const taskTarget = useMemo(() => taskCommentTarget(task.id), [task.id]);
   const composerTarget = onlySource?.target ?? taskTarget;
-  const composerSourceKey = commentTargetKey(composerTarget);
   const createComment = useCreateComment(composerTarget, task.id);
 
   const threads = useMemo(() => {
@@ -423,7 +422,7 @@ export function TaskCommentsList({
         conversationByUrl.get(prUrl) ?? [],
       ),
     );
-    return [...resourceThreads, ...prThreads].sort(byNewestActivity);
+    return [...resourceThreads, ...prThreads].sort(byNewestThread);
   }, [
     commentsQuery.data,
     sources,
@@ -732,7 +731,7 @@ export function TaskCommentsList({
           value={draft}
           onValueChange={setDraft}
           onSubmit={async (content, mentions) => {
-            await createComment.mutateAsync({
+            const created = await createComment.mutateAsync({
               content,
               context: {
                 anchor: { kind: "document" },
@@ -741,15 +740,10 @@ export function TaskCommentsList({
               mentions,
             });
             setDraft("");
-            // Show the thread that was just opened: open state, and a source
-            // filter that isn't hiding the task's own comments.
-            setStateFilter("open");
-            if (
-              sourceFilter !== ALL_SOURCES &&
-              sourceFilter !== composerSourceKey
-            ) {
-              setSourceFilter(ALL_SOURCES);
-            }
+            // Show the thread that was just opened. The list is ordered by when
+            // a thread started, so a new one lands at the top, away from the
+            // composer — focusing it clears the filters hiding it and scrolls.
+            requestCommentFocus(task.id, composerTarget, created.id);
           }}
           members={members}
           placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}

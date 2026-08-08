@@ -86,6 +86,21 @@ def _stub_task_runtime_helpers():
             return None
         return f"Reasoning effort '{effort}' is not supported for {adapter}/{model}."
 
+    models_by_adapter = {
+        "claude": ("claude-opus-4-7", "claude-sonnet-4-6"),
+        "codex": ("gpt-5", "gpt-5.5"),
+    }
+
+    def fake_validate_selection(adapter, model, effort):
+        if adapter is not None and adapter not in models_by_adapter:
+            raise ValidationError(f"Unknown runtime_adapter '{adapter}'.")
+        owning = next((a for a, models in models_by_adapter.items() if model in models), None)
+        if adapter is not None and owning is not None and owning != adapter:
+            raise ValidationError(f"Model '{model}' runs on runtime_adapter '{owning}', not '{adapter}'.")
+        error = fake_get_error(adapter, model, effort)
+        if error:
+            raise ValidationError(error)
+
     class _Adapter:
         def __init__(self, value):
             self.value = value
@@ -119,6 +134,8 @@ def _stub_task_runtime_helpers():
     fake: Any = ModuleType(module_name)
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
+    fake.get_models_for_runtime_adapter = lambda adapter: models_by_adapter.get(adapter, ())
+    fake.validate_model_selection = fake_validate_selection
     fake.RuntimeAdapter = _RuntimeAdapter()
     fake.PUBLIC_REASONING_EFFORTS = public_efforts
 
@@ -146,8 +163,8 @@ class TestResolveAIPreferences:
             pytest.param(
                 None,
                 {"runtime_adapter": "claude", "model": "claude-opus-4-7", "effort": "high"},
-                AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-                id="workspace-only-applies",
+                AIPreferences(),
+                id="workspace-row-is-ignored",
             ),
             pytest.param(
                 {"runtime_adapter": "codex", "model": "gpt-5.5", "effort": "high"},
@@ -159,7 +176,7 @@ class TestResolveAIPreferences:
                 {"runtime_adapter": "claude", "model": "claude-opus-4-7", "effort": "high"},
                 {"runtime_adapter": "codex", "model": "gpt-5.5", "effort": "low"},
                 AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-                id="user-overrides-workspace",
+                id="user-wins-over-lingering-workspace-row",
             ),
         ],
     )
@@ -189,11 +206,10 @@ class TestResolveAIPreferences:
             )
         assert resolve_ai_preferences(integration, "U001") == expected
 
-    def test_user_row_with_no_pair_yields_workspace_triple_intact(self, slack_setup, flag_on):
+    def test_user_row_with_no_pair_reads_as_no_preference(self, slack_setup, flag_on):
         """A user row without the atomic `(runtime_adapter, model)` pair is
-        treated as "no personal preference", so the workspace row wins
-        wholesale — including its own `reasoning_effort`. The user's
-        orphaned effort never leaks into the resolved triple."""
+        treated as "no personal preference" — the orphaned effort never leaks
+        into the resolved triple."""
         integration = slack_setup
         SlackSettings.objects.create(
             default_integration=integration,
@@ -204,42 +220,8 @@ class TestResolveAIPreferences:
             # it (direct writes, older data, schema drift).
             ai_preferences={"reasoning_effort": "medium"},
         )
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id=None,
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
-        )
 
-        assert resolve_ai_preferences(integration, "U001") == AIPreferences(
-            runtime_adapter="claude",
-            model="claude-opus-4-7",
-            reasoning_effort="high",
-        )
-
-    def test_user_pair_without_effort_does_not_inherit_workspace_effort(self, slack_setup, flag_on):
-        """If the user explicitly picks a pair without a reasoning effort,
-        the resolver must not silently graft the workspace's effort onto
-        it. Whole-triple swap: user's absent effort stays absent."""
-        integration = slack_setup
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7"},
-        )
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id=None,
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "low"},
-        )
-
-        assert resolve_ai_preferences(integration, "U001") == AIPreferences(
-            runtime_adapter="claude",
-            model="claude-opus-4-7",
-            reasoning_effort=None,
-        )
+        assert resolve_ai_preferences(integration, "U001") == AIPreferences()
 
     def test_unsupported_effort_dropped_when_model_does_not_support_it(self, slack_setup, flag_on):
         """If a row stores an effort the resolved model can't honour (e.g.
@@ -264,7 +246,9 @@ class TestResolveAIPreferences:
         assert result.model == "claude-sonnet-4-6"
         assert result.reasoning_effort is None
 
-    def test_user_id_none_uses_workspace_row_only(self, slack_setup, flag_on):
+    def test_user_id_none_resolves_empty(self, slack_setup, flag_on):
+        # No Slack user to attribute the run to, so there's no preference to
+        # apply — the workspace row's AI fields are no longer consulted.
         integration = slack_setup
         SlackSettings.objects.create(
             default_integration=integration,
@@ -272,8 +256,7 @@ class TestResolveAIPreferences:
             slack_user_id=None,
             ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
         )
-        result = resolve_ai_preferences(integration, None)
-        assert result == AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high")
+        assert resolve_ai_preferences(integration, None) == AIPreferences()
 
     def test_flag_off_returns_empty_even_with_rows_present(self, slack_setup, flag_off):
         integration = slack_setup
@@ -324,6 +307,12 @@ class TestValidateAIPreferences:
     def test_unknown_runtime_adapter_rejected(self):
         with pytest.raises(ValidationError, match="Unknown runtime_adapter"):
             validate_ai_preferences("nonsense", "claude-opus-4-7", None)
+
+    def test_model_from_another_runtime_rejected(self):
+        # The modal offers both runtimes' models, so nothing but this check stops a
+        # Claude + GPT pair from being written and handed to a run.
+        with pytest.raises(ValidationError, match="runs on runtime_adapter"):
+            validate_ai_preferences("claude", "gpt-5.5", None)
 
     def test_unknown_reasoning_effort_rejected(self):
         with pytest.raises(ValidationError, match="Unknown reasoning_effort"):

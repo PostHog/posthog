@@ -40,6 +40,12 @@
 #   plumbing such as dual-project tokens, the JUnit-artifact download pattern, re-run attempt
 #   handling — including the attempt-suffixed junit artifact names canonical uploads so the
 #   reporter can pair re-run recoveries with attempt-1 failures) need no depot bump.
+# - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
+#   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
+#   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
+#   The shadow strips artifact uploads (above) and routes every cache write to Depot Cache
+#   (below), so it has neither the artifact to download nor a GitHub cache to fill: the job,
+#   and the check-migrations mig_schema_key output that feeds it, are depot-exempt.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA
@@ -814,7 +820,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
-            # used by core-tests/django which achieves ~1s wait times.
+            # used by core-tests/django and makes the later wait step negligible.
             - name: Clean up data directories
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
@@ -1163,7 +1169,7 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
-              # of ~10 minutes of full migrations.
+              # of a full migration run.
               if: github.event_name != 'push'
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -1722,7 +1728,7 @@ jobs:
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
-              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
