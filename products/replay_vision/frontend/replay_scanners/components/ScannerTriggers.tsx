@@ -10,6 +10,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -23,6 +24,7 @@ import {
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { RecordingsUniversalFilterAddFilterPopover } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { Settings } from 'scenes/settings/Settings'
 
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
@@ -33,6 +35,25 @@ import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../d
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
+
+// The wizard holds an unsaved draft, so sending someone to the settings scene to define their test
+// account filters drops them out of the flow they were told to fix. Configure them in place instead.
+function openTestAccountFilterSettings(): void {
+    LemonDialog.open({
+        title: 'Filter out internal and test users',
+        width: '40rem',
+        content: (
+            <Settings
+                logicKey="replay-vision-internal-user-filtering"
+                sectionId="environment-customization"
+                settingId="internal-user-filtering"
+                hideSections
+                handleLocally
+            />
+        ),
+        primaryButton: { children: 'Done' },
+    })
+}
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
 // Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
@@ -148,6 +169,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     onChange={(checked) =>
                                         applyUniversal({ ...universal, filter_test_accounts: checked })
                                     }
+                                    onConfigure={openTestAccountFilterSettings}
                                 />
                             </div>
                             {/* -ml-2 cancels AndOrFilterSelect's built-in prefix indent so "Match" left-aligns with the rest. */}

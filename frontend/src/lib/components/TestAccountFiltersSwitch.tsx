@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import React from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
@@ -34,12 +35,16 @@ type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     /** When set, the toggle is disabled with an explanatory reason unless the team has at least one
      * test account filter of one of these types. Omit to accept every filter type (events etc.). */
     applicableFilterTypes?: string[]
+    /** Runs instead of navigating to project settings when the gear is clicked. Surfaces that hold
+     * unsaved state, such as a wizard step, use this to configure the filters without leaving. */
+    onConfigure?: () => void
 }
 
 export function TestAccountFilterSwitch({
     checked,
     onChange,
     applicableFilterTypes,
+    onConfigure,
     ...props
 }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
@@ -66,7 +71,17 @@ export function TestAccountFilterSwitch({
                         size="small"
                         noPadding
                         className="ml-1"
-                        to={urls.settings('environment-customization', 'internal-user-filtering')}
+                        {...(onConfigure
+                            ? {
+                                  // The gear sits inside the switch's <label htmlFor>, which forwards clicks to the
+                                  // switch button. Stop it here so opening settings can't also flip the filter.
+                                  onClick: (e: React.MouseEvent) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      onConfigure()
+                                  },
+                              }
+                            : { to: urls.settings('environment-customization', 'internal-user-filtering') })}
                     />
                 </div>
             }
