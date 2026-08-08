@@ -64,11 +64,11 @@ class FakeResponse:
         body: Optional[bytes] = None,
     ) -> None:
         self.status_code = status_code
-        self._payload = payload
         self.url = url
-        # The transport reads bodies via `raw.read(...)` under a byte cap, never `.json()`, so the
-        # fake serializes the payload the same way a real response would carry it. `body` lets a
-        # test supply bytes directly — an oversized or malformed body payload can't express.
+        # The transport reads bodies via `raw.read(...)` under a byte cap and never calls `.json()`,
+        # so the fake carries the payload as serialized bytes exactly like a real response would —
+        # and deliberately offers no `.json()`, so a regression back to it fails loudly. `body` lets
+        # a test supply bytes directly, for the oversized and malformed cases `payload` can't express.
         if body is None:
             body = b"" if payload is None else json.dumps(payload).encode()
         self.raw = FakeRaw(body)
@@ -80,11 +80,6 @@ class FakeResponse:
 
     def close(self) -> None:
         self.closed = True
-
-    def json(self) -> Any:
-        if self._payload is None:
-            raise ValueError("no json body")
-        return self._payload
 
     def raise_for_status(self) -> None:
         if self.ok:

@@ -315,6 +315,33 @@ class TestFirestorePagination:
 
         assert session.requests[0][2]["params"]["pageToken"] == "page-9"
 
+    def test_a_resume_marker_with_no_state_behind_it_starts_from_the_beginning(
+        self, logger: FilteringBoundLogger
+    ) -> None:
+        # `can_resume()` and `load_state()` are two round trips to the store, so a checkpoint that
+        # is cleared between them is reachable. It has to read as "no cursor", not crash.
+        class VanishingResumeManager(FakeResumeManager):
+            def can_resume(self) -> bool:
+                return True
+
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={"documents": [firestore_document("a")]})],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        list(
+            iter_firestore_documents(
+                session.as_session(),
+                token_provider(session),
+                credentials(),
+                "rooms",
+                VanishingResumeManager(),
+                logger,
+            )
+        )
+
+        assert "pageToken" not in session.requests[0][2]["params"]
+
     def test_collection_id_is_url_escaped(self, logger: FilteringBoundLogger) -> None:
         session = FakeSession(
             request_responses=[FakeResponse(payload={})], post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)]
@@ -617,6 +644,29 @@ class TestResponseSizeCaps:
 
         with pytest.raises(FirebaseAuthError, match="could not be read as JSON"):
             mint_access_token(session.as_session(), credentials())
+
+    @pytest.mark.parametrize("body", [b"[]", b'"tok-1"', b"null"], ids=["array", "string", "null"])
+    def test_a_token_body_that_is_json_but_not_an_object_has_no_token(self, body: bytes) -> None:
+        # `json.loads` is happy with any JSON value, so the object check is what stops a bare
+        # array or string from reaching `.get("access_token")` and raising AttributeError.
+        session = FakeSession(post_responses=[FakeResponse(body=body)])
+
+        with pytest.raises(FirebaseAuthError, match="did not contain an access token"):
+            mint_access_token(session.as_session(), credentials())
+
+    def test_an_empty_body_is_treated_as_no_payload(self, logger: FilteringBoundLogger) -> None:
+        # A 200 with no body at all is not JSON; it means the node holds nothing.
+        session = FakeSession(
+            request_responses=[FakeResponse(body=b"")],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        configured = credentials(
+            realtime_database_url="https://demo-default-rtdb.firebaseio.com",
+            realtime_database_paths=("rooms",),
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            assert list(get_rows(configured, "realtime_database_rooms", FakeResumeManager(), logger)) == []
 
     def test_a_huge_error_body_is_truncated_not_masking_the_status(self, logger: FilteringBoundLogger) -> None:
         # A 403 has to stay a 403 — it maps to an actionable "grant the service account a role"
