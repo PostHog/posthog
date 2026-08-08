@@ -812,6 +812,8 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(len(created), 1)
         properties = created[0].kwargs["properties"]
         self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
+        self.assertEqual(properties["model"], ScannerModel.GEMINI_3_6_FLASH)
+        self.assertEqual(properties["credits_per_observation"], 15)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
         self.assertTrue(properties["enabled"])
