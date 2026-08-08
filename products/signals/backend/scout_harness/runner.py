@@ -39,6 +39,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
     resolve_report_channel_variant,
+    skill_opted_in_user_write_scopes,
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
@@ -51,6 +52,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, TurnPollTimeout
 
 if TYPE_CHECKING:
+    from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes
+
     from products.tasks.backend.models import TaskRun
 
 logger = logging.getLogger(__name__)
@@ -496,6 +499,15 @@ async def _spawn_and_run(
         network_access_level,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
+    # Per-skill opt-in user writes (`allowed_tools` → `OPT_IN_USER_WRITE_TOOLS`, e.g. the
+    # insight-hygiene scout's `update_insights` → `insight:write`). Carried as
+    # `["<preset>", "<scope>", ...]` so the run keeps the preset's full posture and adds the
+    # opted-in scope; a plain preset string when nothing is opted in.
+    scope_preset: McpScopePreset = "signals_scout_reports" if report_channel else "signals_scout"
+    opted_in_write_scopes = skill_opted_in_user_write_scopes(skill.allowed_tools)
+    scout_mcp_scopes: PosthogMcpScopes = scope_preset
+    if opted_in_write_scopes:
+        scout_mcp_scopes = [scope_preset, *opted_in_write_scopes]
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
     # team's GitHub integration to every task, so without this request a repo-less scout run on a
     # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
@@ -533,7 +545,7 @@ async def _spawn_and_run(
         # the same posture plus `signal_scout_report:write` — so the MCP server exposes the
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
         # sees them.
-        posthog_mcp_scopes=("signals_scout_reports" if report_channel else "signals_scout"),
+        posthog_mcp_scopes=scout_mcp_scopes,
         github_read_access=True,
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves

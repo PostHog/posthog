@@ -110,6 +110,43 @@ class TestResolveScopes(SimpleTestCase):
         # First-seen order is preserved
         assert result.index("feature_flag:read") < result.index("task:write")
 
+    def test_preset_in_list_resolves_posture_plus_extras(self) -> None:
+        # The scout harness's per-skill write opt-ins (OPT_IN_USER_WRITE_TOOLS) are carried as a
+        # preset-plus-extras list: ["signals_scout_reports", "insight:write"].
+        from posthog.temporal.oauth import SCOUT_REPORT_SCOPES
+
+        result = resolve_scopes(["signals_scout_reports", "insight:write"])
+        assert "insight:write" in result
+        # the preset's full posture survives: reads + internal + scout internal + report + allowlist
+        for scope in [*INTERNAL_SCOPES, *SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, *SCOUT_USER_WRITE_SCOPES]:
+            assert scope in result
+        for scope in MCP_READ_SCOPES[:10]:
+            assert scope in result
+
+    def test_preset_in_list_without_extras_matches_bare_preset(self) -> None:
+        assert resolve_scopes(["signals_scout_reports"]) == resolve_scopes("signals_scout_reports")
+        assert resolve_scopes(["read_only"]) == resolve_scopes("read_only")
+
+    def test_preset_in_list_rejects_multiple_presets(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="at most one preset"):
+            resolve_scopes(["signals_scout", "full"])
+
+    def test_preset_in_list_rejects_unknown_extras(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="not advertised MCP scopes"):
+            resolve_scopes(["signals_scout_reports", "planet:destroy"])
+
+    def test_preset_in_list_ignores_internal_scopes_flag_consistently(self) -> None:
+        result = resolve_scopes(["signals_scout_reports", "insight:write"], include_internal_scopes=False)
+        assert "insight:write" in result
+        assert "signal_scout_internal:write" not in result
+        assert "signal_scout_report:write" not in result
+        for scope in INTERNAL_SCOPES:
+            assert scope not in result
+
     def test_internal_scope_objects_disjoint_from_mcp_scope_lists(self) -> None:
         from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS
 
@@ -132,6 +169,10 @@ class TestHasWriteScopes(SimpleTestCase):
             ("custom_read_only", ["feature_flag:read", "insight:read"], False),
             ("custom_with_non_mcp_write", ["task:write"], False),
             ("empty_custom", [], False),
+            # a list carrying a preset inherits that preset's write posture even when its extras are read-only
+            ("preset_in_list_with_write_extra", ["signals_scout_reports", "insight:write"], True),
+            ("preset_in_list_no_extras", ["signals_scout"], True),
+            ("read_only_preset_in_list", ["read_only", "insight:read"], False),
         ]
     )
     def test_has_write_scopes(self, _name: str, scopes, expected: bool) -> None:

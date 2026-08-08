@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -140,6 +140,23 @@ def resolve_scopes(
     include_internal_scopes: bool = True,
 ) -> list[str]:
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
+    if isinstance(scopes, list):
+        # A list MAY carry exactly one preset (e.g. `["signals_scout_reports", "insight:write"]`) to
+        # mean "that preset's full posture plus these extra scopes" — used for per-scout opt-in
+        # writes (see `OPT_IN_USER_WRITE_TOOLS` in the scout harness), where a preset string alone
+        # can't express the per-skill grant and a bare scope list would silently lose the preset's
+        # internal/report scopes. Extras are validated against the advertised MCP surface so a
+        # malformed opt-in fails loud at mint time instead of minting a scope nothing understands.
+        presets = [s for s in scopes if s in MCP_SCOPE_PRESETS]
+        if presets:
+            if len(presets) > 1:
+                raise ValueError(f"posthog_mcp_scopes list can carry at most one preset, got {presets}")
+            extras = [s for s in scopes if s not in MCP_SCOPE_PRESETS]
+            unknown = set(extras) - set(MCP_READ_SCOPES) - set(MCP_WRITE_SCOPES)
+            if unknown:
+                raise ValueError(f"posthog_mcp_scopes extras are not advertised MCP scopes: {sorted(unknown)}")
+            base = resolve_scopes(cast(McpScopePreset, presets[0]), include_internal_scopes=include_internal_scopes)
+            return list(dict.fromkeys([*base, *extras]))
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
@@ -176,7 +193,11 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out.
         return scopes in ("full", "signals_scout", "signals_scout_reports")
-    return any(s in MCP_WRITE_SCOPES for s in scopes)
+    if any(s in MCP_WRITE_SCOPES for s in scopes):
+        return True
+    # A list carrying a preset (see resolve_scopes) inherits that preset's write posture even when
+    # its extras carry no write scope of their own.
+    return any(s in ("full", "signals_scout", "signals_scout_reports") for s in scopes)
 
 
 def _get_client_id_for_region(*, region: str | None, us: str, eu: str, dev: str) -> str:
