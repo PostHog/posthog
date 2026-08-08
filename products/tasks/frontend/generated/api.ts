@@ -73,6 +73,7 @@ import type {
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCommentCountsResponseApi,
     TaskCommentDetailApi,
     TaskCommentsResponseApi,
     TaskCreateApi,
@@ -1411,6 +1412,24 @@ export const tasksCommentsRetrieve = async (
     options?: RequestInit
 ): Promise<TaskCommentDetailApi> => {
     return apiMutator<TaskCommentDetailApi>(getTasksCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCommentsCountsUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/comments/counts/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCommentsCounts = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskCommentCountsResponseApi> => {
+    return apiMutator<TaskCommentCountsResponseApi>(getTasksCommentsCountsUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

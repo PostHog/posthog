@@ -73949,6 +73949,18 @@ export namespace Schemas {
       height?: number;
     }
 
+    export interface TaskCommentCount {
+      /** Task, artifact, or canvas id. */
+      item_id: string;
+      /** Number of open comment threads. */
+      count: number;
+    }
+
+    export interface TaskCommentCountsResponse {
+      /** Open thread counts grouped by target id. */
+      counts: TaskCommentCount[];
+    }
+
     export interface TaskCommentTarget {
       /** Stable target id. */
       id: string;
@@ -73975,6 +73987,11 @@ export namespace Schemas {
          * @nullable
          */
       author: string | null;
+      /**
+         * Comment author id, or null if deleted.
+         * @nullable
+         */
+      created_by_id: number | null;
       /** When the comment was created. */
       created_at: string;
       /** Normalized text or document anchor. */
@@ -74018,10 +74035,19 @@ export namespace Schemas {
       selected_text: string | null;
       /** When the root comment was created. */
       created_at: string;
+      /** When the latest visible reply was created. */
+      last_activity_at: string;
       /** Number of human replies. */
       reply_count: number;
       /** Whether the comment is resolved. */
       resolved: boolean;
+      /**
+         * Bounded root-and-replies preview, or null when not requested.
+         * @nullable
+         */
+      comments: TaskCommentEntry[] | null;
+      /** Whether the preview omits content or replies. */
+      comments_truncated: boolean;
     }
 
     export interface TaskCommentsResponse {
@@ -87480,6 +87506,10 @@ export namespace Schemas {
      * Whether to include resolved comment threads.
      */
     include_resolved?: boolean;
+    /**
+     * Whether to include a bounded root-and-replies preview for each thread.
+     */
+    include_thread?: boolean;
     /**
      * Maximum number of root comments to return.
      * @minimum 1

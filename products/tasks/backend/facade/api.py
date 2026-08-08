@@ -238,6 +238,7 @@ __all__ = [
     "task_comment_mentions_allowed",
     "list_task_artifacts",
     "list_task_comments",
+    "count_open_task_comments",
     "retrieve_task_comment",
     "update_sandbox_environment",
     "update_task",
@@ -6265,8 +6266,10 @@ def list_task_comments(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     artifact_id: str | None,
     include_resolved: bool,
+    include_thread: bool,
     limit: int,
     cursor: str | None,
 ) -> contracts.TaskCommentPageDTO:
@@ -6276,8 +6279,10 @@ def list_task_comments(
         return list_comments(
             team_id=team_id,
             task_id=task_id,
+            user_id=user_id,
             artifact_id=artifact_id,
             include_resolved=include_resolved,
+            include_thread=include_thread,
             limit=limit,
             cursor=cursor,
         )
@@ -6285,10 +6290,17 @@ def list_task_comments(
         raise ValueError("Invalid task comment cursor") from None
 
 
+def count_open_task_comments(*, team_id: int, task_id: UUID, user_id: int | None) -> contracts.TaskCommentCountsDTO:
+    from products.tasks.backend.logic.services.task_comments import count_open_comments
+
+    return count_open_comments(team_id=team_id, task_id=task_id, user_id=user_id)
+
+
 def retrieve_task_comment(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     comment_id: UUID,
     limit: int,
     cursor: str | None,
@@ -6301,6 +6313,7 @@ def retrieve_task_comment(
         return retrieve_comment(
             team_id=team_id,
             task_id=task_id,
+            user_id=user_id,
             comment_id=comment_id,
             limit=limit,
             cursor=cursor,

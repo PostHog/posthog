@@ -1,9 +1,11 @@
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, F, Max, Q, QuerySet, Window
+from django.db.models.functions import RowNumber
 
 from posthog.models import Comment
 
@@ -17,6 +19,8 @@ CANVAS_EVENT_LIMIT = 500
 LIST_CONTENT_BYTES = 1024
 SELECTED_TEXT_BYTES = 1024
 DETAIL_CONTENT_BUDGET_BYTES = 64 * 1024
+LIST_THREAD_CONTENT_BUDGET_BYTES = 256 * 1024
+LIST_THREAD_REPLY_LIMIT = 20
 ANCHOR_QUOTE_BYTES = 4096
 
 
@@ -93,6 +97,14 @@ def _is_state_event(comment: Comment) -> bool:
     return _item_context(comment).get("threadState") in COMMENT_STATES
 
 
+def _human_replies(queryset: QuerySet[Comment]) -> QuerySet[Comment]:
+    return queryset.filter(
+        Q(item_context__isnull=True)
+        | ~Q(item_context__has_key="threadState")
+        | ~Q(item_context__threadState__in=COMMENT_STATES)
+    )
+
+
 def _encode_cursor(created_at: datetime, comment_id: UUID) -> str:
     return urlsafe_b64encode(f"{created_at.isoformat()}|{comment_id}".encode()).decode().rstrip("=")
 
@@ -111,16 +123,25 @@ def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
         raise InvalidTaskCommentCursor from None
 
 
-def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
+def _comments(team_id: int, task_id: UUID, visible_canvas_ids: Sequence[str]) -> QuerySet[Comment]:
     task_id_string = str(task_id)
     return (
         Comment.objects.filter(team_id=team_id, deleted=False)
         .filter(
             Q(scope="task", item_id=task_id_string)
-            | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
+            | Q(scope="task_artifact", item_context__taskId=task_id_string)
+            | Q(scope="desktop_canvas", item_context__taskId=task_id_string, item_id__in=visible_canvas_ids)
         )
         .filter(Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False))
     )
+
+
+def _visible_canvas_ids(*, team_id: int, task_id: UUID, user_id: int | None) -> list[str]:
+    from products.canvas.backend.comment_access import (
+        visible_canvas_ids_for_task,  # noqa: PLC0415 — avoids the canvas/tasks facade cycle
+    )
+
+    return visible_canvas_ids_for_task(team_id=team_id, user_id=user_id, task_id=task_id)
 
 
 def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> dict[str, str]:
@@ -229,36 +250,47 @@ def list_comments(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     artifact_id: str | None,
     include_resolved: bool,
+    include_thread: bool,
     limit: int,
     cursor: str | None,
 ) -> contracts.TaskCommentPageDTO:
-    roots_qs = _comments(team_id, task_id).filter(source_comment_id__isnull=True)
+    comments_qs = _comments(
+        team_id,
+        task_id,
+        _visible_canvas_ids(team_id=team_id, task_id=task_id, user_id=user_id),
+    )
+    roots_qs = comments_qs.filter(source_comment_id__isnull=True)
     if artifact_id:
         roots_qs = roots_qs.filter(scope__in=["task_artifact", "desktop_canvas"], item_id=artifact_id)
     scan_cursor = _decode_cursor(cursor) if cursor else None
     result: list[contracts.TaskCommentSummaryDTO] = []
     next_cursor = None
+    remaining_thread_content_bytes = LIST_THREAD_CONTENT_BUDGET_BYTES
     while len(result) < limit:
         batch_qs = roots_qs
         if scan_cursor:
             before, before_id = scan_cursor
             batch_qs = batch_qs.filter(Q(created_at__lt=before) | Q(created_at=before, id__lt=before_id))
         remaining = limit - len(result)
+        if include_thread:
+            batch_qs = batch_qs.select_related("created_by")
         batch = list(batch_qs.order_by("-created_at", "-id")[: remaining + 1])
         has_more = len(batch) > remaining
         roots = batch[:remaining]
         if not roots:
             break
         root_ids = [root.id for root in roots]
-        reply_qs = _comments(team_id, task_id).filter(source_comment_id__in=root_ids)
-        human_replies = reply_qs.filter(
-            Q(item_context__isnull=True)
-            | ~Q(item_context__has_key="threadState")
-            | ~Q(item_context__threadState__in=COMMENT_STATES)
-        )
-        reply_counts = dict(human_replies.values_list("source_comment_id").annotate(count=Count("id")))
+        reply_qs = comments_qs.filter(source_comment_id__in=root_ids)
+        human_replies = _human_replies(reply_qs)
+        reply_stats = {
+            source_comment_id: (count, last_activity_at)
+            for source_comment_id, count, last_activity_at in human_replies.values("source_comment_id")
+            .annotate(count=Count("id"), last_activity_at=Max("created_at"))
+            .values_list("source_comment_id", "count", "last_activity_at")
+        }
         latest_states = {
             source_comment_id: item_context.get("threadState")
             for source_comment_id, item_context in reply_qs.filter(item_context__threadState__in=COMMENT_STATES)
@@ -267,6 +299,23 @@ def list_comments(
             .values_list("source_comment_id", "item_context")
             if isinstance(item_context, dict)
         }
+        replies_by_root: dict[UUID, list[Comment]] = defaultdict(list)
+        if include_thread:
+            preview_replies = (
+                human_replies.select_related("created_by")
+                .annotate(
+                    thread_row=Window(
+                        expression=RowNumber(),
+                        partition_by=[F("source_comment_id")],
+                        order_by=[F("created_at").asc(), F("id").asc()],
+                    )
+                )
+                .filter(thread_row__lte=LIST_THREAD_REPLY_LIMIT)
+                .order_by("source_comment_id", "created_at", "id")
+            )
+            for reply in preview_replies:
+                if reply.source_comment_id is not None:
+                    replies_by_root[reply.source_comment_id].append(reply)
         target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots)
         for root in roots:
             resolved = _resolved(root, latest_states.get(root.id))
@@ -279,6 +328,17 @@ def list_comments(
                 selected_text = _content_chunk(selected_text, limit=SELECTED_TEXT_BYTES)[0]
             else:
                 selected_text = None
+            reply_count, reply_activity_at = reply_stats.get(root.id, (0, None))
+            thread_comments = None
+            comments_truncated = False
+            if include_thread:
+                thread_comments = []
+                for comment in [root, *replies_by_root[root.id]]:
+                    entry = _entry(comment, content_budget=max(remaining_thread_content_bytes, 0))
+                    remaining_thread_content_bytes -= len(entry.content.encode("utf-8"))
+                    comments_truncated = comments_truncated or entry.content_truncated
+                    thread_comments.append(entry)
+                comments_truncated = comments_truncated or reply_count > len(replies_by_root[root.id])
             result.append(
                 contracts.TaskCommentSummaryDTO(
                     id=root.id,
@@ -287,8 +347,11 @@ def list_comments(
                     content_truncated=content_next_offset is not None,
                     selected_text=selected_text,
                     created_at=root.created_at,
-                    reply_count=reply_counts.get(root.id, 0),
+                    last_activity_at=reply_activity_at or root.created_at,
+                    reply_count=reply_count,
                     resolved=resolved,
+                    comments=thread_comments,
+                    comments_truncated=comments_truncated,
                 )
             )
         scan_cursor = (roots[-1].created_at, roots[-1].id)
@@ -298,6 +361,34 @@ def list_comments(
         if not has_more:
             break
     return contracts.TaskCommentPageDTO(comments=result, next=next_cursor)
+
+
+def count_open_comments(*, team_id: int, task_id: UUID, user_id: int | None) -> contracts.TaskCommentCountsDTO:
+    comments_qs = _comments(
+        team_id,
+        task_id,
+        _visible_canvas_ids(team_id=team_id, task_id=task_id, user_id=user_id),
+    )
+    roots = list(comments_qs.filter(source_comment_id__isnull=True))
+    latest_states = {
+        source_comment_id: item_context.get("threadState")
+        for source_comment_id, item_context in comments_qs.filter(
+            source_comment_id__in=[root.id for root in roots], item_context__threadState__in=COMMENT_STATES
+        )
+        .order_by("source_comment_id", "-created_at", "-id")
+        .distinct("source_comment_id")
+        .values_list("source_comment_id", "item_context")
+        if isinstance(item_context, dict)
+    }
+    counts: dict[str, int] = defaultdict(int)
+    for root in roots:
+        if root.item_id and not _resolved(root, latest_states.get(root.id)):
+            counts[root.item_id] += 1
+    return contracts.TaskCommentCountsDTO(
+        counts=[
+            contracts.TaskCommentCountDTO(item_id=item_id, count=count) for item_id, count in sorted(counts.items())
+        ]
+    )
 
 
 def _entry(comment: Comment, *, content_budget: int, content_offset: int = 0) -> contracts.TaskCommentEntryDTO:
@@ -310,6 +401,7 @@ def _entry(comment: Comment, *, content_budget: int, content_offset: int = 0) ->
         content_truncated=content_next_offset is not None,
         content_next_offset=content_next_offset,
         author=author,
+        created_by_id=comment.created_by_id,
         created_at=comment.created_at,
         anchor=_bounded_anchor(comment),
         canvas_version_id=_item_context(comment).get("canvasVersionId"),
@@ -320,35 +412,31 @@ def retrieve_comment(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     comment_id: UUID,
     limit: int,
     cursor: str | None,
     content_comment_id: UUID | None,
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
-    root = (
-        _comments(team_id, task_id)
-        .select_related("created_by")
-        .filter(id=comment_id, source_comment_id__isnull=True)
-        .first()
+    comments_qs = _comments(
+        team_id,
+        task_id,
+        _visible_canvas_ids(team_id=team_id, task_id=task_id, user_id=user_id),
     )
+    root = comments_qs.select_related("created_by").filter(id=comment_id, source_comment_id__isnull=True).first()
     if root is None:
         return None
     latest_state_reply = (
-        _comments(team_id, task_id)
-        .filter(source_comment_id=root.id, item_context__threadState__in=COMMENT_STATES)
+        comments_qs.filter(source_comment_id=root.id, item_context__threadState__in=COMMENT_STATES)
         .order_by("-created_at", "-id")
         .first()
     )
-    thread_comments_qs = (
-        _comments(team_id, task_id)
-        .filter(Q(id=root.id) | Q(source_comment_id=root.id))
-        .filter(
-            Q(id=root.id)
-            | Q(item_context__isnull=True)
-            | ~Q(item_context__has_key="threadState")
-            | ~Q(item_context__threadState__in=COMMENT_STATES)
-        )
+    thread_comments_qs = comments_qs.filter(Q(id=root.id) | Q(source_comment_id=root.id)).filter(
+        Q(id=root.id)
+        | Q(item_context__isnull=True)
+        | ~Q(item_context__has_key="threadState")
+        | ~Q(item_context__threadState__in=COMMENT_STATES)
     )
     if content_comment_id is not None:
         content_comment = thread_comments_qs.select_related("created_by").filter(id=content_comment_id).first()

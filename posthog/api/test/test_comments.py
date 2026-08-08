@@ -137,7 +137,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             source_comment=root,
             content="Done",
         )
-        Comment.objects.create(
+        latest_reply = Comment.objects.create(
             team=self.team,
             created_by=self.user,
             scope="task_artifact",
@@ -162,21 +162,24 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         }
 
         comments = client.get(
-            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/?artifact_id=artifact-1",
+            f"/api/projects/{self.team.id}/tasks/{task.id}/comments/",
+            {"artifact_id": "artifact-1", "include_thread": True},
         )
         assert comments.status_code == status.HTTP_200_OK
-        assert comments.json()["comments"] == [
-            {
-                "id": str(root.id),
-                "target": {"id": "artifact-1", "type": "artifact", "name": "latest-report.md"},
-                "content": "Please tighten this section",
-                "content_truncated": False,
-                "selected_text": "important output",
-                "created_at": root.created_at.isoformat().replace("+00:00", "Z"),
-                "reply_count": 2,
-                "resolved": False,
-            }
+        summary = comments.json()["comments"][0]
+        assert summary["id"] == str(root.id)
+        assert summary["target"] == {"id": "artifact-1", "type": "artifact", "name": "latest-report.md"}
+        assert summary["selected_text"] == "important output"
+        assert summary["last_activity_at"] == latest_reply.created_at.isoformat().replace("+00:00", "Z")
+        assert summary["reply_count"] == 2
+        assert summary["resolved"] is False
+        assert summary["comments_truncated"] is False
+        assert [entry["content"] for entry in summary["comments"]] == [
+            "Please tighten this section",
+            "Done",
+            "Malformed state is still a reply",
         ]
+        assert all(entry["created_by_id"] == self.user.id for entry in summary["comments"])
 
         detail = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/")
         assert detail.status_code == status.HTTP_200_OK
@@ -195,6 +198,47 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         }
         assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
         assert detail.json()["next"] is None
+
+    def test_visible_users_can_list_task_comments_and_counts(self) -> None:
+        task = self._task_artifact_target()
+        open_root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            content="Open",
+        )
+        resolved_root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            content="Resolved",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id), "threadState": "resolved"},
+            source_comment=resolved_root,
+            content="Resolved this thread",
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+        counts = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/counts/")
+
+        assert listed.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in listed.json()["comments"]] == [str(open_root.id)]
+        assert counts.status_code == status.HTTP_200_OK
+        assert counts.json() == {"counts": [{"item_id": "artifact-1", "count": 1}]}
+
+        other = User.objects.create_and_join(self.organization, "private-comment-owner@posthog.com", "password")
+        private_task = self._task_artifact_target(public=False, creator=other)
+        denied = self.client.get(f"/api/projects/{self.team.id}/tasks/{private_task.id}/comments/")
+        assert denied.status_code == status.HTTP_404_NOT_FOUND
 
     def test_task_comment_retrieval_tolerates_malformed_stored_context(self) -> None:
         task = self._task_artifact_target()
@@ -514,6 +558,18 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
+
+        Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            content="Private canvas comment",
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"taskId": str(task.id)},
+        )
+        task_response = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+        assert task_response.status_code == status.HTTP_200_OK
+        assert task_response.json()["comments"] == []
 
     def test_comment_without_a_mention_notifies_the_task_owner(self) -> None:
         task = self._task_artifact_target()

@@ -2056,38 +2056,6 @@ export interface TaskCommentTargetApi {
     name: string
 }
 
-export interface TaskCommentSummaryApi {
-    /** Root comment id. */
-    id: string
-    /** Task, artifact, or canvas receiving the comment. */
-    target: TaskCommentTargetApi
-    /** Bounded excerpt of the root comment body. */
-    content: string
-    /** Whether the root comment body has more content. */
-    content_truncated: boolean
-    /**
-     * Text selected when the comment was created.
-     * @nullable
-     */
-    selected_text: string | null
-    /** When the root comment was created. */
-    created_at: string
-    /** Number of human replies. */
-    reply_count: number
-    /** Whether the comment is resolved. */
-    resolved: boolean
-}
-
-export interface TaskCommentsResponseApi {
-    /** Root comments, newest first. */
-    comments: TaskCommentSummaryApi[]
-    /**
-     * Opaque cursor for the next page, or null.
-     * @nullable
-     */
-    next: string | null
-}
-
 export interface TaskCommentAnchorApi {
     /** Anchor kind. */
     kind?: string
@@ -2150,6 +2118,11 @@ export interface TaskCommentEntryApi {
      * @nullable
      */
     author: string | null
+    /**
+     * Comment author id, or null if deleted.
+     * @nullable
+     */
+    created_by_id: number | null
     /** When the comment was created. */
     created_at: string
     /** Normalized text or document anchor. */
@@ -2159,6 +2132,47 @@ export interface TaskCommentEntryApi {
      * @nullable
      */
     canvas_version_id: string | null
+}
+
+export interface TaskCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** When the latest visible reply was created. */
+    last_activity_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment is resolved. */
+    resolved: boolean
+    /**
+     * Bounded root-and-replies preview, or null when not requested.
+     * @nullable
+     */
+    comments: TaskCommentEntryApi[] | null
+    /** Whether the preview omits content or replies. */
+    comments_truncated: boolean
+}
+
+export interface TaskCommentsResponseApi {
+    /** Root comments, newest first. */
+    comments: TaskCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
 }
 
 export interface TaskCommentDetailApi {
@@ -2175,6 +2189,18 @@ export interface TaskCommentDetailApi {
      * @nullable
      */
     next: string | null
+}
+
+export interface TaskCommentCountApi {
+    /** Task, artifact, or canvas id. */
+    item_id: string
+    /** Number of open comment threads. */
+    count: number
+}
+
+export interface TaskCommentCountsResponseApi {
+    /** Open thread counts grouped by target id. */
+    counts: TaskCommentCountApi[]
 }
 
 export interface TaskPinRequestApi {
@@ -4290,6 +4316,10 @@ export type TasksCommentsListParams = {
      * Whether to include resolved comment threads.
      */
     include_resolved?: boolean
+    /**
+     * Whether to include a bounded root-and-replies preview for each thread.
+     */
+    include_thread?: boolean
     /**
      * Maximum number of root comments to return.
      * @minimum 1

@@ -290,6 +290,19 @@ class TaskCommentTargetDTO:
 
 
 @dataclass(frozen=True)
+class TaskCommentEntryDTO:
+    id: UUID
+    content: str
+    content_truncated: bool
+    content_next_offset: int | None
+    author: str | None
+    created_by_id: int | None
+    created_at: datetime
+    anchor: dict | None
+    canvas_version_id: str | None
+
+
+@dataclass(frozen=True)
 class TaskCommentSummaryDTO:
     id: UUID
     target: TaskCommentTargetDTO
@@ -297,8 +310,11 @@ class TaskCommentSummaryDTO:
     content_truncated: bool
     selected_text: str | None
     created_at: datetime
+    last_activity_at: datetime
     reply_count: int
     resolved: bool
+    comments: list[TaskCommentEntryDTO] | None
+    comments_truncated: bool
 
 
 @dataclass(frozen=True)
@@ -308,15 +324,14 @@ class TaskCommentPageDTO:
 
 
 @dataclass(frozen=True)
-class TaskCommentEntryDTO:
-    id: UUID
-    content: str
-    content_truncated: bool
-    content_next_offset: int | None
-    author: str | None
-    created_at: datetime
-    anchor: dict | None
-    canvas_version_id: str | None
+class TaskCommentCountDTO:
+    item_id: str
+    count: int
+
+
+@dataclass(frozen=True)
+class TaskCommentCountsDTO:
+    counts: list[TaskCommentCountDTO]
 
 
 @dataclass(frozen=True)

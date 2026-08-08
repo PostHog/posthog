@@ -97,6 +97,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskArtifactsResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
+    TaskCommentCountsResponseSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
@@ -311,6 +312,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return parsed_task_id
 
+    def _comment_task_id(self, request, task_id: str) -> UUID:
+        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            return self._sandbox_bound_task_id(request, task_id)
+        try:
+            parsed_task_id = UUID(task_id)
+        except ValueError:
+            raise NotFound()
+        if not tasks_facade.task_visible(parsed_task_id, self.team_id, self._user_id()):
+            raise NotFound()
+        return parsed_task_id
+
     def _write_serializer(
         self,
         data,
@@ -382,13 +394,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def comments(self, request, pk=None, **kwargs):
         params = TaskCommentsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        task_id = self._sandbox_bound_task_id(request, pk)
+        task_id = self._comment_task_id(request, pk)
         try:
             page = tasks_facade.list_task_comments(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 artifact_id=params.validated_data.get("artifact_id"),
                 include_resolved=params.validated_data["include_resolved"],
+                include_thread=params.validated_data["include_thread"],
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
             )
@@ -397,18 +411,28 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = TaskCommentsResponseSerializer(page).data
         return Response(data)
 
+    @extend_schema(operation_id="tasks_comments_counts", responses=TaskCommentCountsResponseSerializer)
+    @action(detail=True, methods=["get"], url_path="comments/counts", required_scopes=["comment:read"])
+    def comment_counts(self, request, pk=None, **kwargs):
+        task_id = self._comment_task_id(request, pk)
+        counts = tasks_facade.count_open_task_comments(team_id=self.team_id, task_id=task_id, user_id=self._user_id())
+        return Response(TaskCommentCountsResponseSerializer(counts).data)
+
     @extend_schema(
         operation_id="tasks_comments_retrieve",
         parameters=[OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH), TaskCommentDetailQuerySerializer],
         responses=TaskCommentDetailSerializer,
     )
     @action(
-        detail=True, methods=["get"], url_path=r"comments/(?P<root_comment_id>[^/.]+)", required_scopes=["comment:read"]
+        detail=True,
+        methods=["get"],
+        url_path=r"comments/(?P<root_comment_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+        required_scopes=["comment:read"],
     )
     def comment(self, request, pk=None, root_comment_id=None, **kwargs):
         params = TaskCommentDetailQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        task_id = self._sandbox_bound_task_id(request, pk)
+        task_id = self._comment_task_id(request, pk)
         try:
             parsed_comment_id = UUID(root_comment_id)
         except (TypeError, ValueError):
@@ -417,6 +441,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             comment = tasks_facade.retrieve_task_comment(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 comment_id=parsed_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
