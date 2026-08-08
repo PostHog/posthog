@@ -123,4 +123,77 @@ describe('apiStatusLogic', () => {
             errorSpy.mockRestore()
         })
     })
+
+    describe('internet connection issue banner', () => {
+        const networkError = { message: 'Failed to fetch' }
+        const okResponse = { ok: true, status: 200 } as Response
+
+        beforeEach(async () => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+            // Let the listener finish attaching before dispatching the first response,
+            // otherwise the initial synchronous dispatch is missed (a test-only artifact).
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        // A burst of failures within ~250ms coalesces into one strike, so each simulated
+        // failure is spaced past that window to count as a separate strike.
+        const failAndSettle = async (): Promise<void> => {
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(undefined, networkError)
+            })
+                .delay(300)
+                .toFinishAllListeners()
+        }
+
+        it('does not latch on a single transient network failure', async () => {
+            await failAndSettle()
+
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+
+        it('coalesces a simultaneous burst of failures into one strike', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(undefined, networkError)
+                logic.actions.onApiResponse(undefined, networkError)
+                logic.actions.onApiResponse(undefined, networkError)
+            }).toFinishAllListeners()
+
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+
+        it('latches only after repeated failures spaced over time', async () => {
+            await failAndSettle()
+            expect(logic.values.internetConnectionIssue).toBe(false)
+
+            await failAndSettle()
+            expect(logic.values.internetConnectionIssue).toBe(true)
+        })
+
+        it('a successful response resets the failure streak', async () => {
+            await failAndSettle()
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(okResponse)
+            }).toFinishAllListeners()
+
+            await failAndSettle()
+
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+
+        it('clears itself after a timeout instead of staying stuck', () => {
+            jest.useFakeTimers()
+            try {
+                logic.actions.setInternetConnectionIssue(true)
+                expect(logic.values.internetConnectionIssue).toBe(true)
+
+                jest.advanceTimersByTime(30_000)
+                expect(logic.values.internetConnectionIssue).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+    })
 })

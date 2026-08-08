@@ -3544,7 +3544,8 @@ const api = {
                 if (isAbortError(error)) {
                     return
                 }
-                apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
+                // A dropped tile stream is a dashboard-local problem, surfaced via onError
+                // below — it must not speak for the whole API's connectivity status.
                 onError(error)
             }
 
@@ -3553,8 +3554,6 @@ const api = {
                 credentials: 'include',
                 openWhenHidden: true,
                 onopen: async (response) => {
-                    apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
-
                     if (!response.ok) {
                         const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
                         onError(error)

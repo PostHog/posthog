@@ -70,10 +70,12 @@ describe('API helper', () => {
                 expectedCode: 'permission_denied',
             },
         ])('preserves status handling for HTTP $status', async ({ status, body, expectedCode }) => {
+            // The tile stream is dashboard-local: it surfaces errors via onError and must not
+            // report into apiStatusLogic, which would flip the global "trouble connecting" banner.
             const onApiResponse = jest.fn()
             const apiStatusLogicSpy = jest
                 .spyOn(apiStatusLogic, 'findMounted')
-                .mockReturnValueOnce({ actions: { onApiResponse } } as any)
+                .mockReturnValue({ actions: { onApiResponse } } as any)
 
             const fetchEventSourceSpy = jest
                 .spyOn(fetchEventSourceModule, 'fetchEventSource')
@@ -89,14 +91,13 @@ describe('API helper', () => {
             })
             await fetchEventSourceSpy.mock.calls[0][1].onopen?.(response)
 
-            expect(onApiResponse).toHaveBeenCalledTimes(1)
-            expect(onApiResponse.mock.calls[0][0]).toMatchObject({ status })
+            expect(onApiResponse).not.toHaveBeenCalled()
             expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status, code: expectedCode }))
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
         })
 
-        it('reports connection failures and ignores intentional aborts', async () => {
+        it('reports connection failures via onError, not the global connectivity flag', async () => {
             const onApiResponse = jest.fn()
             const apiStatusLogicSpy = jest
                 .spyOn(apiStatusLogic, 'findMounted')
@@ -111,12 +112,12 @@ describe('API helper', () => {
             const streamOptions = fetchEventSourceSpy.mock.calls[0][1]
             const connectionError = new TypeError('Failed to fetch')
             streamOptions.onerror?.(connectionError)
-            expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
             expect(onError).toHaveBeenCalledWith(connectionError)
+            // A dropped tile stream must not accuse the whole app of being offline.
+            expect(onApiResponse).not.toHaveBeenCalled()
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
-            expect(onApiResponse).toHaveBeenCalledTimes(1)
             expect(onError).toHaveBeenCalledTimes(1)
 
             fetchEventSourceSpy.mockRestore()

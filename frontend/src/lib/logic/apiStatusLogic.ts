@@ -39,6 +39,17 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+// A single transient network blip shouldn't accuse the whole app of being offline.
+// Only latch the connectivity banner after this many failure "strikes" with no
+// successful response in between.
+const CONNECTION_FAILURE_THRESHOLD = 2
+// Fold a burst of near-simultaneous failures (several in-flight requests dropping at
+// once during one blip) into a single strike, so one hiccup counts once, not N times.
+const CONNECTION_FAILURE_COALESCE_MS = 250
+// Safety net so the banner clears itself if the app goes quiet after a hiccup,
+// instead of waiting indefinitely for some later unrelated request to come back ok.
+const INTERNET_CONNECTION_ISSUE_TIMEOUT_MS = 30_000
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
@@ -86,17 +97,31 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
-        onApiResponse: async ({ response, error }, breakpoint) => {
-            if (error || !response?.status) {
-                await breakpoint(50)
-                // Likely CORS headers errors (i.e. request failing without reaching Django))
-                if (error?.message === 'Failed to fetch') {
+        onApiResponse: async ({ response, error }) => {
+            // Likely a network/CORS error — the request failed without reaching Django.
+            if (error?.message === 'Failed to fetch') {
+                // Require repeated failures before latching: a single transient blip (a
+                // dropped background stream, one slow request) is not the whole app going
+                // offline, and we don't want a false "trouble connecting" banner for it.
+                const now = Date.now()
+                if (
+                    cache.lastConnectionFailureAt === undefined ||
+                    now - cache.lastConnectionFailureAt > CONNECTION_FAILURE_COALESCE_MS
+                ) {
+                    cache.connectionFailures = (cache.connectionFailures ?? 0) + 1
+                }
+                cache.lastConnectionFailureAt = now
+                if (cache.connectionFailures >= CONNECTION_FAILURE_THRESHOLD) {
                     actions.setInternetConnectionIssue(true)
                 }
             }
 
-            if (response?.ok && values.internetConnectionIssue) {
-                actions.setInternetConnectionIssue(false)
+            if (response?.ok) {
+                cache.connectionFailures = 0
+                cache.lastConnectionFailureAt = undefined
+                if (values.internetConnectionIssue) {
+                    actions.setInternetConnectionIssue(false)
+                }
             }
 
             try {
@@ -187,6 +212,27 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                         }
                     })
                 }
+            }
+        },
+        setInternetConnectionIssue: ({ issue }) => {
+            if (issue) {
+                // Self-heal: the flag used to clear only when some later request happened
+                // to return ok, so a quiet app stayed stuck showing the banner forever.
+                // Arm a timeout that clears it regardless. pauseOnPageHidden is false so it
+                // still fires while the tab is backgrounded, rather than resetting on focus.
+                cache.disposables.add(
+                    () => {
+                        const timer = setTimeout(() => {
+                            cache.connectionFailures = 0
+                            actions.setInternetConnectionIssue(false)
+                        }, INTERNET_CONNECTION_ISSUE_TIMEOUT_MS)
+                        return () => clearTimeout(timer)
+                    },
+                    'internetConnectionIssueTimeout',
+                    { pauseOnPageHidden: false }
+                )
+            } else {
+                cache.disposables.dispose('internetConnectionIssueTimeout')
             }
         },
     })),
