@@ -6850,6 +6850,34 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
+   * the team's project and returns the raw response. `refresh: "blocking"`
+   * serves a fresh-enough cached result and computes synchronously otherwise —
+   * the same mode PostHog insights use. Backs inbox report charts, whose query
+   * nodes are scout-authored and arrive unparsed.
+   */
+  async runQuery(
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query, refresh: "blocking" }),
+      },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.error === "string" && data.error) {
+      throw new Error(data.error);
+    }
+    return data;
+  }
+
+  /**
    * Agent observability rollup over the agents' `$ai_*` events — KPIs (spend,
    * sessions, failure rate, p95), a 14-day daily trend + WoW deltas, and
    * spend-by-agent / cost-by-model / tool-reliability breakdowns. Pass an

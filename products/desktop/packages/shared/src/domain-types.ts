@@ -531,6 +531,21 @@ export type CommaSeparatedSignalReportStatuses =
   | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
   | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`;
 
+export type SignalReportChartSize = "small" | "medium" | "large";
+
+/**
+ * One chart attached to a report (`SignalReport.charts` on the backend serializer).
+ * `query` is stored unparsed; the backend only guarantees `kind` is one of
+ * InsightVizNode, DataVisualizationNode, or SavedInsightNode.
+ */
+export interface SignalReportChart {
+  chart_id: string;
+  title: string;
+  query: unknown;
+  caption?: string | null;
+  size?: SignalReportChartSize | null;
+}
+
 export interface SignalReport {
   id: string;
   title: string | null;
@@ -558,6 +573,8 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
+  charts?: SignalReportChart[];
 }
 
 export interface SignalReportArtefactContent {
