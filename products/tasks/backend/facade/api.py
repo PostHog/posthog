@@ -6262,10 +6262,19 @@ def list_task_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskAr
     return list_artifacts(team_id=team_id, task_id=task_id)
 
 
+def visible_task_canvas_ids(*, team_id: int, task_id: UUID, user_id: int | None) -> list[str]:
+    from products.canvas.backend.comment_access import (
+        visible_canvas_ids_for_task,  # noqa: PLC0415 — avoids the canvas/tasks facade import cycle
+    )
+
+    return visible_canvas_ids_for_task(team_id=team_id, task_id=task_id, user_id=user_id)
+
+
 def list_task_comments(
     *,
     team_id: int,
     task_id: UUID,
+    visible_canvas_ids: Sequence[str],
     artifact_id: str | None,
     include_resolved: bool,
     include_thread: bool,
@@ -6278,6 +6287,7 @@ def list_task_comments(
         return list_comments(
             team_id=team_id,
             task_id=task_id,
+            visible_canvas_ids=visible_canvas_ids,
             artifact_id=artifact_id,
             include_resolved=include_resolved,
             include_thread=include_thread,
@@ -6288,16 +6298,19 @@ def list_task_comments(
         raise ValueError("Invalid task comment cursor") from None
 
 
-def count_open_task_comments(*, team_id: int, task_id: UUID) -> contracts.TaskCommentCountsDTO:
+def count_open_task_comments(
+    *, team_id: int, task_id: UUID, visible_canvas_ids: Sequence[str]
+) -> contracts.TaskCommentCountsDTO:
     from products.tasks.backend.logic.services.task_comments import count_open_comments
 
-    return count_open_comments(team_id=team_id, task_id=task_id)
+    return count_open_comments(team_id=team_id, task_id=task_id, visible_canvas_ids=visible_canvas_ids)
 
 
 def retrieve_task_comment(
     *,
     team_id: int,
     task_id: UUID,
+    visible_canvas_ids: Sequence[str],
     comment_id: UUID,
     limit: int,
     cursor: str | None,
@@ -6310,6 +6323,7 @@ def retrieve_task_comment(
         return retrieve_comment(
             team_id=team_id,
             task_id=task_id,
+            visible_canvas_ids=visible_canvas_ids,
             comment_id=comment_id,
             limit=limit,
             cursor=cursor,

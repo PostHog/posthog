@@ -20,6 +20,18 @@ def canvas_belongs_to_task(*, team_id: int, user_id: int | None, canvas_id: str,
         return False
 
 
+def visible_canvas_ids_for_task(*, team_id: int, user_id: int | None, task_id: UUID) -> list[str]:
+    return [
+        str(canvas_id)
+        for canvas_id in Canvas.objects.for_team(team_id)
+        .filter(deleted=False)
+        .filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
+        .filter(Q(generation_task_id=task_id) | Q(source_versions__task_id=task_id))
+        .values_list("id", flat=True)
+        .distinct()
+    ]
+
+
 def canvas_owner_id(*, team_id: int, canvas_id: str) -> int | None:
     try:
         return (

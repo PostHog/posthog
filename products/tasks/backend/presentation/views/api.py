@@ -395,10 +395,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = TaskCommentsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         task_id = self._comment_task_id(request, pk)
+        visible_canvas_ids = tasks_facade.visible_task_canvas_ids(
+            team_id=self.team_id, task_id=task_id, user_id=self._user_id()
+        )
         try:
             page = tasks_facade.list_task_comments(
                 team_id=self.team_id,
                 task_id=task_id,
+                visible_canvas_ids=visible_canvas_ids,
                 artifact_id=params.validated_data.get("artifact_id"),
                 include_resolved=params.validated_data["include_resolved"],
                 include_thread=params.validated_data["include_thread"],
@@ -414,7 +418,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["get"], url_path="comments/counts", required_scopes=["comment:read"])
     def comment_counts(self, request, pk=None, **kwargs):
         task_id = self._comment_task_id(request, pk)
-        counts = tasks_facade.count_open_task_comments(team_id=self.team_id, task_id=task_id)
+        visible_canvas_ids = tasks_facade.visible_task_canvas_ids(
+            team_id=self.team_id, task_id=task_id, user_id=self._user_id()
+        )
+        counts = tasks_facade.count_open_task_comments(
+            team_id=self.team_id, task_id=task_id, visible_canvas_ids=visible_canvas_ids
+        )
         return Response(TaskCommentCountsResponseSerializer(counts).data)
 
     @extend_schema(
@@ -432,6 +441,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = TaskCommentDetailQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         task_id = self._comment_task_id(request, pk)
+        visible_canvas_ids = tasks_facade.visible_task_canvas_ids(
+            team_id=self.team_id, task_id=task_id, user_id=self._user_id()
+        )
         try:
             parsed_comment_id = UUID(root_comment_id)
         except (TypeError, ValueError):
@@ -440,6 +452,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             comment = tasks_facade.retrieve_task_comment(
                 team_id=self.team_id,
                 task_id=task_id,
+                visible_canvas_ids=visible_canvas_ids,
                 comment_id=parsed_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),

@@ -25,6 +25,7 @@ LIST_THREAD_CONTENT_LIMIT_CHARS = 4096
 LIST_THREAD_REPLY_LIMIT = 20
 ANCHOR_CONTEXT_BYTES = 1024
 ANCHOR_QUOTE_BYTES = 4096
+CANVAS_VERSION_ID_BYTES = 256
 
 
 class InvalidTaskCommentCursor(ValueError):
@@ -52,23 +53,27 @@ def _bounded_anchor(comment: Comment) -> dict | None:
     allowed_fields_by_kind: dict[str, tuple[str, ...]] = {
         "text": ("prefix", "suffix", "start", "end"),
         "region": ("x", "y", "width", "height"),
+        "document": (),
     }
     if not isinstance(kind, str) or kind not in allowed_fields_by_kind:
         return None
-    bounded = {"kind": kind}
-    allowed_fields = allowed_fields_by_kind[kind]
-    for field in allowed_fields:
-        if field not in anchor:
-            continue
-        value = anchor[field]
-        bounded[field] = (
-            _content_chunk(value, limit=ANCHOR_CONTEXT_BYTES)[0]
-            if field in {"prefix", "suffix"} and isinstance(value, str)
-            else value
-        )
+    bounded: dict[str, object] = {"kind": kind}
+    for field in allowed_fields_by_kind[kind]:
+        value = anchor.get(field)
+        if field in {"prefix", "suffix"} and isinstance(value, str):
+            bounded[field] = _content_chunk(value, limit=ANCHOR_CONTEXT_BYTES)[0]
+        elif field not in {"prefix", "suffix"} and isinstance(value, int | float) and not isinstance(value, bool):
+            bounded[field] = value
     if kind == "text" and isinstance(anchor.get("quote"), str):
         bounded["quote"] = _content_chunk(anchor["quote"], limit=ANCHOR_QUOTE_BYTES)[0]
     return bounded
+
+
+def _bounded_canvas_version_id(comment: Comment) -> str | None:
+    canvas_version_id = _item_context(comment).get("canvasVersionId")
+    if not isinstance(canvas_version_id, str):
+        return None
+    return _content_chunk(canvas_version_id, limit=CANVAS_VERSION_ID_BYTES)[0]
 
 
 def _artifact_names(*, team_id: int, task_id: UUID, artifact_ids: Sequence[str]) -> dict[str, str]:
@@ -156,13 +161,18 @@ def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
         raise InvalidTaskCommentCursor from None
 
 
-def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
+def _comments(team_id: int, task_id: UUID, visible_canvas_ids: Sequence[str]) -> QuerySet[Comment]:
     task_id_string = str(task_id)
     return (
         Comment.objects.filter(team_id=team_id, deleted=False)
         .filter(
             Q(scope="task", item_id=task_id_string)
-            | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
+            | Q(scope="task_artifact", item_context__taskId=task_id_string)
+            | Q(
+                scope="desktop_canvas",
+                item_context__taskId=task_id_string,
+                item_id__in=visible_canvas_ids,
+            )
         )
         .filter(Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False))
     )
@@ -274,13 +284,14 @@ def list_comments(
     *,
     team_id: int,
     task_id: UUID,
+    visible_canvas_ids: Sequence[str],
     artifact_id: str | None,
     include_resolved: bool,
     include_thread: bool,
     limit: int,
     cursor: str | None,
 ) -> contracts.TaskCommentPageDTO:
-    comments_qs = _comments(team_id, task_id)
+    comments_qs = _comments(team_id, task_id, visible_canvas_ids)
     roots_qs = comments_qs.filter(source_comment_id__isnull=True)
     if artifact_id:
         roots_qs = roots_qs.filter(scope__in=["task_artifact", "desktop_canvas"], item_id=artifact_id)
@@ -358,16 +369,17 @@ def list_comments(
                     anchor_bytes = len(
                         json.dumps(_bounded_anchor(comment), separators=(",", ":"), default=str).encode("utf-8")
                     )
-                    if remaining_thread_content_bytes < anchor_bytes + 4:
+                    metadata_bytes = anchor_bytes + len((_bounded_canvas_version_id(comment) or "").encode("utf-8"))
+                    if remaining_thread_content_bytes < metadata_bytes + 4:
                         comments_truncated = True
                         break
                     entry = _entry(
                         comment,
-                        content_budget=remaining_thread_content_bytes - anchor_bytes,
+                        content_budget=remaining_thread_content_bytes - metadata_bytes,
                         content_override=_preview_content(comment),
                         original_content_length=_preview_content_length(comment),
                     )
-                    remaining_thread_content_bytes -= anchor_bytes + len(entry.content.encode("utf-8"))
+                    remaining_thread_content_bytes -= metadata_bytes + len(entry.content.encode("utf-8"))
                     comments_truncated = comments_truncated or entry.content_truncated
                     thread_comments.append(entry)
                 comments_truncated = (
@@ -399,8 +411,10 @@ def list_comments(
     return contracts.TaskCommentPageDTO(comments=result, next=next_cursor)
 
 
-def count_open_comments(*, team_id: int, task_id: UUID) -> contracts.TaskCommentCountsDTO:
-    comments_qs = _comments(team_id, task_id)
+def count_open_comments(
+    *, team_id: int, task_id: UUID, visible_canvas_ids: Sequence[str]
+) -> contracts.TaskCommentCountsDTO:
+    comments_qs = _comments(team_id, task_id, visible_canvas_ids)
     roots = list(comments_qs.filter(source_comment_id__isnull=True).values_list("id", "item_id", "completed_at"))
     latest_states = {
         source_comment_id: item_context.get("threadState")
@@ -453,7 +467,7 @@ def _entry(
         created_by_id=comment.created_by_id,
         created_at=comment.created_at,
         anchor=_bounded_anchor(comment),
-        canvas_version_id=_item_context(comment).get("canvasVersionId"),
+        canvas_version_id=_bounded_canvas_version_id(comment),
     )
 
 
@@ -461,13 +475,14 @@ def retrieve_comment(
     *,
     team_id: int,
     task_id: UUID,
+    visible_canvas_ids: Sequence[str],
     comment_id: UUID,
     limit: int,
     cursor: str | None,
     content_comment_id: UUID | None,
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
-    comments_qs = _comments(team_id, task_id)
+    comments_qs = _comments(team_id, task_id, visible_canvas_ids)
     root = comments_qs.select_related("created_by").filter(id=comment_id, source_comment_id__isnull=True).first()
     if root is None:
         return None

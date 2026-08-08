@@ -572,6 +572,24 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
+        private_comment = Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            content="Private canvas comment",
+        )
+        listed = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+        counts = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/counts/")
+        detail = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{private_comment.id}/")
+
+        assert listed.status_code == status.HTTP_200_OK
+        assert listed.json()["comments"] == []
+        assert counts.status_code == status.HTTP_200_OK
+        assert counts.json()["counts"] == []
+        assert detail.status_code == status.HTTP_404_NOT_FOUND
+
     def test_comment_without_a_mention_notifies_the_task_owner(self) -> None:
         task = self._task_artifact_target()
         owner = User.objects.create_and_join(self.organization, "owner@posthog.com", "password")
