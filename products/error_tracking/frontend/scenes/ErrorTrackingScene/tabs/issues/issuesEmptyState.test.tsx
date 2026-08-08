@@ -6,6 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 let latestEmptyState: React.ReactNode = null
 let latestLoading: boolean | undefined
@@ -19,7 +20,7 @@ jest.mock('lib/lemon-ui/LemonTable', () => ({
     },
 }))
 
-function issuesQuery(filterValues: any[] = []): DataTableNode {
+function issuesQuery(filterValues: AnyPropertyFilter[] = []): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         source: {
@@ -27,7 +28,10 @@ function issuesQuery(filterValues: any[] = []): DataTableNode {
             orderBy: 'last_seen',
             dateRange: {},
             volumeResolution: 0,
-            filterGroup: { type: 'AND', values: [{ type: 'AND', values: filterValues }] } as any,
+            filterGroup: {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: filterValues }],
+            },
             withAggregations: true,
             withFirstEvent: false,
         },
@@ -64,7 +68,14 @@ describe('issues list empty state', () => {
         // An invalid regex filter makes the query fail validation, so the load resolves to null
         // without ever reaching the server — the swallowed-failure path the fix targets.
         await renderEmptyStateAfterLoad(
-            issuesQuery([{ type: 'event', key: '$browser', operator: 'regex', value: '(' }])
+            issuesQuery([
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Regex,
+                    value: '(',
+                },
+            ])
         )
 
         expect(screen.getByText('Could not load issues')).toBeInTheDocument()
