@@ -1,6 +1,6 @@
 import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } from './hogqlAst'
 import { parseSelect } from './hogqlParserSingleton'
-import type { HogqlParserRequest, HogqlParserResponse } from './hogqlParserWorker'
+import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } from './hogqlParserWorker'
 
 // Runs the HogQL parse in a worker so a long query does not freeze the editor. Falls back to
 // parsing on the main thread whenever the worker is unavailable — no Worker (jsdom), the bundle
@@ -91,7 +91,7 @@ function getWorker(): Promise<Worker> {
     return workerReady
 }
 
-async function ask(request: Omit<HogqlParserRequest, 'id'>): Promise<any> {
+async function ask(request: HogqlParserQuestion): Promise<any> {
     const active = await getWorker()
     const id = nextId++
     return await new Promise((resolve, reject) => {

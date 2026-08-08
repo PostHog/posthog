@@ -6,9 +6,11 @@ import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } f
 // characters, so seconds on a long one. On the main thread that freezes the editor after every
 // edit, so it happens here instead.
 
-export type HogqlParserRequest =
-    | { id: number; op: 'innermostSelect'; query: string; localOffset: number }
-    | { id: number; op: 'tablesAndColumns'; query: string }
+export type HogqlParserQuestion =
+    | { op: 'innermostSelect'; query: string; localOffset: number }
+    | { op: 'tablesAndColumns'; query: string }
+
+export type HogqlParserRequest = HogqlParserQuestion & { id: number }
 
 export type HogqlParserResponse =
     | { type: 'ready' }
