@@ -202,7 +202,9 @@ describe('experimentWizardLogic', () => {
         })
 
         it('shows "Use this flag" button when feature flag key already exists', async () => {
-            // Set validation result with existingFlag BEFORE rendering
+            // Set validation result with existingFlag BEFORE rendering. The field must
+            // hold the same key, or the wizard treats the result as stale and hides it.
+            createLogic.actions.setExperimentValue('feature_flag_key', 'existing-flag')
             const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
@@ -234,7 +236,9 @@ describe('experimentWizardLogic', () => {
         it('clicking "Use this flag" links the existing flag', async () => {
             const flag = mockEligibleFlags[0] as FeatureFlagType
 
-            // Set validation result with existingFlag BEFORE rendering
+            // Set validation result with existingFlag BEFORE rendering. The field must
+            // hold the same key, or the wizard treats the result as stale and hides it.
+            createLogic.actions.setExperimentValue('feature_flag_key', 'existing-flag')
             const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
@@ -268,6 +272,31 @@ describe('experimentWizardLogic', () => {
                     feature_flag_key: 'existing-flag',
                 }),
             })
+        })
+
+        it('does not render a stale validation error against the key now in the field', async () => {
+            // Reproduces the reported symptom: a lagging result for the empty key
+            // must not show "Please set a key" once the user has typed a real key.
+            createLogic.actions.setExperimentValue('feature_flag_key', 'my-experiment')
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'Please set a key',
+                key: '',
+            })
+
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({ valid: false, key: '' }),
+            })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            expect(screen.getByPlaceholderText('e.g., new-checkout-flow-test')).toHaveValue('my-experiment')
+            expect(screen.queryByText('Please set a key')).not.toBeInTheDocument()
         })
 
         it('removing a linked flag clears the key', async () => {
@@ -333,6 +362,10 @@ describe('experimentWizardLogic', () => {
         )
 
         it('nextStep advances and prevStep goes back', async () => {
+            // Give the about step valid required fields so nextStep is allowed to advance.
+            createLogic.actions.setExperimentValue('name', 'My experiment')
+            createLogic.actions.setExperimentValue('feature_flag_key', 'my-experiment')
+
             expect(logic.values.currentStep).toBe('about')
 
             logic.actions.nextStep()
@@ -343,6 +376,21 @@ describe('experimentWizardLogic', () => {
 
             logic.actions.prevStep()
             await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+        })
+
+        it('nextStep does not advance past a step with errors', async () => {
+            // Empty name and key leave the about step invalid once departed.
+            expect(logic.values.currentStep).toBe('about')
+
+            logic.actions.nextStep()
+
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'about',
+                departedSteps: { about: true },
+                stepValidationErrors: partial({
+                    about: ['Name is required', 'Feature flag key is required'],
+                }),
+            })
         })
 
         it('nextStep/prevStep stay same at end/beginning', async () => {
@@ -364,6 +412,9 @@ describe('experimentWizardLogic', () => {
         })
 
         it('preserves current step across unmount/remount', async () => {
+            createLogic.actions.setExperimentValue('name', 'My experiment')
+            createLogic.actions.setExperimentValue('feature_flag_key', 'my-experiment')
+
             logic.actions.nextStep()
             await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
 
@@ -572,7 +623,9 @@ describe('experimentWizardLogic', () => {
 
         it('existing feature flag key shows error when validation fails', async () => {
             // Directly set the validation result on the variantsPanelLogic instance
-            // (the same instance createExperimentLogic connects to)
+            // (the same instance createExperimentLogic connects to). The field must
+            // hold the same key, or the wizard treats the result as stale and hides it.
+            createLogic.actions.setExperimentValue('feature_flag_key', 'existing-flag')
             const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
@@ -589,6 +642,23 @@ describe('experimentWizardLogic', () => {
                 stepValidationErrors: partial({
                     about: ['A feature flag with this key already exists.'],
                 }),
+            })
+        })
+
+        it('ignores a validation result whose key no longer matches the field', async () => {
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            // The field now holds a fresh key the user typed.
+            createLogic.actions.setExperimentValue('feature_flag_key', 'new-key')
+            // A lagging result for an older key must not flag the current one.
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'Please set a key',
+                key: '',
+            })
+
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({ valid: false, key: '' }),
+                stepValidationErrors: partial({ about: [] }),
             })
         })
 

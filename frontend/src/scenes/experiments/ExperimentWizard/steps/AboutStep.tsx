@@ -41,9 +41,13 @@ export function AboutStep(): JSX.Element {
     const isDeparted = !!departedSteps.about
     const nameError = isDeparted && !experiment.name?.trim() ? 'Name is required' : undefined
 
-    const existingFlag = featureFlagKeyValidation?.existingFlag
+    // Validation is debounced and runs async, so a result can lag or arrive out of order.
+    // Only trust it when it matches the key in the field now and nothing is in flight.
+    const validationMatchesCurrentKey =
+        !featureFlagKeyValidationLoading && featureFlagKeyValidation?.key === (experiment.feature_flag_key ?? '')
+    const existingFlag = validationMatchesCurrentKey ? featureFlagKeyValidation?.existingFlag : undefined
     const featureFlagKeyError =
-        (!linkedFeatureFlag && featureFlagKeyValidation?.valid === false
+        (!linkedFeatureFlag && validationMatchesCurrentKey && featureFlagKeyValidation?.valid === false
             ? featureFlagKeyValidation.error
             : undefined) ??
         (isDeparted && !experiment.feature_flag_key?.trim() ? 'Feature flag key is required' : undefined)

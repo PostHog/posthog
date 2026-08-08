@@ -188,6 +188,7 @@ export interface experimentWizardLogicMeta {
                 feature_flag_filters?: FeatureFlagFilters
             },
             featureFlagKeyValidation: FeatureFlagKeyValidation | null,
+            featureFlagKeyValidationLoading: boolean,
             linkedFeatureFlag: FeatureFlagType | null,
             departedSteps: Record<string, boolean>
         ) => Record<ExperimentWizardStep, string[]>
@@ -323,10 +324,17 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             (currentStep: ExperimentWizardStep): boolean => currentStep === WIZARD_STEPS[0],
         ],
         stepValidationErrors: [
-            (s) => [s.experiment, s.featureFlagKeyValidation, s.linkedFeatureFlag, s.departedSteps],
+            (s) => [
+                s.experiment,
+                s.featureFlagKeyValidation,
+                s.featureFlagKeyValidationLoading,
+                s.linkedFeatureFlag,
+                s.departedSteps,
+            ],
             (
                 experiment: Experiment,
                 featureFlagKeyValidation: FeatureFlagKeyValidation | null,
+                featureFlagKeyValidationLoading: boolean,
                 linkedFeatureFlag: FeatureFlagType | null,
                 departedSteps: Record<string, boolean>
             ): Record<ExperimentWizardStep, string[]> => {
@@ -351,8 +359,16 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     errors.about.push('Hypothesis must be 3000 characters or fewer')
                 }
 
-                // Active validation errors — always shown once triggered
-                if (!linkedFeatureFlag && featureFlagKeyValidation?.valid === false && featureFlagKeyValidation.error) {
+                // Active validation errors — only trust a result that matches the key in the
+                // field now and is not superseded by an in-flight check, so a lagging or
+                // out-of-order result can't flag a key the user has already changed.
+                if (
+                    !linkedFeatureFlag &&
+                    !featureFlagKeyValidationLoading &&
+                    featureFlagKeyValidation?.key === (experiment.feature_flag_key ?? '') &&
+                    featureFlagKeyValidation?.valid === false &&
+                    featureFlagKeyValidation.error
+                ) {
                     errors.about.push(featureFlagKeyValidation.error)
                 }
 
@@ -446,14 +462,24 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             }
         },
         nextStep: () => {
-            actions.markStepDeparted(values.currentStep)
-            const currentIndex = WIZARD_STEPS.indexOf(values.currentStep)
-            actions._applyStep(WIZARD_STEPS[Math.min(currentIndex + 1, WIZARD_STEPS.length - 1)])
+            const departingStep = values.currentStep
+            // Marking the step departed reveals its required-field errors, so the
+            // check below sees them and refuses to advance until they are fixed.
+            actions.markStepDeparted(departingStep)
 
             const key = values.experiment?.feature_flag_key
             if (key && !values.linkedFeatureFlag && values.featureFlagKeyValidation === null) {
                 actions.validateFeatureFlagKey(key)
             }
+
+            // Keep the user on a step that has errors instead of letting them
+            // discover the problem at the final save.
+            if (values.stepValidationErrors[departingStep]?.length > 0) {
+                return
+            }
+
+            const currentIndex = WIZARD_STEPS.indexOf(departingStep)
+            actions._applyStep(WIZARD_STEPS[Math.min(currentIndex + 1, WIZARD_STEPS.length - 1)])
         },
         prevStep: () => {
             actions.markStepDeparted(values.currentStep)

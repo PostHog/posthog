@@ -22,6 +22,7 @@ export function ExperimentWizard(): JSX.Element {
         showGuide,
         stepValidationErrors,
         hasFormErrors,
+        currentStepHasErrors,
     } = useValues(experimentWizardLogic)
     const { nextStep, prevStep, setStep, saveExperiment, toggleGuide } = useActions(experimentWizardLogic)
 
@@ -80,7 +81,15 @@ export function ExperimentWizard(): JSX.Element {
                             Save as draft
                         </LemonButton>
                     ) : (
-                        <LemonButton type="primary" onClick={nextStep}>
+                        <LemonButton
+                            type="primary"
+                            onClick={nextStep}
+                            disabledReason={
+                                currentStepHasErrors
+                                    ? 'Please fix the errors on this step before continuing'
+                                    : undefined
+                            }
+                        >
                             Continue
                         </LemonButton>
                     )}
