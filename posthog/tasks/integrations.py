@@ -23,9 +23,11 @@ def refresh_integrations() -> int:
     # refreshes are minted on demand under a Postgres row lock by the sync path
     # (resolve_resend_oauth_token). This unlocked periodic sweep would race that path and
     # double-spend the rotating token, so it must not refresh Resend.
+    # The Meta kinds (meta-ads, facebook-pages) are excluded because Meta issues no refresh token —
+    # they re-mint their long-lived token via `fb_exchange_token` on the sync path instead.
     oauth_integrations = defer_repository_cache_fields(
         Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
-        .exclude(kind__in=["meta-ads", "resend"])
+        .exclude(kind__in=["meta-ads", "facebook-pages", "resend"])
         .all()
     )
 
