@@ -306,15 +306,15 @@ export interface errorTrackingIssueSceneLogicActions {
     setIssue: (issue: ErrorTrackingRelationalIssue) => {
         issue: ErrorTrackingRelationalIssue
     }
-    setIssueLoadError: (error: ErrorTrackingIssueLoadError) => {
-        error: ErrorTrackingIssueLoadError
-    }
     setIssueFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
+    }
+    setIssueLoadError: (error: ErrorTrackingIssueLoadError) => {
+        error: ErrorTrackingIssueLoadError
     }
     setIssueSuccess: (
         issue: ErrorTrackingRelationalIssue,

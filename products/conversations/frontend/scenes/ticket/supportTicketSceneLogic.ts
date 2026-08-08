@@ -459,11 +459,11 @@ export interface supportTicketSceneLogicActions {
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
     }
-    setTicketLoading: (loading: boolean) => {
-        loading: boolean
-    }
     setTicketLoadError: (error: TicketLoadError) => {
         error: TicketLoadError
+    }
+    setTicketLoading: (loading: boolean) => {
+        loading: boolean
     }
     setTicketUpdating: (updating: boolean) => {
         updating: boolean
@@ -522,11 +522,7 @@ export interface supportTicketSceneLogicMeta {
             unsavedTicketChanges: string[]
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
-        chatMessages: (
-            messages: CommentType[],
-            ticket: Ticket | null,
-            featureFlags: FeatureFlagsSet // featureFlagLogic
-        ) => ChatMessage[]
+        chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
