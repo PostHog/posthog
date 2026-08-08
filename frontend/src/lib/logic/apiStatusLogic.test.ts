@@ -137,6 +137,12 @@ describe('apiStatusLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
+        afterEach(() => {
+            // Latching arms a 30s self-heal timer; unmount tears it down so it does not
+            // dangle as an open handle after the test finishes.
+            logic.unmount()
+        })
+
         // A burst of failures within ~250ms coalesces into one strike, so each simulated
         // failure is spaced past that window to count as a separate strike.
         const failAndSettle = async (): Promise<void> => {
