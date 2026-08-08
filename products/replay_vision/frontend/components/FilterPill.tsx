@@ -8,12 +8,14 @@ export function FilterPill<T extends string>({
     value,
     onChange,
     searchable = false,
+    loading = false,
 }: {
     label: string
     options: { value: T; label: string }[]
     value: T[]
     onChange: (next: T[]) => void
     searchable?: boolean
+    loading?: boolean
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const filteredOptions = searchTerm
@@ -56,6 +58,11 @@ export function FilterPill<T extends string>({
                                 {opt.label}
                             </LemonButton>
                         ))}
+                        {filteredOptions.length === 0 && (
+                            <div className="p-2 text-secondary italic truncate">
+                                {loading ? 'Loading…' : searchTerm ? 'No matches' : 'No options'}
+                            </div>
+                        )}
                     </>
                 ),
             }}

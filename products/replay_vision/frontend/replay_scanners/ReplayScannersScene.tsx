@@ -127,6 +127,7 @@ export function ReplayScannersScene(): JSX.Element {
         scannerTypeFilter,
         createdByFilter,
         createdByOptions,
+        creatorsLoading,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -358,6 +359,7 @@ export function ReplayScannersScene(): JSX.Element {
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
+                                    loading={creatorsLoading}
                                 />
                                 {hasActiveFilters && (
                                     <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>
