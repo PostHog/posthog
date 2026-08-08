@@ -98,7 +98,7 @@ export function PlanUsageContent({
     components?.tokenUsd != null && components.computeUsd != null;
 
   const openBilling = () => {
-    if (billingUrl) window.open(billingUrl, "_blank");
+    if (billingUrl) window.open(billingUrl, "_blank", "noopener,noreferrer");
   };
 
   if (!billingEnabled && !spendAnalysisEnabled) {
