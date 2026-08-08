@@ -224,6 +224,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     () => {
                         const timer = setTimeout(() => {
                             cache.connectionFailures = 0
+                            cache.lastConnectionFailureAt = undefined
                             actions.setInternetConnectionIssue(false)
                         }, INTERNET_CONNECTION_ISSUE_TIMEOUT_MS)
                         return () => clearTimeout(timer)
