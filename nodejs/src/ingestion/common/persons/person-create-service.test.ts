@@ -30,7 +30,7 @@ describe('PersonCreateService', () => {
 
         mockPersonStore = {
             createPerson: jest.fn(),
-            fetchForUpdate: jest.fn(),
+            fetchConcurrentlyCreatedPerson: jest.fn(),
         }
 
         const mockEvent = {
@@ -150,7 +150,7 @@ describe('PersonCreateService', () => {
             })
         })
 
-        it('should handle creation conflict and fetch existing person', async () => {
+        it('should handle creation conflict and recover the concurrently created person', async () => {
             const conflictResult = {
                 success: false,
                 error: 'CreationConflict',
@@ -172,7 +172,7 @@ describe('PersonCreateService', () => {
             }
 
             mockPersonStore.createPerson.mockResolvedValue(conflictResult)
-            mockPersonStore.fetchForUpdate.mockResolvedValue(existingPerson)
+            mockPersonStore.fetchConcurrentlyCreatedPerson.mockResolvedValue(existingPerson)
 
             const [person, created] = await personCreateService.createPerson(
                 createdAt,
@@ -187,18 +187,25 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(existingPerson)
             expect(created).toBe(false)
-            expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
+            // The recovery must pass the deterministic uuid so a conflict on posthog_person.uuid,
+            // which no distinct-id lookup can resolve, is still recoverable.
+            expect(mockPersonStore.fetchConcurrentlyCreatedPerson).toHaveBeenCalledWith(
+                teamId,
+                ['test-distinct-id'],
+                'f75d0be1-213b-5c13-8aec-acd632d76425'
+            )
         })
 
-        it('should throw error when creation conflict occurs but person cannot be fetched', async () => {
+        it('should report the violated constraint when the conflict cannot be recovered', async () => {
             const conflictResult = {
                 success: false,
                 error: 'CreationConflict',
                 distinctIds: ['test-distinct-id'],
+                constraint: 'posthog_person_team_id_uuid_key',
             }
 
             mockPersonStore.createPerson.mockResolvedValue(conflictResult)
-            mockPersonStore.fetchForUpdate.mockResolvedValue(null)
+            mockPersonStore.fetchConcurrentlyCreatedPerson.mockResolvedValue(null)
 
             await expect(
                 personCreateService.createPerson(
@@ -211,7 +218,7 @@ describe('PersonCreateService', () => {
                     creatorEventUuid,
                     primaryDistinctId
                 )
-            ).rejects.toThrow('Person creation failed with constraint violation, but could not fetch existing person')
+            ).rejects.toThrow('constraint violation on posthog_person_team_id_uuid_key')
         })
 
         it('should re-throw other errors without logging ingestion warning', async () => {

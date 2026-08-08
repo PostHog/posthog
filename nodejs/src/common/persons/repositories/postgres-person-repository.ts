@@ -180,6 +180,15 @@ export class PostgresPersonRepository
         return error?.code === '23514' && error?.constraint === 'check_properties_size'
     }
 
+    // Postgres unique_violation (SQLSTATE 23505). Falls back to the message text for errors that
+    // reach here without a code, so detection stays at least as broad as before.
+    private isUniqueConstraintViolation(error: unknown): boolean {
+        return (
+            (error as { code?: string })?.code === '23505' ||
+            (error instanceof Error && error.message.includes('unique constraint'))
+        )
+    }
+
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
@@ -656,13 +665,16 @@ export class PostgresPersonRepository
                 created: true,
             }
         } catch (error) {
-            // Handle constraint violation - another process created the person concurrently
-            if (error instanceof Error && error.message.includes('unique constraint')) {
-                // This is not of type CreatePersonResult?
+            // Handle unique constraint violation - another process created the person concurrently.
+            // Report the specific index so a conflict on posthog_person.uuid (recoverable only by
+            // uuid) is distinguishable from a conflict on the distinct-id index, rather than
+            // flattening every unique-index failure into one opaque outcome.
+            if (this.isUniqueConstraintViolation(error)) {
                 return {
                     success: false,
                     error: 'CreationConflict',
                     distinctIds: distinctIds.map((d) => d.distinctId),
+                    constraint: (error as { constraint?: string })?.constraint,
                 }
             }
 

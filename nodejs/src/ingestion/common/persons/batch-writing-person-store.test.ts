@@ -489,6 +489,50 @@ describe('BatchWritingPersonStore', () => {
         })
     })
 
+    describe('fetchConcurrentlyCreatedPerson', () => {
+        it('resolves the person by distinct id from the primary database', async () => {
+            const mockRepo = createMockRepository()
+            mockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([{ ...person, distinct_id: 'dead' }])
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
+            const result = await personStore.fetchConcurrentlyCreatedPerson(teamId, ['dead'], person.uuid)
+
+            expect(result).toEqual(person)
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
+                [{ teamId, distinctId: 'dead' }],
+                false,
+                'ingestion/person-creation-conflict'
+            )
+            // A distinct-id hit must not trigger the uuid fallback.
+            expect(mockRepo.fetchPersonsByPersonIds).not.toHaveBeenCalled()
+        })
+
+        it('falls back to the deterministic uuid when no distinct-id row matches', async () => {
+            const mockRepo = createMockRepository()
+            mockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([])
+            mockRepo.fetchPersonsByPersonIds = jest.fn().mockResolvedValue([person])
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
+            const result = await personStore.fetchConcurrentlyCreatedPerson(teamId, ['dead'], person.uuid)
+
+            expect(result).toEqual(person)
+            expect(mockRepo.fetchPersonsByPersonIds).toHaveBeenCalledWith(
+                [{ teamId, personId: person.uuid }],
+                false,
+                'ingestion/person-creation-conflict'
+            )
+        })
+
+        it('returns null when neither distinct id nor uuid resolves a person', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
+            const result = await personStore.fetchConcurrentlyCreatedPerson(teamId, ['dead'], person.uuid)
+
+            expect(result).toBeNull()
+        })
+    })
+
     it('should retry optimistic updates with exponential backoff', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
         const testMockRepo = createMockRepository()

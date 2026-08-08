@@ -48,6 +48,20 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     ): Promise<InternalPersonWithDistinctId[]>
 
     /**
+     * Reads a person that a concurrent writer committed after this batch's own
+     * createPerson lost a unique-constraint race. Always hits the primary database,
+     * bypassing the per-batch cache, which may hold a stale null for the distinct id
+     * from the pre-create lookup. Resolves by distinct id and by the deterministic
+     * person uuid. A conflict on posthog_person.uuid leaves a person row that no
+     * distinct-id row points at, so the uuid lookup keeps it recoverable.
+     */
+    fetchConcurrentlyCreatedPerson(
+        teamId: number,
+        distinctIds: string[],
+        uuid: string
+    ): Promise<InternalPerson | null>
+
+    /**
      * Creates a new person
      */
     createPerson(

@@ -379,13 +379,61 @@ describe('PostgresPersonRepository', () => {
             )
 
             expect(createPersonResult.success).toBe(false)
-            if (createPersonResult.success === false) {
-                expect(createPersonResult.error).toBe('CreationConflict')
+            if (createPersonResult.success === false && createPersonResult.error === 'CreationConflict') {
+                // The violated index must be reported, so a conflict on the distinct-id index is
+                // distinguishable from one on posthog_person.uuid.
+                expect(createPersonResult.constraint).toBeTruthy()
             }
 
             // Verify the first person still exists and can be fetched
             const fetchedPerson = await repository.fetchPerson(team.id, distinctId)
             expect(fetchedPerson).toEqual(person1)
+        })
+
+        it('reports a CreationConflict on the person uuid index when the distinct id is orphaned', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const uuid = new UUIDT().toString()
+
+            const result1 = await repository.createPerson(
+                TIMESTAMP,
+                { name: 'Orphaned Person' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                { distinctId: 'orphan-source' }
+            )
+            if (!result1.success) {
+                throw new Error('Failed to create person')
+            }
+
+            // Drop the only distinct id, leaving a person row that no distinct-id lookup can reach.
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team.id, 'orphan-source'],
+                'deleteDistinctId'
+            )
+
+            // Reuse the uuid under a brand-new distinct id: only the posthog_person.uuid index conflicts.
+            const createPersonResult = await repository.createPerson(
+                TIMESTAMP,
+                { name: 'Colliding Person' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                { distinctId: 'orphan-new' }
+            )
+
+            expect(createPersonResult.success).toBe(false)
+            if (createPersonResult.success === false && createPersonResult.error === 'CreationConflict') {
+                expect(createPersonResult.constraint).toBeTruthy()
+            }
         })
     })
 

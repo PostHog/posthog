@@ -1310,6 +1310,36 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return fetchPromise
     }
 
+    async fetchConcurrentlyCreatedPerson(
+        teamId: Team['id'],
+        distinctIds: string[],
+        uuid: string
+    ): Promise<InternalPerson | null> {
+        // Read straight from the primary database, bypassing the per-batch cache: the row we look
+        // for was committed by another writer after our own create conflicted, so the cache cannot
+        // hold it and may still hold the pre-create null for this distinct id.
+        if (distinctIds.length > 0) {
+            const byDistinctId = await this.personRepository.fetchPersonsByDistinctIds(
+                distinctIds.map((distinctId) => ({ teamId, distinctId })),
+                false,
+                'ingestion/person-creation-conflict'
+            )
+            if (byDistinctId.length > 0) {
+                const { distinct_id: _distinctId, ...person } = byDistinctId[0]
+                return person
+            }
+        }
+
+        // No distinct-id row resolved the person, so the conflict was on posthog_person.uuid: a
+        // leftover person row exists under the deterministic uuid with no distinct id pointing at it.
+        const byUuid = await this.personRepository.fetchPersonsByPersonIds(
+            [{ teamId, personId: uuid }],
+            false,
+            'ingestion/person-creation-conflict'
+        )
+        return byUuid[0] ?? null
+    }
+
     updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,

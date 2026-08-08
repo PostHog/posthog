@@ -60,25 +60,26 @@ export class PersonCreateService {
                 return [result.person, result.created]
             }
 
-            // Handle creation conflict - another process created the person concurrently
+            // Handle creation conflict - another process created the person concurrently.
+            // Read the committed row straight from the database, bypassing the per-batch cache,
+            // and resolve by both distinct id and the deterministic uuid so a conflict on
+            // posthog_person.uuid is recoverable rather than fatal.
             if (result.error === 'CreationConflict') {
-                // Try to fetch the person that was created concurrently
-                const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
-                for (const distinctIdInfo of allDistinctIds) {
-                    const existingPerson = await this.context.personStore.fetchForUpdate(
-                        teamId,
-                        distinctIdInfo.distinctId
-                    )
-                    if (existingPerson) {
-                        return [existingPerson, false]
-                    }
+                const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])].map((d) => d.distinctId)
+                const existingPerson = await this.context.personStore.fetchConcurrentlyCreatedPerson(
+                    teamId,
+                    allDistinctIds,
+                    uuid
+                )
+                if (existingPerson) {
+                    return [existingPerson, false]
                 }
 
                 // If we still can't find the person, something is wrong
                 throw new Error(
-                    `Person creation failed with constraint violation, but could not fetch existing person for distinct IDs: ${result.distinctIds.join(
-                        ', '
-                    )}`
+                    `Person creation failed with constraint violation on ${
+                        result.constraint ?? 'unknown constraint'
+                    }, but could not fetch existing person for distinct IDs: ${result.distinctIds.join(', ')}`
                 )
             }
 

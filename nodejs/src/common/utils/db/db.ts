@@ -19,7 +19,13 @@ export type CreatePersonResult =
           readonly messages: PersonMessage[]
           readonly created: false
       }
-    | { readonly success: false; readonly error: 'CreationConflict'; readonly distinctIds: string[] }
+    | {
+          readonly success: false
+          readonly error: 'CreationConflict'
+          readonly distinctIds: string[]
+          /** Name of the unique index the insert violated, when Postgres reported it. */
+          readonly constraint?: string
+      }
     | { readonly success: false; readonly error: 'PropertiesSizeViolation'; readonly distinctIds: string[] }
 
 export interface PersonPropertiesSize {

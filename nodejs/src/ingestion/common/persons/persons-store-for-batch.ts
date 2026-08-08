@@ -311,6 +311,14 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         return this.store.fetchPersonsForUpdateByDistinctIds(teamId, distinctIds, this.batchId)
     }
 
+    fetchConcurrentlyCreatedPerson(
+        teamId: number,
+        distinctIds: string[],
+        uuid: string
+    ): Promise<InternalPerson | null> {
+        return this.store.fetchConcurrentlyCreatedPerson(teamId, distinctIds, uuid)
+    }
+
     createPerson(
         createdAt: DateTime,
         properties: Properties,
