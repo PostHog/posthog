@@ -8663,6 +8663,7 @@ dependencies = [
  "personhog-proto",
  "rand 0.8.5",
  "rdkafka",
+ "rustls 0.23.37",
  "serde_json",
  "sqlx",
  "tokio",
