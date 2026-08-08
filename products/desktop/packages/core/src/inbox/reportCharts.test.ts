@@ -1,7 +1,10 @@
+import type { SignalReportChartSize } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   planReportChart,
+  type ReportChartData,
   type ReportChartPlan,
+  renderableReportChartIds,
   reportChartHeightClass,
   reportChartOpenTarget,
   shapeReportChartData,
@@ -212,17 +215,42 @@ describe("reportCharts", () => {
     ).toEqual({ type: "empty" });
   });
 
-  it.each([
-    ["graphs get a fixed height", null, { type: "series" }, "h-72"],
-    ["explicit size wins for graphs", "large", { type: "series" }, "h-[28rem]"],
+  const seriesData: ReportChartData = {
+    type: "series",
+    render: "line",
+    labels: ["2026-08-01"],
+    series: [{ key: "s0", label: "errors", data: [1] }],
+    isTimeSeries: true,
+    interval: "day",
+  };
+  // `size` arrives as stored JSON, so the guard has to survive values outside
+  // the declared union.
+  const unknownSize = "huge" as unknown as SignalReportChartSize;
+
+  it.each<[string, SignalReportChartSize | null, ReportChartData, string]>([
+    ["graphs get a fixed height", null, seriesData, "h-72"],
+    ["explicit size wins for graphs", "large", seriesData, "h-[28rem]"],
     ["numbers default small", null, { type: "number", value: 1 }, "max-h-36"],
-    ["tables get a scroll ceiling", null, { type: "table" }, "max-h-72"],
-    ["unknown size falls back", "huge", { type: "series" }, "h-72"],
+    [
+      "tables get a scroll ceiling",
+      null,
+      { type: "table", columns: ["x"], rows: [[1]] },
+      "max-h-72",
+    ],
+    ["unknown size falls back", unknownSize, seriesData, "h-72"],
   ])("%s", (_name, size, data, expected) => {
+    expect(reportChartHeightClass(size, data)).toBe(expected);
+  });
+
+  it("only offers jump targets for charts that will render", () => {
     expect(
-      // biome-ignore lint/suspicious/noExplicitAny: partial fixtures for the branch under test
-      reportChartHeightClass(size as any, data as any),
-    ).toBe(expected);
+      renderableReportChartIds([
+        { chart_id: "drawable", query: hogqlNode() },
+        { chart_id: "broken", query: { noKind: true } },
+        { chart_id: "fallback-card", query: { kind: "HogQuery" } },
+      ]),
+    ).toEqual(["drawable", "fallback-card"]);
+    expect(renderableReportChartIds(undefined)).toEqual([]);
   });
 
   it("links a saved insight to its insight page", () => {

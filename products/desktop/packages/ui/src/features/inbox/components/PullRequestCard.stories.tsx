@@ -1,6 +1,7 @@
 import type {
   SignalReport,
   SignalReportArtefactsResponse,
+  SuggestedReviewersArtefact,
 } from "@posthog/shared/types";
 import type { Meta, StoryObj } from "@storybook/react";
 import type { ReactNode } from "react";
@@ -24,23 +25,22 @@ const report = (overrides: Partial<SignalReport> = {}): SignalReport => ({
   ...overrides,
 });
 
-const reviewers: SignalReportArtefactsResponse = {
-  results: [
+const reviewersArtefact: SuggestedReviewersArtefact = {
+  id: "artefact-reviewers",
+  created_at: "2026-08-06T10:00:00Z",
+  type: "suggested_reviewers",
+  content: [
     {
-      id: "artefact-reviewers",
-      created_at: "2026-08-06T10:00:00Z",
-      type: "suggested_reviewers",
-      content: [
-        {
-          github_login: "example-reviewer",
-          github_name: "Example Reviewer",
-          relevant_commits: [],
-          user: null,
-        },
-      ],
-      // biome-ignore lint/suspicious/noExplicitAny: artefact content is typed per artefact kind
-    } as any,
+      github_login: "example-reviewer",
+      github_name: "Example Reviewer",
+      relevant_commits: [],
+      user: null,
+    },
   ],
+};
+
+const reviewers: SignalReportArtefactsResponse = {
+  results: [reviewersArtefact],
   count: 1,
 };
 
