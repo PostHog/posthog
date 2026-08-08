@@ -89,6 +89,8 @@ const OBSERVATION_VERDICT_VALUES: readonly ObservationVerdictValue[] = ['yes', '
 export const OBSERVATIONS_PAGE_SIZE = 50
 // Past this many rows the clipboard is the wrong tool.
 const COPY_ALL_OBSERVATIONS_LIMIT = 500
+// Mirrors the backend `_MAX_DESCRIPTION_LENGTH` write cap so the limit is caught in the form, not on save.
+export const MAX_SCANNER_DESCRIPTION_LENGTH = 1_000
 
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
@@ -676,6 +678,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 return {
                     name: !scanner.name?.trim() ? 'Name is required' : undefined,
+                    description:
+                        (scanner.description?.length ?? 0) > MAX_SCANNER_DESCRIPTION_LENGTH
+                            ? `Description must be ${MAX_SCANNER_DESCRIPTION_LENGTH} characters or fewer`
+                            : undefined,
                     sampling_rate:
                         scanner.sampling_rate > 0 && scanner.sampling_rate <= 1
                             ? undefined

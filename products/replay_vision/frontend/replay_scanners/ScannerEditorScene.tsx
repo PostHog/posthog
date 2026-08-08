@@ -38,7 +38,7 @@ import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
-import { replayScannerLogic } from './replayScannerLogic'
+import { MAX_SCANNER_DESCRIPTION_LENGTH, replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEP_ORDER,
     ScannerEditorStep,
@@ -242,7 +242,11 @@ function ConfigureStep(): JSX.Element {
                 label="Description (optional)"
                 help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
             >
-                <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
+                <LemonTextArea
+                    placeholder="What this scanner looks for and why."
+                    minRows={2}
+                    maxLength={MAX_SCANNER_DESCRIPTION_LENGTH}
+                />
             </LemonField>
 
             {isTypeSelectable ? (

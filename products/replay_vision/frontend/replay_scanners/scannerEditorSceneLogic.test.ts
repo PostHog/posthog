@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { firstErroredScannerStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 
 describe('scannerEditorSceneLogic', () => {
     let logic: ReturnType<typeof scannerEditorSceneLogic.build>
@@ -72,6 +72,14 @@ describe('scannerEditorSceneLogic', () => {
             await expectLogic(logic).toMatchValues({
                 visibleSteps: ['configure', 'triggers', 'self_driving'],
             })
+        })
+    })
+
+    describe('firstErroredScannerStep', () => {
+        it('routes a too-long description back to the configure step', () => {
+            expect(firstErroredScannerStep({ description: 'Description must be 1000 characters or fewer' })).toEqual(
+                'configure'
+            )
         })
     })
 

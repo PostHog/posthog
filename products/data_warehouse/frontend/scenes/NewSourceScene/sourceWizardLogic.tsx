@@ -270,6 +270,14 @@ export function resolveConnectErrorMessage(e: any): string {
     return e?.message ?? 'Something went wrong setting up your source. Please try again.'
 }
 
+// The create request rejects an invalid or clashing table prefix, but that field lives back on
+// step 2. Detect those errors so the wizard can route them onto the field instead of a dead-end
+// toast on the schema step. Every prefix message from the backend names the prefix.
+export function isPrefixConnectError(e: any): boolean {
+    const message = e?.data?.message ?? e?.detail ?? e?.message
+    return typeof message === 'string' && message.toLowerCase().includes('prefix')
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -3370,7 +3378,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(resolveConnectErrorMessage(e))
+                if (isPrefixConnectError(e)) {
+                    // Send the user back to the prefix field (step 2) with the error on it, keeping
+                    // their schema selection, rather than stranding them on a toast they can't act on.
+                    actions.setSourceConnectionDetailsManualErrors({ prefix: resolveConnectErrorMessage(e) })
+                    actions.setStep(2)
+                } else {
+                    lemonToast.error(resolveConnectErrorMessage(e))
+                }
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)

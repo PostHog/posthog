@@ -10,6 +10,7 @@ import {
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
+    isPrefixConnectError,
     mergeRestoredSourceFormValues,
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
@@ -105,6 +106,22 @@ describe('sourceWizardLogic', () => {
             const message = resolveConnectErrorMessage({ status: 400 })
             expect(message).toBeTruthy()
             expect(message).not.toEqual('undefined')
+        })
+    })
+
+    describe('isPrefixConnectError', () => {
+        // A create-time prefix error must be routed onto the step-2 field, not dropped into a
+        // bare toast on the schema step. These are the messages the backend actually returns.
+        it.each([
+            ['Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore'],
+            ['Prefix cannot consist of only underscores'],
+            ["Another source of this type already uses the prefix 'foo'. Choose a different prefix."],
+        ])('flags the prefix error %p', (message) => {
+            expect(isPrefixConnectError({ data: { message }, status: 400 })).toBe(true)
+        })
+
+        it('does not flag an unrelated error', () => {
+            expect(isPrefixConnectError({ data: { message: 'Invalid credentials' }, status: 400 })).toBe(false)
         })
     })
 
