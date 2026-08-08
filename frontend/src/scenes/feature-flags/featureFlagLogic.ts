@@ -2885,6 +2885,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             error.detail ||
                                 "You don't have permission to edit this feature flag. Contact your administrator to request editing rights."
                         )
+                    } else if (error.code === 'unique' && error.attr === 'key') {
+                        const message = `Save feature flag failed: ${
+                            error.detail ?? 'There is already a feature flag with this key.'
+                        }`
+                        const key = preparedFlag.key ?? updatedFlag.key ?? ''
+                        const existing = await api
+                            .get(
+                                `api/projects/${values.currentProjectId}/feature_flags/?key=${encodeURIComponent(key)}`
+                            )
+                            .catch(() => null)
+                        const existingFlagId: number | null = existing?.results?.[0]?.id ?? null
+                        if (existingFlagId) {
+                            lemonToast.error(message, {
+                                button: {
+                                    label: 'View existing flag',
+                                    action: () => {
+                                        window.open(urls.featureFlag(existingFlagId), '_blank')
+                                    },
+                                },
+                            })
+                        } else {
+                            lemonToast.error(message)
+                        }
                     }
                     throw error
                 }

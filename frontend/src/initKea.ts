@@ -156,6 +156,8 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isFeatureFlagDuplicateKey =
+                        actionKey === 'saveFeatureFlag' && error.code === 'unique' && error.attr === 'key'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -168,8 +170,13 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError || isVerifiedDomainError) {
-                        // These get their own dedicated toast in apiStatusLogic.
+                    if (
+                        isTwoFactorError ||
+                        isSensitiveActionError ||
+                        isVerifiedDomainError ||
+                        isFeatureFlagDuplicateKey
+                    ) {
+                        // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
                     }
                     if (errorMessage) {
