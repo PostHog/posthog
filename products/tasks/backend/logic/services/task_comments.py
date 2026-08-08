@@ -40,10 +40,6 @@ def _content_chunk(content: str, *, limit: int, offset: int = 0) -> tuple[str, i
     end = min(len(encoded), offset + limit)
     while end > offset and end < len(encoded) and encoded[end] & 0b11000000 == 0b10000000:
         end -= 1
-    if end == offset and offset < len(encoded) and limit > 0:
-        end += 1
-        while end < len(encoded) and encoded[end] & 0b11000000 == 0b10000000:
-            end += 1
     chunk = encoded[offset:end].decode("utf-8")
     return chunk, end if end < len(encoded) else None
 
@@ -362,7 +358,7 @@ def list_comments(
                     anchor_bytes = len(
                         json.dumps(_bounded_anchor(comment), separators=(",", ":"), default=str).encode("utf-8")
                     )
-                    if remaining_thread_content_bytes <= anchor_bytes:
+                    if remaining_thread_content_bytes < anchor_bytes + 4:
                         comments_truncated = True
                         break
                     entry = _entry(
