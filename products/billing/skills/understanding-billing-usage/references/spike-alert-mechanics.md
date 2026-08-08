@@ -20,8 +20,8 @@ URL has this shape:
 The usage dashboard identifiers are the frontend/API usage type values, not always the
 same short keys used by the detector internals.
 
-The AI side-panel prompt can be opened with a URL hash. The internal route segment is
-still `max`:
+The AI side-panel prompt can be opened with a URL hash. The legacy internal route
+segment is still `max`, but do not call PostHog AI "Max" in user-facing answers:
 
 - `#panel=max:<prompt>` opens the side panel with the prompt prefilled.
 - `#panel=max:!<prompt>` opens the side panel and auto-runs the prompt.
@@ -62,11 +62,11 @@ look dramatic.
 | other metrics             | 50,000                     |
 | `rows_synced`             | skipped                    |
 
-## Common usage type mapping
+## Alert-oriented usage type mapping
 
 Use this mapping to translate usage dashboard filters into detector-oriented labels.
 If the billing usage response returns a clearer label, prefer that response over this
-table.
+table. For product drilldown, use `usage-type-routing.md`.
 
 | Usage dashboard value                            | Detector key              | Human label                         |
 | ------------------------------------------------ | ------------------------- | ----------------------------------- |
@@ -84,6 +84,10 @@ table.
 | `workflow_emails_sent_in_period`                 | `workflow_emails`         | Workflow emails                     |
 | `workflow_billable_invocations_in_period`        | `workflow_destinations`   | Workflow destinations               |
 | `logs_mb_in_period`                              | `logs_mb_ingested`        | Logs MB ingested                    |
+| `logs_retention_30d_mb_in_period`                | `logs_retention_30d`      | Logs 30-day retention               |
+| `signals_credits_used_in_period`                 | `signals_credits`         | Inbox credits                       |
+| `posthog_code_credits_used_in_period`            | `posthog_code_credits`    | PostHog Desktop credits             |
+| `replay_vision_credits_used_in_period`           | `replay_vision_credits`   | Replay Vision credits               |
 
 Data warehouse sync rows can appear under several billing usage keys. Do not force a
 detector mapping for warehouse usage unless the billing response confirms the series.
