@@ -195,9 +195,6 @@ export interface inboxFiltersLogicActions {
     clearFilters: () => {
         value: true
     }
-    clearScoutFilter: () => {
-        value: true
-    }
     loadAvailableReviewers: ({ query }?: { query?: string }) => {
         query?: string
     }
@@ -246,14 +243,14 @@ export interface inboxFiltersLogicActions {
         direction: InboxSortDirection
         field: InboxSortField
     }
-    togglePriority: (priority: SignalReportPriority) => {
-        priority: SignalReportPriority
+    setPriorityFilter: (priorities: SignalReportPriority[]) => {
+        priorities: SignalReportPriority[]
     }
-    toggleScout: (scout: string) => {
-        scout: string
+    setScoutFilter: (scouts: string[]) => {
+        scouts: string[]
     }
-    toggleSourceProduct: (source: string) => {
-        source: string
+    setSourceProductFilter: (sources: string[]) => {
+        sources: string[]
     }
 }
 
@@ -301,10 +298,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         applyDefaultScope: (scope: InboxScope) => ({ scope }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
-        toggleSourceProduct: (source: string) => ({ source }),
-        toggleScout: (scout: string) => ({ scout }),
-        clearScoutFilter: true,
-        togglePriority: (priority: SignalReportPriority) => ({ priority }),
+        // Set-valued rather than toggle-valued: a menu hands over the whole selection, so clearing
+        // one back to "no filter" is `set…([])` rather than a separate clear action per dimension.
+        setSourceProductFilter: (sources: string[]) => ({ sources }),
+        setScoutFilter: (scouts: string[]) => ({ scouts }),
+        setPriorityFilter: (priorities: SignalReportPriority[]) => ({ priorities }),
         // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
         // is restored in one action — one list refresh, no fan-out race between partial states.
         setFilters: (filters: InboxFilterState) => ({ filters }),
@@ -352,10 +350,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             // user choice, and counting it as engagement is exactly the inflation we're trying to avoid.
             setScope: () => captureQueryChange('scope'),
             setSort: () => captureQueryChange('sort'),
-            toggleSourceProduct: () => captureQueryChange('source_product'),
-            toggleScout: () => captureQueryChange('scout'),
-            clearScoutFilter: () => captureQueryChange('scout'),
-            togglePriority: () => captureQueryChange('priority'),
+            setSourceProductFilter: () => captureQueryChange('source_product'),
+            setScoutFilter: () => captureQueryChange('scout'),
+            setPriorityFilter: () => captureQueryChange('priority'),
             clearFilters: () => captureQueryChange('clear'),
             setFilters: () => captureQueryChange('url'),
             // The search box fires per keystroke; settle first so a typed phrase is one event.
@@ -417,8 +414,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [] as string[],
             { persist: true },
             {
-                toggleSourceProduct: (state, { source }) =>
-                    state.includes(source) ? state.filter((s) => s !== source) : [...state, source],
+                setSourceProductFilter: (_, { sources }) => sources,
                 setFilters: (_, { filters }) => filters.sourceProductFilter,
                 clearFilters: () => [],
             },
@@ -429,9 +425,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [] as string[],
             { persist: true },
             {
-                toggleScout: (state, { scout }) =>
-                    state.includes(scout) ? state.filter((s) => s !== scout) : [...state, scout],
-                clearScoutFilter: () => [],
+                setScoutFilter: (_, { scouts }) => scouts,
                 setFilters: (_, { filters }) => filters.scoutFilter,
                 clearFilters: () => [],
             },
@@ -440,8 +434,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [] as SignalReportPriority[],
             { persist: true },
             {
-                togglePriority: (state, { priority }) =>
-                    state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
+                setPriorityFilter: (_, { priorities }) => priorities,
                 setFilters: (_, { filters }) => filters.priorityFilter,
                 clearFilters: () => [],
             },
@@ -475,10 +468,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setScope: toUrl,
             applyDefaultScope: toUrl,
             setSort: toUrl,
-            toggleSourceProduct: toUrl,
-            toggleScout: toUrl,
-            clearScoutFilter: toUrl,
-            togglePriority: toUrl,
+            setSourceProductFilter: toUrl,
+            setScoutFilter: toUrl,
+            setPriorityFilter: toUrl,
             setSearchQuery: toUrl,
             clearFilters: toUrl,
         }

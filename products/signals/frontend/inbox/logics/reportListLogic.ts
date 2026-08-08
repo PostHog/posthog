@@ -153,14 +153,14 @@ export interface reportListLogicActions {
         direction: InboxSortDirection
         field: InboxSortField
     } // inboxFiltersLogic
-    togglePriority: (priority: SignalReportPriority) => {
-        priority: SignalReportPriority
+    setPriorityFilter: (priorities: SignalReportPriority[]) => {
+        priorities: SignalReportPriority[]
     } // inboxFiltersLogic
-    toggleScout: (scout: string) => {
-        scout: string
+    setScoutFilter: (scouts: string[]) => {
+        scouts: string[]
     } // inboxFiltersLogic
-    toggleSourceProduct: (source: string) => {
-        source: string
+    setSourceProductFilter: (sources: string[]) => {
+        sources: string[]
     } // inboxFiltersLogic
     archiveReport: (
         reportId: string,
@@ -308,9 +308,9 @@ export const reportListLogic = kea<reportListLogicType>([
             [
                 'setSearchQuery',
                 'setSort',
-                'toggleSourceProduct',
-                'toggleScout',
-                'togglePriority',
+                'setSourceProductFilter',
+                'setScoutFilter',
+                'setPriorityFilter',
                 'setScope',
                 'applyDefaultScope',
                 'setFilters',
@@ -503,9 +503,9 @@ export const reportListLogic = kea<reportListLogicType>([
             actions.refresh()
         },
         setSort: () => actions.refresh(),
-        toggleSourceProduct: () => actions.refresh(),
-        toggleScout: () => actions.refresh(),
-        togglePriority: () => actions.refresh(),
+        setSourceProductFilter: () => actions.refresh(),
+        setScoutFilter: () => actions.refresh(),
+        setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),
         applyDefaultScope: () => actions.refresh(),
         setFilters: () => actions.refresh(),

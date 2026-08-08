@@ -178,7 +178,7 @@ describe('inboxFiltersLogic', () => {
                 searchQuery: 'checkout',
             })
 
-            expectLogic(logic, () => logic.actions.clearScoutFilter()).toMatchValues({
+            expectLogic(logic, () => logic.actions.setScoutFilter([])).toMatchValues({
                 sourceProductFilter: ['error_tracking'],
                 scoutFilter: [],
                 priorityFilter: ['P1'],

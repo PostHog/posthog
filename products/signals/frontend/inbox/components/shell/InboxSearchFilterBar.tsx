@@ -19,6 +19,11 @@ import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { FilterItem, FilterPopover } from './filterControls'
 
+/** Add or remove one value from a filter selection, for menu rows that read as checkboxes. */
+function toggleIn<T>(selection: T[], value: T): T[] {
+    return selection.includes(value) ? selection.filter((v) => v !== value) : [...selection, value]
+}
+
 /**
  * Collapsible per-scout sub-filter nested under the "Scout" source row. Collapsed by default
  * (fleets can be large); auto-expanded while any scout is selected so active filters stay visible.
@@ -102,7 +107,7 @@ export function InboxSearchFilterBar({
 }: InboxSearchFilterBarProps): JSX.Element {
     const { searchQuery, sortField, sortDirection, sourceProductFilter, scoutFilter, priorityFilter } =
         useValues(inboxFiltersLogic)
-    const { setSearchQuery, setSort, toggleSourceProduct, toggleScout, clearScoutFilter, togglePriority } =
+    const { setSearchQuery, setSort, setSourceProductFilter, setScoutFilter, setPriorityFilter } =
         useActions(inboxFiltersLogic)
     const { scoutConfigs } = useValues(scoutFleetLogic)
 
@@ -159,14 +164,14 @@ export function InboxSearchFilterBar({
                                 icon={option.icon}
                                 label={option.label}
                                 active={sourceProductFilter.includes(option.value)}
-                                onClick={() => toggleSourceProduct(option.value)}
+                                onClick={() => setSourceProductFilter(toggleIn(sourceProductFilter, option.value))}
                             />
                             {option.value === 'signals_scout' && scoutNames.length > 0 && (
                                 <ScoutSubFilter
                                     scoutNames={scoutNames}
                                     scoutFilter={scoutFilter}
-                                    onToggle={toggleScout}
-                                    onClear={clearScoutFilter}
+                                    onToggle={(scout) => setScoutFilter(toggleIn(scoutFilter, scout))}
+                                    onClear={() => setScoutFilter([])}
                                 />
                             )}
                         </div>
@@ -196,7 +201,7 @@ export function InboxSearchFilterBar({
                                 </span>
                             }
                             active={priorityFilter.includes(priority)}
-                            onClick={() => togglePriority(priority)}
+                            onClick={() => setPriorityFilter(toggleIn(priorityFilter, priority))}
                         />
                     ))}
                 </FilterPopover>
