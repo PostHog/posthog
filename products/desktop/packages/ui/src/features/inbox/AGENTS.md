@@ -106,7 +106,9 @@ The Inbox reads from PostHog Cloud's Self-driving backend, currently implemented
 - `GET /api/projects/{teamId}/signals/reports/{id}/artefacts/`: structured report artefacts.
 - `GET /api/projects/{teamId}/signals/reports/{id}/tasks/`: tasks linked to a report.
 
-The shared renderer type for the report is `SignalReport` in `apps/code/src/shared/types.ts`. If the backend serializer changes, update that type and the normalizers in `posthogClient.ts` together.
+The shared renderer type for the report is `SignalReport` in `packages/shared/src/domain-types.ts`. If the backend serializer changes, update that type and the client methods in `packages/api-client/src/posthog-client.ts` together.
+
+Report charts: `SignalReport.charts` carries scout-authored chart definitions (`chart_id`, `title`, `query`, `caption?`, `size?`). The desktop app renders them natively in the detail views: `packages/core/src/inbox/reportCharts.ts` classifies the stored query (runnable HogQL/trends vs saved-insight vs link-out fallback), `PostHogAPIClient.runQuery` executes runnable sources against `/api/projects/{teamId}/query/`, and `components/detail/ReportChartCard.tsx` draws the result with `@posthog/quill-charts`. Query kinds the app can't draw degrade to a card that links out to PostHog. Summary prose references charts as `[label](chart:<chart_id>)` links; `SignalReportSummaryMarkdown` turns those into in-page jumps to the chart card (plain text on list rows).
 
 Card headlines are derived client-side from `summary` by `utils/reportPresentation.ts`; there is no backend headline field.
 
