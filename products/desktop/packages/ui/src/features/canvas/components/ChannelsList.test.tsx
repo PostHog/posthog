@@ -331,12 +331,30 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      // Nothing is highlighted until a key moves it, so the first press lands
-      // on #me and the second steps onto the space below it.
-      await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+      // Nothing is highlighted until a key moves it, and the headings are rows
+      // of their own: Starred, #me, Spaces, then the space below it.
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}",
+      );
 
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
       expect(mocks.navigate).not.toHaveBeenCalled();
+    });
+
+    // The heading is a row of the tree, so it answers the tree's keys. A
+    // heading missing from the flat node list would leave the highlight index
+    // and the rendered rows disagreeing from there down.
+    it("folds a section from its heading and opens it again", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Search spaces"));
+      // Onto the Spaces heading: Starred, #me, Spaces.
+      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowLeft}");
+      expect(screen.queryByText("engineering")).toBeNull();
+
+      await user.keyboard("{ArrowRight}");
+      expect(screen.getByText("engineering")).toBeTruthy();
     });
 
     // A kept-mounted collapsed row would still be an option, so ↓ would walk
@@ -360,9 +378,11 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      // Nothing is highlighted to begin with: one press down reaches #me, two
-      // reaches "engineering".
-      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+      // Nothing is highlighted to begin with: down through the Starred heading,
+      // #me and the Spaces heading reaches "engineering".
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}",
+      );
 
       expect(screen.getByText("Ship the tree")).toBeTruthy();
       expect(screen.getByText("Write the tests")).toBeTruthy();
@@ -378,7 +398,7 @@ describe("ChannelsList", () => {
 
       await user.click(screen.getByLabelText("Search spaces"));
       await user.keyboard(
-        "{ArrowDown}{ArrowDown}{ArrowRight}{ArrowDown}{ArrowDown}",
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}{ArrowDown}{ArrowDown}",
       );
       // On the second task, two rows below its space.
       await user.keyboard("{ArrowLeft}");
@@ -435,7 +455,9 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}",
+      );
       expect(screen.getByText("View all")).toBeTruthy();
 
       // Past both sessions and onto the row below them.
@@ -502,9 +524,10 @@ describe("ChannelsList", () => {
       );
       mocks.navigate.mockClear();
 
-      // From the top, one press down is "engineering" again. Left where it was,
-      // it would have been the row after it.
-      await user.keyboard("{ArrowDown}{Enter}");
+      // From the top, three presses down is "engineering" again — the two
+      // headings are rows too. Left where it was, this would have landed on the
+      // row after it.
+      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
 
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
       expect(mocks.navigate).not.toHaveBeenCalled();

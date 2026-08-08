@@ -1,5 +1,6 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import {
+  ArrowRightIcon,
   CaretDownIcon,
   CaretRightIcon,
   ChartBarIcon,
@@ -204,7 +205,14 @@ function SpaceRowSurface({
  * parent each task hangs off and the space each row belongs to.
  */
 type SpaceTreeNode =
-  | { kind: "space"; value: string; spaceId: string | undefined }
+  | { kind: "section"; value: string; sectionId: string }
+  | {
+      kind: "space";
+      value: string;
+      spaceId: string | undefined;
+      /** The heading above it, absent while searching — there are none then. */
+      parentValue: string | undefined;
+    }
   | { kind: "task"; value: string; spaceId: string; parentValue: string };
 
 /** How long the pointer has to rest on a space before its sessions are warmed. */
@@ -268,9 +276,16 @@ function moveHighlight(
  */
 function SpaceAttentionDot({
   count,
+  faded,
   className,
 }: {
   count: number;
+  /**
+   * The sessions it stands for are on screen, wearing dots of their own. It
+   * still marks which space they belong to, so it stays — at a weight that
+   * leaves the ones you can act on the brighter of the two.
+   */
+  faded?: boolean;
   /** The row's hover margin, when the dot is what ends its content. */
   className?: string;
 }) {
@@ -281,7 +296,11 @@ function SpaceAttentionDot({
       // useful fact for anyone who can't see it.
       aria-label={`${count} ${count === 1 ? "session" : "sessions"} waiting`}
       role="img"
-      className={cn("size-2 shrink-0 rounded-full bg-primary", className)}
+      className={cn(
+        "size-2 shrink-0 rounded-full bg-primary",
+        faded && "opacity-40",
+        className,
+      )}
     />
   );
 }
@@ -343,7 +362,7 @@ function SpaceDisclosure({
         // A 24px hit target on a 14px mark, hung off the caret's left so it
         // reaches the row's edge and stops before the name. Absolute rather than
         // padding, so the caret keeps its slot and nothing in the row moves.
-        "before:-left-1.5 before:absolute before:inset-auto before:size-6 before:content-['']",
+        "before:-left-8 before:absolute before:inset-auto before:size-6 before:content-['']",
         "before:-translate-y-1/2 before:top-1/2 before:rounded-[calc(var(--radius)-5px)]",
         "hover:before:bg-fill-hover",
       )}
@@ -429,9 +448,9 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       optionValue={item.key}
       data-selected={isActive || undefined}
       onClick={() => openTask(spaceId, item.id)}
-      // A step in from its space's name, so the depth reads off that column
-      // without a guide line to draw it.
-      className="pl-6"
+      // A step in from its space's name, clear of the guide that runs between
+      // the two columns.
+      className="pl-8"
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
@@ -509,18 +528,60 @@ function ViewAllRow({
       asOption={asOption}
       optionValue={viewAllValue(spaceId)}
       onClick={onOpenSpace}
-      className={cn("pl-6.5 text-[13px]", ROW_LABEL_TONE)}
+      className={cn("pl-8 text-[13px]", ROW_LABEL_TONE)}
     >
-      {/* An empty slot the width of a session's status dot, so the label starts
-          in the same column as the titles above it. */}
-      <span className="flex min-w-0 items-center gap-1.5">
-        <span aria-hidden className="size-2 shrink-0" />
-        <span className="truncate">View all</span>
+      {/* The arrow takes the slot a session's status dot has, so the guide's
+          turn lands on that column and the label starts where the titles above
+          it do. */}
+      <span className="flex min-w-0 items-center gap-0.5">
+        <ArrowRightIcon
+          aria-hidden
+          size={10}
+          className="relative top-[-0.5px] left-[-3px] shrink-0 text-border"
+        />
+        <span className="truncate">view all</span>
       </span>
       <span className="shrink-0 text-muted-foreground/50 text-xxs">
         {remaining}
       </span>
     </SpaceRowSurface>
+  );
+}
+
+/**
+ * Runs from the space's caret down the sessions beneath it, so a long list still
+ * reads as belonging to the space above rather than to the list at large.
+ *
+ * Positioned rather than a border, on the caret's own centre: it lines up with
+ * the glyph that opened the space, not the text beside it, and it costs the rows
+ * none of their width. The half-pixel is the centre — a 1px line either side of
+ * it would sit off the glyph by the same amount.
+ */
+function SpaceTreeGuide() {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 left-[14.5px] w-px bg-border"
+    />
+  );
+}
+
+/**
+ * How the guide ends when the space has more than the tree is showing: it turns
+ * into the "View all" row instead of running past it. The turn says this is the
+ * end of the branch, and points at the row that leads out of it.
+ *
+ * `-top-px` and the matching height close the flex gap above, so the turn reads
+ * as the same line rather than a mark that starts below it. The width carries it
+ * from the guide's column to the one the status dots keep, where the row's arrow
+ * picks it up.
+ */
+function SpaceTreeGuideEnd() {
+  return (
+    <span
+      aria-hidden
+      className="-top-px pointer-events-none absolute left-[14.5px] h-[calc(50%+1px)] w-4.5 rounded-bl-md border-border border-b border-l"
+    />
   );
 }
 
@@ -543,30 +604,43 @@ function SpaceTaskRows({
 }) {
   if (tasks.items.length === 0) {
     return (
-      <div className="py-1 pl-12 text-subtle-foreground text-xs">
-        No sessions yet
+      <div className="relative">
+        <SpaceTreeGuide />
+        <div className="py-1 pl-12 text-subtle-foreground text-xs">
+          No sessions yet
+        </div>
       </div>
     );
   }
   return (
-    <>
-      {tasks.items.map((item) => (
-        <SpaceTaskRow
-          key={item.key}
-          item={item}
-          spaceId={spaceId}
-          asOption={asOption}
-        />
-      ))}
+    // The rows were siblings in the list's own flex column, so the wrappers that
+    // give the guide something to hang off have to keep their spacing. The
+    // sessions get their own, because the guide runs their full height and stops
+    // where the turn into "View all" begins.
+    <div className="flex flex-col gap-px">
+      <div className="relative flex flex-col gap-px">
+        <SpaceTreeGuide />
+        {tasks.items.map((item) => (
+          <SpaceTaskRow
+            key={item.key}
+            item={item}
+            spaceId={spaceId}
+            asOption={asOption}
+          />
+        ))}
+      </div>
       {hasViewAllRow(tasks) && (
-        <ViewAllRow
-          spaceId={spaceId}
-          remaining={tasks.total - tasks.items.length}
-          asOption={asOption}
-          onOpenSpace={onOpenSpace}
-        />
+        <div className="relative">
+          <SpaceTreeGuideEnd />
+          <ViewAllRow
+            spaceId={spaceId}
+            remaining={tasks.total - tasks.items.length}
+            asOption={asOption}
+            onOpenSpace={onOpenSpace}
+          />
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -941,6 +1015,7 @@ const ChannelSection = memo(
                   </OverflowTickerText>
                   <SpaceAttentionDot
                     count={unreadSessions}
+                    faded={expanded}
                     className={cn(
                       "group-hover/chan:mr-11",
                       menuOpen && "mr-11",
@@ -1292,7 +1367,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           >
             {PERSONAL_CHANNEL_NAME}
           </span>
-          <SpaceAttentionDot count={unreadSessions} />
+          <SpaceAttentionDot count={unreadSessions} faded={expanded} />
           {hotkeySlot != null && (
             <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
               {formatHotkey(`mod+${hotkeySlot}`)}
@@ -1361,6 +1436,9 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
 const STARRED_SECTION_ID = "channels:starred";
 const CHANNELS_SECTION_ID = "channels:all";
 
+/** A heading's identity in the flat list, kept clear of any channel's id. */
+const sectionValue = (sectionId: string) => `section:${sectionId}`;
+
 // A collapsible sidebar group ("Starred" / "Channels"). Base UI directly rather
 // than quill's Collapsible: quill styles its trigger as a button (which fought
 // the label styling) and animates the panel height (which janked on a list this
@@ -1375,6 +1453,7 @@ function ChannelGroup({
   className,
   flat,
   keepMounted = true,
+  asOption = false,
   children,
 }: {
   sectionId: string;
@@ -1388,6 +1467,12 @@ function ChannelGroup({
    * rebuild on expand is better than highlighting a row nobody can see.
    */
   keepMounted?: boolean;
+  /**
+   * Under the layout the heading is a row of the tree like any other: ↑/↓ walk
+   * onto it, → opens the section, ← closes it. Off the layout there is no search
+   * box driving a list, so it stays a plain label you click.
+   */
+  asOption?: boolean;
   children: ReactNode;
 }) {
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
@@ -1406,12 +1491,39 @@ function ChannelGroup({
       className={cn(className, "mb-2")}
     >
       {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
-          real button so the whole row is clickable. */}
+          real button so the whole row is clickable. Wrapped in an option when
+          the keyboard walks the list, so the heading is a stop on the way down
+          rather than a gap the highlight jumps over. */}
       <Collapsible.Trigger
-        className="group/group-trigger flex w-full items-center gap-2"
-        render={<MenuLabel render={<button type="button" />} />}
+        className={cn(
+          "group/group-trigger flex w-full items-center gap-2 py-1",
+          // quill wraps an option's children in its own flex row, so the caret's
+          // `ml-auto` has nothing to push against until that row is full width.
+          // The highlight is the rows' own hover fill rather than quill's focus
+          // ring, for the reason SpaceRowSurface gives.
+          asOption &&
+            "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
+        )}
+        render={
+          asOption ? (
+            <AutocompleteItem
+              value={sectionValue(sectionId)}
+              render={<MenuLabel render={<button type="button" />} />}
+            />
+          ) : (
+            <MenuLabel render={<button type="button" />} />
+          )
+        }
       >
         {label}
+        {/* On the right, because the heading's name is the left edge every row
+            beneath it lines up to. Always drawn: which way the section is, is
+            the one thing this row has to say. */}
+        {isOpen ? (
+          <CaretDownIcon size={12} className="shrink-0" />
+        ) : (
+          <CaretRightIcon size={12} className="shrink-0" />
+        )}
       </Collapsible.Trigger>
       {/* Stay mounted while collapsed. Every row builds a context menu, a
           dropdown, a tooltip and two dialogs up front, so unmounting on close
@@ -1498,14 +1610,18 @@ export function ChannelsList() {
   // it already shows — and ArrowLeft needs to know which space a task hangs off.
   // A collapsed group or space renders no rows, so it contributes none.
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
+  const toggleSection = useSidebarStore((s) => s.toggleSection);
   // "me" is provisioned server-side with the first list fetch; before it loads
   // it has no id to go by.
   const meValue = me?.id ?? PERSONAL_CHANNEL_NAME;
+  const starredValue = sectionValue(STARRED_SECTION_ID);
+  const channelsValue = sectionValue(CHANNELS_SECTION_ID);
   const spaceNodes = (
     value: string,
     spaceId: string | undefined,
+    parentValue?: string,
   ): SpaceTreeNode[] => {
-    const space: SpaceTreeNode = { kind: "space", value, spaceId };
+    const space: SpaceTreeNode = { kind: "space", value, spaceId, parentValue };
     if (!isExpanded(spaceId) || !spaceId) return [space];
     const tasks = tasksOf(spaceId);
     return [
@@ -1540,20 +1656,31 @@ export function ChannelsList() {
         ),
       ]
     : [
+        // A heading is a row of the tree, so it is a node whether or not its
+        // section is open — a folded section is still somewhere ↓ can land and
+        // → can open.
+        { kind: "section", value: starredValue, sectionId: STARRED_SECTION_ID },
         // "me" leads the starred section rather than floating above it: it is
         // the space you always keep, so it belongs with the ones you chose to
         // keep. Folding the section away takes it with them.
         ...(collapsedSections.has(STARRED_SECTION_ID)
           ? []
           : [
-              ...spaceNodes(meValue, me?.id),
+              ...spaceNodes(meValue, me?.id, starredValue),
               ...starred.flatMap((channel) =>
-                spaceNodes(channel.id, channel.id),
+                spaceNodes(channel.id, channel.id, starredValue),
               ),
             ]),
+        {
+          kind: "section",
+          value: channelsValue,
+          sectionId: CHANNELS_SECTION_ID,
+        },
         ...(collapsedSections.has(CHANNELS_SECTION_ID)
           ? []
-          : others.flatMap((channel) => spaceNodes(channel.id, channel.id))),
+          : others.flatMap((channel) =>
+              spaceNodes(channel.id, channel.id, channelsValue),
+            )),
       ];
   const optionValues = nodes.map((node) => node.value);
 
@@ -1603,7 +1730,17 @@ export function ChannelsList() {
     if (!node) return;
 
     if (event.key === "ArrowRight") {
-      if (!atEnd || node.kind !== "space" || !node.spaceId) return;
+      if (!atEnd) return;
+      if (node.kind === "section") {
+        event.preventDefault();
+        if (collapsedSections.has(node.sectionId)) {
+          toggleSection(node.sectionId);
+          return;
+        }
+        moveHighlight(input, "ArrowDown", 1);
+        return;
+      }
+      if (node.kind !== "space" || !node.spaceId) return;
       event.preventDefault();
       if (!expandedSpaceIds.has(node.spaceId)) {
         expandSpace(node.spaceId);
@@ -1616,6 +1753,13 @@ export function ChannelsList() {
     }
 
     if (!atStart) return;
+    // A heading has nothing above it to step to, so ← only ever folds it.
+    if (node.kind === "section") {
+      if (collapsedSections.has(node.sectionId)) return;
+      event.preventDefault();
+      toggleSection(node.sectionId);
+      return;
+    }
     if (node.kind === "task") {
       event.preventDefault();
       // Move first, while the children are still rendered — the highlight is an
@@ -1631,7 +1775,17 @@ export function ChannelsList() {
     if (node.spaceId && expandedSpaceIds.has(node.spaceId)) {
       event.preventDefault();
       collapseSpace(node.spaceId);
+      return;
     }
+    // Closed already, so ← does what it does from a session: steps up to the
+    // row this one hangs off, which for a space is its heading.
+    if (!node.parentValue) return;
+    event.preventDefault();
+    moveHighlight(
+      input,
+      "ArrowUp",
+      optionValues.indexOf(node.value) - optionValues.indexOf(node.parentValue),
+    );
   };
 
   const rows = normalizedQuery ? (
@@ -1661,6 +1815,7 @@ export function ChannelsList() {
         label="Starred"
         flat={channelsLayout}
         keepMounted={!channelsLayout}
+        asOption={channelsLayout}
       >
         <PersonalChannelRow
           hotkeySlot={channelsLayout && me ? slotFor(me) : undefined}
@@ -1687,6 +1842,7 @@ export function ChannelsList() {
         label={channelsLayout ? "Spaces" : "Channels"}
         flat={channelsLayout}
         keepMounted={!channelsLayout}
+        asOption={channelsLayout}
       >
         {!isLoading && channels.length === 0 && (
           <Empty className="px-2 py-1 text-subtle-foreground text-xs">
