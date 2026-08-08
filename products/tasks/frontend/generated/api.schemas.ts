@@ -1436,7 +1436,7 @@ export interface TaskRunArtifactResponseApi {
     uploaded_at: string
     /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
     dismissed_at?: string
-    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
     url?: string
 }
 
@@ -3970,6 +3970,12 @@ export interface WarmTaskRequestApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+     * @maxItems 3
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * Primary key of the team's GitHub integration to clone with when a repository is selected.
      * @nullable

@@ -40,7 +40,10 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    create_experiment,
+    snapshot_for as _snapshot_for,
+)
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -684,6 +687,104 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.post(f"{self.scanners_url}{scanner.id}/affected_cohort/", format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertIn("cohort", resp.json()["detail"])
+
+
+class TestScannerExperimentTargeting(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.experiment = create_experiment(self.team, "checkout-redesign")
+        self.targeting = {
+            "experiment_id": self.experiment.id,
+            "variant_keys": ["test"],
+            "use_exposure_fallback": False,
+        }
+
+    def _create_payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_6_FLASH,
+            **extra,
+        }
+
+    def test_experiment_targeting_round_trips_and_clears(self) -> None:
+        resp = self.client.post(
+            self.scanners_url, data=self._create_payload("ctx", experiment_targeting=self.targeting), format="json"
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["experiment_targeting"], self.targeting)
+
+        scanner_id = resp.json()["id"]
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner_id}/", data={"experiment_targeting": None}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["experiment_targeting"])
+
+    @parameterized.expand(
+        [
+            ("missing_experiment", {"variant_keys": [], "use_exposure_fallback": False}),
+            ("bad_experiment_id", {"experiment_id": 0, "variant_keys": [], "use_exposure_fallback": False}),
+            (
+                "variant_keys_not_a_list",
+                {"experiment_id": 9, "variant_keys": "not-a-list", "use_exposure_fallback": False},
+            ),
+            ("blank_variant_key", {"experiment_id": 9, "variant_keys": [""], "use_exposure_fallback": False}),
+            (
+                "too_many_variant_keys",
+                {"experiment_id": 9, "variant_keys": [f"v{i}" for i in range(51)], "use_exposure_fallback": False},
+            ),
+        ]
+    )
+    def test_experiment_targeting_rejects_malformed(self, _name: str, targeting: dict[str, Any]) -> None:
+        resp = self.client.post(
+            self.scanners_url, data=self._create_payload("bad-ctx", experiment_targeting=targeting), format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        # The field's nested validation reports the exact offending key (e.g.
+        # experiment_targeting__variant_keys__0), so match on the prefix rather than the exact attr.
+        self.assertTrue(resp.json()["attr"].startswith("experiment_targeting"), resp.json())
+
+    def test_partial_update_cannot_save_a_half_filled_targeting(self) -> None:
+        # PATCH makes the parent serializer partial; the custom field validates every write through
+        # a fresh non-partial serializer, so a half-filled object can't persist.
+        scanner = self._create_scanner(name="patch-me", experiment_targeting=self.targeting)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"experiment_targeting": {"variant_keys": ["control"]}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.experiment_targeting, self.targeting)
+
+    def test_rejects_an_experiment_from_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = create_experiment(other_team, "foreign-flag")
+        resp = self.client.post(
+            self.scanners_url,
+            data=self._create_payload(
+                "cross-team", experiment_targeting={**self.targeting, "experiment_id": foreign.id}
+            ),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_list_filters_by_experiment_id(self) -> None:
+        other = create_experiment(self.team, "other-flag")
+        self._create_scanner(name="for-exp", experiment_targeting=self.targeting)
+        self._create_scanner(name="for-other-exp", experiment_targeting={**self.targeting, "experiment_id": other.id})
+        self._create_scanner(name="no-context")
+
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={self.experiment.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([row["name"] for row in resp.json()["results"]], ["for-exp"])
+
+    @parameterized.expand([("superscript", "\u00b2"), ("zero", "0"), ("negative", "-1"), ("word", "abc")])
+    def test_list_filter_rejects_non_positive_integers(self, _name: str, value: str) -> None:
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={value}")
+        self.assertEqual(resp.status_code, 400)
 
 
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):

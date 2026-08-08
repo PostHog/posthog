@@ -115,6 +115,9 @@ rules:
                               |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
+                              |DataQualityCheck
+                              |DataQualityCheckRun
+                              |DataQualitySuiteRun
                               |Dataset
                               |DatasetItem
                               |DatasetItemVersion
@@ -464,6 +467,9 @@ rules:
                         |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
+                        |DataQualityCheck
+                        |DataQualityCheckRun
+                        |DataQualitySuiteRun
                         |Dataset
                         |DatasetItem
                         |DatasetItemVersion

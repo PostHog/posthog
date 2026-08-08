@@ -143,12 +143,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type AccountProperties = {
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -198,7 +200,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: AccountProperties;
@@ -13273,16 +13275,43 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * Read shape for list/retrieve/create-response. `cimd_url` is nullable here for
+     * tokens issued before URL binding; the write serializers below require a value.
+     */
     export interface CIMDVerificationToken {
       readonly id: string;
-      /** @maxLength 40 */
-      label: string;
+      /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+      readonly label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+         * @maxLength 2048
+         * @nullable
+         */
+      readonly cimd_url: string | null;
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
       readonly last_used_at: string | null;
+    }
+
+    /**
+     * Write shape for `create`. `cimd_url` is required and non-null: only tokens
+     * issued before URL binding existed are nullable, not new ones.
+     */
+    export interface CIMDVerificationTokenCreate {
+      /**
+         * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+         * @maxLength 40
+         */
+      label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.
+         * @maxLength 2048
+         */
+      cimd_url: string;
     }
 
     /**
@@ -13293,8 +13322,14 @@ export namespace Schemas {
      */
     export interface CIMDVerificationTokenWithValue {
       readonly id: string;
-      /** @maxLength 40 */
-      label: string;
+      /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+      readonly label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+         * @maxLength 2048
+         * @nullable
+         */
+      readonly cimd_url: string | null;
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_by: UserBasic;
@@ -13438,6 +13473,52 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    /**
+     * Sync state of one connected calendar (read-only).
+     */
+    export interface CalendarSyncStatus {
+      /** Id of the google-calendar integration. */
+      readonly integration_id: number;
+      /**
+         * When the last sync run completed; null before the first sync.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /** Whether a sync run is currently in flight. */
+      readonly is_syncing: boolean;
+    }
+
+    /**
+     * Request body of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTrigger {
+      /** Id of the google-calendar integration to sync. */
+      integration_id: number;
+    }
+
+    /**
+     * * `started` - started
+     * * `already_running` - already_running
+     */
+    export type CalendarSyncTriggerResponseStatusEnum = typeof CalendarSyncTriggerResponseStatusEnum[keyof typeof CalendarSyncTriggerResponseStatusEnum];
+
+
+    export const CalendarSyncTriggerResponseStatusEnum = {
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Response of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTriggerResponse {
+      /** 'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).
+       *
+       * * `started` - started
+       * * `already_running` - already_running */
+      status: CalendarSyncTriggerResponseStatusEnum;
     }
 
     /**
@@ -29175,6 +29256,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentApiExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentApiExposureConfig | null;
       exposure_config?: ExperimentApiExposureConfig | null;
       filterTestAccounts?: boolean | null;
       /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
@@ -29491,6 +29574,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
@@ -39479,6 +39564,18 @@ export namespace Schemas {
       readonly code_name: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     export interface InsightViewedRequest {
@@ -43746,6 +43843,48 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    /**
+     * One attendee of a synced calendar meeting (read-only).
+     */
+    export interface MeetingParticipant {
+      /** Email address of the attendee. */
+      readonly email: string;
+      /** Display name from the calendar event; may be empty. */
+      readonly display_name: string;
+      /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
+      readonly response_status: string;
+      /** Whether this attendee organized the meeting. */
+      readonly is_organizer: boolean;
+      /**
+         * UUID of the PostHog person resolved for this attendee, if any.
+         * @nullable
+         */
+      readonly person_id: string | null;
+    }
+
+    /**
+     * A calendar meeting synced from a connected employee calendar (read-only).
+     */
+    export interface Meeting {
+      /** UUID of the meeting. */
+      readonly id: string;
+      /** Meeting title; may be empty. */
+      readonly title: string;
+      /** When the meeting starts. */
+      readonly start_time: string;
+      /**
+         * When the meeting ends.
+         * @nullable
+         */
+      readonly end_time: string | null;
+      /** Email address of the meeting organizer; may be empty. */
+      readonly organizer_email: string;
+      /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
+      readonly status: string;
+      /** Attendees of the meeting. */
+      readonly participants: readonly MeetingParticipant[];
+    }
+
     export interface MemberAccessUpdate {
       /** Gateway server to toggle for the member. */
       gateway_server_id: string;
@@ -46887,6 +47026,15 @@ export namespace Schemas {
       results: MaxCoreMemory[];
     }
 
+    export interface PaginatedMeetingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Meeting[];
+    }
+
     export interface PaginatedMessageCategoryList {
       count: number;
       /** @nullable */
@@ -47659,6 +47807,25 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
+     */
+    export interface ScannerExperimentTargeting {
+      /**
+         * The experiment the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Targeted experiment variants. Empty means every variant.
+         * @maxItems 50
+         * @items.maxLength 400
+         */
+      variant_keys: string[];
+      /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
+      use_exposure_fallback: boolean;
+    }
+
+    /**
      * A Replay Vision scanner: its type, targeting query, and AI configuration.
      */
     export interface ReplayScanner {
@@ -47710,6 +47877,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
+      /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
+      experiment_targeting?: ScannerExperimentTargeting | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
       /**
@@ -49959,7 +50128,7 @@ export namespace Schemas {
       uploaded_at: string;
       /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
       dismissed_at?: string;
-      /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+      /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
       url?: string;
     }
 
@@ -51644,12 +51813,14 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type PatchedAccountProperties = {
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -51685,7 +51856,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -52030,6 +52201,19 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever
+     * performs a null -> value transition: `validate` rejects any instance whose `cimd_url`
+     * is already set, so an existing binding can never be re-pointed through this endpoint.
+     */
+    export interface PatchedCIMDVerificationTokenUpdate {
+      /**
+         * HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.
+         * @maxLength 2048
+         */
+      cimd_url?: string;
     }
 
     /**
@@ -54749,6 +54933,18 @@ export namespace Schemas {
       readonly code_name?: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     /**
@@ -56891,6 +57087,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
+      /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
+      experiment_targeting?: ScannerExperimentTargeting | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
       /**
@@ -58025,12 +58223,12 @@ export namespace Schemas {
     export interface PatchedSurveySerializerCreateUpdateOnlySchema {
       readonly id?: string;
       /**
-         * Survey name.
+         * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
          * @minLength 1
          * @maxLength 400
          */
       name?: string;
-      /** Survey description. */
+      /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
       description?: string;
       /** Survey type.
        *
@@ -59808,6 +60006,26 @@ export namespace Schemas {
       status: number;
       /** The target project's response body, passed through. */
       data: unknown;
+    }
+
+    export interface PostHogConnectionTarget {
+      /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+      project_id: number;
+      /** Name of the connected project. */
+      project_name: string;
+      /** Id of the organization the connected project belongs to. */
+      organization_id: string;
+      /** Name of the organization the connected project belongs to. */
+      organization_name: string;
+      /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+      region: string;
+      /** Base URL requests through this connection are sent to. */
+      base_url: string;
+    }
+
+    export interface PostHogConnectionTargetError {
+      /** Why the connected project's context could not be read. */
+      error: string;
     }
 
     /**
@@ -73208,12 +73426,12 @@ export namespace Schemas {
     export interface SurveySerializerCreateUpdateOnlySchema {
       readonly id: string;
       /**
-         * Survey name.
+         * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
          * @minLength 1
          * @maxLength 400
          */
       name: string;
-      /** Survey description. */
+      /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
       description?: string;
       /** Survey type.
        *
@@ -76290,6 +76508,12 @@ export namespace Schemas {
          */
       repository?: string | null;
       /**
+         * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+         * @maxItems 3
+         * @items.maxLength 255
+         */
+      repositories?: string[];
+      /**
          * Primary key of the team's GitHub integration to clone with when a repository is selected.
          * @nullable
          */
@@ -79120,6 +79344,21 @@ export namespace Schemas {
     include_history?: boolean;
     };
 
+    export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string;
+    };
+
     export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
@@ -79354,6 +79593,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
      * @minLength 1
@@ -79448,6 +79688,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
     } as const;
@@ -79528,6 +79769,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
      */
@@ -79610,6 +79852,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
     } as const;
@@ -87606,6 +87849,10 @@ export namespace Schemas {
      * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
      */
     enabled?: string;
+    /**
+     * Filter to scanners whose targeting watches the given experiment.
+     */
+    experiment_id?: string;
     /**
      * Number of results to return per page.
      */
