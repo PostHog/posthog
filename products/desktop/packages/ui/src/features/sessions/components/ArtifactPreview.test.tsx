@@ -44,6 +44,7 @@ const taskRuns = vi.hoisted(() => ({
 const orgMembersOptions = vi.hoisted(() => vi.fn());
 const artifactMocks = vi.hoisted(() => ({
   getCloudRunArtifacts: vi.fn(),
+  getCloudAttachmentPreviewUrl: vi.fn(),
   uploadCloudRunArtifactVersion: vi.fn(),
   invalidateQueries: vi.fn(),
   openArtifactTab: vi.fn(),
@@ -60,6 +61,7 @@ vi.mock("@posthog/core/sessions/sessionService", () => ({
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({
     getCloudRunArtifacts: artifactMocks.getCloudRunArtifacts,
+    getCloudAttachmentPreviewUrl: artifactMocks.getCloudAttachmentPreviewUrl,
     uploadCloudRunArtifactVersion: artifactMocks.uploadCloudRunArtifactVersion,
   }),
   useServiceOptional: () => null,
@@ -238,6 +240,7 @@ describe("ArtifactPreview", () => {
       isError: false,
     });
     artifactMocks.getCloudRunArtifacts.mockReset();
+    artifactMocks.getCloudAttachmentPreviewUrl.mockReset();
     artifactMocks.uploadCloudRunArtifactVersion.mockReset();
     artifactMocks.uploadCloudRunArtifactVersion.mockResolvedValue("artifact-2");
     artifactMocks.invalidateQueries.mockReset();
@@ -270,6 +273,36 @@ describe("ArtifactPreview", () => {
         meta: { authScoped: true },
       }),
     );
+  });
+
+  it("starts the manifest and preview URL requests together", async () => {
+    let resolveArtifacts: (artifacts: unknown[]) => void = () => undefined;
+    artifactMocks.getCloudRunArtifacts.mockReturnValue(
+      new Promise((resolve) => {
+        resolveArtifacts = resolve;
+      }),
+    );
+    artifactMocks.getCloudAttachmentPreviewUrl.mockResolvedValue(null);
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.html"
+      />,
+    );
+
+    const queryFn = useQuery.mock.calls[0]?.[0]
+      .queryFn as () => Promise<unknown>;
+    const result = queryFn();
+    expect(artifactMocks.getCloudAttachmentPreviewUrl).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      "artifact-1",
+    );
+    resolveArtifacts([]);
+    await expect(result).rejects.toThrow("Artifact is unavailable");
   });
 
   it("keeps the artifact visible when comments fail to load", () => {
