@@ -1,4 +1,48 @@
-import { ApiError } from './api-error'
+import { ApiError, describeApiError, isNetworkError } from './api-error'
+
+describe('describeApiError', () => {
+    it('names the offending field for a DRF field-level validation error', async () => {
+        const body = {
+            type: 'validation_error',
+            detail: 'Ensure this field has no more than 400 characters.',
+            attr: 'name',
+        }
+        const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 400 }))
+
+        // Regression: the bare `detail` alone gives no hint which field failed.
+        expect(describeApiError(error, 'Could not save insight')).toEqual(
+            'Name: Ensure this field has no more than 400 characters.'
+        )
+    })
+
+    it('returns the detail alone when the error names no field', async () => {
+        const error = await ApiError.fromResponse(
+            new Response(JSON.stringify({ detail: 'Something went wrong.' }), { status: 400 })
+        )
+
+        expect(describeApiError(error, 'fallback')).toEqual('Something went wrong.')
+    })
+
+    it('falls back when the error carries no detail', () => {
+        expect(describeApiError(new ApiError(undefined, undefined), 'Could not save insight')).toEqual(
+            'Could not save insight'
+        )
+    })
+})
+
+describe('isNetworkError', () => {
+    it('is true for an ApiError with no status (request never reached the server)', () => {
+        expect(isNetworkError(new ApiError('Failed to fetch', undefined))).toBe(true)
+    })
+
+    it('is false for an ApiError carrying an HTTP status', () => {
+        expect(isNetworkError(new ApiError('Bad request', 400))).toBe(false)
+    })
+
+    it('is false for a plain Error, so a thrown bug is not mislabeled as offline', () => {
+        expect(isNetworkError(new Error('boom'))).toBe(false)
+    })
+})
 
 describe('ApiError.fromResponse', () => {
     it.each([

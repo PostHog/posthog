@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { describeApiError, isNetworkError, NETWORK_ERROR_MESSAGE } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -1067,12 +1068,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
-                if (e instanceof ApiError) {
-                    lemonToast.error(e.detail ?? 'Could not save insight')
+                if (isNetworkError(e)) {
+                    lemonToast.error(NETWORK_ERROR_MESSAGE)
+                } else if (e instanceof ApiError) {
+                    lemonToast.error(describeApiError(e, 'Could not save insight'))
                 } else {
                     lemonToast.error('Could not save insight')
                 }
-                throw e
+                // The failure is fully surfaced above; return rather than rethrow so it doesn't
+                // escape as an unhandled rejection (no caller awaits this listener) and so the
+                // success path below is skipped.
+                return
             }
 
             // the backend can't return the result for a query based insight,

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -601,6 +602,40 @@ describe('insightLogic', () => {
             logic.actions.saveInsight()
         }).toFinishAllListeners()
         expect(localStorage.getItem(draftKey)).toBeNull()
+    })
+
+    test('saveInsight names the offending field when the save fails validation', async () => {
+        // Regression: a field-level 400 used to collapse into the bare "Could not save insight",
+        // naming no field. The save listener now unpacks the DRF field error into the toast.
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/insights/:id': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        detail: 'Ensure this field has no more than 400 characters.',
+                        attr: 'name',
+                    },
+                ],
+            },
+        })
+
+        const updateProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            cachedInsight: { id: 42, short_id: Insight42, query: examples.FunnelsQuery, result: {} },
+        }
+        logic = insightLogic(updateProps)
+        logic.mount()
+        insightDataLogic(updateProps).mount()
+
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toDispatchActions(['saveInsightFailure'])
+
+        expect(errorSpy).toHaveBeenCalledWith('Name: Ensure this field has no more than 400 characters.')
+        errorSpy.mockRestore()
     })
 
     test('saveInsight updates dashboards', async () => {

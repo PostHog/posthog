@@ -343,6 +343,54 @@ describe('API helper', () => {
         })
     })
 
+    describe('transient network retries', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const okResponse = (): any => ({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ saved: true })),
+        })
+
+        it('retries an idempotent write dropped with no response, then resolves', async () => {
+            fakeFetch.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(okResponse())
+
+            const promise = api.update('/api/environments/2/insights/1/', { name: 'x' })
+            await jest.runAllTimersAsync()
+
+            await expect(promise).resolves.toEqual({ saved: true })
+            expect(fakeFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not retry a POST, since replaying it could create a duplicate', async () => {
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = api.create('/api/environments/2/insights/', { name: 'x' }).catch((e) => e)
+            await jest.runAllTimersAsync()
+
+            expect(await error).toBeInstanceOf(ApiError)
+            expect(fakeFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up after exhausting retries and throws a status-less ApiError', async () => {
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = api.update('/api/environments/2/insights/1/', { name: 'x' }).catch((e) => e)
+            await jest.runAllTimersAsync()
+
+            const resolved = await error
+            expect(resolved).toBeInstanceOf(ApiError)
+            expect(resolved.status).toBeUndefined()
+            expect(fakeFetch).toHaveBeenCalledTimes(3) // initial attempt + 2 retries
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()

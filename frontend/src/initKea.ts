@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isNetworkError, NETWORK_ERROR_MESSAGE } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -141,7 +141,15 @@ export function initKea({
                 // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
-                if (
+                if (!ERROR_FILTER_ALLOW_LIST.includes(actionKey) && isNetworkError(error)) {
+                    // A request that never reached the server (dropped, blocked, or offline)
+                    // has no status. Surface it for writes only — read loaders mostly retry or
+                    // degrade on their own, and toasting each one during a blip would storm the
+                    // screen. Idempotent writes are already retried in api.ts before reaching here.
+                    if (!isLoadAction) {
+                        lemonToast.error(`${identifierToHuman(actionKey)} failed: ${NETWORK_ERROR_MESSAGE}`)
+                    }
+                } else if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow

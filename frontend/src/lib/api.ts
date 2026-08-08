@@ -13,6 +13,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { assertNotReadOnly } from 'lib/readOnlyGuard'
+import { delay } from 'lib/utils/async'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -7489,11 +7490,18 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+// A transient network failure (the fetch rejects with no HTTP response) can drop an
+// idempotent write and lose the user's save. Retry those a couple of times with backoff
+// before surfacing the error. POST is excluded — replaying it could create a duplicate.
+const MAX_NETWORK_RETRIES = 2
+const NETWORK_RETRYABLE_METHODS = new Set(['GET', 'HEAD', 'PUT', 'PATCH', 'DELETE'])
+
 async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    networkRetryCount = 0
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7510,6 +7518,10 @@ async function handleFetch(
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
             throw error
+        }
+        if (NETWORK_RETRYABLE_METHODS.has(method.toUpperCase()) && networkRetryCount < MAX_NETWORK_RETRIES) {
+            await delay(250 * 2 ** networkRetryCount)
+            return await handleFetch(url, method, fetcher, isRetry, networkRetryCount + 1)
         }
         throw new ApiError(error as any, response?.status)
     }

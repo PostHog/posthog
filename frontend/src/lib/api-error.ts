@@ -1,9 +1,30 @@
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { identifierToHuman } from 'lib/utils/strings'
+
+/** Shown when a request never reached the server (dropped, blocked, or offline). */
+export const NETWORK_ERROR_MESSAGE = 'The server could not be reached. Check your connection and try again.'
 
 /** A 403 with DRF's `permission_denied` code — the user lacks access to the resource itself. */
 export function isAccessDeniedError(error: { status?: number; code?: string | null }): boolean {
     return error.status === 403 && error.code === 'permission_denied'
+}
+
+/** True when the request failed before any HTTP response came back (no status to report). */
+export function isNetworkError(error: unknown): error is ApiError {
+    return error instanceof ApiError && error.status === undefined
+}
+
+/**
+ * Human-readable message for an ApiError, naming the offending field when DRF returns one.
+ * DRF field-level validation errors carry the reason in `detail` and the field in `attr`
+ * (flattened by drf-exceptions-hog), so a bare `detail` alone omits which field failed.
+ */
+export function describeApiError(error: ApiError, fallback: string): string {
+    if (!error.detail) {
+        return fallback
+    }
+    return error.attr ? `${identifierToHuman(error.attr)}: ${error.detail}` : error.detail
 }
 
 export class ApiError extends Error {
