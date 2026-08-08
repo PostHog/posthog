@@ -18,10 +18,10 @@ drift away from flag routing, the control/test imbalance grows between recalcula
 partially resets at each one, and the experiment eventually trips a sample ratio mismatch warning
 whose cause is invisible in randomization or exposure-event configuration.
 
-This surfaced in production in August 2026: a customer used a dynamic cohort in exposure criteria
-to exclude a group of users, and the imbalance grew at roughly 56 users/hour between cohort
-recalculations. Static cohorts don't have this gap — their membership is fixed at creation, so
-both reads agree.
+This has been observed in production: a customer used a dynamic cohort in exposure criteria to
+exclude a group of users, and the imbalance grew steadily between cohort recalculations until it
+tripped a sample ratio mismatch. Static cohorts don't have this gap — their membership is fixed
+at creation, so both reads agree.
 
 ## What we surface
 

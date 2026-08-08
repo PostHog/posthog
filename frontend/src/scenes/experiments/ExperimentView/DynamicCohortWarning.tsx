@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
@@ -7,6 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { DynamicCohortExposureRisk } from '~/queries/schema/schema-general'
+import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -26,10 +27,21 @@ export function DynamicCohortWarning(): JSX.Element | null {
 
     const risk: DynamicCohortExposureRisk | undefined = exposures?.dynamic_cohort_risk
 
+    // Report once per experiment while the banner stays up. `experiment` is a fresh object on
+    // every inline edit and `risk` is a fresh object on every exposures reload, so keying the
+    // effect on either alone would re-report a banner that never went away.
+    const reportedForExperimentId = useRef<Experiment['id'] | null>(null)
+
     useEffect(() => {
-        if (risk) {
-            reportExperimentDynamicCohortWarningShown(experiment)
+        if (!risk) {
+            reportedForExperimentId.current = null
+            return
         }
+        if (reportedForExperimentId.current === experiment.id) {
+            return
+        }
+        reportedForExperimentId.current = experiment.id
+        reportExperimentDynamicCohortWarningShown(experiment)
     }, [reportExperimentDynamicCohortWarningShown, risk, experiment])
 
     if (!risk) {

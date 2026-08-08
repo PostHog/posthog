@@ -305,15 +305,29 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # their experiment's configuration, not whatever criteria this one query passed in.
         criteria: Any = self.experiment.exposure_criteria
         cohort_ids = _collect_cohort_ids(criteria) if criteria else set()
+        # Test-account filters are team-level, not part of the criteria, but the exposure query
+        # ANDs them in when filterTestAccounts is on (see build_test_accounts_filter) — and a
+        # cohort is an allowed filter there. A dynamic cohort in that list carries the same gap.
+        if criteria and criteria.get("filterTestAccounts") and self.team.test_account_filters:
+            cohort_ids |= _collect_cohort_ids(self.team.test_account_filters)
         if not cohort_ids:
             return None
-        referenced_cohorts = list(
-            Cohort.objects.filter(
-                team__project_id=self.team.project_id,
-                pk__in=cohort_ids,
-                deleted=False,
-            ).values("id", "name", "is_static")
-        )
+        # This runs last in _calculate, after the exposures query (max_execution_time=600) and
+        # every derived stat. A transient Postgres fault here would otherwise propagate through
+        # experiment_error_handler — which re-raises what it can't map — and discard all of that
+        # completed work for the sake of an advisory banner. Degrade to "no risk shown" instead,
+        # mirroring _ensure_exposures_precomputed above.
+        try:
+            referenced_cohorts = list(
+                Cohort.objects.filter(
+                    team__project_id=self.team.project_id,
+                    pk__in=cohort_ids,
+                    deleted=False,
+                ).values("id", "name", "is_static")
+            )
+        except Exception:
+            logger.exception("dynamic_cohort_risk_lookup_failed", experiment_id=self.experiment.id)
+            return None
         return evaluate_dynamic_cohort_risk(referenced_cohorts)
 
     @experiment_error_handler

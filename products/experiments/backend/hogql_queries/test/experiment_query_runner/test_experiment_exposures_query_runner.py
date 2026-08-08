@@ -1869,3 +1869,34 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         self.assertIsNone(runner._evaluate_dynamic_cohort_risk())
+
+    def test_dynamic_cohort_in_team_test_account_filters_is_reported(self):
+        # filterTestAccounts ANDs the team's test-account filters into the exposure query, and a
+        # cohort is an allowed filter there — so a dynamic one carries the same staleness gap
+        # even though it lives outside the experiment's own exposure criteria.
+        cohort = Cohort.objects.create(team=self.team, name="Internal users", is_static=False)
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        self.team.save()
+        self.experiment.exposure_criteria = {"filterTestAccounts": True}
+        self.experiment.save()
+
+        runner = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._exposure_query_for(self.experiment, self.experiment.exposure_criteria)
+        )
+        risk = runner._evaluate_dynamic_cohort_risk()
+
+        assert risk is not None
+        self.assertEqual([c.id for c in risk.cohorts], [cohort.pk])
+
+    def test_team_test_account_filters_ignored_when_filtering_is_off(self):
+        cohort = Cohort.objects.create(team=self.team, name="Internal users", is_static=False)
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        self.team.save()
+        self.experiment.exposure_criteria = {"filterTestAccounts": False}
+        self.experiment.save()
+
+        runner = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._exposure_query_for(self.experiment, self.experiment.exposure_criteria)
+        )
+
+        self.assertIsNone(runner._evaluate_dynamic_cohort_risk())
