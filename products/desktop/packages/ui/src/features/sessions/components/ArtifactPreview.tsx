@@ -25,18 +25,13 @@ import {
   Button,
   Spinner,
 } from "@posthog/quill";
-import {
-  ARTIFACT_EDITING_FLAG,
-  isAllowedImageMimeType,
-  type TaskRunArtifact,
-} from "@posthog/shared";
+import { isAllowedImageMimeType, type TaskRunArtifact } from "@posthog/shared";
 import {
   getAuthIdentity,
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
@@ -177,7 +172,6 @@ export function ArtifactPreview({
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const queryClient = useQueryClient();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const editingEnabled = useFeatureFlag(ARTIFACT_EDITING_FLAG);
   const [showRendered, setShowRendered] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [checkingLatest, setCheckingLatest] = useState(false);
@@ -455,8 +449,7 @@ export function ArtifactPreview({
       )
     : undefined;
   const canEdit = Boolean(
-    editingEnabled &&
-      editableKind &&
+    editableKind &&
       artifactResult?.source !== undefined &&
       latest &&
       artifactResult &&

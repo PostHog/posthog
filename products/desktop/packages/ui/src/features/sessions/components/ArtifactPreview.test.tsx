@@ -36,7 +36,6 @@ const artifactComments = vi.hoisted(() => ({
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
 const commentsFlag = vi.hoisted(() => ({ enabled: true }));
-const editingFlag = vi.hoisted(() => ({ enabled: true }));
 const orgMembersOptions = vi.hoisted(() => vi.fn());
 const artifactMocks = vi.hoisted(() => ({
   getCloudRunArtifacts: vi.fn(),
@@ -68,10 +67,6 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
 
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   AUTH_SCOPED_QUERY_META: { authScoped: true },
-}));
-
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => editingFlag.enabled,
 }));
 
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
@@ -210,7 +205,6 @@ function textComment(): ResourceComment {
 describe("ArtifactPreview", () => {
   beforeEach(() => {
     commentsFlag.enabled = true;
-    editingFlag.enabled = true;
     auth.identity = "auth-1";
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -912,54 +906,41 @@ describe("ArtifactPreview", () => {
     {
       name: "a non-editable type",
       artifact: { name: "report.json", content_type: "application/json" },
-      flagEnabled: true,
       newerVersion: false,
     },
     {
       name: "an unsupported extension fallback",
       artifact: { name: "report.markdown", content_type: undefined },
-      flagEnabled: true,
       newerVersion: false,
     },
     {
       name: "an old version",
       artifact: { name: "report.md", content_type: "text/markdown" },
-      flagEnabled: true,
       newerVersion: true,
     },
-    {
-      name: "the latest editable type while the flag is off",
-      artifact: { name: "report.md", content_type: "text/markdown" },
-      flagEnabled: false,
-      newerVersion: false,
-    },
-  ])(
-    "does not offer editing for $name",
-    ({ artifact, flagEnabled, newerVersion }) => {
-      editingFlag.enabled = flagEnabled;
-      const data = editablePreview(artifact);
-      if (newerVersion) {
-        data.artifacts.push({
-          ...data.artifact,
-          id: "artifact-2",
-          storage_path: "runs/1/report-v2.md",
-          uploaded_at: "2026-08-07T11:00:00Z",
-        });
-      }
-      useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+  ])("does not offer editing for $name", ({ artifact, newerVersion }) => {
+    const data = editablePreview(artifact);
+    if (newerVersion) {
+      data.artifacts.push({
+        ...data.artifact,
+        id: "artifact-2",
+        storage_path: "runs/1/report-v2.md",
+        uploaded_at: "2026-08-07T11:00:00Z",
+      });
+    }
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
 
-      render(
-        <ArtifactPreview
-          taskId="task-1"
-          runId="run-1"
-          artifactId="artifact-1"
-          name={data.artifact.name as string}
-        />,
-      );
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name={data.artifact.name as string}
+      />,
+    );
 
-      expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
-    },
-  );
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
 
   it("saves edited source as a new output version under the same name", async () => {
     const data = editablePreview();
