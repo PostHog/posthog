@@ -889,7 +889,7 @@ async def repartition_table_in_place(
     if resuming:
         temp_uri = (swap or {}).get("temp_uri") or _temp_uri_for(live_uri, claim_token)
     elif resuming_rewrite:
-        temp_uri = rewrite_checkpoint.get("temp_uri") or _temp_uri_for(live_uri, claim_token)
+        temp_uri = (rewrite_checkpoint or {}).get("temp_uri") or _temp_uri_for(live_uri, claim_token)
     else:
         temp_uri = _temp_uri_for(live_uri, claim_token)
 
