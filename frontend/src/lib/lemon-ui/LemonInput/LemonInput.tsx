@@ -205,6 +205,13 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     }
 
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
+    // A cleared controlled number input holds NaN; show '' so it stays controlled instead of feeding
+    // NaN to the DOM (undefined stays uncontrolled). While the field is focused and the user has
+    // emptied it, their empty text also wins over the fallback a consumer echoes back.
+    const displayValue =
+        type === 'number' && ((focused && numberDraftEmpty) || (typeof value === 'number' && Number.isNaN(value)))
+            ? ''
+            : value
     return (
         <Tooltip
             title={disabledReason ?? undefined}
@@ -219,7 +226,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     type && `LemonInput--type-${type}`,
                     size && `LemonInput--${size}`,
                     fullWidth && 'LemonInput--full-width',
-                    value && 'LemonInput--has-content',
+                    displayValue && 'LemonInput--has-content',
                     !disabled && !disabledReason && focused && 'LemonInput--focused',
                     transparentBackground && 'LemonInput--transparent-background',
                     badgeText && 'relative',
@@ -241,14 +248,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className="LemonInput__input"
                     ref={mergedInputRef}
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
-                    // A cleared controlled number input holds NaN; pass '' so the input stays
-                    // controlled instead of feeding NaN to the DOM (undefined stays uncontrolled)
-                    value={
-                        type === 'number' &&
-                        ((focused && numberDraftEmpty) || (typeof value === 'number' && Number.isNaN(value)))
-                            ? ''
-                            : value
-                    }
+                    value={displayValue}
                     disabled={disabled || !!disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {
