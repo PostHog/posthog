@@ -6,7 +6,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { mapWithConcurrency } from "./concurrency";
-import { execGh, execGhWithRetry, type GhExecResult } from "./gh";
+import { execGhWithRetry, type GhExecResult } from "./gh";
 import { buildPostHogTrailers } from "./trailers";
 import { parseGithubUrl } from "./utils";
 
@@ -308,7 +308,19 @@ async function refApi(
   args: string[],
   errLabel: string,
 ): Promise<void> {
-  const res = await execGh(args, { cwd: ctx.cwd, env: ghTokenEnv(ctx.token) });
+  // Retry transient failures and bound each attempt, exactly as the commit and
+  // merge calls do. A ref update is the first network call when creating a
+  // branch, so a sandbox egress blip (5xx / 499 / reset) here would otherwise
+  // fail the whole push and strand the run's work with no branch to recover it.
+  const res = await execGhWithRetry(
+    args,
+    {
+      cwd: ctx.cwd,
+      env: ghTokenEnv(ctx.token),
+      timeoutMs: GH_GRAPHQL_TIMEOUT_MS,
+    },
+    { maxAttempts: 3 },
+  );
   if (res.exitCode !== 0) {
     throw new Error(`${errLabel}: ${res.stderr || res.error}`);
   }
