@@ -7,9 +7,10 @@ use common_kafka::config::KafkaConfig;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
 use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
 use personhog_proto::personhog::types::v1::Person;
@@ -28,8 +29,10 @@ pub struct WarmingRetryPolicy {
 /// metadata calls that talk to Kafka brokers (fetch watermarks, committed
 /// offsets) so a single transient network blip doesn't cycle the pod.
 ///
-/// The consume loop itself is not retried — it holds partial progress and
-/// re-seeking is its own concern; leave to a follow-up if we see flakes.
+/// The consume loop is not retried and does not need to be: it rides
+/// out non-fatal consumer errors in place while librdkafka handles them,
+/// bounded by `recv_timeout`. A fatal client state — and a genuine
+/// stall — ends it.
 async fn with_warm_retry<T, F, Fut>(
     stage: &str,
     partition: u32,
@@ -141,11 +144,14 @@ pub(crate) fn make_consumer(
 
 /// A checkout stack of assign-only Kafka clients sharing one group id.
 /// Clients are checked out for the duration of one operation, returned on
-/// success, and dropped on error — a client that just failed is never
-/// reused, so error hygiene is structural. None of these clients ever
-/// joins the group protocol (no subscribe), so the group id is broker
-/// bookkeeping, not membership: pooling clients in the writer's group
-/// cannot affect the writer's rebalancing.
+/// success, and dropped when the operation fails — a client whose
+/// operation just failed is never reused, so error hygiene is structural.
+/// A non-fatal error the operation rode out does not count as failure:
+/// the client handled it and completed, and both the consume loop and
+/// the give-back verify the client-level fatal state. None of these
+/// clients ever joins the group protocol (no subscribe), so the group id
+/// is broker bookkeeping, not membership: pooling clients in the
+/// writer's group cannot affect the writer's rebalancing.
 ///
 /// The pool exists because client construction is the dominant cost of
 /// the operations it serves: a fresh consumer pays connection setup,
@@ -195,6 +201,21 @@ impl ConsumerPool {
     /// the failure logged so a systematic cleanup problem surfaces as a
     /// visible signal rather than silent churn.
     pub fn give_back(&self, consumer: StreamConsumer) {
+        // The unassign gate below cannot catch a fatal client —
+        // librdkafka treats ops on one as successful unassigns — so the
+        // contract that a dead client is never pooled is enforced here
+        // by construction rather than left to the accident that
+        // consumer fatals only arise from group paths these clients
+        // never join.
+        if let Some((code, reason)) = consumer.client().fatal_error() {
+            tracing::warn!(
+                pool = self.label,
+                code = format!("{code:?}"),
+                reason,
+                "client in a fatal state; dropping instead of pooling it"
+            );
+            return;
+        }
         if let Err(e) = consumer.unassign() {
             tracing::warn!(
                 pool = self.label,
@@ -495,6 +516,62 @@ pub async fn warm_from_kafka(
     loop {
         let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
+            // A non-fatal consumer error means librdkafka is handling it:
+            // a connection blip resolves by reconnecting with the fetch
+            // position intact, and the stream never terminates, so the
+            // answer is to keep polling — as the fleet's streaming
+            // consumers do. The per-event fatal split is not the whole
+            // fatality story, so the client-level fatal state (an
+            // unrecoverable idempotence or authentication failure) is
+            // checked first: it survives even when the event that set it
+            // was consumed, and a dead client must not be re-polled while
+            // reporting progress.
+            //
+            // The accepted trade, stated for the record: librdkafka also
+            // reports record-skipping through this same non-fatal channel
+            // — an unreadable message set is discarded and the fetch
+            // position advances past it — and riding one out publishes a
+            // cache missing the skipped records. Today that requires
+            // broker-side corruption of bytes no consumer could read
+            // anyway, or a record format newer than this client, which
+            // does not exist. Stop-class errors (an ACL revocation, a
+            // deleted topic) also ride, costing the stall budget and a
+            // generic stall error instead of an immediate named one; the
+            // code survives in the counter label and the warn line.
+            Ok(Err(KafkaError::MessageConsumption(code))) => {
+                if let Some((fatal_code, reason)) = consumer.client().fatal_error() {
+                    return Err(CoordError::invalid_state(format!(
+                        "warm consumer entered a fatal state ({fatal_code:?}): {reason}"
+                    )));
+                }
+                // An error is not progress: the stall budget keeps
+                // running, so errors arriving faster than the quiet arm
+                // can observe still end the warm on time.
+                if quiet_since.elapsed() >= cfg.recv_timeout {
+                    return Err(CoordError::invalid_state(format!(
+                        "warm stalled on repeated consumer errors (last: {code:?}); \
+                         consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
+                        count = buffered.len()
+                    )));
+                }
+                counter!(
+                    // Debug renders the bare variant ("BrokerTransportFailure");
+                    // Display appends librdkafka's prose, which makes a
+                    // poor label value.
+                    "personhog_leader_warm_transient_errors_total",
+                    "code" => format!("{code:?}")
+                )
+                .increment(1);
+                tracing::warn!(
+                    partition,
+                    error = %code,
+                    "non-fatal consumer error during warm; riding it out"
+                );
+                // A fast-failing recv would otherwise spin this loop hot
+                // for the whole stall budget.
+                sleep(poll_slice).await;
+                continue;
+            }
             Ok(Err(e)) => {
                 return Err(CoordError::invalid_state(format!("warm recv: {e}")));
             }

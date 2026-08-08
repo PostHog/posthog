@@ -792,4 +792,11 @@ fn preregister_metrics() {
     for stage in ["committed_offset", "fetch_watermarks"] {
         counter!("personhog_leader_warm_retries_total", "stage" => stage).increment(0);
     }
+    // A broker blip is short enough to fall entirely between two
+    // scrapes, and these fire only during one. The codes seen in dev are
+    // preregistered so that burst is not swallowed; anything else stays
+    // lazy, as elsewhere for dynamic labels.
+    for code in ["BrokerTransportFailure", "AllBrokersDown"] {
+        counter!("personhog_leader_warm_transient_errors_total", "code" => code).increment(0);
+    }
 }
