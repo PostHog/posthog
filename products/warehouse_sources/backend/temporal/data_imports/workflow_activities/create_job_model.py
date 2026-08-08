@@ -182,6 +182,9 @@ class CreateExternalDataJobModelActivityOutputs:
     # True when the schema feeds at least one enabled person-target Customer analytics source, so the
     # workflow should start the person-property sync child. Gated up front to avoid a no-op child per sync.
     person_property_sync_enabled: bool = False
+    # True when no job was created because the schema is inside its retry-backoff window after
+    # repeated failures. The workflow ends the run immediately; `job_id` is empty on this path.
+    skipped_for_backoff: bool = False
 
 
 @activity.defn
@@ -202,10 +205,31 @@ def create_external_data_job_model_activity(
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
-        schema.status = ExternalDataSchema.Status.RUNNING
-        schema.save()
-
         source: ExternalDataSource = schema.source
+
+        # A schema that keeps failing retries on a stretching interval instead of at full cadence.
+        # Checked before anything is written, so the schema keeps showing its real failed state and
+        # the run leaves no job row behind.
+        backoff_until = schema.failure_backoff_until()
+        if backoff_until is not None and timezone.now() < backoff_until:
+            logger.info(
+                "Skipping scheduled sync while the schema is in its failure backoff window",
+                schema_id=str(inputs.schema_id),
+                consecutive_failures=schema.consecutive_failures,
+                retry_after=backoff_until.isoformat(),
+            )
+            return CreateExternalDataJobModelActivityOutputs(
+                job_id="",
+                incremental_or_append=False,
+                source_type=source.source_type,
+                schema_name=schema.name,
+                skipped_for_backoff=True,
+            )
+
+        schema.status = ExternalDataSchema.Status.RUNNING
+        # Scope the save to status so a concurrent manual trigger that just cleared the failure
+        # backoff (queryset UPDATE) isn't clobbered by writing stale counters back here.
+        schema.save(update_fields=["status", "updated_at"])
 
         pipeline_version = ExternalDataJob.PipelineVersion.V2
         if inputs.is_v3:
