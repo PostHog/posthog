@@ -258,12 +258,14 @@ function errorHasFlagVariantsRemovedCode(error: any): boolean {
 // Best-effort lookup of when the flag lost its variants, from the flag's activity log. Returns the
 // timestamp of the change where multivariate variants went from present to absent, or null if it
 // can't be found (activity unavailable, entry missing) — the error state degrades to no timestamp.
+// listLegacy hits the per-flag activity endpoint; the generic activity_log endpoint is gated
+// behind the paid audit logs add-on on Cloud, which would make this lookup 403 for most orgs.
 async function findFlagVariantsRemovedAt(flagId?: number | null): Promise<string | null> {
     if (!flagId) {
         return null
     }
     try {
-        const response = await api.activity.list({ scope: ActivityScope.FEATURE_FLAG, item_id: String(flagId) })
+        const response = await api.activity.listLegacy({ scope: ActivityScope.FEATURE_FLAG, id: flagId })
         for (const item of response.results ?? []) {
             for (const change of item.detail?.changes ?? []) {
                 if (change.field !== 'filters') {
@@ -855,6 +857,9 @@ export interface experimentLogicActions {
     }
     changeExperimentStartDate: (startDate: string) => {
         startDate: string
+    }
+    clearFlagVariantsRemoved: () => {
+        value: true
     }
     clearMetricsResults: () => {
         value: true
@@ -1789,6 +1794,7 @@ export const experimentLogic = kea<experimentLogicType>([
         toggleDebugPanel: true,
         setVariantExcluded: (variantKey: string, excluded: boolean) => ({ variantKey, excluded }),
         setFlagVariantsRemoved: (changedAt: string | null) => ({ changedAt }),
+        clearFlagVariantsRemoved: true,
     }),
     reducers({
         showDebugPanel: [
@@ -2198,11 +2204,13 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         // Set once the exposure/metric query reports the flag no longer has variants. Holds the
-        // best-effort timestamp of the change (or null). Reset when the experiment is reloaded.
+        // best-effort timestamp of the change (or null). Reset when the experiment is reloaded
+        // or when a user-initiated refresh retries the query.
         flagVariantsRemovedInfo: [
             null as { changedAt: string | null } | null,
             {
                 setFlagVariantsRemoved: (_, { changedAt }) => ({ changedAt }),
+                clearFlagVariantsRemoved: () => null,
                 loadExperiment: () => null,
             },
         ],
@@ -2639,10 +2647,16 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
-            // The flag lost its variants — exposures and metrics can't be computed, so don't keep
-            // re-attempting (which would spin forever). The error state is shown instead.
+            // The flag lost its variants — exposures and metrics can't be computed, so the
+            // auto-refresh loop must not keep re-attempting (it would spin forever). A
+            // user-initiated refresh clears the error state and retries for real, so the "Reload
+            // results" button recovers once the flag's variants are restored; if they're still
+            // missing, loadExposuresFailure re-arms the state.
             if (values.flagVariantsRemovedInfo) {
-                return
+                if (triggeredBy === 'auto_refresh') {
+                    return
+                }
+                actions.clearFlagVariantsRemoved()
             }
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()

@@ -1189,7 +1189,7 @@ class FeatureFlagSerializer(
         raise serializers.ValidationError(
             f"Cannot remove this flag's variants while it is linked to experiment(s): {experiment_names}. "
             "Converting the flag to boolean or rollout would break those experiments' exposure and "
-            "metric results. Delete or detach the experiment(s) first."
+            "metric results. Delete the experiment(s) first."
         )
 
     def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:

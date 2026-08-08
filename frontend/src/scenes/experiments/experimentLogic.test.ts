@@ -2457,7 +2457,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(experiment)
             useMocks({
                 get: {
-                    '/api/projects/:team/activity_log': {
+                    '/api/projects/:team/feature_flags/:flag_id/activity': {
                         count: 1,
                         next: null,
                         previous: null,
@@ -2502,13 +2502,22 @@ describe('experimentLogic', () => {
                 .toMatchValues({ flagVariantsRemoved: false })
         })
 
-        it('stops re-running results once the flag has lost its variants', async () => {
+        it('stops auto-refreshing results once the flag has lost its variants', async () => {
             logic.actions.setFlagVariantsRemoved(CHANGED_AT)
             await expectLogic(logic, () => {
                 logic.actions.refreshExperimentResults(true, 'auto_refresh')
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['loadExposures', 'markRefreshStarted'])
+        })
+
+        it('clears the error state and retries on a user-initiated refresh', async () => {
+            logic.actions.setFlagVariantsRemoved(CHANGED_AT)
+            await expectLogic(logic, () => {
+                logic.actions.refreshExperimentResults(true, 'manual')
+            })
+                .toDispatchActions(['clearFlagVariantsRemoved', 'markRefreshStarted'])
+                .toMatchValues({ flagVariantsRemoved: false })
         })
     })
 })

@@ -401,6 +401,20 @@ class TestRunMetricCanary(BaseTest):
             with pytest.raises(RuntimeError):
                 run_metric_canary_sync(self._target(experiment, metric["uuid"]))
 
+    def test_flag_without_variants_is_skipped(self):
+        # The runner raises its descriptive ValidationError in __init__ when the flag was converted
+        # away from multivariate — a deterministic dead end, so the canary must skip, not error.
+        metric = _funnel_metric()
+        experiment = self._experiment([metric])
+        experiment.feature_flag.filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": None,
+        }
+        experiment.feature_flag.save()
+        result = run_metric_canary_sync(self._target(experiment, metric["uuid"]))
+        assert result.outcome == OUTCOME_SKIPPED
+        assert "variants" in (result.detail or "")
+
 
 def _result(outcome: str, **kwargs) -> CanaryMetricResult:
     target = CanaryMetricTarget(team_id=1, experiment_id=2, metric_uuid="m-uuid", metric_type="funnel")

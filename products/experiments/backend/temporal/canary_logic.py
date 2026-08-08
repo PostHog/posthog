@@ -44,6 +44,7 @@ from django.utils import timezone
 import requests
 import structlog
 from prometheus_client import Gauge
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ExperimentQuery, PrecomputationMode
 
@@ -51,6 +52,7 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.scoping import team_scope
 
+from products.experiments.backend.hogql_queries import FLAG_WITHOUT_VARIANTS_ERROR_CODE
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -377,7 +379,13 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
             query_id = f"experiment-canary-{canary_id}-{label}"
             try:
                 runs.append(_execute_canary_run(experiment, metric, mode, label, query_id))
-            except Exception:
+            except Exception as e:
+                # A flag converted away from multivariate is a deterministic dead end (the runner
+                # refuses in __init__ on every attempt), not a precompute regression — classify it
+                # as skipped so it doesn't pollute the canary's error gauge.
+                codes = e.get_codes() if isinstance(e, ValidationError) else None
+                if isinstance(codes, list) and FLAG_WITHOUT_VARIANTS_ERROR_CODE in codes:
+                    return _skipped("experiment feature flag no longer defines variants")
                 logger.warning(
                     "experiment_precompute_canary_run_failed",
                     team_id=target.team_id,
