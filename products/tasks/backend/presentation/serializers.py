@@ -2991,6 +2991,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "pi/rpc",
         "queue_get",
         "queue_clear",
+        "side_question",
     ]
 
     # Cap on the serialized mcp_response params (docs/CLOUD-MCP-RELAY.md): the relayed JSON-RPC
@@ -3063,6 +3064,9 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"params": "user_message requires a non-empty content string, artifact_ids, or both"}
                 )
+        elif method == "side_question":
+            self._require_nonempty_string(params, "question")
+            params["question"] = params["question"].strip()
         elif method == "pi/rpc":
             command = params.get("command")
             if not isinstance(command, dict):

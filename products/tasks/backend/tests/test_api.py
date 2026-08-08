@@ -9820,6 +9820,55 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["cancelled"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_side_question(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-btw", "result": {"answer": "It parses JSONL."}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "what does it do?"}, "id": "req-btw"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["result"]["answer"], "It parses JSONL.")
+
+    @parameterized.expand([("blank", "   "), ("empty", ""), ("missing", None)])
+    def test_command_rejects_side_question_without_a_question(self, _name, question):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        params = {} if question is None else {"question": question}
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "side_question", "params": params, "id": "req-btw"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_command_side_question_requires_code_access(self):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "why?"}, "id": "req-btw"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+
     def test_empty_task_session_returns_read_only_storage_access(self):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
