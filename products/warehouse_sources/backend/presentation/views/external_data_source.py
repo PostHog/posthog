@@ -3432,7 +3432,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         Failure never breaks setup: the polling defaults stay in place and webhook-only tables remain
         disabled, exactly as if the source didn't support webhooks.
         """
-        webhook_capable = {s.name for s in source_schemas if s.supports_webhooks}
+        # Tables marked `should_sync_default=False` need explicit opt-in even when webhook-capable —
+        # one-shot setup must not force-enable what the schema picker would leave off (the same
+        # contract `build_default_schemas` honors).
+        webhook_capable = {s.name for s in source_schemas if s.supports_webhooks and s.should_sync_default}
         if not webhook_capable or source.webhook_template is None:
             return None
 
