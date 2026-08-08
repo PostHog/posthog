@@ -1013,9 +1013,11 @@ export async function loadAgentPlugin(
     };
   }
 
+  const skillDiagnostics: AgentPluginDiagnostic[] = [];
+  const mcpDiagnostics: AgentPluginDiagnostic[] = [];
   const [skills, mcpServers] = await Promise.all([
-    loadSkills(pluginRoot, diagnostics),
-    loadMcpServers(pluginRoot, diagnostics),
+    loadSkills(pluginRoot, skillDiagnostics),
+    loadMcpServers(pluginRoot, mcpDiagnostics),
   ]);
   return {
     valid: true,
@@ -1023,6 +1025,6 @@ export async function loadAgentPlugin(
     manifest,
     skills,
     mcpServers,
-    diagnostics,
+    diagnostics: [...diagnostics, ...skillDiagnostics, ...mcpDiagnostics],
   };
 }

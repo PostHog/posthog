@@ -47,7 +47,6 @@ export const agentPluginHttpMcpServer = z.object({
 export const agentPluginMcpServerSummary = z.object({
   name: z.string(),
   type: z.enum(["streamable-http", "stdio", "sse"]),
-  supported: z.boolean(),
 });
 
 export const agentPluginPreview = z.object({

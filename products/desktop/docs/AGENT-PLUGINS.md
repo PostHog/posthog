@@ -53,7 +53,7 @@ Streamable HTTP MCP servers use the canonical MCP schema:
 }
 ```
 
-Invalid MCP configuration does not disable valid skills. Each server is validated independently, so one invalid or unsupported server does not disable its valid siblings. PostHog Desktop follows same-origin redirects only. Configured header values stay in the privileged plugin loader and are not stored in the installation registry or returned to the app UI.
+Invalid MCP configuration does not disable valid skills. Each server is validated independently, so one invalid or unsupported server does not disable its valid siblings. PostHog Desktop reads up to 1 MiB from `mcp.json`. The loopback proxy accepts request bodies up to 2 MiB and returns an HTTP 413 response for larger requests. PostHog Desktop follows same-origin redirects only. Configured header values stay in the privileged plugin loader and are not stored in the installation registry or returned to the app UI.
 
 ## Current limitations
 

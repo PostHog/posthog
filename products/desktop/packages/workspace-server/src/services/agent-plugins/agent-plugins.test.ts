@@ -882,6 +882,29 @@ describe("Agent Plugins skills support", () => {
     );
   });
 
+  it("orders skill diagnostics before MCP diagnostics", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    const skillDirectory = await writeSkill(pluginDirectory, "invalid-skill");
+    await fs.promises.writeFile(
+      path.join(skillDirectory, "SKILL.md"),
+      "Missing frontmatter.",
+    );
+    await writeMcp(pluginDirectory, {
+      invalid: {
+        type: "streamable-http",
+        url: "http://mcp.example.com/mcp",
+      },
+    });
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.diagnostics.map((item) => item.code)).toEqual([
+      "invalid_skill",
+      "invalid_mcp_server",
+    ]);
+  });
+
   it("isolates invalid and unsupported MCP entries from valid siblings", async () => {
     const pluginDirectory = path.join(root, "plugin");
     await writePlugin(pluginDirectory);
@@ -946,7 +969,7 @@ describe("Agent Plugins skills support", () => {
 
     const preview = await service.selectDirectory();
     expect(preview?.mcpServers).toEqual([
-      { name: "analytics", type: "streamable-http", supported: true },
+      { name: "analytics", type: "streamable-http" },
     ]);
     const installation = await service.register(preview?.selectionToken ?? "");
     expect(installation.mcpServers).toEqual(preview?.mcpServers);

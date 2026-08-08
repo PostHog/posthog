@@ -64,7 +64,6 @@ function summarizeMcpServers(
   return servers.map((server) => ({
     name: server.name,
     type: server.type,
-    supported: true,
   }));
 }
 
