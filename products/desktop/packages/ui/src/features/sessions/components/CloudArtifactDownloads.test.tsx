@@ -45,6 +45,10 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
   useAuthStateValue: () => "auth-1",
 }));
 
+vi.mock("@posthog/ui/features/auth/useMeQuery", () => ({
+  useMeQuery: () => ({ data: { id: 42 } }),
+}));
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ data: fetchedArtifacts, refetch }),
   useMutation: ({
@@ -127,6 +131,7 @@ describe("CloudArtifactDownloads", () => {
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
     expect(screen.getByText("12 KB")).toBeInTheDocument();
     expect(screen.queryByText("handoff.pack")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edited by you")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Download"));
 
@@ -182,6 +187,31 @@ describe("CloudArtifactDownloads", () => {
     } finally {
       artifacts.pop();
     }
+  });
+
+  it("labels versions edited by the current user", () => {
+    fetchedArtifacts = [
+      {
+        id: "output-1",
+        name: "report.md",
+        type: "output",
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+        uploaded_by: "user",
+        uploaded_by_user_id: 42,
+      },
+      {
+        id: "output-2",
+        name: "report.md",
+        type: "output",
+        uploaded_at: "2026-07-27T09:00:00+00:00",
+      },
+    ];
+
+    renderDownloads();
+
+    expect(screen.queryByText("Edited by you")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Choose a version of report.md"));
+    expect(screen.getByText(/Version 1 · Edited by you ·/)).toBeInTheDocument();
   });
 
   it("opens an artifact preview in a new tab", () => {

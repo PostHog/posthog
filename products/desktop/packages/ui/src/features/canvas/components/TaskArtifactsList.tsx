@@ -1,5 +1,6 @@
 import {
   ArrowSquareOutIcon,
+  CaretDownIcon,
   ChatCircleIcon,
   DownloadSimpleIcon,
   EyeIcon,
@@ -7,10 +8,19 @@ import {
   SlackLogoIcon,
 } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
+import {
+  type RunArtifactVersions,
+  runArtifactVersionKey,
+  runArtifactVersionLabel,
+} from "@posthog/core/canvas/runArtifactSchemas";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -20,11 +30,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { formatRelativeTimeLong } from "@posthog/shared";
 import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
+import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   buildRows,
   commentTargets,
+  type RunFile,
 } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
@@ -53,6 +66,7 @@ function ArtifactListRow({
   onOpenExternal,
   fileActions,
   onHoverStart,
+  trailing,
 }: {
   icon: ReactNode;
   title: string;
@@ -67,6 +81,7 @@ function ArtifactListRow({
     downloading: boolean;
   };
   onHoverStart?: () => void;
+  trailing?: ReactNode;
 }) {
   return (
     // overflow-hidden so each half's hover fill is clipped to the row's radius.
@@ -88,6 +103,7 @@ function ArtifactListRow({
           <ArrowSquareOutIcon size={12} className="shrink-0 text-gray-9" />
         )}
       </button>
+      {trailing}
       {onOpenExternal && (
         <button
           type="button"
@@ -218,32 +234,61 @@ function CanvasRow({
   );
 }
 
+function wasEditedByCurrentUser(
+  artifact: RunFile,
+  currentUserId: number | undefined,
+): boolean {
+  return (
+    artifact.uploaded_by === "user" &&
+    currentUserId !== undefined &&
+    artifact.uploaded_by_user_id === currentUserId
+  );
+}
+
+function fileVersionMenuLabel(
+  artifact: RunFile,
+  index: number,
+  total: number,
+  currentUserId: number | undefined,
+): string {
+  return [
+    runArtifactVersionLabel(index, total),
+    wasEditedByCurrentUser(artifact, currentUserId) ? "Edited by you" : null,
+    artifact.uploaded_at ? formatRelativeTimeLong(artifact.uploaded_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function FileRow({
   taskId,
-  runId,
-  artifactId,
-  name,
-  size,
+  group,
   commentCount,
+  currentUserId,
 }: {
   taskId: string;
-  runId: string | null;
-  artifactId: string | null;
-  name: string;
-  size: number | undefined;
+  group: RunArtifactVersions<RunFile>;
   /** Supplied by the pane's single comments query so each row doesn't fetch. */
   commentCount: number;
+  currentUserId: number | undefined;
 }) {
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const { download, downloadingId } = useArtifactDownload();
-  const canOpen = !!runId && !!artifactId;
-  const sizeLabel = formatFileSize(size);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const selectedIndex = Math.max(
+    group.versions.findIndex(
+      (version) => runArtifactVersionKey(version) === selectedKey,
+    ),
+    0,
+  );
+  const selected = group.versions[selectedIndex] ?? group.latest;
+  const canOpen = !!selected.id;
   const onOpen = canOpen
     ? () => {
         openArtifactTab(taskId, {
-          runId: runId as string,
-          artifactId: artifactId as string,
-          name,
+          runId: selected.runId,
+          artifactId: selected.id as string,
+          name: group.name,
         });
       }
     : undefined;
@@ -251,19 +296,28 @@ function FileRow({
     ? () => {
         void download({
           taskId,
-          runId: runId as string,
-          artifactId: artifactId as string,
-          name,
+          runId: selected.runId,
+          artifactId: selected.id as string,
+          name: group.name,
         });
       }
     : undefined;
+  const detail = [
+    "File",
+    formatFileSize(selected.size),
+    wasEditedByCurrentUser(selected, currentUserId) ? "Edited by you" : null,
+    selected.uploaded_at ? formatRelativeTimeLong(selected.uploaded_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <ArtifactListRow
-      icon={<FileIcon filename={name} size={14} />}
-      title={name}
+      icon={<FileIcon filename={group.name} size={14} />}
+      title={group.name}
       detail={
         <div className="flex items-center gap-1.5">
-          <span>{sizeLabel ? `File · ${sizeLabel}` : "File"}</span>
+          <span>{detail}</span>
           {commentCount > 0 && (
             <Badge>
               <ChatCircleIcon />
@@ -275,8 +329,44 @@ function FileRow({
       onOpen={onOpen}
       fileActions={
         onDownload
-          ? { onDownload, downloading: downloadingId === artifactId }
+          ? { onDownload, downloading: downloadingId === selected.id }
           : undefined
+      }
+      trailing={
+        group.versions.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="link-muted"
+                  size="sm"
+                  aria-label={`Choose a version of ${group.name}`}
+                >
+                  {runArtifactVersionLabel(
+                    selectedIndex,
+                    group.versions.length,
+                  )}
+                  <CaretDownIcon />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              {group.versions.map((version, index) => (
+                <DropdownMenuItem
+                  key={runArtifactVersionKey(version)}
+                  onClick={() => setSelectedKey(runArtifactVersionKey(version))}
+                >
+                  {fileVersionMenuLabel(
+                    version,
+                    index,
+                    group.versions.length,
+                    currentUserId,
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : undefined
       }
     />
   );
@@ -295,6 +385,7 @@ export function TaskArtifactsList({
 }) {
   const commentsEnabled = useCommentsEnabled();
   const { runs } = useTaskRuns(task.id);
+  const { data: currentUser } = useMeQuery();
   const rows = useMemo(
     () => buildRows(task, timeline, runs),
     [task, timeline, runs],
@@ -359,13 +450,11 @@ export function TaskArtifactsList({
           <FileRow
             key={row.key}
             taskId={task.id}
-            runId={row.runId}
-            artifactId={row.artifactId}
-            name={row.name}
-            size={row.size}
+            group={row.group}
             commentCount={
               row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
             }
+            currentUserId={currentUser?.id}
           />
         ) : (
           <ArtifactListRow

@@ -1,6 +1,10 @@
 import { CrosshairSimpleIcon, XIcon } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
+  groupRunArtifactVersions,
+  runArtifactVersionKey,
+} from "@posthog/core/canvas/runArtifactSchemas";
+import {
   type CommentAnchor,
   type CommentTarget,
   isSameCommentTarget,
@@ -10,17 +14,34 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
-import { Button, Spinner } from "@posthog/quill";
-import { isAllowedImageMimeType } from "@posthog/shared";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Spinner,
+} from "@posthog/quill";
+import {
+  ARTIFACT_EDITING_FLAG,
+  isAllowedImageMimeType,
+  type TaskRunArtifact,
+} from "@posthog/shared";
 import {
   getAuthIdentity,
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
-import { useQuery } from "@tanstack/react-query";
+import { toast } from "@posthog/ui/primitives/toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type ReactNode,
   useCallback,
@@ -54,9 +75,64 @@ const EMPTY_COMMENTS: ResourceComment[] = [];
 
 type HtmlPreview = { kind: "html"; html: string };
 type PreviewData = string | Blob | HtmlPreview;
+type EditableArtifactKind = "html" | "markdown" | "plain-text";
+
+interface ArtifactPreviewResult {
+  artifact: TaskRunArtifact;
+  artifacts: TaskRunArtifact[];
+  preview: PreviewData;
+  source?: string;
+}
+
+interface SaveArtifactVariables {
+  artifact: TaskRunArtifact;
+  content: string;
+}
 
 function extension(filename: string): string {
   return filename.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function editableArtifactKind(
+  artifact: TaskRunArtifact,
+): EditableArtifactKind | null {
+  const contentType = artifact.content_type
+    ?.split(";")[0]
+    ?.trim()
+    .toLowerCase();
+  if (contentType === "text/markdown") return "markdown";
+  if (contentType === "text/html") return "html";
+  if (contentType === "text/plain") return "plain-text";
+  if (contentType) return null;
+
+  if (extension(artifact.name) === "md") return "markdown";
+  if (extension(artifact.name) === "html") return "html";
+  if (extension(artifact.name) === "txt") return "plain-text";
+  return null;
+}
+
+function newestUndismissedVersion(
+  artifacts: TaskRunArtifact[],
+  name: string,
+): TaskRunArtifact | undefined {
+  const group = groupRunArtifactVersions(artifacts).find(
+    (candidate) => candidate.name === name,
+  );
+  return group?.versions.find((version) => !version.dismissed_at);
+}
+
+function editorFilePath(kind: EditableArtifactKind, name: string): string {
+  const expectedExtension =
+    kind === "markdown" ? "md" : kind === "html" ? "html" : "txt";
+  return extension(name) === expectedExtension
+    ? name
+    : `artifact.${expectedExtension}`;
+}
+
+function isArtifactPreviewResult(
+  data: PreviewData | ArtifactPreviewResult | undefined,
+): data is ArtifactPreviewResult {
+  return Boolean(data && typeof data === "object" && "preview" in data);
 }
 
 function ArtifactPreviewError() {
@@ -99,7 +175,15 @@ export function ArtifactPreview({
 }) {
   const commentsEnabled = useCommentsEnabled();
   const sessionService = useService<SessionService>(SESSION_SERVICE);
+  const queryClient = useQueryClient();
+  const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const editingEnabled = useFeatureFlag(ARTIFACT_EDITING_FLAG);
   const [showRendered, setShowRendered] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [checkingLatest, setCheckingLatest] = useState(false);
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const draftRef = useRef("");
+  const editingBaseKeyRef = useRef<string | null>(null);
   const markdownRootRef = useRef<HTMLDivElement>(null);
   const markdownContainerRef = useRef<HTMLDivElement>(null);
   const [imageError, setImageError] = useState(false);
@@ -121,9 +205,19 @@ export function ArtifactPreview({
     (state) => state.setCommentResolutions,
   );
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
-  const { data, isLoading, isError } = useQuery<PreviewData>({
+  const { data, isLoading, isError } = useQuery<
+    PreviewData | ArtifactPreviewResult
+  >({
     queryKey: ["artifactPreview", authIdentity, taskId, runId, artifactId],
     queryFn: async () => {
+      const artifacts = await sessionService.getCloudRunArtifacts(
+        taskId,
+        runId,
+      );
+      const artifact = artifacts.find(
+        (candidate) => candidate.id === artifactId,
+      );
+      if (!artifact) throw new Error("Artifact is unavailable");
       const url = await sessionService.getCloudAttachmentPreviewUrl(
         taskId,
         runId,
@@ -134,20 +228,43 @@ export function ArtifactPreview({
       if (!response.ok) throw new Error("Artifact preview failed");
       const blob = await response.blob();
       const fileExtension = extension(name);
-      if (MARKDOWN_EXTENSIONS.has(fileExtension)) return blob.text();
-      if (HTML_EXTENSIONS.has(fileExtension)) {
-        return { kind: "html", html: await blob.text() };
+      const editableKind = editableArtifactKind(artifact);
+      const needsSource =
+        editableKind !== null || MARKDOWN_EXTENSIONS.has(fileExtension);
+      const source = needsSource ? await blob.text() : undefined;
+      let preview: PreviewData;
+      if (
+        editableKind === "markdown" ||
+        MARKDOWN_EXTENSIONS.has(fileExtension)
+      ) {
+        preview = source ?? "";
+      } else if (
+        editableKind === "html" ||
+        HTML_EXTENSIONS.has(fileExtension)
+      ) {
+        preview = { kind: "html", html: source ?? (await blob.text()) };
+      } else {
+        preview = await artifactPreviewBlob(blob, name);
       }
-      return artifactPreviewBlob(blob, name);
+      return {
+        artifact,
+        artifacts,
+        preview,
+        ...(source === undefined ? {} : { source }),
+      };
     },
     enabled: authIdentity !== null,
     staleTime: Infinity,
     retry: false,
     meta: AUTH_SCOPED_QUERY_META,
   });
+  const previewData: PreviewData | undefined = isArtifactPreviewResult(data)
+    ? data.preview
+    : (data as PreviewData | undefined);
   const previewUrl = useMemo(
-    () => (data instanceof Blob ? URL.createObjectURL(data) : null),
-    [data],
+    () =>
+      previewData instanceof Blob ? URL.createObjectURL(previewData) : null,
+    [previewData],
   );
   const comments = commentsEnabled
     ? (commentsQuery.data ?? EMPTY_COMMENTS)
@@ -223,6 +340,102 @@ export function ArtifactPreview({
     [createComment, activateThread],
   );
 
+  const artifactResult = isArtifactPreviewResult(data) ? data : undefined;
+  const saveArtifact = useMutation({
+    mutationFn: (variables: SaveArtifactVariables) =>
+      sessionService.uploadCloudRunArtifactVersion(
+        taskId,
+        runId,
+        variables.artifact.name,
+        variables.content,
+        variables.artifact.content_type,
+      ),
+    onSuccess: async (savedArtifactId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["cloudRunArtifacts", authIdentity, taskId, runId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["task-runs", taskId] }),
+      ]);
+      setConflictOpen(false);
+      setIsEditing(false);
+      openArtifactTab(taskId, {
+        runId,
+        artifactId: savedArtifactId,
+        name,
+      });
+    },
+    onError: () =>
+      toast.error("Couldn't save file", {
+        description: "Try again. Your changes are still in the editor.",
+      }),
+  });
+
+  const beginEditing = (): void => {
+    if (!artifactResult || artifactResult.source === undefined) return;
+    draftRef.current = artifactResult.source;
+    editingBaseKeyRef.current = runArtifactVersionKey(artifactResult.artifact);
+    setIsEditing(true);
+  };
+
+  const cancelEditing = (): void => {
+    setIsEditing(false);
+    setConflictOpen(false);
+    draftRef.current = "";
+    editingBaseKeyRef.current = null;
+  };
+
+  const saveDraft = async (): Promise<void> => {
+    if (!artifactResult || checkingLatest || saveArtifact.isPending) return;
+    setCheckingLatest(true);
+    let latest: TaskRunArtifact | undefined;
+    try {
+      const artifacts = await sessionService.getCloudRunArtifacts(
+        taskId,
+        runId,
+      );
+      latest = newestUndismissedVersion(
+        artifacts,
+        artifactResult.artifact.name,
+      );
+    } catch {
+      toast.error("Couldn't check the latest file version", {
+        description: "Try saving again. Your changes are still in the editor.",
+      });
+      return;
+    } finally {
+      setCheckingLatest(false);
+    }
+
+    if (
+      !latest ||
+      runArtifactVersionKey(latest) !== editingBaseKeyRef.current
+    ) {
+      setConflictOpen(true);
+      return;
+    }
+    try {
+      await saveArtifact.mutateAsync({
+        artifact: artifactResult.artifact,
+        content: draftRef.current,
+      });
+    } catch {
+      return;
+    }
+  };
+
+  const forceSaveDraft = async (): Promise<void> => {
+    if (!artifactResult || saveArtifact.isPending) return;
+    try {
+      await saveArtifact.mutateAsync({
+        artifact: artifactResult.artifact,
+        content: draftRef.current,
+      });
+    } catch {
+      return;
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -232,14 +445,87 @@ export function ArtifactPreview({
   }
   if (isError || imageError) return <ArtifactPreviewError />;
 
-  if (typeof data === "string") {
+  const editableKind = artifactResult
+    ? editableArtifactKind(artifactResult.artifact)
+    : null;
+  const latest = artifactResult
+    ? newestUndismissedVersion(
+        artifactResult.artifacts,
+        artifactResult.artifact.name,
+      )
+    : undefined;
+  const canEdit = Boolean(
+    editingEnabled &&
+      editableKind &&
+      artifactResult?.source !== undefined &&
+      latest &&
+      artifactResult &&
+      runArtifactVersionKey(latest) ===
+        runArtifactVersionKey(artifactResult.artifact),
+  );
+  const saving = checkingLatest || saveArtifact.isPending;
+
+  if (isEditing && artifactResult?.source !== undefined && editableKind) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <DocumentPreviewHeader
           label={name}
-          content={data}
+          content={artifactResult.source}
+          getContent={() => draftRef.current}
+          showRendered={showRendered}
+          editing
+          saving={saving}
+          onCancel={cancelEditing}
+          onSave={() => void saveDraft()}
+        />
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <CodeMirrorEditor
+            content={artifactResult.source}
+            filePath={editorFilePath(editableKind, name)}
+            readOnly={false}
+            onContentChange={(content) => {
+              draftRef.current = content;
+            }}
+          />
+        </div>
+        <AlertDialog open={conflictOpen} onOpenChange={setConflictOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>A newer version is available</AlertDialogTitle>
+              <AlertDialogDescription>
+                A newer version of this file arrived while you were editing.
+                Save yours as the latest anyway?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogClose render={<Button variant="outline" />}>
+                Keep editing
+              </AlertDialogClose>
+              <Button
+                variant="primary"
+                loading={saveArtifact.isPending}
+                onClick={() => void forceSaveDraft()}
+              >
+                Save as latest
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  }
+
+  if (typeof previewData === "string") {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <DocumentPreviewHeader
+          label={name}
+          content={previewData}
+          getContent={() => previewData}
           showRendered={showRendered}
           onToggleRendered={() => setShowRendered((rendered) => !rendered)}
+          canEdit={canEdit}
+          onEdit={beginEditing}
           actions={
             commentsEnabled ? (
               <ArtifactDocumentCommentAction
@@ -257,7 +543,7 @@ export function ArtifactPreview({
           >
             <div ref={markdownRootRef}>
               <MarkdownDocumentPreview
-                content={data}
+                content={previewData}
                 components={{ img: () => null }}
               />
             </div>
@@ -278,18 +564,27 @@ export function ArtifactPreview({
           </div>
         ) : (
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <CodeMirrorEditor content={data} filePath={name} readOnly />
+            <CodeMirrorEditor content={previewData} filePath={name} readOnly />
           </div>
         )}
       </div>
     );
   }
 
-  if (data && !(data instanceof Blob) && data.kind === "html") {
+  if (
+    previewData &&
+    !(previewData instanceof Blob) &&
+    previewData.kind === "html"
+  ) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <GenericArtifactHeader
-          name={name}
+        <DocumentPreviewHeader
+          label={name}
+          content={previewData.html}
+          getContent={() => previewData.html}
+          showRendered
+          canEdit={canEdit}
+          onEdit={beginEditing}
           actions={
             commentsEnabled ? (
               <ArtifactDocumentCommentAction
@@ -302,7 +597,7 @@ export function ArtifactPreview({
         {commentLoadError}
         <div className="min-h-0 min-w-0 flex-1">
           <AnnotatedArtifactHtml
-            html={data.html}
+            html={previewData.html}
             name={name}
             commentsEnabled={commentsEnabled}
             comments={annotationComments}
@@ -318,11 +613,12 @@ export function ArtifactPreview({
     );
   }
 
-  if (!previewUrl || !data) return <ArtifactPreviewError />;
+  if (!previewUrl || !previewData) return <ArtifactPreviewError />;
 
   if (
-    data instanceof Blob &&
-    (isAllowedImageMimeType(data.type) || data.type === SVG_MIME_TYPE)
+    previewData instanceof Blob &&
+    (isAllowedImageMimeType(previewData.type) ||
+      previewData.type === SVG_MIME_TYPE)
   ) {
     const imageActions = commentsEnabled ? (
       <div className="flex items-center gap-1">
@@ -360,19 +656,24 @@ export function ArtifactPreview({
     );
   }
 
+  const documentActions = commentsEnabled ? (
+    <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+  ) : undefined;
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <GenericArtifactHeader
-        name={name}
-        actions={
-          commentsEnabled ? (
-            <ArtifactDocumentCommentAction
-              target={commentTarget}
-              taskId={taskId}
-            />
-          ) : undefined
-        }
-      />
+      {editableKind === "plain-text" && artifactResult?.source !== undefined ? (
+        <DocumentPreviewHeader
+          label={name}
+          content={artifactResult.source}
+          getContent={() => artifactResult.source ?? ""}
+          showRendered
+          canEdit={canEdit}
+          onEdit={beginEditing}
+          actions={documentActions}
+        />
+      ) : (
+        <GenericArtifactHeader name={name} actions={documentActions} />
+      )}
       {commentLoadError}
       <div className="min-h-0 min-w-0 flex-1">
         <iframe

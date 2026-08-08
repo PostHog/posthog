@@ -36,7 +36,14 @@ const artifactComments = vi.hoisted(() => ({
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
 const commentsFlag = vi.hoisted(() => ({ enabled: true }));
+const editingFlag = vi.hoisted(() => ({ enabled: true }));
 const orgMembersOptions = vi.hoisted(() => vi.fn());
+const artifactMocks = vi.hoisted(() => ({
+  getCloudRunArtifacts: vi.fn(),
+  uploadCloudRunArtifactVersion: vi.fn(),
+  invalidateQueries: vi.fn(),
+  openArtifactTab: vi.fn(),
+}));
 
 vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
   useCommentsEnabled: () => commentsFlag.enabled,
@@ -47,7 +54,10 @@ vi.mock("@posthog/core/sessions/sessionService", () => ({
 }));
 
 vi.mock("@posthog/di/react", () => ({
-  useService: () => ({}),
+  useService: () => ({
+    getCloudRunArtifacts: artifactMocks.getCloudRunArtifacts,
+    uploadCloudRunArtifactVersion: artifactMocks.uploadCloudRunArtifactVersion,
+  }),
   useServiceOptional: () => null,
 }));
 
@@ -58,6 +68,14 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
 
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   AUTH_SCOPED_QUERY_META: { authScoped: true },
+}));
+
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => editingFlag.enabled,
+}));
+
+vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
+  usePanelLayoutStore: () => artifactMocks.openArtifactTab,
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
@@ -93,6 +111,26 @@ vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery,
+  useMutation: (options: {
+    mutationFn: (variables: unknown) => Promise<unknown>;
+    onSuccess?: (data: unknown) => Promise<void> | void;
+    onError?: (error: unknown) => void;
+  }) => ({
+    isPending: false,
+    mutateAsync: async (variables: unknown) => {
+      try {
+        const result = await options.mutationFn(variables);
+        await options.onSuccess?.(result);
+        return result;
+      } catch (error) {
+        options.onError?.(error);
+        throw error;
+      }
+    },
+  }),
+  useQueryClient: () => ({
+    invalidateQueries: artifactMocks.invalidateQueries,
+  }),
 }));
 
 vi.mock("./useComments", () => ({
@@ -105,10 +143,46 @@ vi.mock("./useComments", () => ({
 }));
 
 vi.mock("../../code-editor/components/CodeMirrorEditor", () => ({
-  CodeMirrorEditor: ({ content }: { content: string }) => (
-    <div data-testid="source-view">{content}</div>
-  ),
+  CodeMirrorEditor: ({
+    content,
+    readOnly,
+    onContentChange,
+  }: {
+    content: string;
+    readOnly?: boolean;
+    onContentChange?: (content: string) => void;
+  }) =>
+    readOnly ? (
+      <div data-testid="source-view">{content}</div>
+    ) : (
+      <textarea
+        aria-label="Artifact source editor"
+        defaultValue={content}
+        onChange={(event) => onContentChange?.(event.target.value)}
+      />
+    ),
 }));
+
+function editablePreview(
+  overrides: Record<string, unknown> = {},
+  artifacts?: Record<string, unknown>[],
+) {
+  const artifact = {
+    id: "artifact-1",
+    name: "report.md",
+    type: "output",
+    content_type: "text/markdown",
+    storage_path: "runs/1/report.md",
+    uploaded_at: "2026-08-07T10:00:00Z",
+    ...overrides,
+  };
+  return {
+    artifact,
+    artifacts: artifacts ?? [artifact],
+    preview: "# Report",
+    source: "# Report",
+  };
+}
 
 function textComment(): ResourceComment {
   return {
@@ -136,6 +210,7 @@ function textComment(): ResourceComment {
 describe("ArtifactPreview", () => {
   beforeEach(() => {
     commentsFlag.enabled = true;
+    editingFlag.enabled = true;
     auth.identity = "auth-1";
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -151,6 +226,12 @@ describe("ArtifactPreview", () => {
       isLoading: false,
       isError: false,
     });
+    artifactMocks.getCloudRunArtifacts.mockReset();
+    artifactMocks.uploadCloudRunArtifactVersion.mockReset();
+    artifactMocks.uploadCloudRunArtifactVersion.mockResolvedValue("artifact-2");
+    artifactMocks.invalidateQueries.mockReset();
+    artifactMocks.invalidateQueries.mockResolvedValue(undefined);
+    artifactMocks.openArtifactTab.mockReset();
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });
@@ -796,6 +877,168 @@ describe("ArtifactPreview", () => {
 
     expect(screen.queryByRole("button", { name: /comments/i })).toBeNull();
     expect(screen.queryByText("Tighten this summary")).toBeNull();
+  });
+
+  it.each([
+    ["text/markdown", "report.bin"],
+    ["text/html", "report.bin"],
+    ["text/plain", "report.bin"],
+    [undefined, "report.md"],
+    [undefined, "report.html"],
+    [undefined, "report.txt"],
+  ])(
+    "offers editing for the latest %s artifact named %s",
+    (contentType, fileName) => {
+      const data = editablePreview({
+        name: fileName,
+        content_type: contentType,
+      });
+      useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+      render(
+        <ArtifactPreview
+          taskId="task-1"
+          runId="run-1"
+          artifactId="artifact-1"
+          name={fileName}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    {
+      name: "a non-editable type",
+      artifact: { name: "report.json", content_type: "application/json" },
+      flagEnabled: true,
+      newerVersion: false,
+    },
+    {
+      name: "an unsupported extension fallback",
+      artifact: { name: "report.markdown", content_type: undefined },
+      flagEnabled: true,
+      newerVersion: false,
+    },
+    {
+      name: "an old version",
+      artifact: { name: "report.md", content_type: "text/markdown" },
+      flagEnabled: true,
+      newerVersion: true,
+    },
+    {
+      name: "the latest editable type while the flag is off",
+      artifact: { name: "report.md", content_type: "text/markdown" },
+      flagEnabled: false,
+      newerVersion: false,
+    },
+  ])(
+    "does not offer editing for $name",
+    ({ artifact, flagEnabled, newerVersion }) => {
+      editingFlag.enabled = flagEnabled;
+      const data = editablePreview(artifact);
+      if (newerVersion) {
+        data.artifacts.push({
+          ...data.artifact,
+          id: "artifact-2",
+          storage_path: "runs/1/report-v2.md",
+          uploaded_at: "2026-08-07T11:00:00Z",
+        });
+      }
+      useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+      render(
+        <ArtifactPreview
+          taskId="task-1"
+          runId="run-1"
+          artifactId="artifact-1"
+          name={data.artifact.name as string}
+        />,
+      );
+
+      expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    },
+  );
+
+  it("saves edited source as a new output version under the same name", async () => {
+    const data = editablePreview();
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+    artifactMocks.getCloudRunArtifacts.mockResolvedValue(data.artifacts);
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Artifact source editor"), {
+      target: { value: "# Edited by user" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(artifactMocks.uploadCloudRunArtifactVersion).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        "report.md",
+        "# Edited by user",
+        "text/markdown",
+      ),
+    );
+    expect(artifactMocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["task-runs", "task-1"],
+    });
+    expect(artifactMocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "artifact-2",
+      name: "report.md",
+    });
+  });
+
+  it("asks before saving over a version that arrived during editing", async () => {
+    const data = editablePreview();
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+    artifactMocks.getCloudRunArtifacts.mockResolvedValue([
+      ...data.artifacts,
+      {
+        ...data.artifact,
+        id: "artifact-2",
+        storage_path: "runs/1/report-v2.md",
+        uploaded_at: "2026-08-07T11:00:00Z",
+      },
+    ]);
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText(
+        "A newer version of this file arrived while you were editing. Save yours as the latest anyway?",
+      ),
+    ).toBeInTheDocument();
+    expect(artifactMocks.uploadCloudRunArtifactVersion).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save as latest" }));
+
+    await waitFor(() =>
+      expect(
+        artifactMocks.uploadCloudRunArtifactVersion,
+      ).toHaveBeenCalledOnce(),
+    );
   });
 
   it("preserves authored styles and injects the inline-comment bridge", () => {

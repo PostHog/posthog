@@ -33,6 +33,9 @@ vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
 }));
 
+vi.mock("@posthog/ui/features/auth/useMeQuery", () => ({
+  useMeQuery: () => ({ data: { id: 42 } }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: () => ({ runs: mocks.runs, isLoading: false }),
 }));
@@ -302,7 +305,7 @@ describe("TaskArtifactsList", () => {
   });
 
   // Agents revise a deliverable and upload it again under the same name.
-  it("keeps only the newest upload of a repeatedly revised file", () => {
+  it("shows the newest upload with earlier versions behind a picker", () => {
     mocks.runs = [
       run("run-1", {
         artifacts: [
@@ -324,7 +327,36 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getAllByText("report.md")).toHaveLength(1);
-    expect(screen.getByText("File · 2 KB")).toBeInTheDocument();
+    expect(screen.getByText(/^File · 2 KB · /)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Choose a version of report.md"));
+    fireEvent.click(screen.getByText(/^Version 1 ·/));
+    fireEvent.click(screen.getByText("report.md"));
+
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "a",
+      name: "report.md",
+    });
+  });
+
+  it("labels a version edited by the current user", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          outputFile({
+            id: "a",
+            uploaded_at: "2026-07-27T08:00:00+00:00",
+            uploaded_by: "user",
+            uploaded_by_user_id: 42,
+          }),
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText(/File · Edited by you ·/)).toBeInTheDocument();
   });
 
   // A file dismissed in the chat's Files box has to go from this pane too, but

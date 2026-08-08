@@ -30,6 +30,7 @@ import {
   getAuthIdentity,
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
+import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -51,15 +52,30 @@ type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
  * The menu sits at the right edge of the thread, and its popup is capped at the space left
  * there and clips what does not fit, so the age is the compact form rather than the row's.
  */
+function wasEditedByCurrentUser(
+  artifact: TaskRunArtifact,
+  currentUserId: number | undefined,
+): boolean {
+  return (
+    artifact.uploaded_by === "user" &&
+    currentUserId !== undefined &&
+    artifact.uploaded_by_user_id === currentUserId
+  );
+}
+
 function versionMenuLabel(
   artifact: TaskRunArtifact,
   index: number,
   total: number,
+  currentUserId: number | undefined,
 ): string {
-  const label = runArtifactVersionLabel(index, total);
-  return artifact.uploaded_at
-    ? `${label} · ${formatRelativeTimeShort(artifact.uploaded_at)}`
-    : label;
+  return [
+    runArtifactVersionLabel(index, total),
+    wasEditedByCurrentUser(artifact, currentUserId) ? "Edited by you" : null,
+    artifact.uploaded_at ? formatRelativeTimeShort(artifact.uploaded_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function CloudArtifactDownloads({
@@ -83,6 +99,7 @@ export function CloudArtifactDownloads({
   const { setArtifactFilesCollapsed } = useSessionViewActions();
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const { download, downloadingId } = useArtifactDownload();
+  const { data: currentUser } = useMeQuery();
   const [selectedVersionByName, setSelectedVersionByName] = useState<
     Record<string, string>
   >({});
@@ -210,6 +227,11 @@ export function CloudArtifactDownloads({
           {size !== null && (
             <Text className="shrink-0 text-[12px] text-gray-10">{size}</Text>
           )}
+          {wasEditedByCurrentUser(selected, currentUser?.id) && (
+            <Text className="shrink-0 text-[12px] text-gray-10">
+              Edited by you
+            </Text>
+          )}
           <RelativeTimestamp timestamp={selected.uploaded_at} />
         </button>
         {group.versions.length > 1 && (
@@ -240,7 +262,12 @@ export function CloudArtifactDownloads({
                     }))
                   }
                 >
-                  {versionMenuLabel(version, index, group.versions.length)}
+                  {versionMenuLabel(
+                    version,
+                    index,
+                    group.versions.length,
+                    currentUser?.id,
+                  )}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
