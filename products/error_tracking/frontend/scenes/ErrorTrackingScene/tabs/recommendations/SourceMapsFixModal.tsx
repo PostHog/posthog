@@ -8,7 +8,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { CloudSetupLauncher, CloudSetupPreload, SourceMapsCloudSetup } from './SourceMapsCloudSetup'
 import { sourceMapsCloudSetupLogic } from './sourceMapsCloudSetupLogic'
@@ -18,8 +17,7 @@ import { WizardHog } from './sourceMapsWizardVisuals'
 export function SourceMapsFixModal(): JSX.Element {
     const { isModalOpen } = useValues(sourceMapsFixWizardLogic)
     const { closeModal } = useActions(sourceMapsFixWizardLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
-    const canScanRepository = useFeatureFlag('ERROR_TRACKING_REPOSITORY_DETECTION') && !!isCloudOrDev
+    const canScanRepository = useFeatureFlag('ERROR_TRACKING_REPOSITORY_DETECTION')
     const [castKey, setCastKey] = useState(0)
 
     return (
