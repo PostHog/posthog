@@ -58,6 +58,18 @@ const MAX_PLUGIN_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 const MAX_PLUGIN_SNAPSHOT_ENTRIES = 2048;
 const SNAPSHOT_READ_CHUNK_BYTES = 64 * 1024;
 
+export function assertAgentPluginSnapshotFileLimits(
+  skillFiles: number,
+  pluginFiles: number,
+): void {
+  if (
+    skillFiles > MAX_SKILL_SNAPSHOT_FILES ||
+    pluginFiles > MAX_PLUGIN_SNAPSHOT_FILES
+  ) {
+    throw new Error("A skill contains too many snapshot files.");
+  }
+}
+
 function summarizeMcpServers(
   servers: AgentPluginHttpMcpServer[],
 ): AgentPluginMcpServerSummary[] {
@@ -652,12 +664,7 @@ export class AgentPluginsService {
 
         const nextSkillFiles = skillUsage.files + 1;
         const nextPluginFiles = pluginUsage.files + nextSkillFiles;
-        if (
-          nextSkillFiles > MAX_SKILL_SNAPSHOT_FILES ||
-          nextPluginFiles > MAX_PLUGIN_SNAPSHOT_FILES
-        ) {
-          throw new Error("A skill contains too many snapshot files.");
-        }
+        assertAgentPluginSnapshotFileLimits(nextSkillFiles, nextPluginFiles);
 
         const content = await this.readSnapshotFile(handle);
         const nextSkillBytes = skillUsage.bytes + content.byteLength;
