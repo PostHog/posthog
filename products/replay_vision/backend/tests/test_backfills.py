@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 import pytest
@@ -5,6 +6,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
+
+from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
@@ -19,23 +23,32 @@ from products.replay_vision.backend.models.replay_scanner_backfill import Backfi
 from products.replay_vision.backend.quota import compute_quota_snapshot, sum_active_backfill_remaining_credits
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
+    delete_backfill_schedule_activity,
     find_backfill_candidates_activity,
+    pause_backfill_schedule_activity,
     prepare_backfill_tick_activity,
 )
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.backfill_types import (
     AdvanceBackfillCursorInputs,
+    AdvanceBackfillCursorOutput,
     BackfillTickAction,
     BackfillTickInputs,
     FindBackfillCandidatesInputs,
+    FindBackfillCandidatesOutput,
+    PrepareBackfillTickOutput,
 )
+from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_WORKFLOW_NAME,
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     backfill_dispatch_budget,
+    build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
+from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
@@ -447,19 +460,30 @@ class TestBackfillsApi(APIBaseTest):
         response = self.client.post(f"{self.base_url}/{running.id}/resume/")
         assert response.status_code == 400
 
-    def test_enumerating_actions_carry_a_rate_limited_throttle(self) -> None:
-        # The global burst/sustained throttles only cover personal API keys, so without this one a UI
-        # session could resubmit wide windows and saturate the ClickHouse pool. The rate is asserted
-        # too, since the wiring alone would pass with a throttle that never limits anything.
+    def test_enumerating_actions_are_throttled_and_cheap_ones_are_not(self) -> None:
+        # The global burst/sustained throttles extend PersonalApiKeyRateThrottle, which gates on
+        # personal-API-key auth, so a UI session skips them and could resubmit wide windows until the
+        # ClickHouse pool is saturated. Denying the throttle and asserting the status proves it is wired
+        # into the request path; inspecting get_throttles() alone passes even if DRF never consults it.
+        backfill = _make_backfill(self.scanner, status=BackfillStatus.PAUSED_QUOTA)
+        with (
+            patch.object(BackfillEnumerationThrottle, "allow_request", return_value=False),
+            patch.object(BackfillEnumerationThrottle, "wait", return_value=None),
+        ):
+            estimate = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+            create = self.client.post(f"{self.base_url}/", self._window_body(), format="json")
+            # Cancel and resume don't enumerate, so throttling them would just block recovery.
+            resume = self.client.post(f"{self.base_url}/{backfill.id}/resume/")
+
+        assert estimate.status_code == HTTP_429_TOO_MANY_REQUESTS
+        assert create.status_code == HTTP_429_TOO_MANY_REQUESTS
+        assert resume.status_code != HTTP_429_TOO_MANY_REQUESTS
+
+    def test_enumeration_throttle_keeps_the_global_limits(self) -> None:
+        # Appended, not substituted: the personal-API-key limits must survive on the heaviest actions.
         viewset = ReplayScannerBackfillViewSet()
-        for enumerating_action in ("estimate", "create"):
-            viewset.action = enumerating_action
-            throttles = viewset.get_throttles()
-            assert any(isinstance(t, BackfillEnumerationThrottle) for t in throttles)
-            # Appended, not substituted: the global limits must survive on the heaviest actions.
-            assert len(throttles) > 1
-        viewset.action = "cancel"
-        assert not any(isinstance(t, BackfillEnumerationThrottle) for t in viewset.get_throttles())
+        viewset.action = "estimate"
+        assert len(viewset.get_throttles()) > 1
         assert BackfillEnumerationThrottle.rate
 
     def test_list_includes_observation_progress_counts(self) -> None:
@@ -478,3 +502,188 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 200
         row = response.json()["results"][0]
         assert (row["succeeded_count"], row["failed_count"], row["in_flight_count"]) == (1, 1, 1)
+
+
+# BackfillScannerWorkflow (mocked-Temporal)
+
+
+class _BackfillMocks:
+    def __init__(
+        self,
+        *,
+        activity_results: dict | None = None,
+        child_errors_for_ids: dict[str, Exception] | None = None,
+    ) -> None:
+        self.activity_results = activity_results or {}
+        self.child_errors_for_ids = child_errors_for_ids or {}
+        self.activity_calls: list[tuple] = []
+        self.child_calls: list[dict] = []
+
+    async def execute_activity(self, activity_fn, activity_input, **_) -> object:
+        self.activity_calls.append((activity_fn, activity_input))
+        if activity_fn is advance_backfill_cursor_activity and activity_fn not in self.activity_results:
+            return AdvanceBackfillCursorOutput(finished=False)
+        return self.activity_results.get(activity_fn)
+
+    async def start_child_workflow(self, *args, **kwargs) -> object:
+        wid = kwargs.get("id")
+        self.child_calls.append({"id": wid, "inputs": args[1] if len(args) > 1 else None})
+        if wid is not None and wid in self.child_errors_for_ids:
+            raise self.child_errors_for_ids[wid]
+        return MagicMock()
+
+
+def _backfill_tick_inputs() -> BackfillTickInputs:
+    return BackfillTickInputs(backfill_id=uuid.uuid4(), team_id=42, scanner_id=uuid.uuid4())
+
+
+async def _run_backfill_tick(mocks: _BackfillMocks, inputs: BackfillTickInputs | None = None) -> None:
+    # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
+    fake_logger = type(
+        "Logger",
+        (),
+        {
+            "info": staticmethod(lambda *_a, **_kw: None),
+            "warning": staticmethod(lambda *_a, **_kw: None),
+            "exception": staticmethod(lambda *_a, **_kw: None),
+        },
+    )()
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
+        patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
+        patch("temporalio.workflow.logger", fake_logger),
+    ):
+        await BackfillScannerWorkflow().run(inputs or _backfill_tick_inputs())
+
+
+def _called(mocks: _BackfillMocks) -> list:
+    return [fn for fn, _ in mocks.activity_calls]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action,follow_up",
+    [
+        # A terminal row tears its own schedule down; without this the minute schedule outlives the backfill.
+        (BackfillTickAction.FINISHED, delete_backfill_schedule_activity),
+        (BackfillTickAction.PAUSE, pause_backfill_schedule_activity),
+    ],
+)
+async def test_gate_actions_run_their_schedule_op_and_nothing_else(action, follow_up) -> None:
+    mocks = _BackfillMocks(activity_results={prepare_backfill_tick_activity: PrepareBackfillTickOutput(action=action)})
+
+    await _run_backfill_tick(mocks)
+
+    assert _called(mocks) == [prepare_backfill_tick_activity, follow_up]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prep",
+    [
+        PrepareBackfillTickOutput(action=BackfillTickAction.SKIP),
+        # A dispatch with no budget must not run the tick's most expensive query.
+        PrepareBackfillTickOutput(action=BackfillTickAction.DISPATCH, dispatch_budget=0),
+    ],
+)
+async def test_held_tick_never_enumerates(prep) -> None:
+    mocks = _BackfillMocks(activity_results={prepare_backfill_tick_activity: prep})
+
+    await _run_backfill_tick(mocks)
+
+    assert _called(mocks) == [prepare_backfill_tick_activity]
+    assert mocks.child_calls == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_starts_a_child_per_candidate_and_threads_the_walk_into_the_advance() -> None:
+    cursor = dt.datetime(2026, 4, 30, tzinfo=dt.UTC)
+    inputs = _backfill_tick_inputs()
+    mocks = _BackfillMocks(
+        activity_results={
+            prepare_backfill_tick_activity: PrepareBackfillTickOutput(
+                action=BackfillTickAction.DISPATCH, dispatch_budget=2
+            ),
+            find_backfill_candidates_activity: FindBackfillCandidatesOutput(
+                candidates=[
+                    CandidateSessionPayload(session_id="sess-a", session_end=cursor),
+                    CandidateSessionPayload(session_id="sess-b", session_end=cursor),
+                ],
+                skipped_delta=3,
+                next_cursor_end_time=cursor,
+                next_cursor_session_id="sess-b",
+                started_from_cursor_end_time=None,
+                started_from_cursor_session_id="",
+                more_work_below_cursor=True,
+            ),
+        }
+    )
+
+    await _run_backfill_tick(mocks, inputs)
+
+    assert [c["id"] for c in mocks.child_calls] == [
+        build_apply_scanner_workflow_id(inputs.scanner_id, "sess-a"),
+        build_apply_scanner_workflow_id(inputs.scanner_id, "sess-b"),
+    ]
+    advance = next(call for fn, call in mocks.activity_calls if fn is advance_backfill_cursor_activity)
+    # The activity owns how far the walk got; the workflow must not recompute it from the batch.
+    assert (advance.new_cursor_end_time, advance.new_cursor_session_id) == (cursor, "sess-b")
+    assert (advance.dispatched_delta, advance.skipped_delta) == (2, 3)
+    # More work below the cursor must not read as a drained window.
+    assert not advance.exhausted
+
+
+@pytest.mark.asyncio
+async def test_drained_window_advances_then_deletes_its_own_schedule() -> None:
+    mocks = _BackfillMocks(
+        activity_results={
+            prepare_backfill_tick_activity: PrepareBackfillTickOutput(
+                action=BackfillTickAction.DISPATCH, dispatch_budget=5
+            ),
+            find_backfill_candidates_activity: FindBackfillCandidatesOutput(
+                candidates=[], more_work_below_cursor=False
+            ),
+            advance_backfill_cursor_activity: AdvanceBackfillCursorOutput(finished=True),
+        }
+    )
+
+    await _run_backfill_tick(mocks)
+
+    assert mocks.child_calls == []
+    assert _called(mocks) == [
+        prepare_backfill_tick_activity,
+        find_backfill_candidates_activity,
+        advance_backfill_cursor_activity,
+        delete_backfill_schedule_activity,
+    ]
+    advance = next(call for fn, call in mocks.activity_calls if fn is advance_backfill_cursor_activity)
+    assert advance.exhausted
+
+
+@pytest.mark.asyncio
+async def test_child_already_started_by_the_live_sweep_does_not_fail_the_tick() -> None:
+    cursor = dt.datetime(2026, 4, 30, tzinfo=dt.UTC)
+    inputs = _backfill_tick_inputs()
+    collided = build_apply_scanner_workflow_id(inputs.scanner_id, "sess-a")
+    mocks = _BackfillMocks(
+        activity_results={
+            prepare_backfill_tick_activity: PrepareBackfillTickOutput(
+                action=BackfillTickAction.DISPATCH, dispatch_budget=2
+            ),
+            find_backfill_candidates_activity: FindBackfillCandidatesOutput(
+                candidates=[
+                    CandidateSessionPayload(session_id="sess-a", session_end=cursor),
+                    CandidateSessionPayload(session_id="sess-b", session_end=cursor),
+                ],
+                next_cursor_end_time=cursor,
+                next_cursor_session_id="sess-b",
+                more_work_below_cursor=True,
+            ),
+        },
+        # Deterministic ids mean a session the live sweep is already applying collides here by design.
+        child_errors_for_ids={collided: WorkflowAlreadyStartedError(collided, APPLY_SCANNER_WORKFLOW_NAME)},
+    )
+
+    await _run_backfill_tick(mocks, inputs)
+
+    assert advance_backfill_cursor_activity in _called(mocks)
