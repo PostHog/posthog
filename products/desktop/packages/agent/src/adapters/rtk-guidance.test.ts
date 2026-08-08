@@ -75,6 +75,16 @@ describe("rtk guidance for codex", () => {
       expect(buildRtkGuidance("rtk")).not.toContain("`rg`");
     });
 
+    // Parity with the Claude hook's RG unsafe-flag guard: guided models must
+    // not prefix output-mode or help/version rg invocations.
+    test("advertises the rg unsafe-flag rule alongside rg", () => {
+      const withRg = buildRtkGuidance("rtk", { rgOnPath: true });
+      expect(withRg).toContain("--json");
+      expect(withRg).toContain("-nl");
+      expect(withRg).toContain("--help");
+      expect(buildRtkGuidance("rtk", { rgOnPath: false })).not.toContain("-nl");
+    });
+
     // Parity with the Claude hook's chain-segment rewriting.
     test("allows prefixing eligible segments of && chains", () => {
       const guidance = buildRtkGuidance("rtk");

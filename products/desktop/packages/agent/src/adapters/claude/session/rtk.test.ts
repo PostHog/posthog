@@ -59,6 +59,22 @@ describe("rewriteBashForRtk", () => {
     ["cd /tmp && cat file.ts"],
     // Unbalanced quotes — the splitter can't model the line, fail safe.
     ["ls 'unclosed && git status"],
+    // Multiline input (heredocs, scripts): a `;` inside a heredoc body is
+    // document text — splitting there would rewrite the *contents* of a
+    // generated file. The splitter refuses all multiline input.
+    ["cat > out.sh <<EOF\nfoo; git status; bar\nEOF"],
+    ["for f in a b\ndo ls $f\ndone"],
+    // Chain operators inside $(...)/subshells must not split the substitution
+    // — its output is consumed programmatically, never compressed.
+    ["FILES=$(true; grep -rl foo src); rm $FILES"],
+    ["echo $(cd pkg && git status)"],
+    ["OUT=$(git log --oneline; ls src)"],
+    ["diff <(ls a; ls b) file.txt"],
+    // A `)` with no opener (case arms) is unmodelable syntax — fail safe.
+    ["case x in x) echo hi;; esac; ls"],
+    // Escaped find grouping parens reach find as bare tokens — outside the
+    // supported-primary allowlist, so the invocation runs raw.
+    ["find . \\( -name '*.ts' -o -name '*.tsx' \\)"],
     // find predicates rtk's parser rejects run raw: rewriting would swap the
     // file list for an error, and these shapes are typically used when the
     // complete matched set matters (rtk's filters truncate large lists).
@@ -116,6 +132,9 @@ describe("rewriteBashForRtk", () => {
       "find src -name '*.ts' && find . -not -path '*/dist/*'",
       "rtk find src -name '*.ts' && find . -not -path '*/dist/*'",
     ],
+    // A balanced $(...) stays intact within its own segment; only the
+    // substitution-free sibling is rewritten.
+    ["echo $(git status) && ls", "echo $(git status) && rtk ls"],
   ])("rewrites chained %j", (input, expected) => {
     expect(rewriteBashForRtk(input, "rtk")).toBe(expected);
   });
@@ -135,14 +154,18 @@ describe("rewriteBashForRtk", () => {
     ["rg --files src"],
     ["rg -c foo src"],
     ["rg --stats foo src"],
+    // Clustered short flags and =-attached long forms are the same modes.
+    ["rg -nl foo src"],
+    ["rg -cn foo src"],
+    ["rg --replace=x foo src"],
+    // rtk intercepts help/version itself — `rtk rg -h` prints the wrapper's
+    // help, not ripgrep's, so these change meaning entirely.
+    ["rg -h"],
+    ["rg --help"],
+    ["rg -V"],
+    ["rg --version"],
   ])("unsafe rg output flags stay raw even with rg on PATH: %j", (input) => {
     expect(rewriteBashForRtk(input, "rtk", { rgOnPath: true })).toBeNull();
-  });
-
-  test("chained rewrite preserves untouched-segment whitespace and `;;`", () => {
-    expect(rewriteBashForRtk("case x in x) echo hi;; esac; ls", "rtk")).toBe(
-      "case x in x) echo hi;; esac; rtk ls",
-    );
   });
 
   test.each([

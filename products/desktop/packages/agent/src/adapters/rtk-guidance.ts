@@ -44,6 +44,9 @@ export function buildRtkGuidance(
   ].join("`, `");
   const gitSubcommands = [...GIT_COMPRESSIBLE_SUBCOMMANDS].join(", ");
   const findFlags = [...RTK_FIND_SUPPORTED_FLAGS].join("`, `");
+  const rgRule = options.rgOnPath
+    ? `\n- Never prefix \`rg\` when it uses output-mode or meta flags (\`--json\`, \`-l\`/\`--files*\`, \`-c\`/\`--count*\`, \`--stats\`, \`-r\`/\`--replace\`, \`--vimgrep\`, \`-h\`/\`--help\`, \`-V\`/\`--version\`, including clustered forms like \`-nl\`) — compression corrupts that output, and rtk intercepts help/version itself.`
+    : "";
 
   return `## rtk command-output compression
 
@@ -56,7 +59,7 @@ Examples: \`${prefix} git status\`, \`${prefix} grep -rn "foo" src\`, \`${prefix
 
 Rules:
 - Only prefix a bare invocation. In a command chained with \`&&\` or \`;\` you may prefix each eligible sub-command individually (e.g. \`cd pkg && ${prefix} git status\`). Never prefix a command that is part of a pipe or redirection, or whose output another program parses — compression would corrupt what the consumer reads.
-- Only prefix \`find\` when it uses these predicates alone: \`${findFlags}\`. Run any other find (\`-not\`, \`-exec\`, \`!\`, \`-mtime\`, …) unprefixed — rtk rejects them with an error instead of output.
+- Only prefix \`find\` when it uses these predicates alone: \`${findFlags}\`. Run any other find (\`-not\`, \`-exec\`, \`!\`, \`-mtime\`, …) unprefixed — rtk rejects them with an error instead of output.${rgRule}
 - Never prefix \`git commit\`, \`git push\`, or any other command not listed above.
 - Skip the prefix when you need the exact, complete output (for example, copying a diff verbatim).`;
 }

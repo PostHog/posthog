@@ -209,10 +209,16 @@ describe.skipIf(!!skip)(title, () => {
   }, 360_000);
 
   afterAll(() => {
+    // Guarded: a beforeAll that throws before assignment must not have its
+    // real failure masked by cleanup throwing on undefined paths.
     if (savedRtkDbPath === undefined) delete process.env.RTK_DB_PATH;
     else process.env.RTK_DB_PATH = savedRtkDbPath;
-    cleanupRepo(repo);
-    rmSync(rtkDbPath, { force: true });
+    if (repo) cleanupRepo(repo);
+    if (rtkDbPath) {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        rmSync(`${rtkDbPath}${suffix}`, { force: true });
+      }
+    }
   });
 
   it("completes all four turns", () => {

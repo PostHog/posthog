@@ -82,16 +82,24 @@ interface CommandSegment {
 
 /**
  * Splits a command line into top-level segments joined by `&&` or `;`,
- * tracking single/double quotes and backslash escapes so operators inside
- * quoted arguments don't split. Returns null when the line uses syntax the
- * splitter doesn't model (unbalanced quotes), so callers fail safe.
+ * tracking single/double quotes, backslash escapes, and parenthesis depth so
+ * operators inside quoted arguments, `$(...)`/`<(...)` substitutions, and
+ * subshells don't split — a split there would put the substitution's tail in
+ * its own segment, hiding the `$(` from the per-segment operator guard and
+ * letting compressed output leak into text another program consumes. Returns
+ * null when the line uses syntax the splitter doesn't model (unbalanced
+ * quotes or parens, multiline input such as heredocs — a `;` inside a heredoc
+ * body is document text, not a separator), so callers fail safe.
  */
 export function splitTopLevelSegments(
   command: string,
 ): CommandSegment[] | null {
+  if (command.includes("\n")) return null;
+
   const segments: CommandSegment[] = [];
   let current = "";
   let quote: "'" | '"' | null = null;
+  let parenDepth = 0;
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
     if (quote) {
@@ -112,20 +120,33 @@ export function splitTopLevelSegments(
       current += ch;
       continue;
     }
-    if (ch === "&" && command[i + 1] === "&") {
+    if (ch === "(") {
+      parenDepth++;
+      current += ch;
+      continue;
+    }
+    if (ch === ")") {
+      // A closer with no opener (`case x in x) …`) is syntax the splitter
+      // doesn't model — fail safe rather than guess.
+      if (parenDepth === 0) return null;
+      parenDepth--;
+      current += ch;
+      continue;
+    }
+    if (parenDepth === 0 && ch === "&" && command[i + 1] === "&") {
       segments.push({ text: current, separator: "&&" });
       current = "";
       i++;
       continue;
     }
-    if (ch === ";") {
+    if (parenDepth === 0 && ch === ";") {
       segments.push({ text: current, separator: ";" });
       current = "";
       continue;
     }
     current += ch;
   }
-  if (quote) return null;
+  if (quote || parenDepth !== 0) return null;
   segments.push({ text: current, separator: "" });
   return segments;
 }
@@ -149,35 +170,57 @@ export const RTK_FIND_SUPPORTED_FLAGS = new Set([
 
 // rg flags that change the output away from the plain file:line:content
 // matches rtk's rg filter models — compacting them would corrupt counts, file
-// lists, or JSON that a consumer (or the model) reads structurally.
-const RG_UNSAFE_FLAGS = new Set([
+// lists, or JSON that a consumer (or the model) reads structurally. `-h`/`-V`
+// and their long forms are intercepted by rtk itself (`rtk rg -h` prints the
+// wrapper's help, not ripgrep's), so they change meaning, not just shape.
+const RG_UNSAFE_LONG_FLAGS = new Set([
   "--json",
   "--files",
-  "-l",
   "--files-with-matches",
   "--files-without-match",
-  "-c",
   "--count",
   "--count-matches",
   "--stats",
-  "-p",
   "--pretty",
-  "-q",
   "--quiet",
-  "-r",
   "--replace",
+  "--vimgrep",
+  "--help",
+  "--version",
 ]);
+const RG_UNSAFE_SHORT_LETTERS = new Set(["l", "c", "p", "q", "r", "h", "V"]);
+
+// rg accepts clustered short options (`-nl` contains `-l`) and `=`-attached
+// long values (`--replace=x`), so the guard must normalize before matching —
+// exact-token comparison is trivially bypassed by common spellings.
+function hasUnsafeRgFlag(tokens: string[]): boolean {
+  for (const token of tokens) {
+    if (token.startsWith("--")) {
+      const bare = token.split("=", 1)[0];
+      if (RG_UNSAFE_LONG_FLAGS.has(bare)) return true;
+    } else if (/^-[a-zA-Z]+$/.test(token)) {
+      for (const letter of token.slice(1)) {
+        if (RG_UNSAFE_SHORT_LETTERS.has(letter)) return true;
+      }
+    }
+  }
+  return false;
+}
 
 function findFlagTokens(trimmed: string): string[] {
   return trimmed
     .split(/\s+/)
     .slice(1)
-    .map((token) =>
-      (token.startsWith("'") && token.endsWith("'")) ||
-      (token.startsWith('"') && token.endsWith('"'))
-        ? token.slice(1, -1)
-        : token,
-    );
+    .map((token) => {
+      const unquoted =
+        (token.startsWith("'") && token.endsWith("'")) ||
+        (token.startsWith('"') && token.endsWith('"'))
+          ? token.slice(1, -1)
+          : token;
+      // `\(`/`\)`/`\!` reach find as bare grouping tokens — strip the shell
+      // escape so the guard sees what find sees.
+      return unquoted.startsWith("\\") ? unquoted.slice(1) : unquoted;
+    });
 }
 
 function rtkSupportsFindInvocation(trimmed: string): boolean {
@@ -250,8 +293,7 @@ function rewriteSegmentInvocation(
     // proxy and reports the uncapped total ("N matches in M files"), so
     // truncation stays discoverable.
     if (!options.rgOnPath) return null;
-    const tokens = trimmed.split(/\s+/).slice(1);
-    if (tokens.some((t) => RG_UNSAFE_FLAGS.has(t))) return null;
+    if (hasUnsafeRgFlag(trimmed.split(/\s+/).slice(1))) return null;
     return `${quotedPrefix} ${trimmed}`;
   }
   if (!RTK_PLAIN_COMMANDS.has(head)) return null;

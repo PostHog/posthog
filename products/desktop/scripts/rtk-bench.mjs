@@ -13,9 +13,14 @@
 // a rewrite that errors into empty output registers as a REGRESSION, never as
 // savings; a baseline-only failure is a main bug the candidate fixed.
 //
-// Token figures are bytes/4, a size heuristic comparable to `rtk gain` — NOT
-// provider tokenizer counts, and this measures command output only (no prompt
-// guidance, retries, or session-level effects).
+// SCOPE — what this bench does and does not prove. Token figures are
+// bytes/4 over stdout+stderr, a size heuristic comparable to `rtk gain`, NOT
+// provider tokenizer counts. The corpus is fixed and NOT usage-weighted, and
+// the bench measures command output only: no prompt-guidance overhead, no
+// model retries, no session outcomes. It can prove output reduction and
+// fidelity for these command shapes; a net harness gain claim additionally
+// requires a session-level A/B (total input/output tokens, retries, task
+// success) — see the rtk-context-fidelity e2e for the fidelity half.
 //
 // Usage: node scripts/rtk-bench.mjs [--json]
 
@@ -35,8 +40,16 @@ const lines = (s) => s.split("\n").filter(Boolean);
 // rtk's search/list filters are lossy by design past their result caps but
 // must report accurate uncapped totals ("924 matches in 209 files", "229F
 // 23D") so truncation stays discoverable. The facts below encode exactly that
-// contract; completeness is asserted only where rtk is complete (ls).
-const MATCH_HEADER = /\d+ matches in \d+ files/;
+// contract with EXACT expected values derived from raw output — a generic
+// "any number" pattern would let materially wrong totals pass. Completeness
+// is asserted only where rtk is complete (ls, under-cap rg passthrough).
+//
+// The exact-count fact is only valid for anchored patterns (one match per
+// line); rtk counts match occurrences, raw output counts matching lines.
+const matchHeader = (raw) => {
+  const files = new Set(lines(raw).map((l) => l.split(":", 1)[0]));
+  return `${lines(raw).length} matches in ${files.size} files`;
+};
 const findHeader = (raw) =>
   `${lines(raw).filter((l) => l.includes("/")).length}F`;
 const lsNames = (raw) =>
@@ -44,18 +57,34 @@ const lsNames = (raw) =>
     .filter((l) => !/^total \d+/.test(l))
     .map((l) => path.basename(l.trim().split(/\s+/).pop() ?? ""))
     .filter((n) => n && n !== "." && n !== "..");
+// Per-file facts from `git status` long format: every modified/new/deleted
+// path and the current branch must survive compression.
+const gitStatusFacts = (raw) => {
+  const facts = [];
+  const branch = raw.match(/^On branch (\S+)/m);
+  if (branch) facts.push(branch[1]);
+  for (const m of raw.matchAll(
+    /^\s+(?:modified|new file|deleted):\s+(\S+)/gm,
+  )) {
+    facts.push(m[1]);
+  }
+  return facts;
+};
+// Under rtk's 200-result cap rg passes through verbatim, so every raw
+// file:line match must be present, not just a summary.
+const rgLines = (raw) => lines(raw).filter((l) => /^\S+:\d+:/.test(l));
 
 // facts(rawStdout) → strings/regexes the rewritten arm's output must contain.
 const CORPUS = [
   {
     label: "grep import",
     cmd: `grep -rn "^import" packages/agent/src`,
-    facts: () => [MATCH_HEADER],
+    facts: (raw) => [matchHeader(raw)],
   },
   {
     label: "grep export",
     cmd: `grep -rn "^export" packages/core/src`,
-    facts: () => [MATCH_HEADER],
+    facts: (raw) => [matchHeader(raw)],
   },
   {
     label: "grep no-match",
@@ -77,12 +106,19 @@ const CORPUS = [
     cmd: "ls -la packages/agent/src",
     facts: lsNames,
   },
-  { label: "git status", cmd: "git status", facts: () => [] },
-  { label: "git branch -a", cmd: "git branch -a", facts: () => [] },
+  { label: "git status", cmd: "git status", facts: gitStatusFacts },
+  {
+    label: "git branch -a",
+    cmd: "git branch -a",
+    facts: (raw) => {
+      const current = raw.match(/^\* (\S+)/m);
+      return current ? [current[1]] : [];
+    },
+  },
   {
     label: "chain: status+diff",
     cmd: "git status && git diff --stat",
-    facts: () => [],
+    facts: gitStatusFacts,
   },
   {
     label: "chain: ls+find",
@@ -92,32 +128,50 @@ const CORPUS = [
   {
     label: "rg import",
     cmd: `rg -n "^import" packages/core/src`,
-    facts: () => [MATCH_HEADER],
+    facts: (raw) => [matchHeader(raw)],
   },
-  // Under rtk's 200-result cap rg passes through verbatim (no header), so the
-  // fact is presence of a known raw line, not the header.
   {
     label: "chain: rg+status",
     cmd: `rg -n "Symbol.for" packages/core/src && git status`,
-    facts: (raw) => lines(raw).slice(0, 1),
+    facts: (raw) => [...rgLines(raw), ...gitStatusFacts(raw)],
   },
 ];
 
 // rg in agent sessions is often Claude Code's embedded ripgrep behind a shell
 // function; expose it as a real executable so the bench mirrors a dev machine
 // and `rtk rg` can exec it.
+// Per-run private temp dir: fixed shared-tmp paths are plantable (an attacker
+// pre-owning the dir can swap the shim executable) and collide across
+// concurrent runs.
+const RUN_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "rtk-bench-"));
+process.on("exit", () => {
+  fs.rmSync(RUN_TMP, { recursive: true, force: true });
+});
+
 function ensureRgOnPath() {
   try {
     execFileSync("bash", ["-c", "command -v rg"], { encoding: "utf8" });
     return process.env.PATH;
   } catch {
-    const dir = path.join(os.tmpdir(), "rtk-bench-rg");
-    fs.mkdirSync(dir, { recursive: true });
+    const dir = path.join(RUN_TMP, "rg-shim");
+    fs.mkdirSync(dir);
+    const wrapper = path.join(dir, "rg");
     fs.writeFileSync(
-      path.join(dir, "rg"),
+      wrapper,
       `#!/bin/bash\nexec -a rg "\${CLAUDE_CODE_EXECPATH:-$HOME/.local/bin/claude}" "$@"\n`,
       { mode: 0o755 },
     );
+    // The shim assumes the Claude Code binary multiplexes into ripgrep on
+    // argv[0]; verify once so a wrong assumption fails here with a clear
+    // message instead of surfacing as a fake fidelity regression.
+    try {
+      execFileSync(wrapper, ["--version"], { encoding: "utf8" });
+    } catch {
+      console.error(
+        "rg is not on PATH and the Claude Code ripgrep shim does not work here; rg rows would misreport. Install ripgrep and re-run.",
+      );
+      process.exit(2);
+    }
     return `${process.env.PATH}:${dir}`;
   }
 }
@@ -127,11 +181,18 @@ const BENCH_PATH = ensureRgOnPath();
 const BENCH_ENV = {
   ...process.env,
   PATH: BENCH_PATH,
-  RTK_DB_PATH: path.join(os.tmpdir(), "rtk-bench-gain.db"),
+  RTK_DB_PATH: path.join(RUN_TMP, "gain.db"),
 };
 
-function tokensOf(text) {
-  return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
+// stderr counts too: in an agent session the model reads both streams, and
+// an arm that moves output from stdout to an error on stderr must not score
+// as savings.
+function tokensOf(run) {
+  return Math.ceil(
+    (Buffer.byteLength(run.stdout, "utf8") +
+      Buffer.byteLength(run.stderr, "utf8")) /
+      4,
+  );
 }
 
 function runShell(cmd) {
@@ -152,14 +213,33 @@ function runShell(cmd) {
 
 // Materialize main's policy module so the baseline arm runs the code actually
 // shipped, not a reimplementation of it.
+function resolveBaselineRef() {
+  for (const ref of ["main", "origin/main"]) {
+    try {
+      execFileSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
+        cwd: repoRoot,
+        stdio: "pipe",
+      });
+      return ref;
+    } catch {
+      // Try the next ref.
+    }
+  }
+  console.error(
+    "Neither `main` nor `origin/main` resolves here (shallow or detached checkout?) — cannot materialize the baseline policy arm.",
+  );
+  process.exit(2);
+}
+
 function materializeBaselinePolicy() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rtk-bench-baseline-"));
+  const ref = resolveBaselineRef();
+  const dir = path.join(RUN_TMP, "baseline");
   fs.mkdirSync(path.join(dir, "session"), { recursive: true });
   for (const [gitPath, outPath] of [
     [`${RTK_MODULE_DIR}/rtk.ts`, "session/rtk.ts"],
     ["packages/agent/src/adapters/claude/git-command.ts", "git-command.ts"],
   ]) {
-    const content = execFileSync("git", ["show", `main:${gitPath}`], {
+    const content = execFileSync("git", ["show", `${ref}:${gitPath}`], {
       cwd: repoRoot,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
@@ -224,12 +304,12 @@ const rows = CORPUS.map(({ label, cmd, facts }, i) => {
     const run = cmdForArm ? runShell(cmdForArm) : raw;
     arms[arm] = {
       rewritten: cmdForArm,
-      tokens: tokensOf(run.stdout),
+      tokens: tokensOf(run),
       ms: run.ms,
       issues: cmdForArm ? fidelityIssues(facts, raw, run) : [],
     };
   }
-  return { label, rawTokens: tokensOf(raw.stdout), rawMs: raw.ms, ...arms };
+  return { label, rawTokens: tokensOf(raw), rawMs: raw.ms, ...arms };
 });
 
 const total = (pick) => rows.reduce((s, r) => s + pick(r), 0);
