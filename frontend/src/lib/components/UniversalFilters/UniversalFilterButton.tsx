@@ -42,7 +42,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                 onClick={isEditable ? onClick : undefined}
                 className={clsx('UniversalFilterButton inline-flex items-center', className, {
                     'UniversalFilterButton--clickable': isEditable,
-                    'UniversalFilterButton--closeable': closable,
+                    'UniversalFilterButton--closable': closable,
                     'ph-no-capture': true,
                 })}
             >
@@ -63,7 +63,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     <PopoverReferenceContext.Provider value={null}>
                         <LemonButton
                             size="xsmall"
-                            icon={<IconX className="w-3 h-3" />}
+                            icon={<IconX className="w-4 h-4" />}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onClose()

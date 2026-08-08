@@ -44,6 +44,7 @@ describe('UniversalFilterButton', () => {
         )
     }
 
+
     it('offers the property filter button when there is a handler to open the properties', () => {
         renderButton(() => {})
         expect(screen.getByRole('button')).toBeInTheDocument()
@@ -52,5 +53,16 @@ describe('UniversalFilterButton', () => {
     it('renders no button when read-only, so the property count is not a dead click target', () => {
         renderButton()
         expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+
+    it('marks the closable pill with the class the stylesheet pads, so the close target keeps its hit area', () => {
+        // The stylesheet keys the close-button spacing on `.UniversalFilterButton--closable`. A rendered class
+        // that does not match that selector is dead CSS the review cannot see, so assert the exact name here.
+        const { container } = render(
+            <Provider>
+                <UniversalFilterButton filter={EVENT_WITH_PROPERTIES} onClose={() => {}} />
+            </Provider>
+        )
+        expect(container.querySelector('.UniversalFilterButton--closable')).toBeInTheDocument()
     })
 })
