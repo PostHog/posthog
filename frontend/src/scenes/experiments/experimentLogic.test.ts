@@ -2511,12 +2511,12 @@ describe('experimentLogic', () => {
                 .toNotHaveDispatchedActions(['loadExposures', 'markRefreshStarted'])
         })
 
-        it('clears the error state and retries on a user-initiated refresh', async () => {
+        it('reloads the experiment to recover on a user-initiated refresh', async () => {
             logic.actions.setFlagVariantsRemoved(CHANGED_AT)
             await expectLogic(logic, () => {
                 logic.actions.refreshExperimentResults(true, 'manual')
             })
-                .toDispatchActions(['clearFlagVariantsRemoved', 'markRefreshStarted'])
+                .toDispatchActions(['loadExperiment'])
                 .toMatchValues({ flagVariantsRemoved: false })
         })
     })

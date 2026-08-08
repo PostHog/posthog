@@ -858,9 +858,6 @@ export interface experimentLogicActions {
     changeExperimentStartDate: (startDate: string) => {
         startDate: string
     }
-    clearFlagVariantsRemoved: () => {
-        value: true
-    }
     clearMetricsResults: () => {
         value: true
     }
@@ -1794,7 +1791,6 @@ export const experimentLogic = kea<experimentLogicType>([
         toggleDebugPanel: true,
         setVariantExcluded: (variantKey: string, excluded: boolean) => ({ variantKey, excluded }),
         setFlagVariantsRemoved: (changedAt: string | null) => ({ changedAt }),
-        clearFlagVariantsRemoved: true,
     }),
     reducers({
         showDebugPanel: [
@@ -2204,13 +2200,12 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         // Set once the exposure/metric query reports the flag no longer has variants. Holds the
-        // best-effort timestamp of the change (or null). Reset when the experiment is reloaded
-        // or when a user-initiated refresh retries the query.
+        // best-effort timestamp of the change (or null). Reset when the experiment is reloaded,
+        // which is also how a user-initiated refresh recovers from this state.
         flagVariantsRemovedInfo: [
             null as { changedAt: string | null } | null,
             {
                 setFlagVariantsRemoved: (_, { changedAt }) => ({ changedAt }),
-                clearFlagVariantsRemoved: () => null,
                 loadExperiment: () => null,
             },
         ],
@@ -2649,14 +2644,16 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
             // The flag lost its variants — exposures and metrics can't be computed, so the
             // auto-refresh loop must not keep re-attempting (it would spin forever). A
-            // user-initiated refresh clears the error state and retries for real, so the "Reload
-            // results" button recovers once the flag's variants are restored; if they're still
+            // user-initiated refresh reloads the experiment instead: the exposure query embeds
+            // the flag snapshot held in state (still the variant-less one), so a plain retry
+            // would fail even after the flag was fixed. Reloading refetches the flag, clears
+            // this state (reducer), and re-runs results on success; if variants are still
             // missing, loadExposuresFailure re-arms the state.
             if (values.flagVariantsRemovedInfo) {
-                if (triggeredBy === 'auto_refresh') {
-                    return
+                if (triggeredBy !== 'auto_refresh') {
+                    actions.loadExperiment()
                 }
-                actions.clearFlagVariantsRemoved()
+                return
             }
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
