@@ -2,7 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentPluginsService } from "./agent-plugins";
+import {
+  AgentPluginsService,
+  assertAgentPluginSnapshotFileLimits,
+} from "./agent-plugins";
 import { loadAgentPlugin } from "./loader";
 import { AGENT_PLUGINS_MANIFEST_SCHEMA } from "./schemas";
 
@@ -605,19 +608,6 @@ describe("Agent Plugins skills support", () => {
       },
     ],
     [
-      "file count",
-      async (skillDirectory: string) => {
-        await Promise.all(
-          Array.from({ length: 256 }, (_, index) =>
-            fs.promises.writeFile(
-              path.join(skillDirectory, `file-${index}.txt`),
-              "x",
-            ),
-          ),
-        );
-      },
-    ],
-    [
       "skill bytes",
       async (skillDirectory: string) => {
         await Promise.all(
@@ -654,37 +644,25 @@ describe("Agent Plugins skills support", () => {
   );
 
   it.each([
-    [
-      "files",
-      async (skillDirectories: string[]) => {
-        for (const skillDirectory of skillDirectories) {
-          await Promise.all(
-            Array.from({ length: 255 }, (_, index) =>
-              fs.promises.writeFile(
-                path.join(skillDirectory, `file-${index}.txt`),
-                "x",
-              ),
-            ),
-          );
-        }
-      },
-    ],
-    [
-      "bytes",
-      async (skillDirectories: string[]) => {
-        await Promise.all(
-          skillDirectories.flatMap((skillDirectory) =>
-            Array.from({ length: 7 }, (_, index) =>
-              writeSparseFile(
-                path.join(skillDirectory, `chunk-${index}.bin`),
-                1024 * 1024,
-              ),
-            ),
-          ),
-        );
-      },
-    ],
-  ])("bounds the total %s copied for one plugin", async (label, addPayload) => {
+    ["skill boundary", 256, 256, false],
+    ["plugin boundary", 256, 1024, false],
+    ["skill overflow", 257, 257, true],
+    ["plugin overflow", 256, 1025, true],
+  ])(
+    "enforces the snapshot file limit at the %s",
+    (_label, skillFiles, pluginFiles, exceedsLimit) => {
+      const assertLimits = (): void =>
+        assertAgentPluginSnapshotFileLimits(skillFiles, pluginFiles);
+
+      if (exceedsLimit) {
+        expect(assertLimits).toThrow("too many snapshot files");
+      } else {
+        expect(assertLimits).not.toThrow();
+      }
+    },
+  );
+
+  it("bounds the total bytes copied for one plugin", async () => {
     const appDataPath = path.join(root, "app-data");
     const pluginDirectory = path.join(root, "plugin");
     await writePlugin(pluginDirectory);
@@ -695,11 +673,20 @@ describe("Agent Plugins skills support", () => {
     );
     const service = createService(appDataPath, [pluginDirectory]);
     await registerSelectedPlugin(service);
-    await addPayload(skillDirectories);
+    await Promise.all(
+      skillDirectories.flatMap((skillDirectory) =>
+        Array.from({ length: 7 }, (_, index) =>
+          writeSparseFile(
+            path.join(skillDirectory, `chunk-${index}.bin`),
+            1024 * 1024,
+          ),
+        ),
+      ),
+    );
     const skipped: string[] = [];
 
     const runtime = await service.prepareRuntimePlugins(
-      `run-plugin-${label}`,
+      "run-plugin-bytes",
       new Set(),
       (_pluginName, skillName) => skipped.push(skillName),
     );
