@@ -4291,6 +4291,7 @@ class TestGitLabIntegrationSSRFProtection:
         from posthog.models.integration import GitLabIntegration
 
         mock_is_url_allowed.return_value = (True, None)
+        mock_get.return_value.status_code = 200
         mock_get.return_value.json.return_value = {"data": "test"}
 
         GitLabIntegration.get("https://gitlab.com", "projects/1", "token123")
@@ -4306,6 +4307,7 @@ class TestGitLabIntegrationSSRFProtection:
         from posthog.models.integration import GitLabIntegration
 
         mock_is_url_allowed.return_value = (True, None)
+        mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"data": "test"}
 
         GitLabIntegration.post("https://gitlab.com", "projects/1/issues", "token123", {"title": "test"})
@@ -4340,18 +4342,47 @@ class TestGitLabIntegrationSSRFProtection:
 
         mock_post.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # A redirect off the entered hostname is a real response with a non-JSON body; it must be
+            # rejected, not treated as success just because 3xx clears requests' `Response.ok`.
+            ("redirect", 302),
+            ("unauthorized", 401),
+            ("not_found", 404),
+        ]
+    )
     @patch("posthog.models.integration.requests.get")
     @patch("posthog.models.integration.is_url_allowed")
-    def test_get_raises_on_error_status(self, mock_is_url_allowed, mock_get):
+    def test_get_rejects_non_2xx_status(self, _name, status_code, mock_is_url_allowed, mock_get):
         from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
 
         mock_is_url_allowed.return_value = (True, None)
-        mock_get.return_value.ok = False
-        mock_get.return_value.status_code = 401
-        mock_get.return_value.json.return_value = {"message": "401 Unauthorized"}
+        mock_get.return_value.status_code = status_code
+        mock_get.return_value.json.return_value = {"message": "nope"}
 
-        with pytest.raises(GitLabIntegrationError, match="401 Unauthorized"):
+        with pytest.raises(GitLabIntegrationError, match=str(status_code)):
             GitLabIntegration.get("https://gitlab.com", "projects/1", "bad-token")
+
+
+class TestGitLabIntegrationModel(BaseTest):
+    @patch("posthog.models.integration.GitLabIntegration.get")
+    def test_create_integration_reconnect_updates_instead_of_conflicting(self, mock_get):
+        from posthog.models.integration import GitLabIntegration
+
+        mock_get.return_value = {
+            "name_with_namespace": "Acme / web",
+            "path_with_namespace": "acme/web",
+            "id": 42,
+        }
+
+        first = GitLabIntegration.create_integration("https://gitlab.com", "42", "token-old", self.team.id, self.user)
+        # Reconnecting the same project (rotating the token) must update the row, not hit the unique
+        # constraint on (team, kind, integration_id) with an IntegrityError.
+        second = GitLabIntegration.create_integration("https://gitlab.com", "42", "token-new", self.team.id, self.user)
+
+        assert first.id == second.id
+        assert Integration.objects.filter(team=self.team, kind="gitlab").count() == 1
+        assert second.sensitive_config["access_token"] == "token-new"
 
 
 class TestPostgreSQLIntegrationModel(BaseTest):

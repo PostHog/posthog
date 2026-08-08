@@ -3897,9 +3897,11 @@ class GitLabIntegration:
     @staticmethod
     def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
         url = f"{hostname}/api/v4/{endpoint}"
-        allowed, error = is_url_allowed(url)
+        # Discard the reason: it can name the resolved internal IP or matched domain pattern, which
+        # the caller now surfaces to the client. A generic message avoids that SSRF-probe leak.
+        allowed, _reason = is_url_allowed(url)
         if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+            raise GitLabIntegrationError("Invalid GitLab hostname")
 
         response = requests.get(
             url,
@@ -3914,9 +3916,9 @@ class GitLabIntegration:
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
         url = f"{hostname}/api/v4/{endpoint}"
-        allowed, error = is_url_allowed(url)
+        allowed, _reason = is_url_allowed(url)
         if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+            raise GitLabIntegrationError("Invalid GitLab hostname")
 
         response = requests.post(
             url,
@@ -3932,8 +3934,9 @@ class GitLabIntegration:
     @staticmethod
     def _parse_response(response: requests.Response) -> dict:
         # GitLab answers a bad token or missing project with a non-2xx status and an error body.
-        # Reject it here so callers never store that body as a working integration.
-        if not response.ok:
+        # Reject it here so callers never store that body as a working integration. Redirects are
+        # disabled, so a 3xx is a real response with a non-JSON body and must be rejected too.
+        if not (200 <= response.status_code < 300):
             detail = ""
             try:
                 body = response.json()
@@ -3950,17 +3953,22 @@ class GitLabIntegration:
     def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> Integration:
         project = cls.get(hostname, f"projects/{project_id}", project_access_token)
 
-        integration = Integration.objects.create(
+        # Upsert on (team, kind, integration_id) like the sibling helpers: reconnecting the same
+        # project (e.g. rotating an expired access token) must update the row, not hit the unique
+        # constraint with an IntegrityError.
+        integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
             kind=Integration.IntegrationKind.GITLAB,
             integration_id=project.get("name_with_namespace"),
-            config={
-                "hostname": hostname,
-                "path_with_namespace": project.get("path_with_namespace"),
-                "project_id": project.get("id"),
+            defaults={
+                "config": {
+                    "hostname": hostname,
+                    "path_with_namespace": project.get("path_with_namespace"),
+                    "project_id": project.get("id"),
+                },
+                "sensitive_config": {"access_token": project_access_token},
+                "created_by": user,
             },
-            sensitive_config={"access_token": project_access_token},
-            created_by=user,
         )
 
         return integration
