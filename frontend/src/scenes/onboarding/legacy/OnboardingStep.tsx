@@ -56,6 +56,11 @@ export const OnboardingStep = ({
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
+    // While Continue is blocked (e.g. install not verified yet) a bright yellow primary button reads as a
+    // live CTA even at reduced opacity, so a click that silently refuses feels broken. Flip the hierarchy:
+    // let Skip carry the primary weight as the working path, and let Continue recede until it's usable.
+    const continueBlocked = !!continueDisabledReason
+
     // advance() kicks off an async URL change that produces no immediate DOM mutation near the button, so without
     // this posthog-js flags the click as a dead click. Setting a pending state gives instant visual feedback.
     const [pendingAdvance, setPendingAdvance] = useState<'skip' | 'continue' | null>(null)
@@ -114,7 +119,8 @@ export const OnboardingStep = ({
                     )}
                     {showSkip && (
                         <LemonButton
-                            type="secondary"
+                            type={continueBlocked ? 'primary' : 'secondary'}
+                            status={continueBlocked ? 'alt' : undefined}
                             onClick={skip}
                             loading={pendingAdvance === 'skip'}
                             disabledReason={pendingAdvance === 'continue' ? 'Completing…' : undefined}
@@ -125,8 +131,8 @@ export const OnboardingStep = ({
                     )}
                     {showContinue && (
                         <LemonButton
-                            type="primary"
-                            status="alt"
+                            type={continueBlocked ? 'secondary' : 'primary'}
+                            status={continueBlocked ? undefined : 'alt'}
                             data-attr="onboarding-continue"
                             onClick={next}
                             loading={pendingAdvance === 'continue'}
