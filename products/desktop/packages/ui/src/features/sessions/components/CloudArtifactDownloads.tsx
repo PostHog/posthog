@@ -43,8 +43,8 @@ import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createArtifactUploadTracker } from "./countArtifactUploads";
+import { useMemo, useState } from "react";
+import { countCompletedArtifactUploads } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
 
@@ -110,8 +110,19 @@ export function CloudArtifactDownloads({
   const runId = task?.latest_run?.id;
   const runStatus = cloudStatus ?? task?.latest_run?.status;
   const isLive = runStatus === "queued" || runStatus === "in_progress";
+  const events = useSessionSelector(taskId, (session) => session?.events);
+  const completedUploads = useMemo(
+    () => countCompletedArtifactUploads(events ?? []),
+    [events],
+  );
   const { data: fetchedArtifacts, refetch } = useQuery({
-    queryKey: ["cloudRunArtifacts", authIdentity, taskId, runId],
+    queryKey: [
+      "cloudRunArtifacts",
+      authIdentity,
+      taskId,
+      runId,
+      completedUploads,
+    ],
     queryFn: () =>
       sessionService.getCloudRunArtifacts(taskId ?? "", runId ?? ""),
     enabled:
@@ -122,17 +133,6 @@ export function CloudArtifactDownloads({
     refetchInterval: isLive ? 120_000 : false,
   });
 
-  // The agent's own upload_artifact call is the earliest signal a new file exists,
-  // so read the manifest the moment one finishes rather than on the next tick.
-  const events = useSessionSelector(taskId, (session) => session?.events);
-  const uploadTracker = useRef<ReturnType<
-    typeof createArtifactUploadTracker
-  > | null>(null);
-  uploadTracker.current ??= createArtifactUploadTracker();
-  const tracker = uploadTracker.current;
-  useEffect(() => {
-    if (tracker.update(events ?? []) > 0) void refetch();
-  }, [events, tracker, refetch]);
   const groups = useMemo(
     () =>
       groupRunArtifactVersions(
@@ -141,13 +141,14 @@ export function CloudArtifactDownloads({
           sessionArtifacts ??
           task?.latest_run?.artifacts ??
           []
-        )
-          .filter((artifact) => artifact.type === "output")
-          .map((artifact) =>
+        ).flatMap((artifact) => {
+          if (artifact.type !== "output") return [];
+          return [
             artifact.id && artifact.id in dismissalOverrides
               ? { ...artifact, dismissed_at: dismissalOverrides[artifact.id] }
               : artifact,
-          ),
+          ];
+        }),
       ),
     [
       dismissalOverrides,

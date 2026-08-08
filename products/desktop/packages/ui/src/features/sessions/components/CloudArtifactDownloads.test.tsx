@@ -471,7 +471,7 @@ describe("CloudArtifactDownloads", () => {
 
   // Nothing pushes the run's manifest to this client, so without the tool call as a trigger a
   // freshly delivered file waits for the backstop poll.
-  it("rereads the manifest as soon as an upload finishes", () => {
+  it("changes the manifest query key as soon as an upload finishes", () => {
     session = { cloudStatus: "in_progress", events: [] };
 
     const { rerender } = renderDownloads();
@@ -495,7 +495,12 @@ describe("CloudArtifactDownloads", () => {
       </Theme>,
     );
 
-    expect(refetch).toHaveBeenCalled();
+    expect(queryOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        queryKey: ["cloudRunArtifacts", "auth-1", "task-1", "run-1", 1],
+      }),
+    );
+    expect(refetch).not.toHaveBeenCalled();
   });
 
   it.each([

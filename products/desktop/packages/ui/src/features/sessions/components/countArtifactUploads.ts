@@ -1,5 +1,9 @@
 import { createAppendOnlyTracker } from "@posthog/core/sessions/appendOnlyTracker";
-import { isJsonRpcNotification, readMcpToolDescriptor } from "@posthog/shared";
+import {
+  type AcpMessage,
+  isJsonRpcNotification,
+  readMcpToolDescriptor,
+} from "@posthog/shared";
 
 const UPLOAD_ARTIFACT_TOOL = "upload_artifact";
 
@@ -59,4 +63,8 @@ export function createArtifactUploadTracker() {
     },
     getResult: (state) => state.completedCallIds.size,
   });
+}
+
+export function countCompletedArtifactUploads(events: AcpMessage[]): number {
+  return createArtifactUploadTracker().update(events);
 }
