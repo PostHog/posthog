@@ -139,12 +139,15 @@ function buildLargeQuery(): string {
 // column names are fine, since this only needs to parse, not resolve.
 const SCROLL_QUERY_LINES = 900
 
-function buildNestedLongQuery(): string {
+function buildNestedLongQuery(trailingComment?: string): string {
     const columns = Array.from({ length: SCROLL_QUERY_LINES }, (_, i) => `        sum(metric_${i}) AS agg_${i}`).join(
         ',\n'
     )
+    // An optional comment line inside the inner SELECT gives the edit benchmark somewhere to type
+    // that leaves the query valid.
+    const tail = trailingComment ? `\n        ${trailingComment}` : ''
 
-    return `SELECT sub.agg_0\nFROM (\n    SELECT\n${columns}\n    FROM events\n) AS sub`
+    return `SELECT sub.agg_0\nFROM (\n    SELECT\n${columns}${tail}\n    FROM events\n) AS sub`
 }
 
 async function startMeasuring(page: Page): Promise<void> {
@@ -337,5 +340,64 @@ test.describe('SQL editor performance', () => {
             // eslint-disable-next-line no-console
             console.log(`\n[SQL editor scroll perf] ${summary}\n[SQL editor scroll perf] ${perTickSummary}\n`)
         })
+    })
+
+    test('measure main-thread blocking on a cursor move and a single edit', async ({ page }, testInfo) => {
+        // Both paths reach the HogQL parser, which runs over the whole query. A cursor move
+        // changes no text at all, so any blocking there is pure waste; an edit has to reparse
+        // once. Reported separately because they have different fixes and different budgets.
+        const editorArea = page.getByTestId('hogql-query-editor')
+        const editComment = '-- edit target'
+
+        await test.step('load a long nested query with the cursor inside the inner SELECT', async () => {
+            await page.goto('/sql#q=' + encodeURIComponent(buildNestedLongQuery(editComment)))
+            await expect(page.getByTestId('editor-scene')).toBeVisible({ timeout: 60000 })
+            await expect(editorArea).toBeVisible()
+            await waitForQuiescence(page)
+
+            // Park on the trailing comment line, which sits inside the inner SELECT. Typing there
+            // keeps the query valid — an invalid query makes the parser fail fast, which would
+            // hide the very cost being measured.
+            await editorArea.click()
+            await page.keyboard.press('ControlOrMeta+End')
+            for (let i = 0; i < 2; i++) {
+                await page.keyboard.press('ArrowUp')
+            }
+            await page.keyboard.press('End')
+            await expect(editorArea.locator('.active-query-outline')).toBeVisible({ timeout: 30000 })
+            await waitForQuiescence(page)
+        })
+
+        await startMeasuring(page)
+
+        await test.step('move the cursor without changing any text', async () => {
+            await mark(page, 'cursor-move')
+            await page.keyboard.press('ArrowUp')
+            await waitForQuiescence(page)
+        })
+
+        await test.step('type one character', async () => {
+            // Back to the comment line so the edit lands somewhere harmless.
+            await page.keyboard.press('ArrowDown')
+            await page.keyboard.press('End')
+            await waitForQuiescence(page)
+            await mark(page, 'edit')
+            await page.keyboard.type('x')
+            await waitForQuiescence(page)
+            await mark(page, 'end')
+        })
+
+        const stats = await stopMeasuring(page)
+        const markAt = (label: string): number => stats.marks.find((m) => m.label === label)?.t ?? 0
+        const cursor = statsBetween(stats, markAt('cursor-move'), markAt('edit'))
+        const edit = statsBetween(stats, markAt('edit'), markAt('end'))
+
+        const summary =
+            `queryLines=${SCROLL_QUERY_LINES} ` +
+            `cursorMoveBlockedMs=${cursor.blockedMs} cursorMoveMaxGapMs=${cursor.maxGapMs} ` +
+            `editBlockedMs=${edit.blockedMs} editMaxGapMs=${edit.maxGapMs}`
+        testInfo.annotations.push({ type: 'edit-perf', description: summary })
+        // eslint-disable-next-line no-console
+        console.log(`\n[SQL editor edit perf] ${summary}\n`)
     })
 })
