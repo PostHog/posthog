@@ -195,6 +195,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_coordination_partition_warm_ms".into()),
                 WARM_LATENCY_BUCKETS_MS,
             ),
+            (
+                Matcher::Full("personhog_leader_warm_span_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
         ],
     );
     preregister_metrics();

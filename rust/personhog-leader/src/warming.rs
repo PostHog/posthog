@@ -377,6 +377,14 @@ fn resolve_start_offset(committed: Option<i64>, earliest: i64, lookback: i64) ->
     }
 }
 
+/// One warm sub-span sample. The spans share the warm bucket ladder and
+/// sum to slightly less than `warm_duration_ms`, whose remainder is the
+/// dirty-index seeding and the cache install.
+fn record_warm_span(span: &'static str, start: Instant) {
+    histogram!("personhog_leader_warm_span_ms", "span" => span)
+        .record(start.elapsed().as_secs_f64() * 1000.0);
+}
+
 /// Populate the cache from Kafka for a single partition.
 ///
 /// Invariants at call time (enforced by the handoff protocol). The
@@ -408,7 +416,12 @@ pub async fn warm_from_kafka(
 
     // Arc because the watermark retry closure needs its own handle for
     // the blocking pool; sole ownership returns once the retries finish.
+    // The sub-spans below decompose the warm's wall clock so a slow one
+    // is attributable: client construction is lazy, so a cold client's
+    // connection cost lands in the metadata span, not the checkout.
+    let span_start = Instant::now();
     let consumer = Arc::new(pools.warming.checkout()?);
+    record_warm_span("checkout", span_start);
 
     // The two offset queries are independent — the writer's committed
     // position comes from the offsets pool, the watermarks from this
@@ -440,7 +453,9 @@ pub async fn warm_from_kafka(
             .map_err(|e| CoordError::invalid_state(format!("fetch_watermarks join: {e}")))?
         }
     });
+    let span_start = Instant::now();
     let (committed_res, watermarks_res) = tokio::join!(committed_fut, watermarks_fut);
+    record_warm_span("metadata", span_start);
     let (low, hwm) = match watermarks_res {
         Ok(marks) => marks,
         // The watermark call failed on this consumer, so the pool's
@@ -489,6 +504,7 @@ pub async fn warm_from_kafka(
         return Ok(());
     }
 
+    let span_start = Instant::now();
     let mut assign_tpl = TopicPartitionList::new();
     assign_tpl
         .add_partition_offset(&cfg.topic, partition_i32, Offset::Offset(start_offset))
@@ -632,6 +648,8 @@ pub async fn warm_from_kafka(
             break;
         }
     }
+
+    record_warm_span("consume", span_start);
 
     // Records at or above the writer's committed offset are not yet in PG:
     // seed the dirty index so that, if the cache later evicts them, a miss
