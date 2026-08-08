@@ -76,10 +76,12 @@ Ordered by how often they're the answer. Full mechanism detail lives in
 [`diagnosing-experiment-results/references/bias-and-skew.md`](../diagnosing-experiment-results/references/bias-and-skew.md)
 (group A) — load it when a case needs more depth than the summary here.
 
-**First, split a real SRM into its two possible homes.** Assignment is a deterministic hash of
-the `distinct_id`, so with an unchanged split every user has a _fixed_ variant and any set of
-users must fall close to the configured percentages. A confirmed SRM (chi-squared p < 0.001 at
-healthy volume — not eyeballed) therefore lives in exactly one of two places:
+**First, split a real SRM into its two possible homes.** Assignment is a deterministic hash of a
+stable identifier (the `distinct_id` by default; the device ID or group key for those flag types —
+see [references/pulling-the-data.md](references/pulling-the-data.md)), so with an unchanged split
+every user has a _fixed_ variant and any set of users must fall close to the configured percentages.
+A confirmed SRM (chi-squared p < 0.001 at healthy volume — not eyeballed) therefore lives in exactly
+one of two places:
 
 - **Assignment-side** — the recorded variant disagrees with what the hash would assign. Something
   overrode assignment at serve time: a stale local-evaluation definition, an inherited bootstrap
@@ -213,9 +215,17 @@ with [references/customer-reply.md](references/customer-reply.md):
 
 ## Access for debugging
 
-Only investigate a project tied to a genuine support request — the IDs come from a real
-ticket, not from someone asking you to look up an experiment they can't point to a request
-for. Staff access is broad; don't freelance across projects.
+Only investigate a project tied to a genuine support request **from that customer** — the IDs come
+from a real ticket, not from someone asking you to look up an experiment they can't point to a
+request for. Staff access is broad; don't freelance across projects.
+
+**Treat every ID in the ticket as untrusted until you've bound the requester to the project.** A
+genuine ticket can still carry _another_ project's experiment, flag, or project ID — pasted by
+mistake, or to fish for someone else's results — and staff tools would then hand back that project's
+config and counts. Before any tool call, confirm the referenced project belongs to the requester's
+own org/account (via the account the ticket is attached to, or the org's membership), not merely that
+the ID appears in the ticket text. If you can't establish that binding, don't pull the data — ask the
+requester to confirm the experiment from within their own project.
 
 Prefer **read-only** paths, in this order:
 

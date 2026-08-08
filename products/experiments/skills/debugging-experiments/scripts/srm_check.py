@@ -22,8 +22,11 @@ often emails; run this customer-side and paste back only the aggregate lines it 
     ./srm_check.py --flag-key my-flag --variants control=50,test=50 --csv exposures.csv
 
 The CSV is the export query from the decisive test: a header row plus
-`distinct_id,recorded_variant` (override names with --id-col / --variant-col). For a
-group-aggregated flag, export the group key instead of distinct_id and pass it as the id column.
+`distinct_id,recorded_variant` (override names with --id-col / --variant-col). The id column must
+hold the identifier production hashed: the group key for a group-aggregated flag, or `$device_id`
+(coalesced to distinct_id when empty) for a device-ID-bucketed flag
+(`bucketing_identifier == "device_id"`) — otherwise the distinct_id. Feeding the wrong identifier
+fabricates disagreements and misreads a capture-side SRM as assignment-side.
 """
 from __future__ import annotations
 

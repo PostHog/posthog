@@ -24,6 +24,10 @@ Pull these fields; they are inputs to almost every cause:
   so the offline hash test is unreliable (see the decisive test below).
 - `feature_flag.filters.aggregation_group_type_index` — if set, the experiment is
   **group-aggregated** (randomizes and counts groups, not persons); see the note below.
+- `feature_flag.bucketing_identifier` — if `"device_id"`, the flag buckets on the **device ID**
+  (`$device_id`), not `distinct_id`, so the offline recompute must hash `$device_id` (see the
+  device-ID note below). Only applies to person-aggregated flags — group aggregation takes
+  precedence. Absent / `"distinct_id"` is the default.
 - `feature_flag.filters.holdout` — if present, a **global holdout** deterministically excludes a
   slice of users from the experiment (see the holdout note below). Cross-check with
   `experiment-holdouts-list`.
@@ -38,6 +42,15 @@ count the group key instead (the `$group_<index>` / `$groups` value the flag agg
 offline recompute in the [decisive test](#the-decisive-test-recompute-assignment-offline) hashes that
 group key rather than `distinct_id`. Counting persons on a group-aggregated experiment overstates N
 and can manufacture an SRM that isn't there.
+
+**Device-ID bucketing.** When `feature_flag.bucketing_identifier == "device_id"`, a person-aggregated
+flag hashes the **device ID** (the `$device_id` on the exposure event), not the `distinct_id` — so a
+single person keeps one variant across logins, but the same person on a second device can land in the
+other arm. The [decisive test](#the-decisive-test-recompute-assignment-offline) must therefore hash
+`$device_id`, not `distinct_id`: hashing `distinct_id` makes correctly-assigned users look like
+disagreements and misreads a capture-side SRM as assignment-side. Production falls back to
+`distinct_id` when `$device_id` is empty, so export `coalesce(nullIf($device_id, ''), distinct_id)` to
+mirror it. Group aggregation takes precedence over this (a group flag hashes the group key).
 
 **Holdouts.** A global holdout deterministically excludes a slice of users (hashed separately with a
 `holdout-` prefix) from the experiment; those users are recorded with a `holdout-<id>` response, not
@@ -170,7 +183,9 @@ Recompute each user's variant from the flag hash and compare it to the recorded
 1. `hash_key = f"{flag_key}.{identifier}variant"` — note the `.` after the key **and** the literal
    `variant` salt. (The plain rollout gate hashes with an _empty_ salt; the variant walk uses
    `"variant"`. Using the wrong salt is the classic reimplementation bug.) `identifier` is the
-   `distinct_id`, or the **group key** when the flag is group-aggregated (see §1).
+   `distinct_id` by default — the **group key** when the flag is group-aggregated, or the **device
+   ID** (`$device_id`) when `feature_flag.bucketing_identifier == "device_id"` (see §1). Hashing the
+   wrong one inverts the verdict.
 2. `h = int(sha1(hash_key).hexdigest()[:15], 16) / 0xfffffffffffffff` — a float in `[0, 1)`.
 3. Walk `filters.multivariate.variants` **in stored order**, accumulating `rollout_percentage / 100`
    into a cumulative bound; the first variant with `h < cumulative` is the assigned variant.
@@ -192,6 +207,13 @@ matches this build before trusting a verdict:
 - **Order- and split-sensitive.** The walk depends on the exact array order and percentages in the
   _live_ flag's `filters.multivariate.variants`; a wrong order silently inverts the prediction. Pass
   them to `--variants` in stored order.
+- **Identifier must match production.** The recompute is only valid if you hash the identifier
+  production hashed — the **group key** for group flags, `$device_id` for device-bucketed flags
+  (`bucketing_identifier == "device_id"`), otherwise `distinct_id` (see §1). Hash the wrong one and
+  correctly-assigned users read as disagreements, so a clean assignment looks assignment-side. Sanity
+  guard: if agreement is far below 100% _everywhere_ — including a slice you already know is balanced,
+  or the pre-launch window — suspect a wrong identifier (or continuity, below) before concluding
+  assignment-side.
 - **Experience continuity.** If `ensure_experience_continuity = true`, assignment hashes a stored
   override key you can't reconstruct from the identifier, so this test is unreliable — skip it and
   lean on the capture-side checks plus the activity log.
@@ -200,6 +222,9 @@ matches this build before trusting a verdict:
 -- Deterministic sample for the offline recompute (n=800 → SE ~1.8pp; drop LIMIT for all rows).
 -- Custom exposure event: filter that event and read the variant from properties.$feature/<flag-key>.
 -- Group-aggregated flag: export the group key instead of distinct_id.
+-- Device-ID bucketing (bucketing_identifier == "device_id"): select
+--   coalesce(nullIf(properties.$device_id, ''), distinct_id) AS distinct_id instead — production
+--   hashed the device id, so hashing distinct_id would fabricate disagreements.
 SELECT distinct_id,
        argMin(properties.$feature_flag_response, timestamp) AS recorded_variant
 FROM events
