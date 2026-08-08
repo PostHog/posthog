@@ -44,7 +44,6 @@ describe('UniversalFilterButton', () => {
         )
     }
 
-
     it('offers the property filter button when there is a handler to open the properties', () => {
         renderButton(() => {})
         expect(screen.getByRole('button')).toBeInTheDocument()
