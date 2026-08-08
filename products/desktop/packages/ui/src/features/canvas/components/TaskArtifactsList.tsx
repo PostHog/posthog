@@ -78,7 +78,6 @@ function CommentCountBadge({ count }: { count: number }) {
  */
 function ArtifactCard({
   icon,
-  tint,
   title,
   meta,
   onOpen,
@@ -86,8 +85,6 @@ function ArtifactCard({
   actions,
 }: {
   icon: ReactNode;
-  /** Background classes of the thumbnail square, keyed to the artifact kind. */
-  tint: string;
   title: string;
   meta?: ReactNode;
   onOpen?: () => void;
@@ -119,7 +116,9 @@ function ArtifactCard({
       onFocus={onHoverStart}
     >
       <div
-        className={`flex size-9 shrink-0 items-center justify-center rounded-md ${tint}`}
+        // One neutral fill for every kind: the icons bring their own colors,
+        // and a per-kind tint clashes with whichever icon lands on it.
+        className="flex size-9 shrink-0 items-center justify-center rounded-md bg-gray-4"
       >
         {icon}
       </div>
@@ -165,7 +164,6 @@ function PrRow({
   return (
     <ArtifactCard
       icon={<Icon size={16} weight="bold" style={{ color: iconColor }} />}
-      tint="bg-violet-3"
       title={title}
       meta={stateLabel}
       onHoverStart={() => setCountsWanted(true)}
@@ -212,7 +210,6 @@ function CanvasRow({
   return (
     <ArtifactCard
       icon={iconForTemplate("", { size: 16, className: "text-amber-11" })}
-      tint="bg-amber-3"
       title={name}
       meta="Canvas"
       onOpen={open}
@@ -263,8 +260,6 @@ function fileVersionMenuLabel(
     .filter(Boolean)
     .join(" · ");
 }
-
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
 function FileRow({
   taskId,
@@ -321,7 +316,6 @@ function FileRow({
   return (
     <ArtifactCard
       icon={<FileIcon filename={group.name} size={18} />}
-      tint={IMAGE_EXTENSIONS.test(group.name) ? "bg-green-3" : "bg-blue-3"}
       title={group.name}
       meta={
         <>
@@ -343,7 +337,10 @@ function FileRow({
                     </button>
                   }
                 />
-                <DropdownMenuContent align="start">
+                {/* w-max: the default popup width tracks the anchor, and this
+                    trigger is a couple of characters wide, so version labels
+                    would be cut off. */}
+                <DropdownMenuContent align="start" className="w-max">
                   {group.versions.map((version, index) => (
                     <DropdownMenuItem
                       key={runArtifactVersionKey(version)}
@@ -484,7 +481,6 @@ export function TaskArtifactsList({
           <ArtifactCard
             key={row.key}
             icon={<SlackLogoIcon size={16} className="text-gray-11" />}
-            tint="bg-gray-4"
             title="Slack thread"
             meta="External"
             onOpen={() => openExternalUrl(row.url)}
