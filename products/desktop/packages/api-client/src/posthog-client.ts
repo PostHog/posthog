@@ -235,6 +235,36 @@ export interface CreateResourceCommentRequest {
   mentions?: number[];
 }
 
+export interface TaskCommentEntry {
+  id: string;
+  content: string;
+  author: string | null;
+  createdById: number | null;
+  createdAt: string;
+  anchor: Record<string, unknown> | null;
+  canvasVersionId: string | null;
+}
+
+export interface TaskCommentSummary {
+  id: string;
+  target: { id: string; type: "task" | "artifact" | "canvas"; name: string };
+  content: string;
+  createdAt: string;
+  lastActivityAt: string;
+  resolved: boolean;
+  comments: TaskCommentEntry[] | null;
+}
+
+export interface TaskCommentsPage {
+  comments: TaskCommentSummary[];
+  next: string | null;
+}
+
+export interface TaskCommentCount {
+  itemId: string;
+  count: number;
+}
+
 /** Thrown when the backend rejects a cloud run with a 429 usage-limit error. */
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
@@ -3251,6 +3281,86 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as { url: string };
     return data.url;
+  }
+
+  async getTaskCommentsPage(
+    taskId: string,
+    cursor?: string,
+  ): Promise<TaskCommentsPage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${encodeURIComponent(taskId)}/comments/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("include_resolved", "true");
+    url.searchParams.set("include_thread", "true");
+    url.searchParams.set("limit", "100");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch task comments: ${response.statusText}`);
+    }
+    const page = (await response.json()) as {
+      comments: Array<{
+        id: string;
+        target: TaskCommentSummary["target"];
+        content: string;
+        created_at: string;
+        last_activity_at: string;
+        resolved: boolean;
+        comments: Array<{
+          id: string;
+          content: string;
+          author: string | null;
+          created_by_id: number | null;
+          created_at: string;
+          anchor: Record<string, unknown> | null;
+          canvas_version_id: string | null;
+        }> | null;
+      }>;
+      next: string | null;
+    };
+    return {
+      comments: page.comments.map((thread) => ({
+        id: thread.id,
+        target: thread.target,
+        content: thread.content,
+        createdAt: thread.created_at,
+        lastActivityAt: thread.last_activity_at,
+        resolved: thread.resolved,
+        comments:
+          thread.comments?.map((comment) => ({
+            id: comment.id,
+            content: comment.content,
+            author: comment.author,
+            createdById: comment.created_by_id,
+            createdAt: comment.created_at,
+            anchor: comment.anchor,
+            canvasVersionId: comment.canvas_version_id,
+          })) ?? null,
+      })),
+      next: page.next,
+    };
+  }
+
+  async getTaskCommentCounts(taskId: string): Promise<TaskCommentCount[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${encodeURIComponent(taskId)}/comments/counts/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch task comment counts: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      counts: Array<{ item_id: string; count: number }>;
+    };
+    return data.counts.map((count) => ({
+      itemId: count.item_id,
+      count: count.count,
+    }));
   }
 
   async getResourceComments(

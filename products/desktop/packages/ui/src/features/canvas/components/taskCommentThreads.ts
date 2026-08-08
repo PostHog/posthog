@@ -1,4 +1,7 @@
-import type { ResourceComment } from "@posthog/api-client/posthog-client";
+import type {
+  ResourceComment,
+  TaskCommentSummary,
+} from "@posthog/api-client/posthog-client";
 import { commentTargetKey } from "@posthog/core/comments/anchors";
 import type { PrConversationComment, PrReviewThread } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
@@ -79,6 +82,82 @@ function resourceEntry(comment: ResourceComment): CommentEntry {
 }
 
 /** The task's own comment threads, tagged with the resource they belong to. */
+export function taskCommentThreads(
+  comments: TaskCommentSummary[],
+  sources: CommentSource[],
+  members: UserBasic[],
+  taskId: string,
+): TaskCommentThread[] {
+  const sourceByItemId = new Map(
+    sources.map((source) => [source.target.itemId, source]),
+  );
+  const memberById = new Map(members.map((member) => [member.id, member]));
+  return comments.flatMap((thread) => {
+    const source = sourceByItemId.get(thread.target.id);
+    if (!source) return [];
+    const apiEntries =
+      thread.comments && thread.comments.length > 0
+        ? thread.comments
+        : [
+            {
+              id: thread.id,
+              content: thread.content,
+              author: null,
+              createdById: null,
+              createdAt: thread.createdAt,
+              anchor: null,
+              canvasVersionId: null,
+            },
+          ];
+    const resourceComments = apiEntries.map<ResourceComment>(
+      (entry, index) => ({
+        id: entry.id,
+        created_by: null,
+        content: entry.content,
+        created_at: entry.createdAt,
+        item_id: thread.target.id,
+        item_context: {
+          taskId,
+          ...(entry.anchor ? { anchor: entry.anchor } : {}),
+          ...(entry.canvasVersionId
+            ? { canvasVersionId: entry.canvasVersionId }
+            : {}),
+        },
+        scope: source.target.scope,
+        source_comment: index === 0 ? null : thread.id,
+        completed_at: null,
+      }),
+    );
+    const root = resourceComments[0];
+    if (!root) return [];
+    return [
+      {
+        id: thread.id,
+        sourceKey: commentTargetKey(source.target),
+        sourceLabel: source.name,
+        sourceKind: source.kind,
+        entries: apiEntries.map((entry) => {
+          const user = entry.createdById
+            ? (memberById.get(entry.createdById) ?? null)
+            : null;
+          return {
+            id: entry.id,
+            authorName: entry.author ?? user?.email ?? "Unknown user",
+            user,
+            avatarUrl: null,
+            createdAt: entry.createdAt,
+            body: entry.content,
+            format: "mentions" as const,
+          };
+        }),
+        resolved: thread.resolved,
+        lastActivityAt: thread.lastActivityAt,
+        origin: { kind: "resource" as const, source, root },
+      },
+    ];
+  });
+}
+
 export function resourceCommentThreads(
   comments: ResourceComment[],
   sources: CommentSource[],

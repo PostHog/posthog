@@ -109,21 +109,6 @@ function targetForRow(row: ArtifactRow): CommentTarget | null {
   return null;
 }
 
-/**
- * Every commentable resource this task produced, once each. Artifacts and
- * canvases share the generic comments API, differing only by scope, so a pane
- * can hold one query over all of them — and two timeline messages naming the
- * same canvas must not fetch it twice.
- */
-export function commentTargets(rows: ArtifactRow[]): CommentTarget[] {
-  const byKey = new Map<string, CommentTarget>();
-  for (const row of rows) {
-    const target = targetForRow(row);
-    if (target) byKey.set(commentTargetKey(target), target);
-  }
-  return [...byKey.values()];
-}
-
 function readRunOutputs(run: TaskRun): RunArtifact[] {
   return parseRunArtifacts(
     (run as { artifacts?: unknown }).artifacts,

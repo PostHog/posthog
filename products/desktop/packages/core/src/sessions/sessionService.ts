@@ -12,6 +12,8 @@ import type {
 import type {
   CreateResourceCommentRequest,
   ResourceComment,
+  TaskCommentCount,
+  TaskCommentsPage,
 } from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
@@ -7520,37 +7522,19 @@ export class SessionService {
    * Fanning out here (rather than in a hook) keeps the multi-source read in a
    * service and lets the caller hold a single query.
    */
-  async getResourceCommentsForTargets(
-    targets: CommentTarget[],
+  async getTaskCommentsPage(
     taskId: string,
-  ): Promise<ResourceComment[]> {
+    cursor?: string,
+  ): Promise<TaskCommentsPage> {
     const authStatus = await this.getAuthCredentialsStatus();
-    if (authStatus.kind !== "ready" || targets.length === 0) return [];
-    const client = authStatus.auth.client;
-    const pages: ResourceComment[][] = Array.from(
-      { length: targets.length },
-      () => [],
-    );
-    let nextIndex = 0;
-    const worker = async () => {
-      while (nextIndex < targets.length) {
-        const index = nextIndex++;
-        const target = targets[index];
-        try {
-          pages[index] = await client.getResourceComments(
-            target.scope,
-            target.itemId,
-            taskId,
-          );
-        } catch {
-          pages[index] = [];
-        }
-      }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(4, targets.length) }, worker),
-    );
-    return pages.flat();
+    if (authStatus.kind !== "ready") return { comments: [], next: null };
+    return authStatus.auth.client.getTaskCommentsPage(taskId, cursor);
+  }
+
+  async getTaskCommentCounts(taskId: string): Promise<TaskCommentCount[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") return [];
+    return authStatus.auth.client.getTaskCommentCounts(taskId);
   }
 
   async createResourceComment(

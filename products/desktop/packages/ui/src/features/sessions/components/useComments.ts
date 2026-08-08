@@ -1,11 +1,10 @@
 import type {
   CreateResourceCommentRequest,
   ResourceComment,
+  TaskCommentCount,
+  TaskCommentsPage,
 } from "@posthog/api-client/posthog-client";
-import {
-  type CommentTarget,
-  commentTargetKey,
-} from "@posthog/core/comments/anchors";
+import type { CommentTarget } from "@posthog/core/comments/anchors";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -20,6 +19,7 @@ import { toast } from "@posthog/ui/primitives/toast";
 import {
   type QueryClient,
   type QueryKey,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -39,27 +39,19 @@ function commentsQueryKey(
   ] as const;
 }
 
-/**
- * Whether a cached comment list contains the target's comments — true for the
- * target's own single-resource query and for any fan-out query whose set
- * includes it. Both key shapes spell the target out, so this needs no cache
- * contents. Matching per target rather than on the `["comments"]` prefix keeps
- * an optimistic write out of other resources' caches.
- */
+/** Whether a cache contains this exact resource's comments. */
 export function commentCacheCoversTarget(
   queryKey: readonly unknown[],
   target: CommentTarget,
 ): boolean {
-  if (queryKey[0] !== "comments") return false;
-  if (queryKey[1] === "targets") {
-    return String(queryKey[4] ?? "")
-      .split(",")
-      .includes(commentTargetKey(target));
-  }
-  return queryKey[3] === target.scope && queryKey[4] === target.itemId;
+  return (
+    queryKey[0] === "comments" &&
+    queryKey[3] === target.scope &&
+    queryKey[4] === target.itemId
+  );
 }
 
-/** Filter for every cached comment list an optimistic write has to patch. */
+/** Filter for the cached resource list an optimistic write has to patch. */
 function commentCachesCoveringTarget(target: CommentTarget) {
   return {
     queryKey: ["comments"] as const,
@@ -128,30 +120,43 @@ export function useCommentsQuery(
   });
 }
 
-/**
- * One query for every comment across a set of resources. The service does the
- * fan-out, so this stays a single-query hook and the pane makes one request
- * instead of one per row. `live: false` by default — a list of N resources must
- * never turn into N polling loops, and `intervalMs` lets a live caller pick a
- * cadence that accounts for the fan-out rather than inheriting a per-row one.
- */
-export function useCommentsForTargetsQuery(
-  targets: CommentTarget[],
+export function useTaskCommentsQuery(
   taskId: string,
-  options: { enabled?: boolean; live?: boolean; intervalMs?: number } = {},
+  options: { enabled?: boolean; live?: boolean } = {},
 ) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
-  // Sorted so key identity tracks the set, not row order.
-  const key = targets.map(commentTargetKey).sort().join(",");
-  return useQuery({
-    queryKey: ["comments", "targets", authIdentity, taskId, key] as const,
-    queryFn: () => service.getResourceCommentsForTargets(targets, taskId),
-    enabled:
-      options.enabled !== false && authIdentity !== null && targets.length > 0,
+  return useInfiniteQuery<
+    TaskCommentsPage,
+    Error,
+    { pages: TaskCommentsPage[]; pageParams: (string | null)[] },
+    readonly ["taskComments", string | null, string],
+    string | null
+  >({
+    queryKey: ["taskComments", authIdentity, taskId],
+    queryFn: ({ pageParam }) =>
+      service.getTaskCommentsPage(taskId, pageParam ?? undefined),
+    initialPageParam: null,
+    getNextPageParam: (page) => page.next,
+    enabled: options.enabled !== false && authIdentity !== null && !!taskId,
     staleTime: 3_000,
-    refetchInterval: options.live ? (options.intervalMs ?? 5_000) : false,
+    refetchInterval: options.live ? 30_000 : false,
     refetchIntervalInBackground: false,
+    meta: AUTH_SCOPED_QUERY_META,
+  });
+}
+
+export function useTaskCommentCountsQuery(
+  taskId: string,
+  options: { enabled?: boolean } = {},
+) {
+  const service = useService<SessionService>(SESSION_SERVICE);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  return useQuery<TaskCommentCount[]>({
+    queryKey: ["taskComments", authIdentity, taskId, "counts"],
+    queryFn: () => service.getTaskCommentCounts(taskId),
+    enabled: options.enabled !== false && authIdentity !== null && !!taskId,
+    staleTime: 15_000,
     meta: AUTH_SCOPED_QUERY_META,
   });
 }
@@ -164,6 +169,10 @@ export function useCreateComment(target: CommentTarget, taskId?: string) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const queryClient = useQueryClient();
   const caches = commentCachesCoveringTarget(target);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const taskQueries = taskId
+    ? { queryKey: ["taskComments", authIdentity, taskId] as const }
+    : null;
   const contextWithTask = (context: unknown) =>
     taskId ? { ...(context as Record<string, unknown>), taskId } : context;
 
@@ -207,14 +216,21 @@ export function useCreateComment(target: CommentTarget, taskId?: string) {
         description: "Try again.",
       });
     },
-    onSettled: () => queryClient.invalidateQueries(caches),
+    onSettled: async () => {
+      await queryClient.invalidateQueries(caches);
+      if (taskQueries) await queryClient.invalidateQueries(taskQueries);
+    },
   });
 }
 
-export function useSetCommentResolved(target: CommentTarget) {
+export function useSetCommentResolved(target: CommentTarget, taskId?: string) {
   const service = useService<SessionService>(SESSION_SERVICE);
   const queryClient = useQueryClient();
   const caches = commentCachesCoveringTarget(target);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const taskQueries = taskId
+    ? { queryKey: ["taskComments", authIdentity, taskId] as const }
+    : null;
 
   return useMutation({
     mutationFn: ({
@@ -268,6 +284,9 @@ export function useSetCommentResolved(target: CommentTarget) {
         description: "Try again.",
       });
     },
-    onSettled: () => queryClient.invalidateQueries(caches),
+    onSettled: async () => {
+      await queryClient.invalidateQueries(caches);
+      if (taskQueries) await queryClient.invalidateQueries(taskQueries);
+    },
   });
 }

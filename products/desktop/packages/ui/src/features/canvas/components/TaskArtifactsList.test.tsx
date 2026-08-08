@@ -55,34 +55,9 @@ vi.mock("@posthog/ui/features/pr-review/usePrReviewThreads", () => ({
   usePrReviewThreads: () => ({ data: undefined }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
-  useCommentsForTargetsQuery: () => ({
+  useTaskCommentCountsQuery: () => ({
+    data: mocks.commentsError ? undefined : [{ itemId: "a", count: 2 }],
     isError: mocks.commentsError,
-    data: [
-      {
-        id: "comment-1",
-        source_comment: null,
-        item_id: "a",
-        content: "Tighten this summary",
-        created_at: "2024-01-01T00:00:00Z",
-        item_context: { anchor: { kind: "document" } },
-      },
-      {
-        id: "reply-1",
-        source_comment: "comment-1",
-        item_id: "a",
-        content: "Agreed",
-        created_at: "2024-01-01T00:01:00Z",
-        item_context: { anchor: { kind: "document" } },
-      },
-      {
-        id: "comment-2",
-        source_comment: null,
-        item_id: "a",
-        content: "Second thread",
-        created_at: "2024-01-01T00:02:00Z",
-        item_context: { anchor: { kind: "document" } },
-      },
-    ],
   }),
 }));
 

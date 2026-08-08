@@ -4,8 +4,7 @@ import { commentCacheCoversTarget } from "./useComments";
 const target = { scope: "task_artifact", itemId: "a" } as const;
 
 describe("commentCacheCoversTarget", () => {
-  // An optimistic reply has to land in every list showing that resource — the
-  // artifact's own query and the task-wide fan-out — and in no other.
+  // Optimistic writes must stay within the exact resource cache.
   it.each([
     {
       what: "the target's own query",
@@ -20,27 +19,6 @@ describe("commentCacheCoversTarget", () => {
     {
       what: "the same id under another scope",
       key: ["comments", "identity", "task-1", "desktop_canvas", "a"],
-      covers: false,
-    },
-    {
-      what: "a fan-out including the target",
-      key: [
-        "comments",
-        "targets",
-        "identity",
-        "task-1",
-        "desktop_canvas:c,task_artifact:a",
-      ],
-      covers: true,
-    },
-    {
-      what: "a fan-out without the target",
-      key: ["comments", "targets", "identity", "task-1", "task_artifact:b"],
-      covers: false,
-    },
-    {
-      what: "a fan-out whose target only shares a prefix",
-      key: ["comments", "targets", "identity", "task-1", "task_artifact:ab"],
       covers: false,
     },
     {

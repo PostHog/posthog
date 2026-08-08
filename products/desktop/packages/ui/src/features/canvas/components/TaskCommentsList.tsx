@@ -39,6 +39,7 @@ import {
   resourceCommentThreads,
   type SourceKind,
   type TaskCommentThread,
+  taskCommentThreads,
   threadSourceOptions,
 } from "@posthog/ui/features/canvas/components/taskCommentThreads";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
@@ -61,23 +62,17 @@ import type { HighlightResolution } from "@posthog/ui/features/sessions/componen
 import { readCommentContext } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
   isOptimisticComment,
-  useCommentsForTargetsQuery,
   useCommentsQuery,
   useCreateComment,
   useSetCommentResolved,
+  useTaskCommentsQuery,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
-/** The whole task's threads in one request; slower than a single artifact's own
- *  poll because this one fans out across every resource. */
-const POLL_INTERVAL_MS = 30_000;
 const PULSE_MS = 1_200;
 const ALL_SOURCES = "all";
-// Keep task comments live, but bound the artifact and canvas poll so generated
-// output cannot turn one Comments tab into an unbounded backend request.
-const MAX_RESOURCE_COMMENT_TARGETS = 20;
 // Each PR starts three GitHub-backed queries. Keep this cap at the source so a
 // task with generated output cannot fan out into an unbounded number of requests.
 const MAX_PR_COMMENT_SOURCES = 20;
@@ -180,7 +175,7 @@ function ResourceThreadRow({
   commentVersionLabel?: (versionId: string) => string | null;
 }) {
   const createComment = useCreateComment(source.target, taskId);
-  const setResolved = useSetCommentResolved(source.target);
+  const setResolved = useSetCommentResolved(source.target, taskId);
   const rootPending = isOptimisticComment(root);
 
   return (
@@ -335,29 +330,18 @@ export function TaskCommentsList({
     () => (onlySource ? [onlySource] : commentSources(task.id, rows)),
     [task.id, rows, onlySource],
   );
-  const targets = useMemo(
-    () =>
-      onlySource
-        ? sources.map((source) => source.target)
-        : [
-            ...sources.slice(0, 1),
-            ...sources.slice(1, MAX_RESOURCE_COMMENT_TARGETS + 1),
-          ].map((source) => source.target),
-    [onlySource, sources],
-  );
   const singleSourceComments = useCommentsQuery(
     onlySource?.target ?? null,
     task.id,
   );
-  const taskComments = useCommentsForTargetsQuery(
-    onlySource ? [] : targets,
-    task.id,
-    {
-      live: true,
-      intervalMs: POLL_INTERVAL_MS,
-    },
+  const taskComments = useTaskCommentsQuery(task.id, {
+    enabled: !onlySource,
+    live: true,
+  });
+  const taskCommentRows = useMemo(
+    () => taskComments.data?.pages.flatMap((page) => page.comments) ?? [],
+    [taskComments.data],
   );
-  const commentsQuery = onlySource ? singleSourceComments : taskComments;
   const prUrls = useMemo(
     () =>
       onlySource
@@ -411,10 +395,12 @@ export function TaskCommentsList({
   const threads = useMemo(() => {
     const reviewByUrl = new Map(prReviews.byUrl);
     const conversationByUrl = new Map(prConversation.byUrl);
-    const resourceThreads = resourceCommentThreads(
-      commentsQuery.data ?? EMPTY_COMMENTS,
-      sources,
-    );
+    const resourceThreads = onlySource
+      ? resourceCommentThreads(
+          singleSourceComments.data ?? EMPTY_COMMENTS,
+          sources,
+        )
+      : taskCommentThreads(taskCommentRows, sources, members, task.id);
     const prThreads = loadedPrUrls.flatMap((prUrl) =>
       prCommentThreads(
         prUrl,
@@ -425,8 +411,12 @@ export function TaskCommentsList({
     );
     return [...resourceThreads, ...prThreads].sort(byNewestActivity);
   }, [
-    commentsQuery.data,
+    onlySource,
+    singleSourceComments.data,
+    taskCommentRows,
     sources,
+    members,
+    task.id,
     loadedPrUrls,
     prTitles,
     prReviews.byUrl,
@@ -574,10 +564,16 @@ export function TaskCommentsList({
     return () => clearTimeout(timer);
   }, [pulseThreadId]);
 
+  const commentsLoading = onlySource
+    ? singleSourceComments.isLoading
+    : taskComments.isLoading;
+  const commentsFailed = onlySource
+    ? singleSourceComments.isError
+    : taskComments.isError;
   const loading =
-    commentsQuery.isLoading || prConversation.isLoading || prReviews.isLoading;
+    commentsLoading || prConversation.isLoading || prReviews.isLoading;
   const loadFailed =
-    commentsQuery.isError || prConversation.isError || prReviews.isError;
+    commentsFailed || prConversation.isError || prReviews.isError;
 
   return (
     // The parent scrolls the middle; the filters and the composer are pinned so
@@ -725,6 +721,21 @@ export function TaskCommentsList({
               />
             ),
           )
+        )}
+        {!onlySource && taskComments.hasNextPage && (
+          <div className="flex justify-center py-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={taskComments.isFetchingNextPage}
+              onClick={() => {
+                void taskComments.fetchNextPage();
+              }}
+            >
+              {taskComments.isFetchingNextPage && <Spinner />}
+              Load older comments
+            </Button>
+          </div>
         )}
       </div>
       <footer className="sticky bottom-0 shrink-0 border-border border-t bg-background p-2">

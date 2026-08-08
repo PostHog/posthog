@@ -6,7 +6,6 @@ import {
   PackageIcon,
   SlackLogoIcon,
 } from "@phosphor-icons/react";
-import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
   Badge,
@@ -22,10 +21,7 @@ import {
 } from "@posthog/quill";
 import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
-import {
-  buildRows,
-  commentTargets,
-} from "@posthog/ui/features/canvas/components/taskArtifactRows";
+import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
@@ -33,16 +29,13 @@ import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifac
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
-import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
-import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import { useTaskCommentCountsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { type ReactNode, useMemo, useState } from "react";
-
-const EMPTY_COMMENTS: ResourceComment[] = [];
 
 function ArtifactListRow({
   icon,
@@ -299,26 +292,14 @@ export function TaskArtifactsList({
     () => buildRows(task, timeline, runs),
     [task, timeline, runs],
   );
-  // One query for every row's badge, so N resources cost one request rather
-  // than one per row. The threads themselves live in the Comments tab.
-  const targets = useMemo(() => commentTargets(rows), [rows]);
-  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
+  const commentCounts = useTaskCommentCountsQuery(task.id, {
     enabled: commentsEnabled,
   });
-  const comments = commentsEnabled
-    ? (commentsQuery.data ?? EMPTY_COMMENTS)
-    : EMPTY_COMMENTS;
-  // Open threads only, so a row's badge agrees with what the Comments tab
-  // shows on the same resource.
-  const openCountByItem = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const thread of buildCommentThreads(comments)) {
-      const itemId = thread.root.item_id;
-      if (thread.resolved || !itemId) continue;
-      counts.set(itemId, (counts.get(itemId) ?? 0) + 1);
-    }
-    return counts;
-  }, [comments]);
+  const openCountByItem = useMemo(
+    () =>
+      new Map(commentCounts.data?.map(({ itemId, count }) => [itemId, count])),
+    [commentCounts.data],
+  );
 
   if (rows.length === 0) {
     return (

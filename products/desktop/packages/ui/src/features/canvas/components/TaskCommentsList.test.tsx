@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   createdFor: [] as unknown[],
   resolvedFor: [] as unknown[],
   queriedTargets: [] as unknown[],
+  queriedTaskIds: [] as string[],
   prCommentUrls: [] as string[],
   prReviewUrls: [] as string[],
   prTitleUrls: [] as string[],
@@ -122,13 +123,76 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
       isLoading: false,
     };
   },
-  useCommentsForTargetsQuery: (targets: unknown) => {
-    if (Array.isArray(targets) && targets.length > 0) {
-      mocks.queriedTargets.push(targets);
-    }
+  useTaskCommentsQuery: (taskId: string) => {
+    mocks.queriedTaskIds.push(taskId);
+    const comments = mocks.comments as ResourceComment[];
+    const roots = comments.filter((comment) => !comment.source_comment);
     return {
-      data: mocks.comments,
+      data: {
+        pages: [
+          {
+            comments: roots.map((root) => {
+              const replies = comments.filter(
+                (comment) => comment.source_comment === root.id,
+              );
+              const entries = [root, ...replies];
+              return {
+                id: root.id,
+                target: {
+                  id: root.item_id ?? "",
+                  type:
+                    root.scope === "desktop_canvas"
+                      ? "canvas"
+                      : root.scope === "task"
+                        ? "task"
+                        : "artifact",
+                  name: root.item_id ?? "",
+                },
+                content: root.content ?? "",
+                createdAt: root.created_at,
+                lastActivityAt: entries.at(-1)?.created_at ?? root.created_at,
+                resolved: replies.some(
+                  (reply) =>
+                    (reply.item_context as { threadState?: string } | null)
+                      ?.threadState === "resolved",
+                ),
+                comments: entries
+                  .filter(
+                    (entry) =>
+                      !(entry.item_context as { threadState?: string } | null)
+                        ?.threadState,
+                  )
+                  .map((entry) => ({
+                    id: entry.id,
+                    content: entry.content ?? "",
+                    author: null,
+                    createdById: null,
+                    createdAt: entry.created_at,
+                    anchor:
+                      (
+                        entry.item_context as {
+                          anchor?: Record<string, unknown>;
+                        } | null
+                      )?.anchor ?? null,
+                    canvasVersionId:
+                      (
+                        entry.item_context as {
+                          canvasVersionId?: string;
+                        } | null
+                      )?.canvasVersionId ?? null,
+                  })),
+              };
+            }),
+            next: null,
+          },
+        ],
+        pageParams: [null],
+      },
       isLoading: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
     };
   },
   useCreateComment: (target: unknown) => {
@@ -245,6 +309,7 @@ describe("TaskCommentsList", () => {
     mocks.createdFor = [];
     mocks.resolvedFor = [];
     mocks.queriedTargets = [];
+    mocks.queriedTaskIds = [];
     mocks.prCommentUrls = [];
     mocks.prReviewUrls = [];
     mocks.prTitleUrls = [];
@@ -386,10 +451,7 @@ describe("TaskCommentsList", () => {
 
     render(<TaskCommentsList task={task} timeline={timeline} />);
 
-    expect(mocks.queriedTargets.at(-1)).toContainEqual({
-      scope: "desktop_canvas",
-      itemId: "canvas-1",
-    });
+    expect(mocks.queriedTaskIds).toEqual(["task-1"]);
     expect(screen.getByText("Linked canvas feedback")).toBeInTheDocument();
   });
 
@@ -764,7 +826,7 @@ describe("TaskCommentsList", () => {
     );
   });
 
-  it("polls at most 20 artifact comment targets plus the task", () => {
+  it("queries the task once when it has more than 20 artifacts", () => {
     mocks.runs = [
       run(
         Array.from({ length: 25 }, (_, index) =>
@@ -779,15 +841,7 @@ describe("TaskCommentsList", () => {
 
     render(<TaskCommentsList task={task} timeline={[]} />);
 
-    const queriedTargets = mocks.queriedTargets.at(-1) as Array<{
-      scope: string;
-      itemId: string;
-    }>;
-    expect(queriedTargets).toHaveLength(21);
-    expect(queriedTargets[0]).toEqual({
-      scope: "task",
-      itemId: "task-1",
-    });
+    expect(mocks.queriedTaskIds).toEqual(["task-1"]);
   });
 
   it("loads GitHub comments for at most four PRs at once", () => {
