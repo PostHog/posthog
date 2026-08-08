@@ -70,7 +70,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_ATTEMPT_RESOURCE_NAME,
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
-    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -90,12 +89,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
-
-# The canonical column hints in external_table_definitions were shaped from acacia responses. Later
-# Stripe releases (basil onward) restructure objects (e.g. invoices drop top-level `charge`/
-# `subscription`), so those hints only match acacia — a source pinned to a newer version lets the
-# pipeline infer column types from the rows Stripe actually returns instead.
-HINT_COMPATIBLE_API_VERSIONS = frozenset({STRIPE_API_VERSION_ACACIA})
 # Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
 # discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
 # objects can grow past the size that reliably transfers intact, and the response then arrives
@@ -825,12 +818,10 @@ def stripe_source(
     api_version: str,
     should_use_incremental_field: bool = False,
 ):
-    # Only the endpoints with a PostHog-managed canonical schema have column hints, and only for the
-    # versions those hints were shaped from (see HINT_COMPATIBLE_API_VERSIONS); the rest let the
+    # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
     table_name = f"stripe_{endpoint.lower()}"
-    hints_apply = api_version in HINT_COMPATIBLE_API_VERSIONS and table_name in external_tables
-    column_mapping = get_dlt_mapping_for_external_table(table_name) if hints_apply else {}
+    column_mapping = get_dlt_mapping_for_external_table(table_name) if table_name in external_tables else {}
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys

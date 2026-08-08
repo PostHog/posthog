@@ -1174,30 +1174,6 @@ class TestStripeApiVersionDispatch:
 
     @parameterized.expand(
         [
-            # Hints were shaped from acacia responses, so they apply only under acacia.
-            (STRIPE_API_VERSION_ACACIA, True),
-            # Newer versions restructure objects, so the pipeline infers columns from the data instead.
-            (STRIPE_API_VERSION_DAHLIA, False),
-        ]
-    )
-    def test_managed_table_column_hints_are_gated_by_version(self, api_version, expect_hints):
-        manager = MagicMock(spec=WebhookSourceManager)
-        manager.webhook_enabled = mock.AsyncMock(return_value=False)
-        response = stripe_module.stripe_source(
-            api_key="sk_test_123",
-            account_id=None,
-            endpoint=CHARGE_RESOURCE_NAME,
-            db_incremental_field_last_value=None,
-            db_incremental_field_earliest_value=None,
-            logger=MagicMock(adebug=mock.AsyncMock()),
-            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
-            webhook_source_manager=manager,
-            api_version=api_version,
-        )
-        assert bool(response.column_hints) is expect_hints
-
-    @parameterized.expand(
-        [
             # An unpinned source resolves to the default, so its webhook is stamped dahlia.
             (None, STRIPE_API_VERSION_DAHLIA),
             # An acacia-pinned source keeps stamping its webhook acacia.
