@@ -671,6 +671,20 @@ export function getUsageLimitConsequence(productName: string): string {
 /**
  * Build a consolidated message for products that have exceeded their usage limits
  */
+// A billing snapshot is fetched once per page load. It is stale once the tab outlives the period it
+// describes, or the current organization changes, because a usage alert built from it then no longer
+// matches current billing.
+export function isBillingSnapshotStale(
+    periodEnd: dayjs.Dayjs | null | undefined,
+    snapshotOrgId: string | undefined,
+    currentOrgId: string,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    const periodEnded = !!periodEnd && now.isAfter(periodEnd)
+    const orgChanged = snapshotOrgId !== undefined && snapshotOrgId !== currentOrgId
+    return periodEnded || orgChanged
+}
+
 export function buildUsageLimitExceededMessage(
     products: Array<{ name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
@@ -727,7 +741,7 @@ export function buildUsageLimitApproachingMessage(
     const usageDetails = products.map((p) => {
         const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
         const productName = p.name || p.usage_key?.toLowerCase() || 'usage'
-        return `${percentage}% of your ${productName} allocation`
+        return `${percentage}% of your ${productName} limit`
     })
 
     const roleName = membershipLevelToName.get(minimumBillingAccessLevel)

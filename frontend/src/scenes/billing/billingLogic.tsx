@@ -38,11 +38,15 @@ import {
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
     getMinimumBillingAccessLevel,
+    isBillingSnapshotStale,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.8 // Threshold to show warning of event usage near limit (aligned with the 80% billing warning email)
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
+
+// How often we check whether the cached billing snapshot has outlived the period or org it describes.
+const BILLING_STALENESS_CHECK_INTERVAL_MS = 60_000
 
 const BILLING_ALERT_DISMISS_PREFIX = 'scenes.billing.billingLogic.billingAlertDismissed.'
 
@@ -1626,8 +1630,48 @@ export const billingLogic = kea<billingLogicType>([
             },
         }
     }),
-    events(({ actions, values }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
+            // Billing is fetched once via a lazy loader and then cached for the life of the tab. On a
+            // long-lived tab that snapshot can outlive the billing period it describes (or a mid-session
+            // org change), leaving a usage alert that contradicts the billing page. Re-check periodically —
+            // and, because the tab pauses this poller while hidden, again on every re-show — then refetch
+            // once the snapshot is stale so the alert reflects current billing.
+            cache.disposables.add(() => {
+                const refreshBillingIfStale = (): void => {
+                    const billing = values.billing
+                    if (!billing) {
+                        return
+                    }
+                    const orgId = values.currentOrganizationId
+                    const periodEnd = billing.billing_period?.current_period_end
+
+                    if (cache.billingSnapshotOrgId === undefined) {
+                        cache.billingSnapshotOrgId = orgId
+                    }
+
+                    if (!isBillingSnapshotStale(periodEnd, cache.billingSnapshotOrgId, orgId)) {
+                        return
+                    }
+
+                    // Only refetch a given stale snapshot once, so a backend that has not rolled the period
+                    // over yet does not make us refetch on every tick.
+                    const snapshotKey = `${orgId}:${periodEnd?.valueOf() ?? ''}`
+                    if (cache.lastRefreshedSnapshotKey === snapshotKey) {
+                        return
+                    }
+                    cache.lastRefreshedSnapshotKey = snapshotKey
+                    cache.billingSnapshotOrgId = orgId
+
+                    actions.setBillingAlert(null)
+                    actions.loadBilling()
+                }
+
+                refreshBillingIfStale()
+                const intervalId = window.setInterval(refreshBillingIfStale, BILLING_STALENESS_CHECK_INTERVAL_MS)
+                return () => clearInterval(intervalId)
+            }, 'billingStalenessCheck')
+
             const { location, searchParams, hashParams } = router.values
             const isBillingOverviewRoute =
                 location.pathname.endsWith('/billing') || location.pathname.endsWith('/billing/overview')

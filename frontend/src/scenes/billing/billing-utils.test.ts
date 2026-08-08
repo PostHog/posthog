@@ -1,4 +1,5 @@
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import {
@@ -6,6 +7,7 @@ import {
     filterSpendUsageTypes,
     getSpendTypeOptions,
     getUsageTypeOptions,
+    isBillingSnapshotStale,
 } from './billing-utils'
 
 describe('getUsageTypeOptions', () => {
@@ -70,5 +72,21 @@ describe('getUsageTypeOptions', () => {
             ])
         ).toEqual(['event_count_in_period'])
         expect(filterSpendUsageTypes(['sandbox_compute_cpu_millicore_seconds_in_period'])).toEqual([])
+    })
+
+    describe('isBillingSnapshotStale', () => {
+        const now = dayjs('2026-08-08T00:00:00Z')
+        const pastPeriodEnd = dayjs('2026-08-01T00:00:00Z')
+        const futurePeriodEnd = dayjs('2026-09-01T00:00:00Z')
+
+        it.each<[string, dayjs.Dayjs | null | undefined, string | undefined, string, boolean]>([
+            ['period ended, same org', pastPeriodEnd, 'org-1', 'org-1', true],
+            ['period still open, same org', futurePeriodEnd, 'org-1', 'org-1', false],
+            ['no period, same org', undefined, 'org-1', 'org-1', false],
+            ['org changed, period still open', futurePeriodEnd, 'org-1', 'org-2', true],
+            ['first observation (no snapshot org yet)', futurePeriodEnd, undefined, 'org-1', false],
+        ])('%s', (_name, periodEnd, snapshotOrgId, currentOrgId, expected) => {
+            expect(isBillingSnapshotStale(periodEnd, snapshotOrgId, currentOrgId, now)).toBe(expected)
+        })
     })
 })
