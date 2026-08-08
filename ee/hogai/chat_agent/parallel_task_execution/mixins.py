@@ -5,6 +5,7 @@ from typing import cast
 import structlog
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.errors import GraphRecursionError
 
 from posthog.schema import AssistantToolCall, AssistantToolCallMessage, HumanMessage, TaskExecutionStatus
 
@@ -17,6 +18,7 @@ from ee.hogai.chat_agent.insights.nodes import InsightSearchNode
 from ee.hogai.chat_agent.parallel_task_execution.prompts import AGENT_TASK_PROMPT_TEMPLATE
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.utils.dispatcher import AssistantDispatcher
+from ee.hogai.utils.exceptions import AGENT_RUN_RECURSION_LIMIT_COUNTER
 from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import is_value_update
 from ee.hogai.utils.types import (
@@ -94,6 +96,17 @@ class WithInsightCreationTaskExecution:
                     for message in messages:
                         self.dispatcher.message(message)
 
+        except GraphRecursionError:
+            # The subgraph hit the step limit. Degrade gracefully like the main runner
+            # instead of raising into error tracking, and count the termination.
+            AGENT_RUN_RECURSION_LIMIT_COUNTER.labels(graph="insights_subgraph").inc()
+            logger.warning("Task failed: insights subgraph reached the maximum number of steps", task_id=task.id)
+            return TaskResult(
+                id=task.id,
+                result="I've reached the maximum number of steps while creating this insight.",
+                artifacts=[],
+                status=TaskExecutionStatus.FAILED,
+            )
         except Exception as e:
             capture_exception(e)
             raise

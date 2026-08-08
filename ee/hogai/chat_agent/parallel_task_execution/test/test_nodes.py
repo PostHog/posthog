@@ -8,8 +8,11 @@ from unittest.mock import MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from pydantic import ConfigDict
 
+from langgraph.errors import GraphRecursionError
+
 from posthog.schema import AssistantToolCall, TaskExecutionStatus
 
+from ee.hogai.chat_agent.parallel_task_execution.mixins import WithInsightCreationTaskExecution
 from ee.hogai.chat_agent.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
 
@@ -481,3 +484,42 @@ class TestTaskDependencies(TestBaseTaskExecutorNode):
 
         self.assertEqual(len(cast(list, received_artifacts)), 3)
         self.assertEqual([a.task_id for a in cast(list, received_artifacts)], ["art1", "art2", "art3"])
+
+
+class _InsightCreationExecutor(WithInsightCreationTaskExecution):
+    def __init__(self, team, user):
+        self._team = team
+        self._user = user
+        self._parent_tool_call_id = None
+        self._context_manager = None
+        self._dispatcher = MagicMock()
+
+    @property
+    def dispatcher(self):
+        return self._dispatcher
+
+
+class TestInsightCreationRecursionLimit(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.executor = _InsightCreationExecutor(MagicMock(), MagicMock())
+
+    @patch("ee.hogai.chat_agent.parallel_task_execution.mixins.capture_exception")
+    @patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph")
+    async def test_recursion_limit_degrades_without_error_tracking(self, MockInsightsGraph, mock_capture):
+        async def raising_astream(*args, **kwargs):
+            raise GraphRecursionError("recursion limit reached")
+            yield  # noqa: unreachable — makes this an async generator
+
+        MockInsightsGraph.return_value.compile_full_graph.return_value.astream = raising_astream
+
+        task = AssistantToolCall(id="task1", name="create_insight", args={"query_description": "trend of pageviews"})
+        result = await self.executor._execute_create_insight(
+            {"task": task, "artifacts": [], "config": RunnableConfig()}
+        )
+
+        assert result is not None
+        self.assertEqual(result.status, TaskExecutionStatus.FAILED)
+        self.assertIn("maximum number of steps", result.result)
+        # The step limit must not reach error tracking; only unexpected errors should.
+        mock_capture.assert_not_called()

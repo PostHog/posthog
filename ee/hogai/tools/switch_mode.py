@@ -48,6 +48,11 @@ Successfully switched to {{{new_mode}}} mode. You now have access to this mode's
 """.strip()
 
 
+SWITCH_MODE_NOOP_PROMPT = """
+You are already in {{{new_mode}}} mode, so no switch happened. You already have access to this mode's tools. Use them to make progress instead of switching again.
+""".strip()
+
+
 SWITCH_MODE_FAILURE_PROMPT = """
 Failed to switch to {{{new_mode}}} mode. This mode does not exist. Available modes: {{{available_modes}}}.
 """.strip()
@@ -118,6 +123,14 @@ class SwitchModeTool(MaxTool):
             available = ", ".join(self._mode_registry.keys())
             return (
                 format_prompt_string(SWITCH_MODE_FAILURE_PROMPT, new_mode=new_mode, available_modes=available),
+                self._state.agent_mode,
+            )
+
+        if new_mode == self._state.agent_mode:
+            # Switching to the current mode is a no-op. Say so plainly so the model
+            # does not read a fake success as progress and loop on the same switch.
+            return (
+                format_prompt_string(SWITCH_MODE_NOOP_PROMPT, new_mode=new_mode),
                 self._state.agent_mode,
             )
 

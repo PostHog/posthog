@@ -47,6 +47,7 @@ from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.exceptions import (
+    AGENT_RUN_RECURSION_LIMIT_COUNTER,
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
     LLM_API_EXCEPTIONS,
@@ -309,6 +310,7 @@ class BaseAgentRunner(ABC):
                 # below will process the interrupt via aget_state().
                 pass
             except GraphRecursionError:
+                AGENT_RUN_RECURSION_LIMIT_COUNTER.labels(graph="main").inc()
                 recursion_limit_message = AssistantMessage(
                     content="I've reached the maximum number of steps. Would you like me to continue?",
                     id=str(uuid4()),

@@ -64,6 +64,15 @@ AGENT_RUN_UNHANDLED_ERROR_COUNTER = Counter(
     ["error_type"],
 )
 
+# An agent run that hit the step (recursion) limit before finishing. The user waited
+# and got no answer. There was no telemetry for this before, so the real rate was
+# invisible. The graph label separates the main runner from a nested subgraph.
+AGENT_RUN_RECURSION_LIMIT_COUNTER = Counter(
+    "posthog_ai_agent_run_recursion_limit_total",
+    "Total number of agent runs that hit the graph recursion (step) limit",
+    ["graph"],
+)
+
 
 def resolve_llm_provider(exc: Exception) -> str:
     """Extract the LLM provider name from an exception.
