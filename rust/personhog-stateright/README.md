@@ -28,17 +28,17 @@ web explorer.
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
 minimum viable scale or not at all.
-The suite explores ~34M states across 31 runs.
-Its long pole is the two-partition double-zombie pair, which is most of the wall clock on its own:
+The suite explores ~24M states across 31 runs.
+Its long pole is the two-partition epoch-fenced double zombie, which is more than half the wall clock on its own:
 
 | Scenario | Unique states | Wall time |
 |---|---|---|
-| `epoch_fenced_two_partitions_double_zombie_is_safe` | 13.1M | 20s |
-| `two_partitions_double_zombie_loses_acked_writes` | 12.6M | 16s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 13.1M | 19s |
+| `two_partitions_double_zombie_loses_acked_writes` | 3.7M | 4.0s |
 | `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 3.9s |
 | `current_two_partitions_single_zombie_is_safe` | 0.9M | 1.4s |
-| `probe_dual_role_pod_is_reachable_and_safe` | 0.7M | 1.1s |
-| *everything else (26 runs)* | 3.7M | 4s |
+| `probe_dual_role_pod_is_reachable_and_safe` | 0.7M | 1.2s |
+| *everything else (26 runs)* | 3.4M | 4s |
 
 Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
 Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
@@ -68,6 +68,14 @@ Three kinds of field are worth suspecting when a configuration is too slow, all 
 - **Evidence for a probe that some configurations cannot reach.** A `sometimes` probe guarded to be vacuous outside its own scenario must not have its flag recorded elsewhere: nothing will look at it, and a sticky flag doubles its subtree. Gate the write on the same predicate the probe reads, so the two cannot drift.
 
 Note which way each mistake fails. Recording too little makes a `sometimes` probe find no discovery and `assert_properties` panic — loud. Dropping something a safety property needed is silent, which is why the argument matters more than the measurement.
+
+### Runs that stop early
+
+A run that only asserts a counterexample *exists* does not need the rest of the space, so those call `explore_until` with the discoveries they assert and stop there.
+Everything asserting that a property *holds* still explores exhaustively — an `always` property is only proven by exhaustion, and stateright's default stopping condition never fires on these models anyway, since a safety property that holds never produces a discovery to stop on.
+
+The rule for touching one of these tests: adding an assertion that a discovery is *absent* means moving that run back to `explore`.
+The early exit makes the run prove less, not less well.
 
 `generated / unique` is the duplicate-successor ratio, and `depth` is a racing maximum across checker threads, so it varies run to run and means nothing on its own.
 Wall times move by up to 10% between runs of the same binary, so judge a change by its state counts and treat a timing difference under that as no difference.
