@@ -158,6 +158,10 @@ export interface RoleLookupResponseApi {
  * * `azure-blob` - Azure Blob
  * * `bing-ads` - Bing Ads
  * * `clickup` - Clickup
+ * * `clover` - Clover
+ * * `clover-eu` - Clover Eu
+ * * `clover-latam` - Clover Latam
+ * * `clover-sandbox` - Clover Sandbox
  * * `customerio-app` - Customerio App
  * * `customerio-track` - Customerio Track
  * * `customerio-webhook` - Customerio Webhook
@@ -207,6 +211,10 @@ export const IntegrationKindEnumApi = {
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
+    Clover: 'clover',
+    CloverEu: 'clover-eu',
+    CloverLatam: 'clover-latam',
+    CloverSandbox: 'clover-sandbox',
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
@@ -469,6 +477,10 @@ export interface IntegrationAccessRequestApi {
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
+     * * `clover` - Clover
+     * * `clover-eu` - Clover Eu
+     * * `clover-latam` - Clover Latam
+     * * `clover-sandbox` - Clover Sandbox
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
@@ -630,6 +642,10 @@ export type IntegrationsListParams = {
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
+     * * `clover` - Clover
+     * * `clover-eu` - Clover Eu
+     * * `clover-latam` - Clover Latam
+     * * `clover-sandbox` - Clover Sandbox
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
@@ -690,6 +706,10 @@ export const IntegrationsListKind = {
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
+    Clover: 'clover',
+    CloverEu: 'clover-eu',
+    CloverLatam: 'clover-latam',
+    CloverSandbox: 'clover-sandbox',
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
