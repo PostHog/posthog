@@ -36,18 +36,3 @@ export const OverConstrained: Story = {
         ],
     },
 }
-
-// Filters on different properties combine fine, so no banner shows.
-export const NoBanner: Story = {
-    args: {
-        properties: [
-            {
-                type: PropertyFilterType.Event,
-                key: '$current_url',
-                operator: PropertyOperator.IContains,
-                value: '/pricing',
-            },
-            { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
-        ],
-    },
-}
