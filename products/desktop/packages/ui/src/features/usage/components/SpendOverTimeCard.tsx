@@ -4,49 +4,78 @@ import {
   type SpendAnalysisFilledDay,
 } from "@posthog/core/billing/spendAnalysisFormat";
 import {
+  DefaultTooltip,
   type Series,
-  TimeSeriesBarChart,
+  TimeSeriesComboChart,
+  type TimeSeriesComboChartConfig,
   useChartTheme,
 } from "@posthog/quill-charts";
 import { UsageCard } from "./UsageCard";
-
-const VALUE_LABEL_MAX_BARS = 31;
 
 interface SpendOverTimeCardProps {
   filledDays: SpendAnalysisFilledDay[];
 }
 
-export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
-  const theme = useChartTheme();
-  const series: Series[] = [
+export function spendSeriesForDays(
+  filledDays: SpendAnalysisFilledDay[],
+): Series[] {
+  let cumulativeSpend = 0;
+  const dailySpend = filledDays.map((day) => Math.max(0, day.cost_usd));
+
+  return [
     {
-      key: "cost",
-      label: "Cost (USD)",
-      data: filledDays.map((d) => Math.max(0, d.cost_usd)),
+      key: "daily-spend",
+      label: "Daily spend",
+      data: dailySpend,
+      type: "bar",
+      yAxisId: "daily",
+    },
+    {
+      key: "cumulative-spend",
+      label: "Cumulative spend",
+      data: dailySpend.map((cost) => {
+        cumulativeSpend += cost;
+        return cumulativeSpend;
+      }),
+      type: "line",
+      yAxisId: "cumulative",
+      points: { radius: 3 },
     },
   ];
-  const showValueLabels = filledDays.length <= VALUE_LABEL_MAX_BARS;
+}
+
+export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
+  const theme = useChartTheme();
+  const series = spendSeriesForDays(filledDays);
+
   return (
     <UsageCard
       icon={<ChartBar size={14} className="text-(--accent-9)" />}
-      title="Cost over time"
+      title="Daily spend and total"
     >
-      {/* flex-col + fixed height: the quill chart sizes its canvas by filling
-          a flex-column parent; a plain block collapses it to 0. */}
       <div className="flex h-56 w-full flex-col">
-        <TimeSeriesBarChart
+        <TimeSeriesComboChart
           series={series}
           labels={filledDays.map((d) => d.day)}
           config={{
             xAxis: { timezone: "UTC", interval: "day" },
-            yAxis: { tickFormatter: formatUsd },
-            valueLabels: showValueLabels
-              ? { formatter: (value) => (value > 0 ? formatUsd(value) : "") }
-              : false,
+            yAxis: [
+              { id: "daily", position: "left", tickFormatter: formatUsd },
+              {
+                id: "cumulative",
+                position: "right",
+                tickFormatter: formatUsd,
+              },
+            ] as unknown as TimeSeriesComboChartConfig["yAxis"],
+            barLayout: "grouped",
             barCornerRadius: 2,
             showCrosshair: true,
+            tooltip: { placement: "cursor", showTotal: false },
           }}
           theme={theme}
+          tooltip={(context) => (
+            <DefaultTooltip {...context} valueFormatter={formatUsd} />
+          )}
         />
       </div>
     </UsageCard>

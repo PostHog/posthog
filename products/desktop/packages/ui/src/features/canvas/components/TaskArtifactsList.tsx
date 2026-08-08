@@ -1,22 +1,15 @@
 import {
   ArrowSquareOutIcon,
+  ChatCircleIcon,
   DownloadSimpleIcon,
   EyeIcon,
   PackageIcon,
   SlackLogoIcon,
 } from "@phosphor-icons/react";
-import {
-  OUTPUT_ARTIFACT_TYPES,
-  parseRunArtifacts,
-  type RunArtifact,
-} from "@posthog/core/canvas/runArtifactSchemas";
+import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
-  SESSION_SERVICE,
-  type SessionService,
-} from "@posthog/core/sessions/sessionService";
-import { useService } from "@posthog/di/react";
-import {
+  Badge,
   Button,
   Empty,
   EmptyDescription,
@@ -27,13 +20,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { readPrUrls } from "@posthog/shared";
-import type {
-  Task,
-  TaskRun,
-  TaskThreadMessage,
-} from "@posthog/shared/domain-types";
+import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
+import {
+  buildRows,
+  commentTargets,
+} from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
@@ -41,98 +33,16 @@ import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifac
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
+import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
-import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { type ReactNode, useMemo, useState } from "react";
 
-type ArtifactRow =
-  | { kind: "pr"; key: string; url: string }
-  | { kind: "canvas"; key: string; name: string; url: string | null }
-  | {
-      kind: "file";
-      key: string;
-      artifactId: string | null;
-      name: string;
-      runId: string | null;
-      size: number | undefined;
-    }
-  | { kind: "slack"; key: string; url: string };
-
-function readRunOutputs(run: TaskRun): RunArtifact[] {
-  return parseRunArtifacts(
-    (run as { artifacts?: unknown }).artifacts,
-    OUTPUT_ARTIFACT_TYPES,
-  );
-}
-
-function buildRows(
-  task: Task,
-  timeline: ThreadTimelineRow<TaskThreadMessage>[],
-  runs: TaskRun[],
-): ArtifactRow[] {
-  const rows: ArtifactRow[] = [];
-  const seenPrUrls = new Set<string>();
-
-  const addPr = (url: string, key: string) => {
-    if (seenPrUrls.has(url)) return;
-    seenPrUrls.add(url);
-    rows.push({ kind: "pr", key, url });
-  };
-
-  for (const row of timeline) {
-    if (row.kind !== "artifact") continue;
-    if (row.artifact.kind === "pr") {
-      addPr(row.artifact.url, row.message.id);
-    } else {
-      rows.push({
-        kind: "canvas",
-        key: row.message.id,
-        name: row.artifact.name,
-        url: row.artifact.url,
-      });
-    }
-  }
-
-  const allRuns =
-    runs.length > 0 ? runs : task.latest_run ? [task.latest_run] : [];
-
-  // Re-uploading a file replaces it rather than adding a second one: agents
-  // revise a deliverable and upload it again under the same name, so keeping
-  // every copy would bury the current one under its own drafts.
-  const newestByName = new Map<string, { file: RunArtifact; runId: string }>();
-  for (const run of allRuns) {
-    for (const outputPr of readPrUrls(run.output)) {
-      addPr(outputPr, `output-pr:${outputPr}`);
-    }
-    for (const file of readRunOutputs(run)) {
-      if (!file.name) continue;
-      const previous = newestByName.get(file.name);
-      const isNewer =
-        !previous ||
-        (file.uploaded_at ?? "") >= (previous.file.uploaded_at ?? "");
-      if (isNewer) newestByName.set(file.name, { file, runId: run.id });
-    }
-  }
-  for (const [name, { file, runId }] of newestByName) {
-    rows.push({
-      kind: "file",
-      key: `file:${file.id ?? file.storage_path ?? name}`,
-      artifactId: file.id ?? null,
-      name,
-      runId,
-      size: file.size,
-    });
-  }
-
-  const slackUrl = task.latest_run?.state?.slack_thread_url;
-  if (typeof slackUrl === "string" && slackUrl) {
-    rows.push({ kind: "slack", key: "slack-thread", url: slackUrl });
-  }
-
-  return rows;
-}
+const EMPTY_COMMENTS: ResourceComment[] = [];
 
 function ArtifactListRow({
   icon,
@@ -146,7 +56,7 @@ function ArtifactListRow({
 }: {
   icon: ReactNode;
   title: string;
-  detail?: string | null;
+  detail?: ReactNode;
   external?: boolean;
   onOpen?: () => void;
   /** Renders a trailing button that leaves the app instead of opening the
@@ -279,13 +189,30 @@ function PrRow({
   );
 }
 
-function CanvasRow({ name, url }: { name: string; url: string | null }) {
+function CanvasRow({
+  name,
+  url,
+  commentCount,
+}: {
+  name: string;
+  url: string | null;
+  commentCount: number;
+}) {
   const open = canvasArtifactOpenHandler(url);
   return (
     <ArtifactListRow
       icon={iconForTemplate("", { size: 14, className: "text-violet-9" })}
       title={name}
-      detail="Canvas"
+      detail={
+        commentCount > 0 ? (
+          <Badge>
+            <ChatCircleIcon />
+            {commentCount}
+          </Badge>
+        ) : (
+          "Canvas"
+        )
+      }
       onOpen={open}
     />
   );
@@ -297,17 +224,20 @@ function FileRow({
   artifactId,
   name,
   size,
+  commentCount,
 }: {
   taskId: string;
   runId: string | null;
   artifactId: string | null;
   name: string;
   size: number | undefined;
+  /** Supplied by the pane's single comments query so each row doesn't fetch. */
+  commentCount: number;
 }) {
-  const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const [downloading, setDownloading] = useState(false);
+  const { download, downloadingId } = useArtifactDownload();
   const canOpen = !!runId && !!artifactId;
+  const sizeLabel = formatFileSize(size);
   const onOpen = canOpen
     ? () => {
         openArtifactTab(taskId, {
@@ -318,42 +248,34 @@ function FileRow({
       }
     : undefined;
   const onDownload = canOpen
-    ? async () => {
-        setDownloading(true);
-        try {
-          const url = await sessionService.getCloudAttachmentPreviewUrl(
-            taskId,
-            runId as string,
-            artifactId as string,
-          );
-          if (!url) {
-            toast.error("This file is no longer available");
-            return;
-          }
-          const response = await fetch(url);
-          if (!response.ok) throw new Error("Artifact download failed");
-          const objectUrl = URL.createObjectURL(await response.blob());
-          const anchor = document.createElement("a");
-          anchor.href = objectUrl;
-          anchor.download = name;
-          anchor.click();
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          toast.error("Couldn't download file");
-        } finally {
-          setDownloading(false);
-        }
+    ? () => {
+        void download({
+          taskId,
+          runId: runId as string,
+          artifactId: artifactId as string,
+          name,
+        });
       }
     : undefined;
   return (
     <ArtifactListRow
       icon={<FileIcon filename={name} size={14} />}
       title={name}
-      detail={["File", formatFileSize(size)].filter(Boolean).join(" · ")}
+      detail={
+        <div className="flex items-center gap-1.5">
+          <span>{sizeLabel ? `File · ${sizeLabel}` : "File"}</span>
+          {commentCount > 0 && (
+            <Badge>
+              <ChatCircleIcon />
+              {commentCount}
+            </Badge>
+          )}
+        </div>
+      }
       onOpen={onOpen}
       fileActions={
         onDownload
-          ? { onDownload: () => void onDownload(), downloading }
+          ? { onDownload, downloading: downloadingId === artifactId }
           : undefined
       }
     />
@@ -371,11 +293,32 @@ export function TaskArtifactsList({
    *  open externally rather than into a review pane nobody is showing. */
   canOpenInPlace?: boolean;
 }) {
+  const commentsEnabled = useCommentsEnabled();
   const { runs } = useTaskRuns(task.id);
   const rows = useMemo(
     () => buildRows(task, timeline, runs),
     [task, timeline, runs],
   );
+  // One query for every row's badge, so N resources cost one request rather
+  // than one per row. The threads themselves live in the Comments tab.
+  const targets = useMemo(() => commentTargets(rows), [rows]);
+  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
+    enabled: commentsEnabled,
+  });
+  const comments = commentsEnabled
+    ? (commentsQuery.data ?? EMPTY_COMMENTS)
+    : EMPTY_COMMENTS;
+  // Open threads only, so a row's badge agrees with what the Comments tab
+  // shows on the same resource.
+  const openCountByItem = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const thread of buildCommentThreads(comments)) {
+      const itemId = thread.root.item_id;
+      if (thread.resolved || !itemId) continue;
+      counts.set(itemId, (counts.get(itemId) ?? 0) + 1);
+    }
+    return counts;
+  }, [comments]);
 
   if (rows.length === 0) {
     return (
@@ -404,7 +347,14 @@ export function TaskArtifactsList({
             openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
           />
         ) : row.kind === "canvas" ? (
-          <CanvasRow key={row.key} name={row.name} url={row.url} />
+          <CanvasRow
+            key={row.key}
+            name={row.name}
+            url={row.url}
+            commentCount={
+              row.dashboardId ? (openCountByItem.get(row.dashboardId) ?? 0) : 0
+            }
+          />
         ) : row.kind === "file" ? (
           <FileRow
             key={row.key}
@@ -413,6 +363,9 @@ export function TaskArtifactsList({
             artifactId={row.artifactId}
             name={row.name}
             size={row.size}
+            commentCount={
+              row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
+            }
           />
         ) : (
           <ArtifactListRow

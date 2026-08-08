@@ -734,9 +734,10 @@ export class TaskCreationSaga extends Saga<
     };
 
     const lease =
-      input.repository && input.runtime !== "pi"
+      (input.repository || input.allowNoRepo) && input.runtime !== "pi"
         ? this.deps.host.takeWarmTaskLease({
-            repository: input.repository,
+            repository: input.repository ?? null,
+            repositories: input.repositories,
             branch: input.branch ?? null,
             runtimeAdapter: input.adapter ?? null,
             model: input.model ?? null,

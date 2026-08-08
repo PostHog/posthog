@@ -851,7 +851,7 @@ def send_matview_failure_digest() -> None:
     )
 
     failed_queries = (
-        DataWarehouseSavedQuery.objects.filter(deleted=False, sync_frequency_interval__isnull=False)
+        DataWarehouseSavedQuery.objects.filter(deleted=False)
         .annotate(
             latest_job_status=Subquery(latest_job.values("status")[:1]),
             latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]),
@@ -860,44 +860,21 @@ def send_matview_failure_digest() -> None:
             latest_job_status=DataModelingJob.Status.FAILED,
             latest_job_run_at__gte=cutoff,
         )
-        .select_related("team")
     )
 
-    # Recent-run cutoff avoids nagging about long-term pauses.
-    paused_queries = (
-        DataWarehouseSavedQuery.objects.filter(
-            deleted=False,
-            sync_frequency_interval__isnull=True,
-            latest_error__isnull=False,
-        )
-        .annotate(latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]))
-        .filter(latest_job_run_at__gte=cutoff)
-        .select_related("team")
-    )
-
-    teams_with_issues: dict[int, dict] = {}
-
+    failed_ids_by_team: dict[int, list[str]] = {}
     for sq in failed_queries:
-        entry = teams_with_issues.setdefault(sq.team_id, {"team": sq.team, "failed": [], "paused": []})
-        entry["failed"].append(sq)
+        failed_ids_by_team.setdefault(sq.team_id, []).append(str(sq.id))
 
-    for paused_sq in paused_queries:
-        entry = teams_with_issues.setdefault(paused_sq.team_id, {"team": paused_sq.team, "failed": [], "paused": []})
-        entry["paused"].append(paused_sq)
-
-    if not teams_with_issues:
-        logger.info("No matview failures or paused schedules found")
+    if not failed_ids_by_team:
+        logger.info("No matview failures found")
         return
 
-    logger.info("Found %d teams with matview issues", len(teams_with_issues))
+    logger.info("Found %d teams with matview failures", len(failed_ids_by_team))
 
-    for team_id, data in teams_with_issues.items():
-        failed_ids = [str(sq.id) for sq in data["failed"]]
-        paused_ids = [str(sq.id) for sq in data["paused"]]
-        send_team_matview_failure_digest.delay(team_id, failed_ids, paused_ids)
-        logger.info(
-            f"Dispatching matview failure digest for team {team_id} with {len(failed_ids)} failed and {len(paused_ids)} paused."
-        )
+    for team_id, failed_ids in failed_ids_by_team.items():
+        send_team_matview_failure_digest.delay(team_id, failed_ids, [])
+        logger.info("Dispatching matview failure digest for team %d with %d failed views.", team_id, len(failed_ids))
 
     logger.info("Completed materialized view failure digest fan-out")
 
