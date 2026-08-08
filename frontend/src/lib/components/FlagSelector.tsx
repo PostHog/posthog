@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconX } from '@posthog/icons'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,6 +17,10 @@ interface FlagSelectorProps {
     readOnly?: boolean
     disabledReason?: string
     initialButtonLabel?: string
+    /** Applied to the trigger button so an associated `<label htmlFor>` focuses and opens the selector. */
+    id?: string
+    /** When set, renders a clear button next to the trigger that resets the selection. */
+    onClear?: () => void
 }
 
 interface PickedFlag {
@@ -48,6 +54,8 @@ export function FlagSelector({
     readOnly,
     disabledReason,
     initialButtonLabel,
+    id,
+    onClear,
 }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     // Recently-used flags are persisted with just `{ name, id }` (no `key`), so a pick from the
@@ -84,20 +92,32 @@ export function FlagSelector({
     })
 
     return (
-        <Popover
-            overlay={<TaxonomicFilter {...taxonomicFilterLogicProps} />}
-            visible={visible}
-            placement="right-start"
-            fallbackPlacements={['left-end', 'bottom']}
-            onClickOutside={() => setVisible(false)}
-        >
-            <LemonButton
-                type="secondary"
-                onClick={() => setVisible(!visible)}
-                disabledReason={readOnly && (disabledReason || "I'm read-only")}
+        <div className="flex">
+            <Popover
+                overlay={<TaxonomicFilter {...taxonomicFilterLogicProps} />}
+                visible={visible}
+                placement="right-start"
+                fallbackPlacements={['left-end', 'bottom']}
+                onClickOutside={() => setVisible(false)}
             >
-                {buttonLabel}
-            </LemonButton>
-        </Popover>
+                <LemonButton
+                    id={id}
+                    type="secondary"
+                    onClick={() => setVisible(!visible)}
+                    disabledReason={readOnly && (disabledReason || "I'm read-only")}
+                >
+                    {buttonLabel}
+                </LemonButton>
+            </Popover>
+            {onClear && value ? (
+                <LemonButton
+                    className="ml-2"
+                    icon={<IconX />}
+                    size="small"
+                    onClick={onClear}
+                    aria-label="Clear selected flag"
+                />
+            ) : null}
+        </div>
     )
 }

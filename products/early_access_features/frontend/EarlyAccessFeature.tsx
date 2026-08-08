@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconCopy, IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
+import { IconCopy, IconFlag, IconQuestion, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -606,18 +606,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             help="A feature flag will be generated from the feature name if not provided"
                         >
                             {({ value, onChange }) => (
-                                <div className="flex">
-                                    <FlagSelector value={value} onChange={onChange} />
-                                    {value && (
-                                        <LemonButton
-                                            className="ml-2"
-                                            icon={<IconX />}
-                                            size="small"
-                                            onClick={() => onChange(undefined)}
-                                            aria-label="close"
-                                        />
-                                    )}
-                                </div>
+                                <FlagSelector value={value} onChange={onChange} onClear={() => onChange(undefined)} />
                             )}
                         </LemonField>
                     )}
