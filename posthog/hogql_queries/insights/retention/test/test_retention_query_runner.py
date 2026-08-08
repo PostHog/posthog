@@ -26,6 +26,7 @@ from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -3177,6 +3178,35 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
             ],
         )
+
+    @parameterized.expand(
+        [
+            ("display_label", "Other (i.e. all remaining values)"),
+            ("property_value", "United States"),
+            ("empty", ""),
+        ]
+    )
+    def test_cohort_breakdown_actors_query_rejects_non_cohort_id(self, _name, breakdown_value):
+        # Clicking a retention cell sends the row's breakdown value to the actors query. When the query
+        # is broken down by cohort but that value is not a cohort ID (a display label, a stale property
+        # value from a dashboard override), the drill-down must return a handled error, not a 500.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "age", "operator": "exact", "value": ["25"], "type": "person"}]}],
+            name="Young users",
+        )
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "kind": "RetentionQuery",
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {"period": "Day", "totalIntervals": 7},
+                "breakdownFilter": {"breakdown": [cohort.pk], "breakdown_type": "cohort"},
+            },
+        )
+
+        with self.assertRaises(QueryError):
+            runner.to_actors_query(interval=0, breakdown_values=[breakdown_value])
 
     @parameterized.expand(
         [

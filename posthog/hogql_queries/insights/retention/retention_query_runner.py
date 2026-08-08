@@ -27,6 +27,7 @@ from posthog.hogql.constants import (
     LimitContext,
     get_breakdown_limit_for_context,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import entity_to_expr, property_to_expr
@@ -817,12 +818,22 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             base_query: ast.SelectQuery | ast.SelectSetQuery
             if is_cohort_breakdown:
                 if not breakdown_values or not isinstance(breakdown_values, list) or len(breakdown_values) == 0:
-                    raise ValueError("A cohort breakdown value is required for actors query with cohort breakdowns.")
+                    raise QueryError("A cohort breakdown value is required to load people for a cohort breakdown.")
 
                 cohort_id = breakdown_values[0]
+                try:
+                    cohort_id_int = int(cohort_id)
+                except (TypeError, ValueError):
+                    # The breakdown value does not match the cohort breakdown the query runs. This happens
+                    # when a dashboard override changes the breakdown to a cohort, or when a display label
+                    # reaches this point instead of a cohort ID. Surface a handled error, not a 500.
+                    raise QueryError(
+                        f'Cannot load people for the retention breakdown value "{cohort_id}". '
+                        "Expected a cohort ID for a cohort breakdown."
+                    )
                 temp_query = self.query.model_copy(deep=True)
                 if temp_query.breakdownFilter:
-                    temp_query.breakdownFilter.breakdowns = [Breakdown(type="cohort", property=int(cohort_id))]
+                    temp_query.breakdownFilter.breakdowns = [Breakdown(type="cohort", property=cohort_id_int)]
                     # these are passed to the new runner to correctly construct the query
                     temp_query.breakdownFilter.breakdown = cohort_id
                     temp_query.breakdownFilter.breakdown_type = BreakdownType.COHORT
