@@ -105,6 +105,17 @@ SCOUT_REPORT_SCOPES: list[str] = [
 # practice; tool-level (create-only) restriction isn't cheap in the current sandbox wiring.
 SCOUT_USER_WRITE_SCOPES: list[str] = [
     "notebook:write",
+    # Lets the insight-labels scout (products/signals/skills/signals-scout-insight-labels)
+    # apply its HIGHEST-value action: renaming an insight whose title no longer matches
+    # its query, instead of only reporting the drift. Object-level, so this also exposes
+    # `insight-create` and the destructive `insight-delete`. Accepted, mirroring the
+    # notebook precedent: the token is scoped to a single team, deletes are soft and
+    # recoverable, and the `insight-update` MCP tool is `include_params`-restricted to
+    # name/description/tags/favorited/dashboards — the query itself can't be rewritten
+    # through it, so the identity-damaging write (silently changing what a chart
+    # measures) is structurally out of reach. The scout body pins usage to name-only
+    # renames; everything else about it is prompt-level, monitored via the activity log.
+    "insight:write",
 ]
 
 
