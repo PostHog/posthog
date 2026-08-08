@@ -70,8 +70,8 @@ export interface activeCloudRunLogicValues {
     isProvisionedUser: boolean // userLogic
     activeCloudRun: CloudRunHandle | null
     canHydrateFromServer: boolean
-    cancellingRun: boolean
     cancelAcknowledged: boolean
+    cancellingRun: boolean
     persistedCloudRun: CloudRunHandle | null
 }
 
