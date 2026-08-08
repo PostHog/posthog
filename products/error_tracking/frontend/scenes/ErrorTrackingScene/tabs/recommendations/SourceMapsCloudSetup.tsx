@@ -223,7 +223,7 @@ function ScanProgress(): JSX.Element {
             <TextMorph as="span" className="text-sm text-secondary">
                 {SCAN_STEPS[scanStepIndex]}
             </TextMorph>
-            <LoadingBar loadId={selectedDetection?.task_run_id} speed={2} wrapperClassName="my-0 max-w-full" />
+            <LoadingBar loadId={selectedDetection?.task_run_id} wrapperClassName="my-0 max-w-full" />
         </div>
     )
 }
