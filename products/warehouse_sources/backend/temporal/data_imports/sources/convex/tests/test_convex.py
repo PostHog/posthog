@@ -452,10 +452,16 @@ class TestComponentSupport:
 
     @parameterized.expand(
         [
-            # Root tables must not send a component param — the API defaults to the root component.
-            ("root", "users", "users", None),
-            # A component-qualified warehouse table name must read the bare table from its component.
-            ("component", "betterAuth.users", "users", "betterAuth"),
+            # Full snapshot — root tables must not send a component param; the API defaults to root.
+            ("root_snapshot", "users", "users", None, False, None, "/api/list_snapshot", None),
+            # Full snapshot — a component-qualified name reads the bare table from its component.
+            ("component_snapshot", "betterAuth.users", "users", "betterAuth", False, None, "/api/list_snapshot", None),
+            # Delta path — root tables send no component param and seed from the db watermark.
+            ("root_delta", "users", "users", None, True, 10, "/api/document_deltas", 10),
+            # Delta path for a component table — the previously untested combination. It must carry
+            # both its component and the resume cursor into document_deltas, or the component table
+            # stops receiving incremental updates.
+            ("component_delta", "betterAuth.users", "users", "betterAuth", True, 10, "/api/document_deltas", 10),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
@@ -465,6 +471,10 @@ class TestComponentSupport:
         warehouse_table_name: str,
         expected_convex_table: str,
         expected_component: str | None,
+        should_use_incremental_field: bool,
+        db_incremental_field_last_value: int | None,
+        expected_url_fragment: str,
+        expected_cursor: int | None,
         mock_get: Mock,
     ) -> None:
         manager = _make_manager(can_resume=False)
@@ -478,8 +488,8 @@ class TestComponentSupport:
             table_name=warehouse_table_name,
             team_id=1,
             job_id="job",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             resumable_source_manager=manager,
         )
 
@@ -487,9 +497,13 @@ class TestComponentSupport:
         assert response.name == warehouse_table_name
 
         list(cast(Iterable[Any], response.items()))
+        called_url = mock_get.return_value.get.call_args_list[0].args[0]
+        assert expected_url_fragment in called_url
         params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert params["tableName"] == expected_convex_table
         assert params.get("component") == expected_component
+        if expected_cursor is not None:
+            assert params["cursor"] == expected_cursor
 
 
 class TestConvexNonRetryableErrors:
