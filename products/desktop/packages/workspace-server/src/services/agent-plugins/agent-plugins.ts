@@ -202,87 +202,92 @@ export class AgentPluginsService {
     await this.removeManagedPath(runtimeRoot);
     await this.makeManagedDirectory(runtimeRoot);
 
-    const claimedSkillNames = new Set(reservedSkillNames);
-    const state = await this.withStateTransaction(() => this.readState());
-    const installations = state.installations
-      .filter((installation) => installation.enabled)
-      .sort(
-        (left, right) =>
-          left.manifest.name.localeCompare(right.manifest.name) ||
-          left.id.localeCompare(right.id),
-      );
+    try {
+      const claimedSkillNames = new Set(reservedSkillNames);
+      const state = await this.withStateTransaction(() => this.readState());
+      const installations = state.installations
+        .filter((installation) => installation.enabled)
+        .sort(
+          (left, right) =>
+            left.manifest.name.localeCompare(right.manifest.name) ||
+            left.id.localeCompare(right.id),
+        );
 
-    const plugins: RuntimeAgentPlugin[] = [];
-    for (const installation of installations) {
-      const preview = await loadAgentPlugin(installation.sourcePath);
-      if (
-        !preview.valid ||
-        !preview.manifest ||
-        preview.sourcePath !== installation.sourcePath
-      )
-        continue;
-      const availableSkills = preview.skills.filter((skill) => {
-        if (claimedSkillNames.has(skill.name)) {
-          onSkillSkipped(
-            preview.manifest?.name ?? installation.manifest.name,
-            skill.name,
-          );
-          return false;
+      const plugins: RuntimeAgentPlugin[] = [];
+      for (const installation of installations) {
+        const preview = await loadAgentPlugin(installation.sourcePath);
+        if (
+          !preview.valid ||
+          !preview.manifest ||
+          preview.sourcePath !== installation.sourcePath
+        )
+          continue;
+        const availableSkills = preview.skills.filter((skill) => {
+          if (claimedSkillNames.has(skill.name)) {
+            onSkillSkipped(
+              preview.manifest?.name ?? installation.manifest.name,
+              skill.name,
+            );
+            return false;
+          }
+          claimedSkillNames.add(skill.name);
+          return true;
+        });
+        if (availableSkills.length === 0) continue;
+
+        const pluginPath = path.join(runtimeRoot, installation.id);
+        const skillsPath = path.join(pluginPath, "skills");
+        await this.makeManagedDirectory(skillsPath);
+        const copiedSkillNames: string[] = [];
+        const pluginUsage: SnapshotUsage = { files: 0, bytes: 0, entries: 0 };
+        for (const skill of availableSkills) {
+          const destination = path.join(skillsPath, skill.name);
+          try {
+            const skillUsage = await this.copySkillSnapshot(
+              installation.sourcePath,
+              skill.path,
+              destination,
+              pluginUsage,
+            );
+            const snapshotError = await validateAgentPluginSkillSnapshot(
+              pluginPath,
+              destination,
+              skill.name,
+            );
+            if (snapshotError) throw new Error(snapshotError);
+            pluginUsage.files += skillUsage.files;
+            pluginUsage.bytes += skillUsage.bytes;
+            pluginUsage.entries += skillUsage.entries;
+            copiedSkillNames.push(skill.name);
+          } catch {
+            await this.removeManagedPath(destination);
+            onSkillSkipped(preview.manifest.name, skill.name);
+          }
         }
-        claimedSkillNames.add(skill.name);
-        return true;
-      });
-      if (availableSkills.length === 0) continue;
-
-      const pluginPath = path.join(runtimeRoot, installation.id);
-      const skillsPath = path.join(pluginPath, "skills");
-      await this.makeManagedDirectory(skillsPath);
-      const copiedSkillNames: string[] = [];
-      const pluginUsage: SnapshotUsage = { files: 0, bytes: 0, entries: 0 };
-      for (const skill of availableSkills) {
-        const destination = path.join(skillsPath, skill.name);
-        try {
-          const skillUsage = await this.copySkillSnapshot(
-            installation.sourcePath,
-            skill.path,
-            destination,
-            pluginUsage,
-          );
-          const snapshotError = await validateAgentPluginSkillSnapshot(
-            pluginPath,
-            destination,
-            skill.name,
-          );
-          if (snapshotError) throw new Error(snapshotError);
-          pluginUsage.files += skillUsage.files;
-          pluginUsage.bytes += skillUsage.bytes;
-          pluginUsage.entries += skillUsage.entries;
-          copiedSkillNames.push(skill.name);
-        } catch {
-          await this.removeManagedPath(destination);
-          onSkillSkipped(preview.manifest.name, skill.name);
+        if (copiedSkillNames.length === 0) {
+          await this.removeManagedPath(pluginPath);
+          continue;
         }
-      }
-      if (copiedSkillNames.length === 0) {
-        await this.removeManagedPath(pluginPath);
-        continue;
-      }
 
-      await this.writeManagedFile(
-        path.join(pluginPath, "plugin.json"),
-        `${JSON.stringify({
-          name: preview.manifest.name,
-          ...(preview.manifest.version
-            ? { version: preview.manifest.version }
-            : {}),
-          ...(preview.manifest.description
-            ? { description: preview.manifest.description }
-            : {}),
-        })}\n`,
-      );
-      plugins.push({ pluginPath, skillsPath });
+        await this.writeManagedFile(
+          path.join(pluginPath, "plugin.json"),
+          `${JSON.stringify({
+            name: preview.manifest.name,
+            ...(preview.manifest.version
+              ? { version: preview.manifest.version }
+              : {}),
+            ...(preview.manifest.description
+              ? { description: preview.manifest.description }
+              : {}),
+          })}\n`,
+        );
+        plugins.push({ pluginPath, skillsPath });
+      }
+      return plugins;
+    } catch (error) {
+      await this.removeManagedPath(runtimeRoot).catch(() => undefined);
+      throw error;
     }
-    return plugins;
   }
 
   async cleanupRuntimePlugins(taskRunId: string): Promise<void> {
