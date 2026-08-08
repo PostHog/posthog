@@ -11,6 +11,7 @@ import {
 import type { ReactElement } from "react";
 import { CodeMirrorEditor } from "../../code-editor/components/CodeMirrorEditor";
 import { DocumentPreviewHeader } from "../../code-editor/components/DocumentPreviewHeader";
+import type { ArtifactEditConflict } from "./useArtifactEditing";
 
 export function ArtifactEditView({
   name,
@@ -18,7 +19,7 @@ export function ArtifactEditView({
   editorPath,
   showRendered,
   saving,
-  conflictOpen,
+  conflict,
   onConflictOpenChange,
   getContent,
   onContentChange,
@@ -31,7 +32,7 @@ export function ArtifactEditView({
   editorPath: string;
   showRendered: boolean;
   saving: boolean;
-  conflictOpen: boolean;
+  conflict: ArtifactEditConflict | null;
   onConflictOpenChange: (open: boolean) => void;
   getContent: () => string;
   onContentChange: (content: string) => void;
@@ -60,17 +61,22 @@ export function ArtifactEditView({
         />
       </div>
       <AlertDialog
-        open={conflictOpen}
+        open={conflict !== null}
         onOpenChange={(open) => {
           if (!saving) onConflictOpenChange(open);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>A newer version is available</AlertDialogTitle>
+            <AlertDialogTitle>
+              {conflict === "dismissed"
+                ? "This file was dismissed"
+                : "A newer version is available"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              A newer version of this file arrived while you were editing. Save
-              yours as the latest anyway?
+              {conflict === "dismissed"
+                ? "Every version of this file was dismissed while you were editing. Save your changes to restore it as the latest version?"
+                : "A newer version of this file arrived while you were editing. Save yours as the latest anyway?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -81,7 +87,7 @@ export function ArtifactEditView({
               Keep editing
             </AlertDialogClose>
             <Button variant="primary" loading={saving} onClick={onForceSave}>
-              Save as latest
+              {conflict === "dismissed" ? "Save and restore" : "Save as latest"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

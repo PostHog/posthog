@@ -299,7 +299,7 @@ export function ArtifactPreview({
         editorPath={editorFilePath(editing.editableKind, name)}
         showRendered={showRendered}
         saving={editing.saving}
-        conflictOpen={editing.conflictOpen}
+        conflict={editing.conflict}
         onConflictOpenChange={editing.setConflictOpen}
         getContent={editing.getDraftContent}
         onContentChange={editing.setDraftContent}

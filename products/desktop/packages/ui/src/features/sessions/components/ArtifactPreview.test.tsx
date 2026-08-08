@@ -1156,6 +1156,43 @@ describe("ArtifactPreview", () => {
     );
   });
 
+  it("explains that saving restores a file dismissed during editing", async () => {
+    const data = editablePreview();
+    taskRuns.data = [{ id: "run-1", artifacts: data.artifacts }];
+    taskRuns.refreshRuns.mockResolvedValue([
+      {
+        id: "run-1",
+        artifacts: data.artifacts.map((artifact) => ({
+          ...artifact,
+          dismissed_at: "2026-08-07T11:00:00Z",
+        })),
+      },
+    ]);
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText(
+        "Every version of this file was dismissed while you were editing. Save your changes to restore it as the latest version?",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save and restore" }),
+    ).toBeInTheDocument();
+    expect(artifactMocks.uploadCloudRunArtifactVersion).not.toHaveBeenCalled();
+  });
+
   it("preserves authored styles and injects the inline-comment bridge", () => {
     const document = artifactHtmlDocument(
       '<!doctype html><html><head><style>.card{color:red}</style></head><body><div class="card" style="font-size:20px">Report</div></body></html>',

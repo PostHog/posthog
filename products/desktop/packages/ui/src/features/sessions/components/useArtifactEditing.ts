@@ -16,6 +16,8 @@ interface SaveArtifactVariables {
   content: string;
 }
 
+export type ArtifactEditConflict = "newer-version" | "dismissed";
+
 export function useArtifactEditing({
   sessionService,
   artifactResult,
@@ -46,7 +48,7 @@ export function useArtifactEditing({
   canEdit: boolean;
   isEditing: boolean;
   saving: boolean;
-  conflictOpen: boolean;
+  conflict: ArtifactEditConflict | null;
   setConflictOpen: (open: boolean) => void;
   beginEditing: () => void;
   cancelEditing: () => void;
@@ -58,7 +60,7 @@ export function useArtifactEditing({
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [checkingLatest, setCheckingLatest] = useState(false);
-  const [conflictOpen, setConflictOpen] = useState(false);
+  const [conflict, setConflict] = useState<ArtifactEditConflict | null>(null);
   const draftRef = useRef("");
   const editingBaseKeyRef = useRef<string | null>(null);
   const editableKind = artifactResult
@@ -93,7 +95,7 @@ export function useArtifactEditing({
         }),
         queryClient.invalidateQueries({ queryKey: ["task-runs", taskId] }),
       ]);
-      setConflictOpen(false);
+      setConflict(null);
       setIsEditing(false);
       openArtifactTab(taskId, {
         runId,
@@ -116,7 +118,7 @@ export function useArtifactEditing({
 
   const cancelEditing = (): void => {
     setIsEditing(false);
-    setConflictOpen(false);
+    setConflict(null);
     draftRef.current = "";
     editingBaseKeyRef.current = null;
   };
@@ -140,11 +142,12 @@ export function useArtifactEditing({
       setCheckingLatest(false);
     }
 
-    if (
-      !currentLatest ||
-      runArtifactVersionKey(currentLatest) !== editingBaseKeyRef.current
-    ) {
-      setConflictOpen(true);
+    if (!currentLatest) {
+      setConflict("dismissed");
+      return;
+    }
+    if (runArtifactVersionKey(currentLatest) !== editingBaseKeyRef.current) {
+      setConflict("newer-version");
       return;
     }
     try {
@@ -174,8 +177,10 @@ export function useArtifactEditing({
     canEdit,
     isEditing,
     saving: checkingLatest || saveArtifact.isPending,
-    conflictOpen,
-    setConflictOpen,
+    conflict,
+    setConflictOpen: (open) => {
+      if (!open) setConflict(null);
+    },
     beginEditing,
     cancelEditing,
     saveDraft,
