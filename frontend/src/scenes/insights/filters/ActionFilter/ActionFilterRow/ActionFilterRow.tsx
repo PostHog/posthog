@@ -49,6 +49,7 @@ import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRo
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
 import { getDefaultMathHogQLExpression } from './mathUtils'
+import { OverConstrainedFiltersBanner } from './OverConstrainedFiltersBanner'
 import { PropertyValueMathSelector } from './PropertyValueMathSelector'
 import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
@@ -729,6 +730,7 @@ export function ActionFilterRow({
                         operatorAllowlist={operatorAllowlist}
                         triggerVariant="input"
                     />
+                    <OverConstrainedFiltersBanner properties={filter.properties} />
                     <SaveAsActionBanner filter={filter} />
                 </div>
             )}

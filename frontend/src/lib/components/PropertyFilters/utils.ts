@@ -721,6 +721,42 @@ export function createDefaultPropertyFilter(
     return property
 }
 
+// Positive value-matching operators. Two of these on one property key, combined
+// with AND, cannot all hold for a single event, so the query returns no rows.
+const OVER_CONSTRAINING_OPERATORS = new Set<PropertyOperator>([
+    PropertyOperator.Exact,
+    PropertyOperator.IContains,
+    PropertyOperator.Regex,
+    PropertyOperator.StartsWith,
+    PropertyOperator.EndsWith,
+])
+
+/**
+ * Property keys that carry two or more positive filters with different values.
+ * Per-series filters combine with AND, so no single event can match them all and
+ * the insight returns nothing. Used to nudge people toward one multi-value filter,
+ * which ORs its values instead.
+ */
+export function findOverConstrainedPropertyKeys(filters?: AnyPropertyFilter[] | null): string[] {
+    const valuesByKey = new Map<string, Set<string>>()
+    for (const filter of filters ?? []) {
+        if (
+            !isPropertyFilterWithOperator(filter) ||
+            !filter.operator ||
+            !OVER_CONSTRAINING_OPERATORS.has(filter.operator) ||
+            filter.value == null ||
+            (Array.isArray(filter.value) && filter.value.length === 0)
+        ) {
+            continue
+        }
+        const key = String(filter.key)
+        const values = valuesByKey.get(key) ?? new Set<string>()
+        values.add(JSON.stringify(filter.value))
+        valuesByKey.set(key, values)
+    }
+    return [...valuesByKey.entries()].filter(([, values]) => values.size > 1).map(([key]) => key)
+}
+
 /**
  * Normalizes property filter values to ensure multi-select operators (Exact, IsNot)
  * always have array values.

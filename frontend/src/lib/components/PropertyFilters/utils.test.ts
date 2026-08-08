@@ -3,6 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    findOverConstrainedPropertyKeys,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
@@ -516,5 +517,58 @@ describe('resolvePropertyDefinitionId()', () => {
                 () => null
             )
         ).toBeUndefined()
+    })
+})
+
+describe('findOverConstrainedPropertyKeys()', () => {
+    const ev = (key: string, operator: PropertyOperator, value: AnyPropertyFilter['value']): AnyPropertyFilter =>
+        ({ type: PropertyFilterType.Event, key, operator, value }) as AnyPropertyFilter
+
+    it.each<[string, AnyPropertyFilter[], string[]]>([
+        [
+            'flags two exact filters on one key with different values',
+            [ev('$current_url', PropertyOperator.Exact, '/a'), ev('$current_url', PropertyOperator.Exact, '/b')],
+            ['$current_url'],
+        ],
+        [
+            'flags three icontains filters on one key',
+            [
+                ev('$current_url', PropertyOperator.IContains, '/pricing'),
+                ev('$current_url', PropertyOperator.IContains, '/blog'),
+                ev('$current_url', PropertyOperator.IContains, '/docs'),
+            ],
+            ['$current_url'],
+        ],
+        [
+            'ignores identical filters on one key',
+            [ev('$current_url', PropertyOperator.Exact, '/a'), ev('$current_url', PropertyOperator.Exact, '/a')],
+            [],
+        ],
+        [
+            'ignores negative operators, which are satisfiable together',
+            [ev('$current_url', PropertyOperator.IsNot, '/a'), ev('$current_url', PropertyOperator.IsNot, '/b')],
+            [],
+        ],
+        [
+            'ignores numeric ranges, which combine legitimately',
+            [ev('price', PropertyOperator.GreaterThan, 5), ev('price', PropertyOperator.LessThan, 10)],
+            [],
+        ],
+        [
+            'ignores filters on different keys',
+            [ev('$current_url', PropertyOperator.Exact, '/a'), ev('$pathname', PropertyOperator.Exact, '/b')],
+            [],
+        ],
+        [
+            'ignores a single multi-value filter, which already ORs its values',
+            [ev('$current_url', PropertyOperator.Exact, ['/a', '/b'])],
+            [],
+        ],
+    ])('%s', (_name, filters, expected) => {
+        expect(findOverConstrainedPropertyKeys(filters)).toEqual(expected)
+    })
+
+    it('returns an empty array for null input', () => {
+        expect(findOverConstrainedPropertyKeys(null)).toEqual([])
     })
 })
