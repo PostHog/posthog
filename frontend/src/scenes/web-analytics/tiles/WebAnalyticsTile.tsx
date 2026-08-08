@@ -1130,7 +1130,7 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return { onClick: () => onClick(breakdownValue) }
+            return { onClick: () => onClick(breakdownValue), title: 'Filter by this value' }
         }
 
         return {
