@@ -56,6 +56,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _pr_row,
     create_github_source,
     create_warehouse_table_row,
 )
@@ -96,7 +97,6 @@ def _run_row(
     run_attempt: int = 1,
     head_branch: str = "main",
     status: str = "completed",
-    default_branch: str = "main",
     repository: str = "PostHog/posthog",
 ) -> dict[str, Any]:
     started_s = _ts(started)
@@ -112,8 +112,16 @@ def _run_row(
         "updated_at": _ts(started + timedelta(seconds=duration_seconds)),
         "run_attempt": run_attempt,
         "pull_requests": None,
-        "repository": json.dumps({"full_name": repository, "default_branch": default_branch}),
+        # Faithful to the webhook's MINIMAL `repository` payload: faking a default_branch here
+        # would green-light a detector reading a column production never lands.
+        "repository": json.dumps({"full_name": repository}),
     }
+
+
+def _default_branch_pr_row(
+    number: int, updated: datetime, *, default_branch: str, repo: str = "PostHog/posthog"
+) -> dict[str, Any]:
+    return _pr_row(number, "dev", "open", 0, _ts(updated), full_name=repo, default_branch=default_branch)
 
 
 def _job_row(
@@ -564,7 +572,10 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         return table, out_source, out_credential
 
     def _curated_over_runs(
-        self, rows: list[dict[str, Any]], job_rows: list[dict[str, Any]] | None = None
+        self,
+        rows: list[dict[str, Any]],
+        job_rows: list[dict[str, Any]] | None = None,
+        pr_rows: list[dict[str, Any]] | None = None,
     ) -> CuratedGitHubSource:
         table, source, credential = self._seed_table(
             rows, table_name="github_workflow_runs", columns=WORKFLOW_RUNS_COLUMNS
@@ -578,10 +589,11 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 source=source,
                 credential=credential,
             )
-        # These detectors read no PR data, but the curated run source joins the PR snapshot for
-        # default-branch attribution, so it needs a real table of that shape. An empty one suffices.
+        # The curated run source joins the PR snapshot to attribute each run to the PR that produced
+        # it, so a table of that shape must always exist. Only the default-branch detector reads its
+        # rows; the flaky and duration detectors leave pr_rows unset and get an empty table.
         prs_table, _source, _credential = self._seed_table(
-            [],
+            pr_rows or [],
             table_name="github_pull_requests",
             columns=PULL_REQUESTS_COLUMNS,
             source=source,
@@ -671,6 +683,62 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["run_id"] == 3
         _assert_emittable(findings[0])
 
+    def test_flaky_check_groups_a_sharded_job_under_one_signal(self) -> None:
+        # Real rendered names with the shard label mid-name: an end-anchored match still splits
+        # this job, and per-shard keys each miss min_flaky_runs, so 3 recoveries report nothing.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        shards = [
+            "Product tests (warehouse-sources (1/4), events schema legacy)",
+            "Product tests (warehouse-sources (1/5), events schema legacy)",
+            "Product tests (warehouse-sources (1/6), events schema legacy)",
+        ]
+        rows = []
+        jobs = []
+        for run_id, shard in enumerate(shards, start=1):
+            rows.append(
+                _run_row(run_id, "CI", f"shaS{run_id}", "success", now - timedelta(hours=run_id), 60, run_attempt=2)
+            )
+            jobs.append(
+                _job_row(
+                    run_id * 10, run_id, shard, f"shaS{run_id}", "failure", now - timedelta(hours=run_id), run_attempt=1
+                )
+            )
+            jobs.append(
+                _job_row(
+                    run_id * 10 + 1,
+                    run_id,
+                    shard,
+                    f"shaS{run_id}",
+                    "success",
+                    now - timedelta(hours=run_id),
+                    run_attempt=2,
+                )
+            )
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3)
+        assert len(findings) == 1
+        # The key and description group on the base name; extra keeps the worked example's real
+        # job name so investigation queries on the warehouse still match.
+        assert "CI job 'Product tests (warehouse-sources, events schema legacy)'" in findings[0].description
+        assert findings[0].extra["job_name"] == "Product tests (warehouse-sources (1/6), events schema legacy)"
+        assert findings[0].extra["flaky_count"] == 3
+        # The shard the worked example came from is evidence, so it survives outside the key.
+        assert "Product tests (warehouse-sources (1/6), events schema legacy)" in findings[0].description
+        # `(1/4)`..`(1/6)` are all shard slot 1, so no multi-shard spread is claimed.
+        assert "spread over" not in findings[0].description
+        _assert_emittable(findings[0])
+
+    def test_flaky_check_counts_runs_not_shard_recoveries(self) -> None:
+        # One run recovering on three shards is one flaky run: counting query rows would let a
+        # single bad run clear min_flaky_runs on its own.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [_run_row(1, "CI", "shaQ", "success", now - timedelta(hours=1), 60, run_attempt=2)]
+        jobs = []
+        for index in range(1, 4):
+            shard = f"Product tests (warehouse-sources ({index}/6), events schema legacy)"
+            jobs.append(_job_row(index * 10, 1, shard, "shaQ", "failure", now - timedelta(hours=1), run_attempt=1))
+            jobs.append(_job_row(index * 10 + 1, 1, shard, "shaQ", "success", now - timedelta(hours=1), run_attempt=2))
+        assert detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3) == []
+
     @parameterized.expand(
         [
             # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
@@ -727,37 +795,19 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
     def test_broken_default_branch_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
-            _run_row(
-                1, "red-ci", "s1", "success", now - timedelta(hours=4), 30, head_branch="trunk", default_branch="trunk"
-            ),
-            _run_row(
-                2, "red-ci", "s2", "failure", now - timedelta(hours=3), 30, head_branch="trunk", default_branch="trunk"
-            ),
-            _run_row(
-                3, "red-ci", "s3", "failure", now - timedelta(hours=2), 30, head_branch="trunk", default_branch="trunk"
-            ),
-            _run_row(
-                4,
-                "legacy-ci",
-                "s4",
-                "failure",
-                now - timedelta(hours=4),
-                30,
-                head_branch="master",
-                default_branch="trunk",
-            ),
-            _run_row(
-                5,
-                "legacy-ci",
-                "s5",
-                "failure",
-                now - timedelta(hours=3),
-                30,
-                head_branch="master",
-                default_branch="trunk",
-            ),
+            _run_row(1, "red-ci", "s1", "success", now - timedelta(hours=4), 30, head_branch="trunk"),
+            _run_row(2, "red-ci", "s2", "failure", now - timedelta(hours=3), 30, head_branch="trunk"),
+            _run_row(3, "red-ci", "s3", "failure", now - timedelta(hours=2), 30, head_branch="trunk"),
+            _run_row(4, "legacy-ci", "s4", "failure", now - timedelta(hours=4), 30, head_branch="master"),
+            _run_row(5, "legacy-ci", "s5", "failure", now - timedelta(hours=3), 30, head_branch="master"),
         ]
-        findings = detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2)
+        # The stale PR reported "master" before the repo renamed its default branch; argMax over
+        # updated_at must resolve to the newer "trunk" report, or the failing legacy-ci would fire.
+        prs = [
+            _default_branch_pr_row(1, now - timedelta(days=30), default_branch="master"),
+            _default_branch_pr_row(2, now - timedelta(days=1), default_branch="trunk"),
+        ]
+        findings = detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2)
         assert {f.extra["workflow_name"] for f in findings} == {"red-ci"}
         assert findings[0].source_type == SOURCE_TYPE_BROKEN_DEFAULT_BRANCH
         assert findings[0].extra["branch"] == "trunk"
@@ -765,13 +815,20 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
 
         # A still-red branch must dedupe against one weekly key: a new completed run changing the
         # source_id would re-emit the same standing condition on every hourly sweep.
-        rows.append(
-            _run_row(
-                6, "red-ci", "s6", "failure", now - timedelta(hours=1), 30, head_branch="trunk", default_branch="trunk"
-            )
-        )
-        refreshed = detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2)
+        rows.append(_run_row(6, "red-ci", "s6", "failure", now - timedelta(hours=1), 30, head_branch="trunk"))
+        refreshed = detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2)
         assert refreshed[0].source_id == findings[0].source_id
+
+    def test_broken_default_branch_without_pr_evidence_never_guesses(self) -> None:
+        # With no PR row for this repo its default branch is unknown, and a fallback guess of
+        # master/main would mint a P1 from inference rather than from GitHub's report.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(1, "red-ci", "s1", "failure", now - timedelta(hours=3), 30, head_branch="master"),
+            _run_row(2, "red-ci", "s2", "failure", now - timedelta(hours=2), 30, head_branch="master"),
+        ]
+        prs = [_default_branch_pr_row(1, now - timedelta(days=1), default_branch="master", repo="Acme/other")]
+        assert detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2) == []
 
     def test_broken_default_branch_does_not_count_cancelled_runs_as_failures(self) -> None:
         # A concurrency group cancelling superseded trunk runs is normal, not a red branch. Counting
@@ -779,18 +836,17 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         # which made the guard a no-op and fired P1 on every transient red.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
-            _run_row(
-                index, "busy-ci", f"c{index}", "cancelled", now - timedelta(hours=index), 30, default_branch="main"
-            )
+            _run_row(index, "busy-ci", f"c{index}", "cancelled", now - timedelta(hours=index), 30)
             for index in range(1, 9)
         ]
         rows += [
-            _run_row(20, "busy-ci", "ok1", "success", now - timedelta(hours=10), 30, default_branch="main"),
-            _run_row(21, "busy-ci", "ok2", "success", now - timedelta(hours=11), 30, default_branch="main"),
+            _run_row(20, "busy-ci", "ok1", "success", now - timedelta(hours=10), 30),
+            _run_row(21, "busy-ci", "ok2", "success", now - timedelta(hours=11), 30),
             # Latest completed run is a decisive failure, but 2 of 3 conclusive runs passed.
-            _run_row(22, "busy-ci", "bad", "failure", now - timedelta(minutes=30), 30, default_branch="main"),
+            _run_row(22, "busy-ci", "bad", "failure", now - timedelta(minutes=30), 30),
         ]
-        assert detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2) == []
+        prs = [_default_branch_pr_row(1, now - timedelta(days=1), default_branch="main")]
+        assert detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2) == []
 
     def test_duration_regression_requires_absolute_and_relative_jump(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)

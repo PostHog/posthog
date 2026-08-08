@@ -318,7 +318,7 @@ function formatTimestamp(ts: number): string {
 
 /**
  * Hover-revealed footer under a completed agent turn: the turn's timestamp plus a button copying
- * the whole turn. Rendered right-aligned under agent-side content — the end-aligned user bubble
+ * the agent response. Rendered right-aligned under agent-side content — the end-aligned user bubble
  * keeps its own footer — inside a `group` container, so it fades in only while that turn is
  * hovered. Once per turn rather than per row, which was too noisy.
  */
@@ -719,11 +719,7 @@ const ThreadRow = memo(function ThreadRow({
         </div>
         <TurnFooter
           timestamp={completedTurnTimestamp(item)}
-          copyText={
-            buildTurnCopyText(
-              item.prompt ? [item.prompt, ...item.items] : item.items,
-            ) ?? undefined
-          }
+          copyText={buildTurnCopyText(item.items) ?? undefined}
         />
       </ChatMessageScrollerItem>
     );
@@ -992,7 +988,7 @@ function ThreadScrollBody({
   rows: TurnRow[];
   renderItem: (item: ConversationItem) => ReactNode;
   /** Status row (duration / diff stats) pinned as the last item in the thread. */
-  footer?: ReactNode;
+  footer?: ReactElement;
   keyboardFocusedMessageId?: string | null;
   /** Clears keyboard-focused message state on any pointer interaction with the thread. */
   onUserInteract?: () => void;

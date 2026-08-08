@@ -5167,6 +5167,13 @@ class HogQLQueryModifiers(BaseModel):
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
+    mergeFederatedAggregateJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Merge sibling aggregating LEFT JOINs over federated Postgres tables into"
+            " one UNION ALL join, so their scans overlap"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -16327,6 +16334,15 @@ class ExperimentApiExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    activation_config: ExperimentApiExposureConfig | None = Field(
+        default=None,
+        description=(
+            "Additional event (or action) an entity must emit at/after their first"
+            " default exposure event before they count as exposed; exposure time"
+            " becomes this event's timestamp. Only valid with the default exposure"
+            " event, not a custom `exposure_config`."
+        ),
+    )
     exposure_config: ExperimentApiExposureConfig | None = None
     filterTestAccounts: bool | None = None
     multiple_variant_handling: MultipleVariantHandling | None = Field(
@@ -24829,6 +24845,15 @@ class ExperimentExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None = Field(
+        default=None,
+        description=(
+            "Additional event (or action) an entity must emit at/after their first"
+            " default exposure event before they count as exposed; exposure time"
+            " becomes this event's timestamp. Only valid with the default exposure"
+            " event, not a custom `exposure_config`."
+        ),
+    )
     exposure_config: ExperimentEventExposureConfig | ActionsNode | None = None
     filterTestAccounts: bool | None = None
     multiple_variant_handling: MultipleVariantHandling | None = None
@@ -24956,7 +24981,12 @@ class HogQLQuery(BaseModel):
         ),
     )
     explain: bool | None = None
-    filters: HogQLFilters | None = None
+    filters: HogQLFilters | None = Field(
+        default=None,
+        description=(
+            "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
+        ),
+    )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
@@ -28905,7 +28935,12 @@ class HogQLMetadata(BaseModel):
         default=None,
         description="Enable more verbose output, usually run from the /debug page",
     )
-    filters: HogQLFilters | None = Field(default=None, description="Extra filters applied to query via {filters}")
+    filters: HogQLFilters | None = Field(
+        default=None,
+        description=(
+            "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
+        ),
+    )
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     language: HogLanguage = Field(..., description="Language to validate")
