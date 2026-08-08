@@ -61,6 +61,7 @@ _JOB_STATUS_TO_NODE_STATUS = {
     DataModelingJobStatus.FAILED.value: FAILED,
     DataModelingJobStatus.RUNNING.value: RUNNING,
     DataModelingJobStatus.CANCELLED.value: CANCELLED,
+    DataModelingJobStatus.SKIPPED.value: BLOCKED,
 }
 
 

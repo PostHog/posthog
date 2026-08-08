@@ -100,6 +100,7 @@ export function ReportCard({
     onArchive,
     onRestore,
     backUrl,
+    preview = false,
 }: {
     report: SignalReport
     tabKey?: InboxFlatListTabKey
@@ -108,6 +109,9 @@ export function ReportCard({
     onRestore?: () => void
     /** Internal path the detail view's back button should return to, for cards rendered outside the inbox. */
     backUrl?: string
+    /** Onboarding sample: render as a static card with no detail link and no focusable actions, so its
+     * placeholder report id can never be opened (it 404s). */
+    preview?: boolean
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
@@ -160,95 +164,108 @@ export function ReportCard({
           !!dismissalLabel ||
           showBillingBadge
 
+    const cardBodyClassName = 'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline'
+    const cardBody = (
+        <>
+            {report.priority && (
+                <div className="shrink-0">
+                    <SignalReportPriorityBadge priority={report.priority} />
+                </div>
+            )}
+
+            <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
+                <div
+                    className={clsx(
+                        'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
+                        hasPr && 'pr-14 @lg:pr-0'
+                    )}
+                >
+                    {conventionalTitle && (
+                        <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
+                    )}
+                    {cardTitle}
+                </div>
+
+                {headline ? (
+                    <p
+                        className={clsx(
+                            'min-w-0',
+                            !hasPr && !isReady && 'opacity-80',
+                            'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                        )}
+                    >
+                        {headline}
+                    </p>
+                ) : !hasPr ? (
+                    <p
+                        className={clsx(
+                            'min-w-0',
+                            !isReady && 'opacity-80',
+                            'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                        )}
+                    >
+                        No summary yet. Still collecting context.
+                    </p>
+                ) : null}
+
+                {showMeta ? (
+                    <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-2.5 text-xs text-tertiary leading-none select-none">
+                        {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
+                        <InboxCardSourceMeta
+                            sourceProducts={report.source_products}
+                            scoutSkillName={report.scout_name}
+                        />
+                        {!hasPr && (!isReady || !report.actionability) && (
+                            <SignalReportStatusBadge status={report.status} />
+                        )}
+                        {!hasPr && report.actionability && (
+                            <SignalReportActionabilityBadge actionability={report.actionability} />
+                        )}
+                        {dismissalLabel && (
+                            <Tooltip title={report.dismissal_note || undefined}>
+                                <LemonTag size="small" icon={<IconArchive />}>
+                                    {dismissalLabel}
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                        <SignalReportBillingBadge report={report} />
+                    </div>
+                ) : null}
+
+                {/* In flow on mobile (the card stacks); pinned to the card's bottom-right corner on desktop. */}
+                <div className="mt-0.5 @lg:absolute @lg:right-4 @lg:bottom-3 @lg:z-10 @lg:mt-0">
+                    <TZLabel
+                        time={report.updated_at ?? report.created_at}
+                        className="text-xs text-tertiary tabular-nums"
+                        title="Last updated"
+                    />
+                </div>
+            </div>
+        </>
+    )
+
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
             {hasPr && prNumber != null ? (
                 <div className="absolute right-4 top-3 z-10">
                     <PrBadge
                         prNumber={prNumber}
-                        prUrl={prUrl}
+                        // No link in preview mode: the sample PR url is fabricated, and a link would
+                        // stay keyboard-focusable inside the otherwise non-routable card.
+                        prUrl={preview ? null : prUrl}
                         state={derivePrState(report.status, report.implementation_pr_merged === true)}
                     />
                 </div>
             ) : null}
 
-            <Link to={detailUrl} className="flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline">
-                {report.priority && (
-                    <div className="shrink-0">
-                        <SignalReportPriorityBadge priority={report.priority} />
-                    </div>
-                )}
-
-                <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                    {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
-                    <div
-                        className={clsx(
-                            'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
-                            hasPr && 'pr-14 @lg:pr-0'
-                        )}
-                    >
-                        {conventionalTitle && (
-                            <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                        )}
-                        {cardTitle}
-                    </div>
-
-                    {headline ? (
-                        <p
-                            className={clsx(
-                                'min-w-0',
-                                !hasPr && !isReady && 'opacity-80',
-                                'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
-                            )}
-                        >
-                            {headline}
-                        </p>
-                    ) : !hasPr ? (
-                        <p
-                            className={clsx(
-                                'min-w-0',
-                                !isReady && 'opacity-80',
-                                'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
-                            )}
-                        >
-                            No summary yet. Still collecting context.
-                        </p>
-                    ) : null}
-
-                    {showMeta ? (
-                        <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-2.5 text-xs text-tertiary leading-none select-none">
-                            {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
-                            <InboxCardSourceMeta
-                                sourceProducts={report.source_products}
-                                scoutSkillName={report.scout_name}
-                            />
-                            {!hasPr && (!isReady || !report.actionability) && (
-                                <SignalReportStatusBadge status={report.status} />
-                            )}
-                            {!hasPr && report.actionability && (
-                                <SignalReportActionabilityBadge actionability={report.actionability} />
-                            )}
-                            {dismissalLabel && (
-                                <Tooltip title={report.dismissal_note || undefined}>
-                                    <LemonTag size="small" icon={<IconArchive />}>
-                                        {dismissalLabel}
-                                    </LemonTag>
-                                </Tooltip>
-                            )}
-                            <SignalReportBillingBadge report={report} />
-                        </div>
-                    ) : null}
-
-                    {/* In flow on mobile (the card stacks); pinned to the card's bottom-right corner on desktop. */}
-                    <div className="mt-0.5 @lg:absolute @lg:right-4 @lg:bottom-3 @lg:z-10 @lg:mt-0">
-                        <TZLabel
-                            time={report.updated_at ?? report.created_at}
-                            className="text-xs text-tertiary tabular-nums"
-                            title="Last updated"
-                        />
-                    </div>
-                </div>
-            </Link>
+            {preview ? (
+                <div className={cardBodyClassName}>{cardBody}</div>
+            ) : (
+                <Link to={detailUrl} className={cardBodyClassName}>
+                    {cardBody}
+                </Link>
+            )}
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded
@@ -283,7 +300,8 @@ export function ReportCard({
                                 tooltip="Archive this report"
                                 aria-label="Archive this report"
                                 loading={isArchiving}
-                                onClick={onArchiveClick}
+                                onClick={preview ? undefined : onArchiveClick}
+                                tabIndex={preview ? -1 : undefined}
                             >
                                 Archive
                             </LemonButton>
@@ -291,11 +309,16 @@ export function ReportCard({
                                 type="primary"
                                 size="small"
                                 tooltip="Open the full report to see its summary, evidence, and actions"
-                                onClick={(event) => {
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                    router.actions.push(detailUrl)
-                                }}
+                                onClick={
+                                    preview
+                                        ? undefined
+                                        : (event) => {
+                                              event.preventDefault()
+                                              event.stopPropagation()
+                                              router.actions.push(detailUrl)
+                                          }
+                                }
+                                tabIndex={preview ? -1 : undefined}
                             >
                                 Review
                             </LemonButton>

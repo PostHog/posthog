@@ -116,6 +116,20 @@ impl MockPersonHogService {
 
 #[tonic::async_trait]
 impl PersonHogService for MockPersonHogService {
+    async fn fence_person(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::FencePersonRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonResponse>, Status> {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
+    async fn release_fence(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::ReleaseFenceRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFenceResponse>, Status> {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
     async fn get_group_type_mappings_by_team_ids(
         &self,
         _req: Request<GetGroupTypeMappingsByTeamIdsRequest>,

@@ -2830,9 +2830,17 @@ def prepare_task_run_artifact_uploads(
 
 
 def finalize_task_run_artifact_uploads(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifacts: list[dict],
+    uploaded_by: Literal["agent", "user"],
+    uploaded_by_user_id: int | None,
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
+
+    ``uploaded_by`` is server-derived and authoritative. ``source`` remains a client-declared organizational hint.
 
     Returns ``(finalized_entries, error)``: ``(None, None)`` when the run isn't found,
     ``(None, error_message)`` on a validation failure, else ``(finalized_entries, None)``.
@@ -2894,6 +2902,9 @@ def finalize_task_run_artifact_uploads(
             uploaded_at=django_timezone.now().isoformat(),
             metadata=artifact.get("metadata"),
         )
+        entry["uploaded_by"] = uploaded_by
+        if uploaded_by == "user" and uploaded_by_user_id is not None:
+            entry["uploaded_by_user_id"] = uploaded_by_user_id
         manifest.append(entry)
         new_entries.append(entry)
         finalized_entries.append(entry)
@@ -3500,6 +3511,24 @@ def user_can_author_repository(user_id: int, repository: str) -> bool:
 
     user = User.objects.filter(id=user_id).first()
     integration = get_user_github_integration(user, repository=repository, allow_refresh=False)
+    return user_github_integration_is_usable(integration)
+
+
+def user_has_usable_personal_github(user_id: int) -> bool:
+    """Whether the user's personal GitHub integration can produce a usable token, ignoring repo access.
+
+    Mirrors the usability checks in `UserGitHubIntegration.get_usable_user_access_token`
+    (missing user access token, expired refresh token) without the network refresh or the
+    row deletion that path performs, so callers can gate before a run reaches the credential
+    path rather than failing partway through it.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        get_user_github_integration,
+        user_github_integration_is_usable,
+    )
+
+    user = User.objects.filter(id=user_id).first()
+    integration = get_user_github_integration(user, allow_refresh=False)
     return user_github_integration_is_usable(integration)
 
 
