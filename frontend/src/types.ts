@@ -5491,6 +5491,11 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    // Clover registers a separate OAuth app per deployment region, so each region is its own kind
+    'clover',
+    'clover-eu',
+    'clover-latam',
+    'clover-sandbox',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
