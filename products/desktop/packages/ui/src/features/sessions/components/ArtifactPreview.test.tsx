@@ -950,7 +950,7 @@ describe("ArtifactPreview", () => {
 
   // The tab header steps through a file's versions in place, retargeting the
   // preview fetch instead of opening more tabs.
-  it("steps between versions from the header", () => {
+  it("steps between versions and follows focused comments", () => {
     taskRuns.data = [
       {
         id: "run-1",
@@ -998,10 +998,24 @@ describe("ArtifactPreview", () => {
     expect(
       screen.getByRole("button", { name: "Older version" }),
     ).toHaveAttribute("aria-disabled", "true");
-    const lastCall = useQuery.mock.calls.at(-1)?.[0] as {
+    let lastCall = useQuery.mock.calls.at(-1)?.[0] as {
       queryKey: unknown[];
     };
     expect(lastCall.queryKey).toContain("artifact-0");
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "task_artifact", itemId: "artifact-1" },
+          "comment-1",
+        );
+    });
+
+    expect(screen.getByText("v2/2")).toBeInTheDocument();
+    lastCall = useQuery.mock.calls.at(-1)?.[0] as { queryKey: unknown[] };
+    expect(lastCall.queryKey).toContain("artifact-1");
   });
 
   it("saves edited source as a new output version under the same name", async () => {

@@ -127,6 +127,17 @@ export function ArtifactPreview({
     (state) => state.setCommentResolutions,
   );
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
+  useEffect(() => {
+    if (
+      !focus ||
+      focus.target.scope !== "task_artifact" ||
+      focus.target.itemId === activeArtifactId ||
+      !versions.some((version) => version.id === focus.target.itemId)
+    ) {
+      return;
+    }
+    setSelectedVersionId(focus.target.itemId);
+  }, [activeArtifactId, focus, versions]);
   const { artifactResult, previewData, previewUrl, isLoading, isError } =
     useArtifactPreviewData({
       sessionService,
