@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from typing import Any, Optional, cast
 
@@ -35,17 +36,50 @@ PUBLIC_KEY_PEM: str = (
 TOKEN_PAYLOAD: dict[str, Any] = {"access_token": "tok-1", "expires_in": 3600, "token_type": "Bearer"}
 
 
+class FakeRaw:
+    """Minimal stand-in for urllib3's response body: a capped, position-tracking read().
+
+    `bytes_read` lets a test assert how much of an oversized body actually got pulled into memory,
+    which is the whole point of the caps — a body that is merely *rejected* after being fully
+    buffered would still have caused the memory spike.
+    """
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+        self.bytes_read = 0
+
+    def read(self, amt: Optional[int] = None, decode_content: bool = False) -> bytes:
+        end = len(self._body) if amt is None else min(self.bytes_read + amt, len(self._body))
+        chunk = self._body[self.bytes_read : end]
+        self.bytes_read = end
+        return chunk
+
+
 class FakeResponse:
     def __init__(
-        self, status_code: int = 200, payload: Any = None, url: str = "https://firestore.googleapis.com/v1"
+        self,
+        status_code: int = 200,
+        payload: Any = None,
+        url: str = "https://firestore.googleapis.com/v1",
+        body: Optional[bytes] = None,
     ) -> None:
         self.status_code = status_code
         self._payload = payload
         self.url = url
+        # The transport reads bodies via `raw.read(...)` under a byte cap, never `.json()`, so the
+        # fake serializes the payload the same way a real response would carry it. `body` lets a
+        # test supply bytes directly — an oversized or malformed body payload can't express.
+        if body is None:
+            body = b"" if payload is None else json.dumps(payload).encode()
+        self.raw = FakeRaw(body)
+        self.closed = False
 
     @property
     def ok(self) -> bool:
         return self.status_code < 400
+
+    def close(self) -> None:
+        self.closed = True
 
     def json(self) -> Any:
         if self._payload is None:

@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
     API_VERSION,
     DEFAULT_DATABASE_ID,
+    RESPONSE_TOO_LARGE_ERROR,
     parse_realtime_database_paths,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firebase import (
@@ -64,6 +65,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
             "private key could not be read": "The uploaded key file does not contain a usable private key. Upload the JSON key exactly as Google generated it.",
             "401 Client Error: Unauthorized": "Firebase rejected the access token. The service account key may have been revoked — please reconnect.",
             "403 Client Error: Forbidden": "This service account cannot read the requested Firebase data. Grant it the Firebase Viewer, Cloud Datastore Viewer, or Firebase Realtime Database Viewer role.",
+            RESPONSE_TOO_LARGE_ERROR: "Firebase returned a page too large to process. Reduce the size of the documents in this collection or path, then re-run the sync.",
         }
 
     @property

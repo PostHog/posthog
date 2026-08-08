@@ -36,6 +36,22 @@ MAX_PAGES: Final[int] = 100_000
 
 REQUEST_TIMEOUT_SECONDS: Final[int] = 120
 
+# Byte caps on response bodies. The page sizes above bound the row count but not the byte count —
+# a Firestore document may be 1 MiB and the Realtime Database documents no page ceiling at all — so
+# without these a single page could buffer hundreds of MiB in a shared worker before `json.loads`
+# builds a second, larger representation of it. The caps apply to the *decompressed* body, so a
+# compressed payload can't expand past them either.
+#
+# 64 MiB sits far above any realistic page (300 Firestore documents at a typical few KiB each is
+# single-digit MiB) while still bounding the spike. Token and error bodies are small and
+# well-known, so they get much tighter caps.
+MAX_RESPONSE_BYTES: Final[int] = 64 * 1024 * 1024
+MAX_TOKEN_RESPONSE_BYTES: Final[int] = 256 * 1024
+MAX_ERROR_BODY_BYTES: Final[int] = 64 * 1024
+
+# Re-fetching the same page returns the same oversized body, so this never becomes retryable.
+RESPONSE_TOO_LARGE_ERROR: Final[str] = "Firebase returned an oversized response body"
+
 # Re-mint a little before Google's stated expiry so a long-running page fetch can't start with a
 # token that expires mid-flight.
 TOKEN_EXPIRY_SKEW_SECONDS: Final[int] = 120

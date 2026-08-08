@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     AccessTokenProvider,
     FirebaseAuthError,
     FirebaseConfigError,
+    FirebaseResponseTooLargeError,
     FirebaseResumeConfig,
     build_jwt_assertion,
     decode_firestore_value,
@@ -42,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     REALTIME_DATABASE_PAGE_SIZE,
     REALTIME_DATABASE_PATH_COLUMN,
     REALTIME_DATABASE_VALUE_COLUMN,
+    RESPONSE_TOO_LARGE_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.tests.conftest import (
     PUBLIC_KEY_PEM,
@@ -52,9 +54,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.t
     credentials,
 )
 
-_SESSION_FACTORY = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.firebase.make_tracked_session"
-)
+_FIREBASE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.firebase"
+_SESSION_FACTORY = f"{_FIREBASE_MODULE}.make_tracked_session"
+
+# Stand-ins for the shipped byte caps, small enough that a test can overflow one cheaply.
+_PAGE_CAP = 2048
+_ERROR_CAP = 64
 
 DOCUMENTS_ROOT = "https://firestore.googleapis.com/v1/projects/demo-project/databases/(default)/documents"
 
@@ -548,6 +553,115 @@ class TestSampleCapture:
             list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
 
         assert factory.call_args_list[-1].kwargs["capture"] is True
+
+
+class TestResponseSizeCaps:
+    """Bodies are read under a byte cap so one page can't spike a shared worker's memory.
+
+    The real caps are patched down to a few kilobytes throughout: the behaviour under test is
+    "stop reading at N bytes", and allocating 64 MiB per test to demonstrate it would be waste.
+    """
+
+    def test_pages_are_requested_as_streams_rather_than_buffered(self, logger: FilteringBoundLogger) -> None:
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={"documents": [firestore_document("a")]})],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+
+        # Without stream=True, requests materialises the whole body before we get a chance to cap it.
+        assert session.posts[0][1]["stream"] is True
+        assert all(kwargs["stream"] is True for _, _, kwargs in session.requests)
+
+    def test_an_oversized_page_is_rejected_instead_of_buffered(self, logger: FilteringBoundLogger) -> None:
+        oversized = FakeResponse(body=b"x" * (_PAGE_CAP + 1))
+        session = FakeSession(
+            request_responses=[oversized],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            with mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP):
+                with pytest.raises(FirebaseResponseTooLargeError, match=RESPONSE_TOO_LARGE_ERROR):
+                    list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+
+        # Never more than one byte past the cap, and the connection is released either way.
+        assert oversized.raw.bytes_read == _PAGE_CAP + 1
+        assert oversized.closed is True
+
+    def test_a_page_that_exactly_fills_the_cap_is_still_accepted(self, logger: FilteringBoundLogger) -> None:
+        # Whitespace is JSON-insignificant, so padding to the cap keeps the page parseable.
+        page = json.dumps({"documents": [firestore_document("a")]}).encode()
+        session = FakeSession(
+            request_responses=[FakeResponse(body=page + b" " * (_PAGE_CAP - len(page)))],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            with mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP):
+                batches = list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+
+        assert [row[FIRESTORE_ID_COLUMN] for row in batches[0]] == ["a"]
+
+    def test_an_oversized_token_body_is_rejected(self) -> None:
+        session = FakeSession(post_responses=[FakeResponse(body=b"x" * (_PAGE_CAP + 1))])
+
+        with mock.patch(f"{_FIREBASE_MODULE}.MAX_TOKEN_RESPONSE_BYTES", _PAGE_CAP):
+            with pytest.raises(FirebaseResponseTooLargeError, match=RESPONSE_TOO_LARGE_ERROR):
+                mint_access_token(session.as_session(), credentials())
+
+    def test_a_token_body_that_is_not_json_is_reported_as_an_auth_error(self) -> None:
+        session = FakeSession(post_responses=[FakeResponse(body=b"<html>maintenance window</html>")])
+
+        with pytest.raises(FirebaseAuthError, match="could not be read as JSON"):
+            mint_access_token(session.as_session(), credentials())
+
+    def test_a_huge_error_body_is_truncated_not_masking_the_status(self, logger: FilteringBoundLogger) -> None:
+        # A 403 has to stay a 403 — it maps to an actionable "grant the service account a role"
+        # message. Complaining about the body's size instead would bury that.
+        failure = FakeResponse(status_code=403, body=b"x" * (_PAGE_CAP + 1))
+        session = FakeSession(
+            request_responses=[failure],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            with mock.patch(f"{_FIREBASE_MODULE}.MAX_ERROR_BODY_BYTES", _ERROR_CAP):
+                with pytest.raises(requests.HTTPError, match="403"):
+                    list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+
+        assert failure.raw.bytes_read == _ERROR_CAP
+        assert failure.closed is True
+
+    def test_a_huge_token_error_body_is_truncated_rather_than_masking_the_status(self) -> None:
+        failure = FakeResponse(status_code=400, body=b"x" * (_PAGE_CAP + 1))
+        session = FakeSession(post_responses=[failure])
+
+        with mock.patch(f"{_FIREBASE_MODULE}.MAX_ERROR_BODY_BYTES", _ERROR_CAP):
+            with pytest.raises(FirebaseAuthError, match="status=400"):
+                mint_access_token(session.as_session(), credentials())
+
+        assert failure.raw.bytes_read == _ERROR_CAP
+
+    def test_the_body_of_a_retried_401_is_never_read(self, logger: FilteringBoundLogger) -> None:
+        unauthorized = FakeResponse(status_code=401, payload={"error": {"status": "UNAUTHENTICATED"}})
+        session = FakeSession(
+            request_responses=[unauthorized, FakeResponse(payload={"documents": [firestore_document("a")]})],
+            post_responses=[
+                FakeResponse(payload=TOKEN_PAYLOAD),
+                FakeResponse(payload={**TOKEN_PAYLOAD, "access_token": "tok-2"}),
+            ],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            batches = list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+
+        # The discarded 401 is closed without its body being pulled at all.
+        assert unauthorized.raw.bytes_read == 0
+        assert unauthorized.closed is True
+        assert [row[FIRESTORE_ID_COLUMN] for row in batches[0]] == ["a"]
 
 
 class TestSourceResponseShape:

@@ -28,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     IDENTITY_TOOLKIT_API_ROOT,
     JWT_ASSERTION_LIFETIME_SECONDS,
     JWT_GRANT_TYPE,
+    MAX_ERROR_BODY_BYTES,
     MAX_PAGES,
+    MAX_RESPONSE_BYTES,
+    MAX_TOKEN_RESPONSE_BYTES,
     OAUTH_SCOPES,
     REALTIME_DATABASE_HOST_SUFFIXES,
     REALTIME_DATABASE_KEY_COLUMN,
@@ -37,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     REALTIME_DATABASE_VALUE_COLUMN,
     REDACTED_AUTH_USER_FIELDS,
     REQUEST_TIMEOUT_SECONDS,
+    RESPONSE_TOO_LARGE_ERROR,
     TOKEN_EXPIRY_SKEW_SECONDS,
     firestore_table_name,
     realtime_database_table_name,
@@ -51,6 +55,10 @@ class FirebaseAuthError(Exception):
 
 class FirebaseConfigError(Exception):
     """Raised when the source form describes something the transport cannot act on."""
+
+
+class FirebaseResponseTooLargeError(Exception):
+    """Raised when a response body exceeds the byte cap for its endpoint."""
 
 
 @dataclasses.dataclass
@@ -132,15 +140,24 @@ def build_jwt_assertion(credentials: FirebaseCredentials) -> str:
 
 def mint_access_token(session: requests.Session, credentials: FirebaseCredentials) -> tuple[str, int]:
     """Exchange the service-account assertion for a short-lived token and its lifetime in seconds."""
+    # stream=True so the body isn't buffered before _read_capped_body bounds it.
     response = session.post(
         credentials.token_endpoint,
         data={"grant_type": JWT_GRANT_TYPE, "assertion": build_jwt_assertion(credentials)},
         timeout=REQUEST_TIMEOUT_SECONDS,
+        stream=True,
     )
     if not response.ok:
-        raise FirebaseAuthError(f"Google refused to issue an access token: {_error_detail(response)}")
+        detail = _error_detail(response, _read_truncated_body(response, MAX_ERROR_BODY_BYTES))
+        raise FirebaseAuthError(f"Google refused to issue an access token: {detail}")
 
-    body = response.json()
+    raw = _read_capped_body(response, MAX_TOKEN_RESPONSE_BYTES)
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        raise FirebaseAuthError("Google's token response could not be read as JSON.")
+    if not isinstance(body, dict):
+        raise FirebaseAuthError("Google's token response did not contain an access token.")
     token = body.get("access_token")
     if not token:
         raise FirebaseAuthError("Google's token response did not contain an access token.")
@@ -174,10 +191,40 @@ class AccessTokenProvider:
         return self._token
 
 
-def _error_detail(response: requests.Response) -> str:
+def _read_capped_body(response: requests.Response, cap: int) -> bytes:
+    """Read one response body under a fixed cap on its decompressed size.
+
+    Every request is issued with ``stream=True``, so nothing is materialised until this read. We
+    ask for one byte past the cap: that detects an oversized body without ever buffering more than
+    the cap itself, and ``decode_content=True`` applies the cap after decompression so a compressed
+    payload can't expand past it. The connection is released either way.
+    """
+    try:
+        raw: bytes = response.raw.read(cap + 1, decode_content=True)
+    finally:
+        response.close()
+    if len(raw) > cap:
+        raise FirebaseResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {cap} bytes")
+    return raw
+
+
+def _read_truncated_body(response: requests.Response, cap: int) -> bytes:
+    """Read at most ``cap`` bytes of a failed response, discarding the rest.
+
+    The error paths exist to explain an HTTP failure that already happened, so an oversized body is
+    truncated here instead of raising — otherwise a huge error page would mask the 401/403 the
+    caller actually needs to see and turn a diagnosable failure into a size complaint.
+    """
+    try:
+        return response.raw.read(cap, decode_content=True)
+    finally:
+        response.close()
+
+
+def _error_detail(response: requests.Response, raw: bytes) -> str:
     """Google reports permanent problems in the body (`invalid_grant`, `PERMISSION_DENIED`)."""
     try:
-        body = response.json()
+        body = json.loads(raw)
     except ValueError:
         return f"status={response.status_code}"
     if isinstance(body, dict):
@@ -199,6 +246,7 @@ def _request(
     json_body: Optional[dict[str, Any]] = None,
 ) -> Any:
     def _do(token: str) -> requests.Response:
+        # stream=True so a page isn't buffered before _read_capped_body bounds it.
         return session.request(
             method,
             url,
@@ -206,16 +254,26 @@ def _request(
             json=json_body,
             headers={"Authorization": f"Bearer {token}"},
             timeout=REQUEST_TIMEOUT_SECONDS,
+            stream=True,
         )
 
     response = _do(tokens.token())
     # A token that expired mid-sync looks exactly like a bad one; re-mint once before giving up.
     if response.status_code == 401:
+        # Release the connection without pulling a body we're about to discard.
+        response.close()
         response = _do(tokens.token(force_refresh=True))
 
     if not response.ok:
+        # `raise_for_status` reports status and URL only, so drain a tightly bounded prefix purely
+        # to release the connection — the error path never needs a full page's worth of bytes.
+        _read_truncated_body(response, MAX_ERROR_BODY_BYTES)
         response.raise_for_status()
-    return response.json()
+
+    raw = _read_capped_body(response, MAX_RESPONSE_BYTES)
+    if not raw:
+        return None
+    return json.loads(raw)
 
 
 def decode_firestore_value(value: Any) -> Any:
