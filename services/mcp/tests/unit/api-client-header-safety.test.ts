@@ -25,8 +25,8 @@ describe('ApiClient header safety', () => {
         baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
     })
 
-    afterAll(() => {
-        server.close()
+    afterAll(async () => {
+        await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())))
     })
 
     it('resolves the project when client-supplied names contain characters headers cannot carry', async () => {
