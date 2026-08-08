@@ -85,7 +85,9 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
     )
 
     observed_snapshot: dict[str, object] = {}
-    replacement_columns = {"replacement": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
+    replacement_columns: dict[str, dict[str, str | bool]] = {
+        "replacement": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}
+    }
 
     def get_columns(table_being_materialized: DataWarehouseTable) -> dict[str, dict[str, str | bool]]:
         persisted_table = DataWarehouseTable.objects.get(id=table_being_materialized.id, team=team)
