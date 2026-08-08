@@ -517,6 +517,526 @@ impl HandoffModel {
             false
         }
     }
+
+    /// Whether `action` can produce a successor from `state`.
+    ///
+    /// Every condition here is a precondition already required by the
+    /// matching `next_state` arm, and this is the only place it is
+    /// written: `actions` filters on it so the checker never asks for a
+    /// transition that cannot happen, and `next_state` gates on it so the
+    /// state clone is never paid for one. It carries only the cheap
+    /// guards — it runs once per action per explored state, so anything
+    /// that allocates or calls into the production planner is decided in
+    /// the arm instead, still ahead of the clone.
+    ///
+    /// It must stay *exactly* as strict as those guards. Returning `false`
+    /// where the arm would have produced a successor silently deletes
+    /// behavior from the model; the review gate is that
+    /// `unique_state_count` is unchanged.
+    fn enabled(&self, state: &SystemState, action: &Action) -> bool {
+        match *action {
+            // Decided in the arm: enablement is "the planner produced a
+            // non-empty plan", which costs a full placement computation.
+            Action::Rebalance => true,
+
+            Action::CancelDeadNewOwner(p) => matches!(
+                state.handoffs.get(&p),
+                Some(h) if h.phase != Phase::Complete && !state.pods[&h.new_owner].registered
+            ),
+            Action::Cancel(p) => {
+                state.cancels_left > 0
+                    && matches!(state.handoffs.get(&p), Some(h) if h.phase != Phase::Complete)
+            }
+            // The quorum/drain/warm predicates are the expensive half and
+            // stay in the arm; a handoff short of Complete must exist.
+            Action::AdvancePhase(p) => {
+                matches!(state.handoffs.get(&p), Some(h) if h.phase != Phase::Complete)
+            }
+            Action::CleanupComplete(p) => {
+                matches!(state.handoffs.get(&p), Some(h) if h.phase == Phase::Complete)
+            }
+
+            // Which transition a converging pod owes is `desired_state`'s
+            // answer, derived in the arm; only a live, registered process
+            // converges at all.
+            Action::Converge(x, _) => {
+                let pod = &state.pods[&x];
+                pod.running && pod.registered
+            }
+            Action::Observe(r, _) => {
+                let router = &state.routers[&r];
+                router.registered && router.running
+            }
+
+            Action::ClientWrite(_, _) => state.writes_left > 0,
+            Action::ClientStrongRead(_, _) => state.reads_left > 0,
+
+            Action::CrashRestartWithinTtl(x) => {
+                let pod = &state.pods[&x];
+                state.crashes_left > 0 && pod.running && pod.registered
+            }
+            Action::LeaseExpire(x) => state.crashes_left > 0 && state.pods[&x].registered,
+            Action::SelfFence(x) => {
+                let pod = &state.pods[&x];
+                !pod.registered && pod.running
+            }
+            Action::NoticeLeaseLoss(x) => {
+                let pod = &state.pods[&x];
+                !pod.registered && pod.claims_authority
+            }
+            Action::AuthorityLapse(x) => {
+                let pod = &state.pods[&x];
+                pod.registered && pod.claims_authority
+            }
+            Action::AuthorityRenew(x) => {
+                let pod = &state.pods[&x];
+                pod.registered && !pod.claims_authority
+            }
+            Action::Join(x) => {
+                let pod = &state.pods[&x];
+                state.rejoins_left > 0 && !pod.registered && !pod.running
+            }
+            Action::RouterLeaseExpire(r) => state.crashes_left > 0 && state.routers[&r].registered,
+            Action::RouterSelfFence(r) => {
+                let router = &state.routers[&r];
+                !router.registered && router.running
+            }
+            Action::RouterJoin(r) => {
+                let router = &state.routers[&r];
+                state.router_joins_left > 0 && !router.registered && !router.running
+            }
+        }
+    }
+}
+
+/// Clone-then-mutate for the arms whose enablement `enabled` already
+/// settled: the clone is the last thing to happen before a successor
+/// exists, and a mutation that changed nothing still collapses to `None`.
+fn mutate(last: &SystemState, apply: impl FnOnce(&mut SystemState)) -> Option<SystemState> {
+    let mut state = last.clone();
+    apply(&mut state);
+    (state != *last).then_some(state)
+}
+
+/// The four transitions whose enablement is too expensive to answer in
+/// `enabled` — each derives it from `last` and clones only once a
+/// successor is certain.
+impl HandoffModel {
+    /// The rebalance half of `handle_pod_change`: when the planner has
+    /// work, create Freezing handoffs for every assignment diff in one
+    /// transaction. In-flight handoffs pin their partitions — the
+    /// production `protocol::plan_partial_rebalance` excludes them from
+    /// the plan and attributes each to its target for the placement
+    /// computation — so rebalancing is enabled in every state and the
+    /// checker explores a rebalance racing every handoff phase. Only the
+    /// etcd writes are applied model-side, and assignments for
+    /// moved/fresh partitions are deferred until Complete
+    /// (`create_assignments_and_handoffs`). This action is atomic (plan
+    /// and apply in one transition); production earns that abstraction by
+    /// guarding the apply txn on its read-set — handoff keys still
+    /// absent, and each touched partition's assignment unchanged since the
+    /// snapshot — so a stale plan fails instead of replacing an in-flight
+    /// handoff or draining a superseded owner.
+    fn rebalance(&self, last: &SystemState) -> Option<SystemState> {
+        let current: HashMap<u32, String> = last
+            .assignments
+            .iter()
+            .map(|(p, owner)| (*p as u32, pod_name(*owner)))
+            .collect();
+        let in_flight: Vec<HandoffState> = last
+            .handoffs
+            .iter()
+            .map(|(p, h)| production_handoff(*p, h))
+            .collect();
+        let mut active: Vec<String> = last
+            .pods
+            .iter()
+            .filter(|(_, p)| p.registered)
+            .map(|(id, _)| pod_name(*id))
+            .collect();
+        active.sort();
+        let mut plan = plan_partial_rebalance(
+            &StickyBalancedStrategy,
+            &current,
+            &in_flight,
+            &active,
+            self.partitions as u32,
+        );
+        if plan.handoffs.is_empty() {
+            // An empty plan is a no-op successor the checker would dedup
+            // anyway; deciding it before the clone skips the
+            // clone-and-hash per state, which dominates once Rebalance is
+            // enabled everywhere.
+            return None;
+        }
+        // The plan's order follows HashMap iteration; sort so sequential
+        // handoff-id assignment is deterministic (`next_state` must be a
+        // pure function of its inputs).
+        plan.handoffs.sort_by_key(|h| h.partition);
+        // Mirror of the coordinator's snapshot read: the routers
+        // registered when the plan is applied become the freeze
+        // requirement for every handoff it creates.
+        let quorum: BTreeSet<RouterId> = self
+            .router_ids()
+            .filter(|r| last.routers[r].registered)
+            .collect();
+        mutate(last, |state| {
+            for planned in plan.handoffs {
+                let id = state.next_handoff_id;
+                state.next_handoff_id += 1;
+                let clobbered = state
+                    .handoffs
+                    .insert(
+                        planned.partition as Partition,
+                        Handoff {
+                            id,
+                            old_owner: planned.old_owner.as_deref().map(pod_id),
+                            new_owner: pod_id(&planned.new_owner),
+                            phase: Phase::Freezing,
+                            quorum: quorum.clone(),
+                        },
+                    )
+                    .is_some();
+                if clobbered {
+                    // Planning a pinned partition would destroy its
+                    // in-flight handoff (and orphan its acks); the
+                    // always-property flags any interleaving where the
+                    // exclusion fails to prevent that.
+                    state.double_planned_handoff = true;
+                }
+            }
+        })
+    }
+
+    /// Mirror of `check_phase_advance`, with the identity quorum and
+    /// handoff_id ack correlation. Each phase's production predicate runs
+    /// against `last`, so an unsatisfied one costs no clone.
+    fn advance_phase(&self, last: &SystemState, p: Partition) -> Option<SystemState> {
+        let h = last.handoffs.get(&p)?;
+        let next_phase = match h.phase {
+            Phase::Freezing => {
+                // The production quorum predicate on production-typed
+                // views: registered routers only (which is what admits
+                // the zombie-router half of the double-zombie residual),
+                // id-correlated acks, vacuous at zero routers.
+                let routers: Vec<RegisteredRouter> = self
+                    .router_ids()
+                    .filter(|r| last.routers[r].registered)
+                    .map(|r| RegisteredRouter {
+                        router_name: router_name(r),
+                        registered_at: 0,
+                        last_heartbeat: 0,
+                    })
+                    .collect();
+                let acks: Vec<RouterFreezeAck> = self
+                    .router_ids()
+                    .filter_map(|r| {
+                        last.freeze_acks.get(&(p, r)).map(|id| RouterFreezeAck {
+                            router_name: router_name(r),
+                            partition: p as u32,
+                            acked_at: 0,
+                            acked_at_ms: 0,
+                            handoff_id: id.to_string(),
+                        })
+                    })
+                    .collect();
+                if !freeze_quorum_met(&routers, &acks, &production_handoff(p, h)) {
+                    return None;
+                }
+                // Initial assignments (no old owner) skip the drain
+                // entirely.
+                match h.old_owner {
+                    None => Phase::Warming,
+                    Some(_) => Phase::Draining,
+                }
+            }
+            Phase::Draining => {
+                let registered: Vec<RegisteredPod> = self
+                    .pod_ids()
+                    .filter(|x| last.pods[x].registered)
+                    .map(|x| RegisteredPod {
+                        pod_name: pod_name(x),
+                        generation: String::new(),
+                        status: PodStatus::Ready,
+                        registered_at: 0,
+                        last_heartbeat: 0,
+                        controller: None,
+                        advertise_address: None,
+                    })
+                    .collect();
+                let acks: Vec<PodDrainedAck> = self
+                    .pod_ids()
+                    .filter_map(|x| {
+                        last.drained_acks.get(&(p, x)).map(|id| PodDrainedAck {
+                            pod_name: pod_name(x),
+                            partition: p as u32,
+                            acked_at: 0,
+                            acked_at_ms: 0,
+                            handoff_id: id.to_string(),
+                        })
+                    })
+                    .collect();
+                if !drain_satisfied(&registered, &acks, &production_handoff(p, h)) {
+                    return None;
+                }
+                Phase::Warming
+            }
+            Phase::Warming => {
+                let acks: Vec<PodWarmedAck> = self
+                    .pod_ids()
+                    .filter_map(|x| {
+                        last.warmed_acks.get(&(p, x)).map(|id| PodWarmedAck {
+                            pod_name: pod_name(x),
+                            partition: p as u32,
+                            acked_at: 0,
+                            acked_at_ms: 0,
+                            handoff_id: id.to_string(),
+                        })
+                    })
+                    .collect();
+                if !warm_satisfied(&acks, &production_handoff(p, h)) {
+                    return None;
+                }
+                Phase::Complete
+            }
+            Phase::Complete => return None,
+        };
+        let new_owner = h.new_owner;
+        mutate(last, |state| {
+            state.handoffs.get_mut(&p).unwrap().phase = next_phase;
+            if next_phase == Phase::Complete {
+                // `complete_handoff`: phase write and assignment flip are
+                // one etcd transaction.
+                state.assignments.insert(p, new_owner);
+            }
+        })
+    }
+
+    /// Mirror of `PodHandle::apply` — one idempotent transition toward the
+    /// desired state. Startup reconcile after a crash is these same
+    /// actions running against wiped local state.
+    ///
+    /// Each arm decides on `last` whether it owes a transition at all, so
+    /// an already-converged pod costs a `desired_state` derivation and no
+    /// clone.
+    fn converge(&self, last: &SystemState, x: PodId, p: Partition) -> Option<SystemState> {
+        match model_desired_state(x, last, p) {
+            DesiredState::Serving => {
+                let pod = &last.pods[&x];
+                if !pod.warmed.contains_key(&p) {
+                    // `warm_partition`, one step at a time (see
+                    // `warm_step` for the two orderings under
+                    // EpochFenced).
+                    mutate(last, |state| self.warm_step(state, x, p, None))
+                } else if pod.fenced.contains(&p) {
+                    mutate(last, |state| {
+                        // `resume_partition`. Under EpochFenced the
+                        // cancelled handoff's target may have bumped the
+                        // broker epoch past this pod's producer;
+                        // production re-acquires the fence before
+                        // re-admitting writes, or every write would fail
+                        // as fenced until the next handoff.
+                        if self.variant == Variant::EpochFenced {
+                            let log = state.changelogs.get_mut(&p).unwrap();
+                            log.epoch = log.epoch.wrapping_add(1);
+                            let epoch = log.epoch;
+                            state
+                                .pods
+                                .get_mut(&x)
+                                .unwrap()
+                                .warmed
+                                .get_mut(&p)
+                                .unwrap()
+                                .epoch = epoch;
+                        }
+                        state.pods.get_mut(&x).unwrap().fenced.remove(&p);
+                    })
+                } else {
+                    None
+                }
+            }
+            DesiredState::Drained { ack } => {
+                let h_id = last.handoffs[&p].id;
+                let pod = &last.pods[&x];
+                let fences = !pod.fenced.contains(&p);
+                // The flip to Drained abandons an in-flight warm: the
+                // production warm future is dropped, and any later warm
+                // re-acquires the fence rather than resuming this
+                // attempt's stale init.
+                let drops_pending = pod.pending_warm.contains_key(&p);
+                // `put_drained_ack`, only while the phase is Draining,
+                // echoing the handoff id.
+                let acks = ack && last.drained_acks.get(&(p, x)) != Some(&h_id);
+                if !fences && !drops_pending && !acks {
+                    return None;
+                }
+                mutate(last, |state| {
+                    let pod = state.pods.get_mut(&x).unwrap();
+                    pod.fenced.insert(p);
+                    pod.pending_warm.remove(&p);
+                    if acks {
+                        state.drained_acks.insert((p, x), h_id);
+                    }
+                })
+            }
+            DesiredState::Acquiring => {
+                let h_id = last.handoffs[&p].id;
+                // Only a warm installed for *this* handoff satisfies its
+                // warming; one from an earlier era is released and
+                // rebuilt (its cutoff can predate writes accepted since —
+                // the `WarmProvenance` guard in the production Acquiring
+                // arm).
+                let valid = last.pods[&x]
+                    .warmed
+                    .get(&p)
+                    .is_some_and(|w| w.for_handoff == Some(h_id));
+                if valid && last.warmed_acks.get(&(p, x)) == Some(&h_id) {
+                    return None;
+                }
+                mutate(last, |state| {
+                    if !valid {
+                        // Release a warm from an earlier era, then
+                        // `warm_partition`, one step at a time.
+                        state.pods.get_mut(&x).unwrap().warmed.remove(&p);
+                        self.warm_step(state, x, p, Some(h_id));
+                    }
+                    // `put_warmed_ack`, echoing the handoff id — only
+                    // once this handoff's warm has installed.
+                    if state.pods[&x]
+                        .warmed
+                        .get(&p)
+                        .is_some_and(|w| w.for_handoff == Some(h_id))
+                        && state.warmed_acks.get(&(p, x)) != Some(&h_id)
+                    {
+                        state.warmed_acks.insert((p, x), h_id);
+                    }
+                })
+            }
+            DesiredState::Released => {
+                let pod = &last.pods[&x];
+                // `release_partition` also drops a mid-warm fence
+                // producer.
+                if !pod.warmed.contains_key(&p)
+                    && !pod.fenced.contains(&p)
+                    && !pod.pending_warm.contains_key(&p)
+                {
+                    return None;
+                }
+                mutate(last, |state| {
+                    let pod = state.pods.get_mut(&x).unwrap();
+                    pod.warmed.remove(&p);
+                    pod.fenced.remove(&p);
+                    pod.pending_warm.remove(&p);
+                })
+            }
+        }
+    }
+
+    /// Mirror of the routing-table watch handler + stash handler. The
+    /// router acts on the CURRENT durable state — the same semantics its
+    /// event handlers converge to, since a late router processes events up
+    /// to the present (load_initial / anchored watches guarantee it misses
+    /// nothing).
+    ///
+    /// Each arm first asks of `last` whether it has anything to do, so a
+    /// router already agreeing with durable state costs no clone.
+    fn observe(&self, last: &SystemState, r: RouterId, p: Partition) -> Option<SystemState> {
+        let router = &last.routers[&r];
+        let parked = router.stash.get(&p).is_some_and(|q| !q.is_empty());
+        match last.handoffs.get(&p) {
+            Some(h) if h.phase != Phase::Complete => {
+                // begin_stash on every non-terminal phase; FreezeAck only
+                // while Freezing, echoing the id.
+                let (id, phase) = (h.id, h.phase);
+                let stashes = !router.stashing.contains(&p);
+                let acks_freeze =
+                    phase == Phase::Freezing && last.freeze_acks.get(&(p, r)) != Some(&id);
+                if !stashes && !acks_freeze {
+                    return None;
+                }
+                mutate(last, |state| {
+                    state.routers.get_mut(&r).unwrap().stashing.insert(p);
+                    if acks_freeze {
+                        state.freeze_acks.insert((p, r), id);
+                    }
+                })
+            }
+            Some(h) => {
+                // Complete: cutover the table, then drain the stash to
+                // the new owner in FIFO order.
+                let new_owner = h.new_owner;
+                if router.table.get(&p) == Some(&new_owner)
+                    && !router.stashing.contains(&p)
+                    && !parked
+                {
+                    return None;
+                }
+                mutate(last, |state| {
+                    let parked = {
+                        let router = state.routers.get_mut(&r).unwrap();
+                        router.table.insert(p, new_owner);
+                        router.stashing.remove(&p);
+                        router.stash.remove(&p).unwrap_or_default()
+                    };
+                    for entry in parked {
+                        match entry {
+                            StashedRequest::Write(_) => {
+                                if self.write_capable(state, new_owner, p) {
+                                    self.accept_write(state, new_owner, p);
+                                }
+                                // Rejected drains surface UNAVAILABLE to
+                                // the client (never acked).
+                            }
+                            StashedRequest::StrongRead => {
+                                self.serve_read(state, new_owner, p);
+                            }
+                        }
+                    }
+                })
+            }
+            None => {
+                // No handoff: converge the table to the assignment; a
+                // cancellation drains the stash back to the assignment
+                // owner.
+                let assignment = last.assignments.get(&p).copied();
+                let retables = match assignment {
+                    Some(owner) => router.table.get(&p) != Some(&owner),
+                    None => router.table.contains_key(&p),
+                };
+                if !retables && !router.stashing.contains(&p) && !parked {
+                    return None;
+                }
+                mutate(last, |state| {
+                    let parked = {
+                        let router = state.routers.get_mut(&r).unwrap();
+                        match assignment {
+                            Some(owner) => {
+                                router.table.insert(p, owner);
+                            }
+                            None => {
+                                router.table.remove(&p);
+                            }
+                        }
+                        router.stashing.remove(&p);
+                        router.stash.remove(&p).unwrap_or_default()
+                    };
+                    for entry in parked {
+                        let Some(owner) = assignment else { continue };
+                        match entry {
+                            StashedRequest::Write(_) => {
+                                if self.write_capable(state, owner, p) {
+                                    self.accept_write(state, owner, p);
+                                }
+                            }
+                            StashedRequest::StrongRead => {
+                                self.serve_read(state, owner, p);
+                            }
+                        }
+                    }
+                })
+            }
+        }
+    }
 }
 
 impl Model for HandoffModel {
@@ -591,67 +1111,75 @@ impl Model for HandoffModel {
         }]
     }
 
+    /// Only enabled actions are offered, so the checker never pays a
+    /// state clone for a transition that cannot happen. The `if`s that
+    /// remain are model *configuration* — whether an action exists in this
+    /// variant at all — rather than per-state enablement, which lives in
+    /// [`HandoffModel::enabled`].
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-        actions.push(Action::Rebalance);
+        let mut offer = |action: Action| {
+            if self.enabled(state, &action) {
+                actions.push(action);
+            }
+        };
+        offer(Action::Rebalance);
         for p in self.partition_ids() {
-            actions.push(Action::CancelDeadNewOwner(p));
-            if state.cancels_left > 0 {
-                actions.push(Action::Cancel(p));
-            }
-            actions.push(Action::AdvancePhase(p));
-            actions.push(Action::CleanupComplete(p));
+            offer(Action::CancelDeadNewOwner(p));
+            offer(Action::Cancel(p));
+            offer(Action::AdvancePhase(p));
+            offer(Action::CleanupComplete(p));
             for pod in self.pod_ids() {
-                actions.push(Action::Converge(pod, p));
+                offer(Action::Converge(pod, p));
             }
             for r in self.router_ids() {
-                actions.push(Action::Observe(r, p));
-                if state.writes_left > 0 {
-                    actions.push(Action::ClientWrite(r, p));
-                }
-                if state.reads_left > 0 {
-                    actions.push(Action::ClientStrongRead(r, p));
-                }
-            }
-        }
-        if state.crashes_left > 0 {
-            for pod in self.pod_ids() {
-                actions.push(Action::CrashRestartWithinTtl(pod));
-                actions.push(Action::LeaseExpire(pod));
-            }
-            for r in self.router_ids() {
-                actions.push(Action::RouterLeaseExpire(r));
+                offer(Action::Observe(r, p));
+                offer(Action::ClientWrite(r, p));
+                offer(Action::ClientStrongRead(r, p));
             }
         }
         for pod in self.pod_ids() {
-            actions.push(Action::SelfFence(pod));
+            offer(Action::CrashRestartWithinTtl(pod));
+            offer(Action::LeaseExpire(pod));
+        }
+        for r in self.router_ids() {
+            offer(Action::RouterLeaseExpire(r));
+        }
+        for pod in self.pod_ids() {
+            offer(Action::SelfFence(pod));
             if self.claim_detection == ClaimDetection::Delayed {
-                actions.push(Action::NoticeLeaseLoss(pod));
+                offer(Action::NoticeLeaseLoss(pod));
             }
             // Only meaningful when something consults the claim, and the
             // state space is expensive enough that exploring it in
             // configurations that ignore the claim would buy nothing.
             if self.lease_gated_reads {
-                actions.push(Action::AuthorityLapse(pod));
+                offer(Action::AuthorityLapse(pod));
                 if self.claim_recovers {
-                    actions.push(Action::AuthorityRenew(pod));
+                    offer(Action::AuthorityRenew(pod));
                 }
             }
-            if state.rejoins_left > 0 {
-                actions.push(Action::Join(pod));
-            }
+            offer(Action::Join(pod));
         }
         for r in self.router_ids() {
-            actions.push(Action::RouterSelfFence(r));
-            if state.router_joins_left > 0 {
-                actions.push(Action::RouterJoin(r));
-            }
+            offer(Action::RouterSelfFence(r));
+            offer(Action::RouterJoin(r));
         }
     }
 
+    /// Every arm clones `last` only once it knows a successor exists, so a
+    /// disabled or no-op transition costs no state materialization. The
+    /// four arms whose enablement needs real work — the planner, the phase
+    /// predicates, `desired_state`, and a router's table diff — live in
+    /// their own methods above.
     fn next_state(&self, last: &Self::State, action: Self::Action) -> Option<Self::State> {
-        let mut state = last.clone();
+        if !self.enabled(last, &action) {
+            return None;
+        }
         match action {
             // ── coordinator ────────────────────────────────────
+            Action::Rebalance => self.rebalance(last),
+            Action::AdvancePhase(p) => self.advance_phase(last, p),
+
             // The dead-new-owner arm of the coordinator's cleanup, now a
             // replacement. The mod_revision guard lets the model treat
             // check-and-replace as atomic; scheduling it freely against
@@ -661,466 +1189,43 @@ impl Model for HandoffModel {
             // excluded — they resolve through CleanupComplete and a
             // later Rebalance, exactly as in production.
             Action::CancelDeadNewOwner(p) => {
-                match state.handoffs.get(&p) {
-                    Some(h)
-                        if h.phase != Phase::Complete && !state.pods[&h.new_owner].registered => {}
-                    _ => return None,
-                }
-                self.cancel_by_replacement(&mut state, p);
+                mutate(last, |state| self.cancel_by_replacement(state, p))
             }
 
             // Deadline cancellation: any in-flight handoff, any phase
             // short of Complete, whenever the checker feels like it —
             // the superset of every production deadline policy. Same
             // disposition as the dead-new-owner arm.
-            Action::Cancel(p) => {
-                if state.cancels_left == 0 {
-                    return None;
-                }
-                match state.handoffs.get(&p) {
-                    Some(h) if h.phase != Phase::Complete => {}
-                    _ => return None,
-                }
+            Action::Cancel(p) => mutate(last, |state| {
                 state.cancels_left -= 1;
-                self.cancel_by_replacement(&mut state, p);
-            }
-
-            // The rebalance half: create Freezing handoffs for every
-            // assignment diff in one transaction. In-flight handoffs pin
-            // their partitions — the production
-            // `protocol::plan_partial_rebalance` excludes them from the
-            // plan and attributes each to its target for the placement
-            // computation — so rebalancing is enabled in every state and
-            // the checker explores a rebalance racing every handoff
-            // phase. Only the etcd writes are applied model-side, and
-            // assignments for moved/fresh partitions are deferred until
-            // Complete (`create_assignments_and_handoffs`). This action
-            // is atomic (plan and apply in one transition); production
-            // earns that abstraction by guarding the apply txn on its
-            // read-set — handoff keys still absent, and each touched
-            // partition's assignment unchanged since the snapshot — so a
-            // stale plan fails instead of replacing an in-flight handoff
-            // or draining a superseded owner.
-            Action::Rebalance => {
-                let current: HashMap<u32, String> = state
-                    .assignments
-                    .iter()
-                    .map(|(p, owner)| (*p as u32, pod_name(*owner)))
-                    .collect();
-                let in_flight: Vec<HandoffState> = state
-                    .handoffs
-                    .iter()
-                    .map(|(p, h)| production_handoff(*p, h))
-                    .collect();
-                let mut active: Vec<String> = state
-                    .pods
-                    .iter()
-                    .filter(|(_, p)| p.registered)
-                    .map(|(id, _)| pod_name(*id))
-                    .collect();
-                active.sort();
-                let mut plan = plan_partial_rebalance(
-                    &StickyBalancedStrategy,
-                    &current,
-                    &in_flight,
-                    &active,
-                    self.partitions as u32,
-                );
-                if plan.handoffs.is_empty() {
-                    // An empty plan is a no-op successor the checker would
-                    // dedup anyway; disabling the action instead skips the
-                    // clone-and-hash per state, which dominates once
-                    // Rebalance is enabled everywhere.
-                    return None;
-                }
-                // The plan's order follows HashMap iteration; sort so
-                // sequential handoff-id assignment is deterministic
-                // (next_state must be a pure function of its inputs).
-                plan.handoffs.sort_by_key(|h| h.partition);
-                // Mirror of the coordinator's snapshot read: the routers
-                // registered when the plan is applied become the freeze
-                // requirement for every handoff it creates.
-                let quorum: BTreeSet<RouterId> = self
-                    .router_ids()
-                    .filter(|r| state.routers[r].registered)
-                    .collect();
-                for planned in plan.handoffs {
-                    let id = state.next_handoff_id;
-                    state.next_handoff_id += 1;
-                    let clobbered = state
-                        .handoffs
-                        .insert(
-                            planned.partition as Partition,
-                            Handoff {
-                                id,
-                                old_owner: planned.old_owner.as_deref().map(pod_id),
-                                new_owner: pod_id(&planned.new_owner),
-                                phase: Phase::Freezing,
-                                quorum: quorum.clone(),
-                            },
-                        )
-                        .is_some();
-                    if clobbered {
-                        // Planning a pinned partition would destroy its
-                        // in-flight handoff (and orphan its acks); the
-                        // always-property flags any interleaving where
-                        // the exclusion fails to prevent that.
-                        state.double_planned_handoff = true;
-                    }
-                }
-            }
-
-            // Mirror of `check_phase_advance`, with the identity quorum
-            // and handoff_id ack correlation.
-            Action::AdvancePhase(p) => {
-                let h = state.handoffs.get(&p).cloned()?;
-                match h.phase {
-                    Phase::Freezing => {
-                        // The production quorum predicate on
-                        // production-typed views: registered routers only
-                        // (which is what admits the zombie-router half of
-                        // the double-zombie residual), id-correlated acks,
-                        // vacuous at zero routers.
-                        let routers: Vec<RegisteredRouter> = self
-                            .router_ids()
-                            .filter(|r| state.routers[r].registered)
-                            .map(|r| RegisteredRouter {
-                                router_name: router_name(r),
-                                registered_at: 0,
-                                last_heartbeat: 0,
-                            })
-                            .collect();
-                        let acks: Vec<RouterFreezeAck> = self
-                            .router_ids()
-                            .filter_map(|r| {
-                                state.freeze_acks.get(&(p, r)).map(|id| RouterFreezeAck {
-                                    router_name: router_name(r),
-                                    partition: p as u32,
-                                    acked_at: 0,
-                                    acked_at_ms: 0,
-                                    handoff_id: id.to_string(),
-                                })
-                            })
-                            .collect();
-                        if !freeze_quorum_met(&routers, &acks, &production_handoff(p, &h)) {
-                            return None;
-                        }
-                        // Initial assignments (no old owner) skip the
-                        // drain entirely.
-                        let next = match h.old_owner {
-                            None => Phase::Warming,
-                            Some(_) => Phase::Draining,
-                        };
-                        state.handoffs.get_mut(&p).unwrap().phase = next;
-                    }
-                    Phase::Draining => {
-                        let registered: Vec<RegisteredPod> = self
-                            .pod_ids()
-                            .filter(|x| state.pods[x].registered)
-                            .map(|x| RegisteredPod {
-                                pod_name: pod_name(x),
-                                generation: String::new(),
-                                status: PodStatus::Ready,
-                                registered_at: 0,
-                                last_heartbeat: 0,
-                                controller: None,
-                                advertise_address: None,
-                            })
-                            .collect();
-                        let acks: Vec<PodDrainedAck> = self
-                            .pod_ids()
-                            .filter_map(|x| {
-                                state.drained_acks.get(&(p, x)).map(|id| PodDrainedAck {
-                                    pod_name: pod_name(x),
-                                    partition: p as u32,
-                                    acked_at: 0,
-                                    acked_at_ms: 0,
-                                    handoff_id: id.to_string(),
-                                })
-                            })
-                            .collect();
-                        if !drain_satisfied(&registered, &acks, &production_handoff(p, &h)) {
-                            return None;
-                        }
-                        state.handoffs.get_mut(&p).unwrap().phase = Phase::Warming;
-                    }
-                    Phase::Warming => {
-                        let acks: Vec<PodWarmedAck> = self
-                            .pod_ids()
-                            .filter_map(|x| {
-                                state.warmed_acks.get(&(p, x)).map(|id| PodWarmedAck {
-                                    pod_name: pod_name(x),
-                                    partition: p as u32,
-                                    acked_at: 0,
-                                    acked_at_ms: 0,
-                                    handoff_id: id.to_string(),
-                                })
-                            })
-                            .collect();
-                        if !warm_satisfied(&acks, &production_handoff(p, &h)) {
-                            return None;
-                        }
-                        // `complete_handoff`: phase write and assignment
-                        // flip are one etcd transaction.
-                        state.handoffs.get_mut(&p).unwrap().phase = Phase::Complete;
-                        state.assignments.insert(p, h.new_owner);
-                    }
-                    Phase::Complete => return None,
-                }
-            }
+                self.cancel_by_replacement(state, p);
+            }),
 
             // Mirror of the Complete arm of `handle_handoff_update_static`
             // (guarded delete of the record and its acks).
-            Action::CleanupComplete(p) => {
-                match state.handoffs.get(&p) {
-                    Some(h) if h.phase == Phase::Complete => {}
-                    _ => return None,
-                }
+            Action::CleanupComplete(p) => mutate(last, |state| {
                 state.handoffs.remove(&p);
                 state.freeze_acks.retain(|(fp, _), _| fp != &p);
                 state.drained_acks.retain(|(dp, _), _| dp != &p);
                 state.warmed_acks.retain(|(wp, _), _| wp != &p);
-            }
+            }),
 
             // ── pod converge ───────────────────────────────────
-            // Mirror of `PodHandle::apply` — one idempotent transition
-            // toward the desired state. Startup reconcile after a crash
-            // is these same actions running against wiped local state.
-            Action::Converge(x, p) => {
-                let pod = &state.pods[&x];
-                if !pod.running || !pod.registered {
-                    return None;
-                }
-                match model_desired_state(x, &state, p) {
-                    DesiredState::Serving => {
-                        let pod = &state.pods[&x];
-                        if !pod.warmed.contains_key(&p) {
-                            // `warm_partition`, one step at a time (see
-                            // `warm_step` for the two orderings under
-                            // EpochFenced).
-                            self.warm_step(&mut state, x, p, None);
-                        } else if pod.fenced.contains(&p) {
-                            // `resume_partition`. Under EpochFenced the
-                            // cancelled handoff's target may have bumped
-                            // the broker epoch past this pod's producer;
-                            // production re-acquires the fence before
-                            // re-admitting writes, or every write would
-                            // fail as fenced until the next handoff.
-                            if self.variant == Variant::EpochFenced {
-                                let log = state.changelogs.get_mut(&p).unwrap();
-                                log.epoch = log.epoch.wrapping_add(1);
-                                let epoch = log.epoch;
-                                state
-                                    .pods
-                                    .get_mut(&x)
-                                    .unwrap()
-                                    .warmed
-                                    .get_mut(&p)
-                                    .unwrap()
-                                    .epoch = epoch;
-                            }
-                            state.pods.get_mut(&x).unwrap().fenced.remove(&p);
-                        } else {
-                            return None;
-                        }
-                    }
-                    DesiredState::Drained { ack } => {
-                        let h_id = state.handoffs[&p].id;
-                        let pod = state.pods.get_mut(&x).unwrap();
-                        let newly_fenced = pod.fenced.insert(p);
-                        // The flip to Drained abandons an in-flight warm:
-                        // the production warm future is dropped, and any
-                        // later warm re-acquires the fence rather than
-                        // resuming this attempt's stale init.
-                        let dropped_pending = pod.pending_warm.remove(&p).is_some();
-                        // `put_drained_ack`, only while the phase is
-                        // Draining, echoing the handoff id.
-                        let ack_needed = ack && state.drained_acks.get(&(p, x)) != Some(&h_id);
-                        if ack_needed {
-                            state.drained_acks.insert((p, x), h_id);
-                        }
-                        if !newly_fenced && !ack_needed && !dropped_pending {
-                            return None;
-                        }
-                    }
-                    DesiredState::Acquiring => {
-                        let h_id = state.handoffs[&p].id;
-                        let mut changed = false;
-                        // Only a warm installed for *this* handoff
-                        // satisfies its warming; one from an earlier era
-                        // is released and rebuilt (its cutoff can
-                        // predate writes accepted since — the
-                        // `WarmProvenance` guard in the production
-                        // Acquiring arm).
-                        let valid = state.pods[&x]
-                            .warmed
-                            .get(&p)
-                            .is_some_and(|w| w.for_handoff == Some(h_id));
-                        if !valid {
-                            // Release a warm from an earlier era, then
-                            // `warm_partition`, one step at a time.
-                            state.pods.get_mut(&x).unwrap().warmed.remove(&p);
-                            self.warm_step(&mut state, x, p, Some(h_id));
-                            changed = true;
-                        }
-                        // `put_warmed_ack`, echoing the handoff id —
-                        // only once this handoff's warm has installed.
-                        if state.pods[&x]
-                            .warmed
-                            .get(&p)
-                            .is_some_and(|w| w.for_handoff == Some(h_id))
-                            && state.warmed_acks.get(&(p, x)) != Some(&h_id)
-                        {
-                            state.warmed_acks.insert((p, x), h_id);
-                            changed = true;
-                        }
-                        if !changed {
-                            return None;
-                        }
-                    }
-                    DesiredState::Released => {
-                        let pod = state.pods.get_mut(&x).unwrap();
-                        let held = pod.warmed.remove(&p).is_some();
-                        let fenced = pod.fenced.remove(&p);
-                        // `release_partition` also drops a mid-warm
-                        // fence producer.
-                        let pending = pod.pending_warm.remove(&p).is_some();
-                        if !held && !fenced && !pending {
-                            return None;
-                        }
-                    }
-                }
-            }
+            Action::Converge(x, p) => self.converge(last, x, p),
 
             // ── router ─────────────────────────────────────────
-            // Mirror of the routing-table watch handler + stash handler.
-            // The router acts on the CURRENT durable state — the same
-            // semantics its event handlers converge to, since a late
-            // router processes events up to the present (load_initial /
-            // anchored watches guarantee it misses nothing).
-            Action::Observe(r, p) => {
-                {
-                    let router = &state.routers[&r];
-                    if !router.registered || !router.running {
-                        return None;
-                    }
-                }
-                let mut changed = false;
-                match state.handoffs.get(&p).cloned() {
-                    Some(h) if h.phase != Phase::Complete => {
-                        // begin_stash on every non-terminal phase;
-                        // FreezeAck only while Freezing, echoing the id.
-                        if state.routers.get_mut(&r).unwrap().stashing.insert(p) {
-                            changed = true;
-                        }
-                        if h.phase == Phase::Freezing
-                            && state.freeze_acks.get(&(p, r)) != Some(&h.id)
-                        {
-                            state.freeze_acks.insert((p, r), h.id);
-                            changed = true;
-                        }
-                    }
-                    Some(h) => {
-                        // Complete: cutover the table, then drain the
-                        // stash to the new owner in FIFO order.
-                        let router = state.routers.get_mut(&r).unwrap();
-                        if router.table.get(&p) != Some(&h.new_owner) {
-                            router.table.insert(p, h.new_owner);
-                            changed = true;
-                        }
-                        if router.stashing.remove(&p) {
-                            changed = true;
-                        }
-                        let parked = state
-                            .routers
-                            .get_mut(&r)
-                            .unwrap()
-                            .stash
-                            .remove(&p)
-                            .unwrap_or_default();
-                        for entry in parked {
-                            changed = true;
-                            match entry {
-                                StashedRequest::Write(_) => {
-                                    if self.write_capable(&state, h.new_owner, p) {
-                                        self.accept_write(&mut state, h.new_owner, p);
-                                    }
-                                    // Rejected drains surface UNAVAILABLE
-                                    // to the client (never acked).
-                                }
-                                StashedRequest::StrongRead => {
-                                    self.serve_read(&mut state, h.new_owner, p);
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        // No handoff: converge the table to the
-                        // assignment; a cancellation drains the stash
-                        // back to the assignment owner.
-                        let assignment = state.assignments.get(&p).copied();
-                        let router = state.routers.get_mut(&r).unwrap();
-                        match assignment {
-                            Some(owner) => {
-                                if router.table.get(&p) != Some(&owner) {
-                                    router.table.insert(p, owner);
-                                    changed = true;
-                                }
-                            }
-                            None => {
-                                if router.table.remove(&p).is_some() {
-                                    changed = true;
-                                }
-                            }
-                        }
-                        if router.stashing.remove(&p) {
-                            changed = true;
-                        }
-                        let parked = state
-                            .routers
-                            .get_mut(&r)
-                            .unwrap()
-                            .stash
-                            .remove(&p)
-                            .unwrap_or_default();
-                        for entry in parked {
-                            changed = true;
-                            let Some(owner) = assignment else { continue };
-                            match entry {
-                                StashedRequest::Write(_) => {
-                                    if self.write_capable(&state, owner, p) {
-                                        self.accept_write(&mut state, owner, p);
-                                    }
-                                }
-                                StashedRequest::StrongRead => {
-                                    self.serve_read(&mut state, owner, p);
-                                }
-                            }
-                        }
-                    }
-                }
-                if !changed {
-                    return None;
-                }
-            }
+            Action::Observe(r, p) => self.observe(last, r, p),
 
             // ── workload ───────────────────────────────────────
-            Action::ClientWrite(r, p) => {
-                if state.writes_left == 0 {
-                    return None;
-                }
+            Action::ClientWrite(r, p) => mutate(last, |state| {
                 state.writes_left -= 1;
-                if !self.route_write(&mut state, r, p) {
-                    // The write was rejected everywhere — the state may
-                    // still have changed (budget), keep the transition
-                    // so rejected paths are explored too.
-                }
-            }
+                // A rejected write still consumes its budget: the state
+                // changed, so the transition is kept and rejected paths
+                // are explored too.
+                self.route_write(state, r, p);
+            }),
 
-            Action::ClientStrongRead(r, p) => {
-                if state.reads_left == 0 {
-                    return None;
-                }
+            Action::ClientStrongRead(r, p) => mutate(last, |state| {
                 state.reads_left -= 1;
                 let router = &state.routers[&r];
                 if !router.running {
@@ -1141,16 +1246,12 @@ impl Model for HandoffModel {
                 } else if let Some(target) = router.table.get(&p).copied() {
                     // Outside a handoff: forward to the table entry.
                     // Rejected reads fail closed at the leader.
-                    self.serve_read(&mut state, target, p);
+                    self.serve_read(state, target, p);
                 }
-            }
+            }),
 
             // ── failures ───────────────────────────────────────
-            Action::Join(x) => {
-                let pod = &state.pods[&x];
-                if state.rejoins_left == 0 || pod.registered || pod.running {
-                    return None;
-                }
+            Action::Join(x) => mutate(last, |state| {
                 state.rejoins_left -= 1;
                 let pod = state.pods.get_mut(&x).unwrap();
                 pod.registered = true;
@@ -1161,23 +1262,15 @@ impl Model for HandoffModel {
                 pod.zombie_writes_left = 0;
                 // A new session is a new claim.
                 pod.claims_authority = true;
-            }
-            Action::CrashRestartWithinTtl(x) => {
-                let pod = &state.pods[&x];
-                if state.crashes_left == 0 || !pod.running || !pod.registered {
-                    return None;
-                }
+            }),
+            Action::CrashRestartWithinTtl(x) => mutate(last, |state| {
                 state.crashes_left -= 1;
                 let pod = state.pods.get_mut(&x).unwrap();
                 pod.warmed.clear();
                 pod.fenced.clear();
                 pod.pending_warm.clear();
-            }
-            Action::LeaseExpire(x) => {
-                let pod = &state.pods[&x];
-                if state.crashes_left == 0 || !pod.registered {
-                    return None;
-                }
+            }),
+            Action::LeaseExpire(x) => mutate(last, |state| {
                 state.crashes_left -= 1;
                 let zombie_window = self.zombie_window;
                 let prompt = self.claim_detection == ClaimDetection::Prompt;
@@ -1193,7 +1286,7 @@ impl Model for HandoffModel {
                 if pod.running {
                     pod.zombie_writes_left = zombie_window;
                 }
-            }
+            }),
             // The gap the registration watch closes: between losing the
             // lease and noticing, the pod still answers as the owner.
             // The window production's clock actually creates: the stamp
@@ -1203,33 +1296,17 @@ impl Model for HandoffModel {
             // coordinator — the black hole `converges_to_stable` has to
             // be able to see, and which tying the claim to the
             // registration made unrepresentable.
-            Action::AuthorityLapse(x) => {
-                let pod = &state.pods[&x];
-                if !pod.registered || !pod.claims_authority {
-                    return None;
-                }
+            Action::AuthorityLapse(x) => mutate(last, |state| {
                 state.pods.get_mut(&x).unwrap().claims_authority = false;
-            }
-            Action::AuthorityRenew(x) => {
-                let pod = &state.pods[&x];
-                if !pod.registered || pod.claims_authority {
-                    return None;
-                }
+            }),
+            Action::AuthorityRenew(x) => mutate(last, |state| {
                 state.pods.get_mut(&x).unwrap().claims_authority = true;
-            }
-            Action::NoticeLeaseLoss(x) => {
-                let pod = &state.pods[&x];
-                if pod.registered || !pod.claims_authority {
-                    return None;
-                }
+            }),
+            Action::NoticeLeaseLoss(x) => mutate(last, |state| {
                 state.pods.get_mut(&x).unwrap().claims_authority = false;
-            }
+            }),
 
-            Action::SelfFence(x) => {
-                let pod = &state.pods[&x];
-                if pod.registered || !pod.running {
-                    return None;
-                }
+            Action::SelfFence(x) => mutate(last, |state| {
                 let pod = state.pods.get_mut(&x).unwrap();
                 pod.running = false;
                 pod.warmed.clear();
@@ -1237,19 +1314,12 @@ impl Model for HandoffModel {
                 pod.pending_warm.clear();
                 pod.zombie_writes_left = 0;
                 pod.claims_authority = false;
-            }
-            Action::RouterLeaseExpire(r) => {
-                if state.crashes_left == 0 || !state.routers[&r].registered {
-                    return None;
-                }
+            }),
+            Action::RouterLeaseExpire(r) => mutate(last, |state| {
                 state.crashes_left -= 1;
                 state.routers.get_mut(&r).unwrap().registered = false;
-            }
-            Action::RouterSelfFence(r) => {
-                let router = &state.routers[&r];
-                if router.registered || !router.running {
-                    return None;
-                }
+            }),
+            Action::RouterSelfFence(r) => mutate(last, |state| {
                 // The process exits; parked stash requests die with it
                 // (their clients get errors — the writes were never
                 // acked).
@@ -1257,12 +1327,8 @@ impl Model for HandoffModel {
                 router.running = false;
                 router.stashing.clear();
                 router.stash.clear();
-            }
-            Action::RouterJoin(r) => {
-                let router = &state.routers[&r];
-                if state.router_joins_left == 0 || router.registered || router.running {
-                    return None;
-                }
+            }),
+            Action::RouterJoin(r) => mutate(last, |state| {
                 state.router_joins_left -= 1;
                 // A fresh process: registration written, table empty
                 // (fail-closed until Observe converges it — the model's
@@ -1275,13 +1341,8 @@ impl Model for HandoffModel {
                 router.table.clear();
                 router.stashing.clear();
                 router.stash.clear();
-            }
+            }),
         }
-
-        if state == *last {
-            return None;
-        }
-        Some(state)
     }
 
     fn properties(&self) -> Vec<Property<Self>> {
@@ -1371,31 +1432,45 @@ impl Model for HandoffModel {
             // unfenced, registered pod, all routers agreeing, nothing
             // parked in a stash.
             Property::<Self>::eventually("converges_to_stable", |m, s| {
+                // Ordered cheapest-first on purpose. This runs at every
+                // explored state, and the placement computation below is
+                // the one expensive part — it must stay behind the
+                // conjuncts that reject most states outright.
+                if !s.handoffs.is_empty() {
+                    return false;
+                }
                 let no_capacity = s.pods.values().all(|p| !p.registered);
-                s.handoffs.is_empty()
-                    && (no_capacity
-                        || (!s.assignments.is_empty()
-                            && m.partition_ids().all(|p| {
-                                let Some(target) = m.target_owner(s, p) else {
-                                    return true;
-                                };
-                                let assigned = s.assignments.get(&p) == Some(&target);
-                                let pod = &s.pods[&target];
-                                // `write_capable` (not just warmed +
-                                // unfenced) so a stale producer epoch —
-                                // the fenced-wedge a resume without
-                                // re-acquisition would leave — fails
-                                // stability rather than passing it.
-                                assigned
-                                    && pod.running
-                                    && pod.registered
-                                    && m.write_capable(s, target, p)
-                                    // A converged owner that refuses its
-                                    // own reads is a black hole the
-                                    // coordinator will not reassign,
-                                    // because it still looks alive.
-                                    && (!m.lease_gated_reads || pod.claims_authority)
-                            })))
+                let owners_converged = no_capacity
+                    || (!s.assignments.is_empty() && {
+                        // One placement computation for the whole state
+                        // rather than one per partition: `target_owner`
+                        // rebuilds `String` maps and reruns the production
+                        // strategy on every call.
+                        let targets = m.target_assignments(s);
+                        m.partition_ids().all(|p| {
+                            let Some(target) = targets.get(&(p as u32)).map(|name| pod_id(name))
+                            else {
+                                return true;
+                            };
+                            let assigned = s.assignments.get(&p) == Some(&target);
+                            let pod = &s.pods[&target];
+                            // `write_capable` (not just warmed +
+                            // unfenced) so a stale producer epoch — the
+                            // fenced-wedge a resume without
+                            // re-acquisition would leave — fails
+                            // stability rather than passing it.
+                            assigned
+                                && pod.running
+                                && pod.registered
+                                && m.write_capable(s, target, p)
+                                // A converged owner that refuses its own
+                                // reads is a black hole the coordinator
+                                // will not reassign, because it still
+                                // looks alive.
+                                && (!m.lease_gated_reads || pod.claims_authority)
+                        })
+                    });
+                owners_converged
                     && m.router_ids().all(|r| {
                         let router = &s.routers[&r];
                         if !router.registered || !router.running {

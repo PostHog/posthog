@@ -39,6 +39,42 @@ fn parallelism() -> usize {
     std::thread::available_parallelism().map_or(1, Into::into)
 }
 
+/// Exhaustive exploration, plus optional size reporting.
+///
+/// Every test explores through this method so the size of each scenario
+/// can be reported from the *real* test configurations — a separate
+/// config list would drift from what CI actually runs. Set
+/// `STATERIGHT_REPORT` to print them:
+///
+/// ```sh
+/// STATERIGHT_REPORT=1 cargo test -p personhog-stateright --release -- --nocapture --test-threads=1
+/// ```
+///
+/// Those counts are the review gate for state-space work on this model: a
+/// change meant to cost nothing must leave `unique` identical, and a
+/// deliberate collapse must shrink it while every verdict below is
+/// unchanged.
+trait Explore {
+    fn explore(self, scenario: &str) -> impl Checker<HandoffModel>;
+}
+
+impl Explore for HandoffModel {
+    fn explore(self, scenario: &str) -> impl Checker<HandoffModel> {
+        let start = Instant::now();
+        let checker = self.checker().threads(parallelism()).spawn_bfs().join();
+        if std::env::var_os("STATERIGHT_REPORT").is_some() {
+            println!(
+                "STATERIGHT_REPORT\t{scenario}\tunique={}\tgenerated={}\tdepth={}\telapsed={:?}",
+                checker.unique_state_count(),
+                checker.state_count(),
+                checker.max_depth(),
+                start.elapsed(),
+            );
+        }
+        checker
+    }
+}
+
 /// Baseline configuration; tests override fields with struct-update
 /// syntax. Reads default on so every scenario also exercises the read
 /// path under the shipped (stashed) design.
@@ -79,10 +115,7 @@ fn model(variant: Variant, crashes: u8, zombie_window: u8) -> HandoffModel {
 #[test]
 fn current_protocol_without_failures_is_safe_and_live() {
     model(Variant::Current, 0, 0)
-        .checker()
-        .threads(parallelism())
-        .spawn_bfs()
-        .join()
+        .explore("current_protocol_without_failures_is_safe_and_live")
         .assert_properties();
 }
 
@@ -92,10 +125,7 @@ fn current_protocol_without_failures_is_safe_and_live() {
 #[test]
 fn current_protocol_with_crashes_is_safe_and_live() {
     model(Variant::Current, 1, 0)
-        .checker()
-        .threads(parallelism())
-        .spawn_bfs()
-        .join()
+        .explore("current_protocol_with_crashes_is_safe_and_live")
         .assert_properties();
 }
 
@@ -108,10 +138,7 @@ fn current_protocol_with_crashes_is_safe_and_live() {
 #[test]
 fn current_protocol_single_zombie_pod_is_safe() {
     model(Variant::Current, 1, 1)
-        .checker()
-        .threads(parallelism())
-        .spawn_bfs()
-        .join()
+        .explore("current_protocol_single_zombie_pod_is_safe")
         .assert_properties();
 }
 
@@ -122,11 +149,8 @@ fn current_protocol_single_zombie_pod_is_safe() {
 /// but sits beyond the warm HWM, invisible to the new owner forever.
 #[test]
 fn current_protocol_double_zombie_loses_acked_writes() {
-    let checker = model(Variant::Current, 2, 1)
-        .checker()
-        .threads(parallelism())
-        .spawn_bfs()
-        .join();
+    let checker =
+        model(Variant::Current, 2, 1).explore("current_protocol_double_zombie_loses_acked_writes");
     assert!(
         checker.discovery("no_lost_acked_write").is_some(),
         "the double zombie must produce an acked-write-loss counterexample"
@@ -148,11 +172,7 @@ fn current_protocol_double_zombie_loses_acked_writes() {
 /// that — see `fencing_and_lease_gated_reads_together_close_the_double_zombie`.
 #[test]
 fn epoch_fenced_double_zombie_is_safe() {
-    let checker = model(Variant::EpochFenced, 2, 1)
-        .checker()
-        .threads(parallelism())
-        .spawn_bfs()
-        .join();
+    let checker = model(Variant::EpochFenced, 2, 1).explore("epoch_fenced_double_zombie_is_safe");
     assert!(
         checker.discovery("no_lost_acked_write").is_none(),
         "epoch fencing must eliminate acked-write loss"
@@ -179,10 +199,7 @@ fn epoch_fenced_read_first_ordering_loses_acked_writes() {
         warm_order: WarmOrder::ReadFirst,
         ..model(Variant::EpochFenced, 2, 1)
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("epoch_fenced_read_first_ordering_loses_acked_writes");
     assert!(
         checker.discovery("no_lost_acked_write").is_some(),
         "read-before-fence must produce an acked-write-loss counterexample"
@@ -212,10 +229,7 @@ fn epoch_fenced_resume_after_cancelled_handoff_stays_live() {
         rejoins: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("epoch_fenced_resume_after_cancelled_handoff_stays_live")
     .assert_properties();
 }
 
@@ -232,10 +246,7 @@ fn current_two_partitions_single_zombie_is_safe() {
         zombie_window: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("current_two_partitions_single_zombie_is_safe")
     .assert_properties();
 }
 
@@ -257,10 +268,7 @@ fn current_with_rejoin_is_safe_and_live() {
         rejoins: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("current_with_rejoin_is_safe_and_live")
     .assert_properties();
 }
 
@@ -278,10 +286,7 @@ fn strong_reads_are_complete_across_cutover() {
         crashes: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("strong_reads_are_complete_across_cutover")
     .assert_properties();
 }
 
@@ -297,10 +302,7 @@ fn two_partitions_double_zombie_loses_acked_writes() {
         zombie_window: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("two_partitions_double_zombie_loses_acked_writes");
     assert!(checker.discovery("no_lost_acked_write").is_some());
 }
 
@@ -316,10 +318,7 @@ fn epoch_fenced_two_partitions_double_zombie_is_safe() {
         zombie_window: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("epoch_fenced_two_partitions_double_zombie_is_safe");
     assert!(checker.discovery("no_lost_acked_write").is_none());
     assert!(checker.discovery("no_split_write_acceptance").is_none());
 }
@@ -348,10 +347,7 @@ fn late_router_join_is_safe_and_live() {
         crashes: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("late_router_join_is_safe_and_live")
     .assert_properties();
 }
 
@@ -373,10 +369,7 @@ fn probe_silent_late_joiner_advance_is_reachable_and_safe() {
         probes: true,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("probe_silent_late_joiner_advance_is_reachable_and_safe");
     assert!(
         checker
             .discovery("advances_past_silent_late_joiner")
@@ -411,10 +404,7 @@ fn zero_router_creation_with_late_joiner_is_safe_and_live() {
         probes: true,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("zero_router_creation_with_late_joiner_is_safe_and_live");
     assert!(
         checker
             .discovery("advances_past_silent_late_joiner")
@@ -459,10 +449,7 @@ fn probe_divergent_quorums_are_reachable_and_safe() {
         probes: true,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("probe_divergent_quorums_are_reachable_and_safe");
     assert!(
         checker
             .discovery("handoffs_with_divergent_quorums")
@@ -501,10 +488,7 @@ fn epoch_fenced_double_zombie_with_late_joiner_is_safe() {
         zombie_window: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("epoch_fenced_double_zombie_with_late_joiner_is_safe");
     assert!(
         checker.discovery("no_lost_acked_write").is_none(),
         "the shrunken quorum must not reopen acked-write loss under fencing"
@@ -534,10 +518,7 @@ fn probe_concurrent_handoffs_are_reachable() {
         probes: true,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("probe_concurrent_handoffs_are_reachable");
     assert!(
         checker.discovery("concurrent_handoffs").is_some(),
         "two in-flight handoffs must be reachable (one rebalance txn creates both)"
@@ -564,10 +545,7 @@ fn probe_dual_role_pod_is_reachable_and_safe() {
         probes: true,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("probe_dual_role_pod_is_reachable_and_safe");
     assert!(
         checker.discovery("pod_holds_both_roles").is_some(),
         "partial rebalancing must reach the dual-role state the checker judges"
@@ -580,82 +558,6 @@ fn probe_dual_role_pod_is_reachable_and_safe() {
         checker.discovery("no_lost_acked_write").is_none(),
         "dual-role concurrency must not lose acked writes"
     );
-}
-
-/// Prints the explored state-space size per configuration. Not a
-/// verdict test — run manually to judge config tractability:
-/// `cargo test -p personhog-stateright --release -- --ignored --nocapture state_space`
-#[test]
-#[ignore = "informational; prints state counts"]
-fn state_space_report() {
-    let configs = [
-        (
-            "2 pods / 2 routers / 1 partition, w2 c1 z1",
-            2u8,
-            2u8,
-            1u8,
-            2u8,
-            1u8,
-            1u8,
-        ),
-        (
-            "2 pods / 2 routers / 1 partition, w2 c2 z1",
-            2,
-            2,
-            1,
-            2,
-            2,
-            1,
-        ),
-        (
-            "2 pods / 2 routers / 2 partitions, w2 c1 z1",
-            2,
-            2,
-            2,
-            2,
-            1,
-            1,
-        ),
-        (
-            "2 pods / 2 routers / 2 partitions, w2 c2 z1",
-            2,
-            2,
-            2,
-            2,
-            2,
-            1,
-        ),
-        (
-            "3 pods / 2 routers / 2 partitions, w2 c2 z1",
-            3,
-            2,
-            2,
-            2,
-            2,
-            1,
-        ),
-    ];
-    for (label, pods, routers, partitions, writes, crashes, zombie) in configs {
-        let start = Instant::now();
-        let checker = HandoffModel {
-            pods,
-            routers,
-            partitions,
-            writes,
-            crashes,
-            zombie_window: zombie,
-            ..base()
-        }
-        .checker()
-        .threads(parallelism())
-        .spawn_bfs()
-        .join();
-        println!(
-            "{label}: {} unique states, {:?}",
-            checker.unique_state_count(),
-            start.elapsed()
-        );
-    }
 }
 
 /// Deadline cancellation as atomic replacement, with no failures in the
@@ -672,10 +574,7 @@ fn deadline_cancellation_by_replacement_is_safe_and_live() {
         cancels: 2,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("deadline_cancellation_by_replacement_is_safe_and_live")
     .assert_properties();
 }
 
@@ -701,10 +600,7 @@ fn cancellation_with_live_owner_reaffirms_and_resumes() {
         reads: 0,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("cancellation_with_live_owner_reaffirms_and_resumes")
     .assert_properties();
 }
 
@@ -720,10 +616,7 @@ fn cancellation_with_dead_owner_replaces_atomically() {
         cancels: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("cancellation_with_dead_owner_replaces_atomically")
     .assert_properties();
 }
 
@@ -740,10 +633,7 @@ fn rejoin_two_partitions_without_cancellation() {
         reads: 0,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("rejoin_two_partitions_without_cancellation")
     .assert_properties();
 }
 
@@ -768,10 +658,7 @@ fn epoch_fenced_under_cancellation_is_safe_and_live() {
         cancels: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("epoch_fenced_under_cancellation_is_safe_and_live")
     .assert_properties();
 }
 
@@ -798,10 +685,7 @@ fn fencing_and_lease_gated_reads_together_close_the_double_zombie() {
     };
     let stale_reads = |variant, gated| {
         cfg(variant, gated)
-            .checker()
-            .threads(parallelism())
-            .spawn_bfs()
-            .join()
+            .explore("fencing_and_lease_gated_reads_together_close_the_double_zombie")
             .discovery("strong_reads_complete")
             .is_some()
     };
@@ -835,10 +719,7 @@ fn a_lease_gated_fleet_is_safe_and_live() {
         zombie_window: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join()
+    .explore("a_lease_gated_fleet_is_safe_and_live")
     .assert_properties();
 }
 
@@ -866,10 +747,7 @@ fn a_lapsed_claim_that_never_returns_fails_stability() {
         zombie_window: 1,
         ..base()
     }
-    .checker()
-    .threads(parallelism())
-    .spawn_bfs()
-    .join();
+    .explore("a_lapsed_claim_that_never_returns_fails_stability");
     assert!(
         checker.discovery("converges_to_stable").is_some(),
         "an owner that refuses its own reads while looking alive to the coordinator \
@@ -897,10 +775,7 @@ fn prompt_detection_is_what_makes_the_read_gate_hold() {
             zombie_window: 1,
             ..base()
         }
-        .checker()
-        .threads(parallelism())
-        .spawn_bfs()
-        .join()
+        .explore("prompt_detection_is_what_makes_the_read_gate_hold")
         .discovery("strong_reads_complete")
         .is_some()
     };
