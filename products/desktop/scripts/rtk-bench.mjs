@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Benchmark of the RTK rewrite policy: candidate (working tree) vs baseline
-// (main's policy, materialized via `git show`) vs raw, on a fixed command
-// corpus against this repo's own files. Both arms apply the REAL
+// Stress benchmark of the RTK rewrite policy: candidate (working tree) vs
+// baseline (main's policy, materialized via `git show`) vs raw, on a fixed
+// command corpus against this repo's own files. Both arms apply the REAL
 // `rewriteBashForRtk` (imported via tsx), so policy drift between bench and
 // production is impossible, and the reported delta is candidate-vs-baseline —
 // the net policy gain — not candidate-vs-raw.
@@ -13,7 +13,9 @@
 // a rewrite that errors into empty output registers as a REGRESSION, never as
 // savings; a baseline-only failure is a main bug the candidate fixed.
 //
-// SCOPE — what this bench does and does not prove. Token figures are
+// SCOPE — what this bench does and does not prove. The corpus intentionally
+// overrepresents large compressible commands and is not a production-traffic
+// estimate. Token figures are
 // bytes/4 over stdout+stderr, a size heuristic comparable to `rtk gain`, NOT
 // provider tokenizer counts. The corpus is fixed and NOT usage-weighted, and
 // the bench measures command output only: no prompt-guidance overhead, no
@@ -221,9 +223,7 @@ function resolveBaselineRef() {
         stdio: "pipe",
       });
       return ref;
-    } catch {
-      // Try the next ref.
-    }
+    } catch {}
   }
   console.error(
     "Neither `main` nor `origin/main` resolves here (shallow or detached checkout?) — cannot materialize the baseline policy arm.",
@@ -249,7 +249,6 @@ function materializeBaselinePolicy() {
   return path.join(dir, "session", "rtk.ts");
 }
 
-// One tsx eval applies both real policies to the whole corpus.
 function applyPolicies(commands) {
   const baselineModule = materializeBaselinePolicy();
   const script = `
@@ -316,8 +315,6 @@ const total = (pick) => rows.reduce((s, r) => s + pick(r), 0);
 const totalRaw = total((r) => r.rawTokens);
 const totalBase = total((r) => r.base.tokens);
 const totalCand = total((r) => r.cand.tokens);
-// A candidate-only failure is a regression this PR would ship — hard fail.
-// A baseline failure the candidate fixed is evidence, not an error.
 const regressions = rows.filter((r) => r.cand.issues.length);
 const preexisting = rows.filter(
   (r) => r.base.issues.length && !r.cand.issues.length,
@@ -329,7 +326,7 @@ if (process.argv.includes("--json")) {
   );
 } else {
   console.log(
-    "RTK Bench -- raw vs baseline(main) vs candidate; tokens = bytes/4 heuristic",
+    "RTK stress bench -- raw vs baseline(main) vs candidate; tokens = bytes/4 heuristic",
   );
   console.log("=".repeat(78));
   for (const r of rows) {
