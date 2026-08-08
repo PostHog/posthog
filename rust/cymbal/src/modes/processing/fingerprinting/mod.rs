@@ -86,6 +86,10 @@ pub enum FingerprintVersion {
     // line/column, and normalizes volatile path and message tokens. Selected by an offline
     // research loop: pairwise F1 0.40 vs 0.26 for V1 on a held-out LLM-labeled pair dataset.
     V2,
+    // V2 plus one message rule: mask standalone one-character identifiers. A minified local
+    // reads as `b`, `_`, `z` or `A` across builds, so the same crash forked into one issue per
+    // build; masking it collapses them without merging distinct crashes.
+    V3,
 }
 
 impl FingerprintVersion {
@@ -102,6 +106,7 @@ impl FingerprintVersion {
             FingerprintVersion::V1,
             FingerprintVersion::V2Legacy,
             FingerprintVersion::V2,
+            FingerprintVersion::V3,
         ]
     }
 
@@ -111,6 +116,7 @@ impl FingerprintVersion {
             FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
+            FingerprintVersion::V3 => "v3",
         }
     }
 
@@ -148,9 +154,18 @@ impl FingerprintVersion {
                     mask_quoted: true,
                     mask_hex_ids: true,
                     mask_numbers: true,
+                    mask_minified_idents: false,
                     truncate: Some(200),
                 },
             },
+            // V3 tracks V2 and adds the minified-identifier mask. It has no legacy twin: legacy
+            // twins only re-match issues keyed before wire-order normalization, and no V3 issue
+            // predates that flip.
+            FingerprintVersion::V3 => {
+                let mut strategy = FingerprintVersion::V2.strategy();
+                strategy.message_normalize.mask_minified_idents = true;
+                strategy
+            }
         }
     }
 }
@@ -263,6 +278,8 @@ pub struct MessageNormalization {
     pub mask_hex_ids: bool,
     // digit runs (incl. decimals) -> '#' (counts, ports, durations, errnos)
     pub mask_numbers: bool,
+    // standalone one-character identifiers -> '*' (minified variable names)
+    pub mask_minified_idents: bool,
     // keep only the first N chars (huge payloads embedded in messages)
     pub truncate: Option<usize>,
 }
@@ -270,10 +287,12 @@ pub struct MessageNormalization {
 static QUOTED_TOKEN: OnceLock<Regex> = OnceLock::new();
 static HEX_ID_TOKEN: OnceLock<Regex> = OnceLock::new();
 static NUMBER_TOKEN: OnceLock<Regex> = OnceLock::new();
+static MINIFIED_IDENT_TOKEN: OnceLock<Regex> = OnceLock::new();
 
 impl MessageNormalization {
     fn is_noop(&self) -> bool {
-        !(self.mask_quoted || self.mask_hex_ids || self.mask_numbers) && self.truncate.is_none()
+        !(self.mask_quoted || self.mask_hex_ids || self.mask_numbers || self.mask_minified_idents)
+            && self.truncate.is_none()
     }
 
     fn apply<'a>(&self, value: &'a str) -> Cow<'a, str> {
@@ -299,6 +318,24 @@ impl MessageNormalization {
         if self.mask_numbers {
             let re = NUMBER_TOKEN.get_or_init(|| Regex::new(r"\d+(\.\d+)?").expect("valid regex"));
             out = re.replace_all(&out, "#").into_owned();
+        }
+        if self.mask_minified_idents {
+            // Minifiers rename a local to a single character, so one crash reads as `b`, `_`, `z`
+            // or `A` across builds and forks the issue. Mask a standalone one-character
+            // identifier only; two-or-more-character tokens (real words, property names) stay,
+            // which keeps distinct crashes apart. (The regex crate has no lookahead, so the
+            // length test lives in the replacer, like the chunk-hash rule above.)
+            let re = MINIFIED_IDENT_TOKEN
+                .get_or_init(|| Regex::new(r"[A-Za-z_$][A-Za-z0-9_$]*").expect("valid regex"));
+            out = re
+                .replace_all(&out, |caps: &regex::Captures| {
+                    if caps[0].chars().count() == 1 {
+                        "*".to_string()
+                    } else {
+                        caps[0].to_string()
+                    }
+                })
+                .into_owned();
         }
         if let Some(n) = self.truncate {
             if let Some((idx, _)) = out.char_indices().nth(n) {
@@ -800,6 +837,50 @@ mod test {
                 "V2 should merge {msg_a:?} vs {msg_b:?}"
             );
         }
+    }
+
+    #[test]
+    fn v3_masks_minified_single_char_identifiers() {
+        // The same crash reaches us with a different minified local per build, so its message
+        // reads `b`, `_`, `z`, `D`, `F` or `A`. V2 forks one issue per build; V3 collapses them.
+        let msg = |ident: &str| format!("can't access property \"message\", {ident} is undefined");
+        let v3 = |ident: &str| {
+            value(
+                FingerprintVersion::V3,
+                vec![exception("TypeError", &msg(ident), None)],
+            )
+        };
+        for ident in ["_", "z", "D", "F", "A"] {
+            assert_eq!(v3("b"), v3(ident), "V3 should merge b vs {ident}");
+        }
+        // V2 splits the same variants — the defect V3 fixes.
+        assert_ne!(
+            value(
+                FingerprintVersion::V2,
+                vec![exception("TypeError", &msg("b"), None)]
+            ),
+            value(
+                FingerprintVersion::V2,
+                vec![exception("TypeError", &msg("z"), None)]
+            ),
+        );
+    }
+
+    #[test]
+    fn v3_keeps_distinct_multichar_identifiers_apart() {
+        // The over-merge guard: masking only single-character tokens, so crashes that differ by
+        // a real multi-character identifier stay in separate issues.
+        let msg = |ident: &str| format!("{ident} is not a function");
+        assert_ne!(
+            value(
+                FingerprintVersion::V3,
+                vec![exception("TypeError", &msg("renderList"), None)]
+            ),
+            value(
+                FingerprintVersion::V3,
+                vec![exception("TypeError", &msg("loadUser"), None)]
+            ),
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
 use common_types::error_tracking::FrameId;
 use common_types::ClickHouseEvent;
-use cymbal::fingerprinting::Fingerprint;
+use cymbal::fingerprinting::{Fingerprint, FingerprintVersion};
 use cymbal::frames::Frame;
 use cymbal::types::{Exception, RawExceptionProperties, Stacktrace};
 
@@ -60,6 +60,11 @@ fn resolved_stack(frames: Vec<Frame>) -> Option<Stacktrace> {
 
 fn snapshot(name: &str, exceptions: Vec<Exception>) {
     let fingerprint = Fingerprint::from_exception_list(&exceptions.into());
+    insta::assert_json_snapshot!(name, fingerprint);
+}
+
+fn snapshot_version(name: &str, version: FingerprintVersion, exceptions: Vec<Exception>) {
+    let fingerprint = version.compute(&exceptions.into());
     insta::assert_json_snapshot!(name, fingerprint);
 }
 
@@ -234,6 +239,22 @@ fn golden_chained_exceptions() {
             ),
             exception("RootError", "root cause", None),
         ],
+    );
+}
+
+#[test]
+fn golden_v3_masks_minified_message_identifier() {
+    // Firefox embeds the minified local in the message (`b is undefined`), and the name changes
+    // per build (`b`, `_`, `z`, `A`, ...), so one crash forked into many issues. V3 masks the
+    // one-character identifier; the pinned `record` shows the normalized message.
+    snapshot_version(
+        "v3_minified_message_identifier",
+        FingerprintVersion::V3,
+        vec![exception(
+            "TypeError",
+            "can't access property \"message\", b is undefined",
+            None,
+        )],
     );
 }
 
