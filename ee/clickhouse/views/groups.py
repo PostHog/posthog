@@ -334,7 +334,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 distinct_id=str(self.team.uuid),
                 timestamp=timezone.now(),
                 properties=properties,
-                process_person_profile=False,
+                # $groupidentify mutates group state, so person processing must stay on.
+                # With it off, the ingestion pipeline treats the event as an invalid
+                # identity event and drops it silently.
+                process_person_profile=True,
             )
             result.raise_for_status()
         except CaptureInternalError as error:
@@ -700,7 +703,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                     distinct_id=team_uuid_as_distinct_id,
                     timestamp=timestamp,
                     properties=properties,
-                    process_person_profile=False,
+                    # This event also mutates group state via $group_unset. Keep person
+                    # processing on so the pipeline does not drop it if the event is ever
+                    # renamed into the identity-event list.
+                    process_person_profile=True,
                 )
                 routed_result.raise_for_status()
 
