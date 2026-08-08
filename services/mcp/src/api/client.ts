@@ -10,7 +10,7 @@ import {
     PostHogRateLimitError,
     PostHogValidationError,
 } from '@/lib/errors'
-import { getSearchParamsFromRecord, sanitizeHeaders } from '@/lib/utils.js'
+import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
     ApiOAuthIntrospection,
@@ -169,8 +169,12 @@ export class ApiClient {
             // which can still hold a name written before the ingest sanitizer covered it. A
             // character above U+00FF makes the runtime throw converting headers to a
             // ByteString, failing the API call itself — losing attribution detail is cheaper.
+            // The composed User-Agent stays out of the batch below: sanitizing it whole would
+            // truncate at the value cap and could slice off our own trailing token, so the
+            // client-supplied input is sanitized before composition instead. The other parts
+            // are code constants and an ASCII-only regex match, already header-safe.
+            'User-Agent': getUserAgent({ clientUserAgent: sanitizeHeaderValue(this.config.clientUserAgent) }),
             ...sanitizeHeaders({
-                'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
                 // Forward the originating client's User-Agent as a custom header so the
                 // PostHog API can attach it to analytics events for MCP source attribution.
                 'x-posthog-mcp-user-agent': this.config.clientUserAgent,

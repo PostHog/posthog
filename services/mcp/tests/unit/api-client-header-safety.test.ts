@@ -21,7 +21,7 @@ describe('ApiClient header safety', () => {
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ id: 2, name: 'test project' }))
         })
-        await new Promise<void>((resolve) => server.listen(0, resolve))
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
     })
 
