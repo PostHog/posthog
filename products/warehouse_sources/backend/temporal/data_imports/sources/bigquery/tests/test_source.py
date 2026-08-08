@@ -779,6 +779,24 @@ def test_bigquery_unrecognized_column_name_is_non_retryable(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # A single enabled column renamed/dropped from the source table (direct-read path).
+        "request failed: The following selected fields do not exist in the table schema: FOO",
+        # Multiple columns — the match must not rely on the specific field names or their count.
+        "request failed: The following selected fields do not exist in the table schema: FOO, BAR, BAZ",
+    ],
+)
+def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
+    """A column selected for syncing via the Storage Read API's direct-read path that was renamed
+    or dropped from the live table makes every retry fail identically."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Missing selected-fields error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
