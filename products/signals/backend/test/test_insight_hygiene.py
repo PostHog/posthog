@@ -1,39 +1,24 @@
-"""Test suite for the insight-hygiene scout. Three layers:
+"""Test suite for the insight-hygiene scout. Two layers:
 
-1. **Scenario corpus**. Named (name, description, query) cases with an expected verdict and
-   action. The corpus runs through the mechanical rule engine in
+1. **Scenario corpus**. Named (name, description, query) cases with an expected verdict,
+   confusion flag, and mechanical suggestion. The corpus runs through the rule engine in
    `products/signals/backend/scout_harness/insight_hygiene.py`. The scout's
    `references/queries.md` states the same rules. This is the behavioral contract: every
    confusing shape the scout must catch, and every clean shape it must leave alone.
-2. **Scope wiring**. The `update_insights` allowed-tool opt-in is the only way a scout token
-   gains `insight:write`. Covers the skill-loader mapping, its scope validation, and the
-   runner's sandbox posture end to end.
-3. **Static skill tests**. The SKILL.md must parse. It must carry the opt-in and the required
-   anatomy sections. Its bundled `references/queries.md` must exist. The body must still state
-   the mechanical rules the corpus asserts. This keeps the prompt and the tested rules from
-   drifting apart silently.
+2. **Static skill tests**. The SKILL.md must parse. It must stay report-only (no user-write
+   opt-ins) and keep the required anatomy sections. Its bundled `references/queries.md` must
+   exist. The body must still state the mechanical rules the corpus asserts. This keeps the
+   prompt and the tested rules from drifting apart silently.
 """
 
 from __future__ import annotations
 
 import re
-import random
 from pathlib import Path
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from django.apps import apps
 from django.test import SimpleTestCase
 
-import pytest_asyncio
-from asgiref.sync import sync_to_async
 from parameterized import parameterized
-
-from posthog.models import Organization, Team
-from posthog.models.scoping import team_scope
-from posthog.sync import database_sync_to_async
-from posthog.temporal.oauth import MCP_WRITE_SCOPES
 
 from products.signals.backend.scout_harness.insight_hygiene import (
     Action,
@@ -52,12 +37,6 @@ from products.signals.backend.scout_harness.insight_hygiene import (
     suggest_renamed_name,
 )
 from products.signals.backend.scout_harness.lazy_seed import discover_canonical_skills
-from products.signals.backend.scout_harness.runner import arun_signals_scout
-from products.signals.backend.scout_harness.skill_loader import (
-    OPT_IN_USER_WRITE_TOOLS,
-    skill_opted_in_user_write_scopes,
-)
-from products.skills.backend.models.skills import LLMSkill
 
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 SKILL_DIR = SKILLS_DIR / "signals-scout-insight-hygiene"
@@ -98,7 +77,7 @@ SCENARIOS = [
         None,
         None,
         True,
-        Action.RENAME,
+        Action.REPORT,
         "Pageviews (last 30 days)",
     ),
     (
@@ -109,7 +88,7 @@ SCENARIOS = [
         None,
         None,
         True,
-        Action.RENAME,
+        Action.REPORT,
         "Signups (last 90 days)",
     ),
     (
@@ -120,7 +99,7 @@ SCENARIOS = [
         None,
         None,
         True,
-        Action.RENAME,
+        Action.REPORT,
         "All pageviews, last 14d",
     ),
     # --- window claim matching the query → clean
@@ -382,7 +361,7 @@ SCENARIOS = [
         legacy_filters(["$pageview"], "-30d"),
         None,
         True,
-        Action.RENAME,
+        Action.REPORT,
         "Pageviews (last 30 days)",
     ),
     (
@@ -419,7 +398,7 @@ SCENARIOS = [
         None,
         None,
         True,
-        Action.RENAME,
+        Action.REPORT,
         "Pageviews (last 30 days)",
     ),
     (
@@ -487,8 +466,8 @@ class TestScenarioCorpus(SimpleTestCase):
         assert assessment.action == expected_action, (
             f"{case_name}: action={assessment.action} reason={assessment.reason!r}"
         )
-        if expected_action == Action.RENAME:
-            assert assessment.suggested_name is not None, f"{case_name}: a rename verdict must carry a suggestion"
+        if expected_suggested is not None:
+            assert assessment.suggested_name is not None, f"{case_name}: expected a mechanical suggestion"
         if expected_suggested is not None:
             assert assessment.suggested_name == expected_suggested, f"{case_name}: {assessment.suggested_name!r}"
 
@@ -496,11 +475,11 @@ class TestScenarioCorpus(SimpleTestCase):
         names = [s[0] for s in SCENARIOS]
         assert len(names) == len(set(names))
 
-    def test_renames_change_only_the_day_count(self) -> None:
-        """Every suggested rename must differ from the original title by the digit run only.
-        A rename that restructures the title is taste, not mechanics."""
-        for _, name, _desc, query, legacy, known, _conf, action, suggested in SCENARIOS:
-            if action != Action.RENAME or suggested is None:
+    def test_suggested_titles_change_only_the_day_count(self) -> None:
+        """Every suggested replacement title must differ from the original title by the digit
+        run only. A suggestion that restructures the title is taste, not mechanics."""
+        for _, name, _desc, query, legacy, known, _conf, _action, suggested in SCENARIOS:
+            if suggested is None:
                 continue
             a = assess_insight(name=name, description=None, query_json=query, legacy_filters=legacy, known_events=known)
             assert a.suggested_name == suggested
@@ -630,190 +609,6 @@ class TestRuleEngineUnits(SimpleTestCase):
 
 
 # ---------------------------------------------------------------------------
-# 2. Scope wiring
-# ---------------------------------------------------------------------------
-
-
-class TestUpdateInsightsOptIn(SimpleTestCase):
-    def test_report_tools_without_update_insights_get_no_scope(self) -> None:
-        assert skill_opted_in_user_write_scopes(["emit_report", "edit_report"]) == []
-
-    def test_update_insights_maps_to_insight_write(self) -> None:
-        assert skill_opted_in_user_write_scopes(["emit_report", "edit_report", "update_insights"]) == ["insight:write"]
-
-    def test_unknown_allowed_tools_are_ignored(self) -> None:
-        assert skill_opted_in_user_write_scopes(["delete_everything"]) == []
-
-    def test_custom_and_diverged_skills_get_no_user_write_scope(self) -> None:
-        # The security gate: `allowed_tools` is member-editable through the generic skills API,
-        # so only a pristine canonical skill (origin == "canonical") may hold `insight:write`.
-        # A custom scout, or a canonical row the team edited in place (both classify as custom),
-        # gets nothing even when it lists the opt-in tool.
-        assert (
-            skill_opted_in_user_write_scopes(["emit_report", "edit_report", "update_insights"], origin="custom") == []
-        )
-        # Origin omitted: default keeps historical callers on the pristine-canonical path.
-        assert skill_opted_in_user_write_scopes(["update_insights"], origin="any-garbage") == []
-
-    def test_opt_in_map_targets_only_advertised_scopes(self) -> None:
-        for tool, scope in OPT_IN_USER_WRITE_TOOLS.items():
-            assert scope in MCP_WRITE_SCOPES, f"{tool} → {scope} is not an advertised MCP write scope"
-
-    def test_bad_map_entry_fails_loud_at_resolution_time(self) -> None:
-        # The map is repo-controlled, but if a future edit points it at a scope the MCP server
-        # doesn't advertise, resolution must raise one hop from the runner rather than minting a
-        # token carrying a scope nothing understands.
-        with patch.dict(OPT_IN_USER_WRITE_TOOLS, {"bad_tool": "planet:destroy"}):
-            with pytest.raises(ValueError, match="not an advertised MCP write scope"):
-                skill_opted_in_user_write_scopes(["bad_tool"])
-
-
-# `resolve_scopes`' preset-plus-extras resolution, validation, and `has_write_scopes` posture
-# are covered in `posthog/temporal/tests/test_oauth.py` (the canonical scope-test home).
-
-# --- runner wiring: the opt-in must reach the sandbox context end-to-end ----------
-
-
-@pytest_asyncio.fixture
-async def aorganization():
-    organization = await sync_to_async(Organization.objects.create)(
-        name=f"InsightHygieneTestOrg-{random.randint(1, 99999)}",
-        is_ai_data_processing_approved=True,
-    )
-    yield organization
-    await sync_to_async(organization.delete)()
-
-
-@pytest_asyncio.fixture
-async def ateam(aorganization):
-    team = await sync_to_async(Team.objects.create)(
-        organization=aorganization,
-        name=f"InsightHygieneTestTeam-{random.randint(1, 99999)}",
-    )
-    with team_scope(team.id, canonical=True):
-        yield team
-    await sync_to_async(team.delete)()
-
-
-def _make_fake_session(team: Team) -> tuple[MagicMock, MagicMock]:
-    """Build the (session, result) pair that `MultiTurnSession.start` returns. The session
-    carries a saved task_run, so the bridge insert (an FK requirement) succeeds."""
-    Task = apps.get_model("tasks", "Task")
-    TaskRun = apps.get_model("tasks", "TaskRun")
-    task = Task.objects.create(
-        team=team,
-        title="scout run",
-        description="scout run",
-        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
-    )
-    task_run = TaskRun.objects.create(task=task, team=team)
-    session = MagicMock()
-    session.task_run = task_run
-    session.end = AsyncMock()
-    result = MagicMock()
-    result.summary = "quiet"
-    return session, result
-
-
-async def _capture_mcp_scopes(ateam: Team, *, allowed_tools: list[str], origin: str = "canonical") -> object:
-    """Run one scout with a fake session and capture the `posthog_mcp_scopes` the runner put in
-    the sandbox context. The skill load is stubbed so a test can pick the loaded skill's origin
-    directly (origin computation itself is covered by the loader and lazy_seed suites)."""
-    from products.signals.backend.scout_harness import runner as runner_mod
-    from products.signals.backend.scout_harness.skill_loader import LoadedSkill
-
-    skill = await sync_to_async(LLMSkill.objects.create)(
-        team=ateam,
-        name=f"signals-scout-hygiene-test-{random.randint(1, 99999)}",
-        description="test scout",
-        body="scout",
-        allowed_tools=allowed_tools,
-    )
-
-    def _fake_load_skill_for_run(*args, **kwargs) -> LoadedSkill:
-        return LoadedSkill(
-            name=skill.name,
-            version=1,
-            body="scout",
-            description="test scout",
-            allowed_tools=list(allowed_tools),
-            files=[],
-            skill_id=str(skill.id),
-            origin=origin,  # type: ignore[arg-type]
-            authors=[],
-        )
-
-    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
-    captured: dict = {}
-    original_context = runner_mod.CustomPromptSandboxContext
-
-    def _capturing_context(**kwargs):
-        captured.update(kwargs)
-        return original_context(**kwargs)
-
-    async def _fake_start(*args, on_task_run_created=None, **kwargs):
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
-        return session, result
-
-    with (
-        patch.object(runner_mod, "CustomPromptSandboxContext", side_effect=_capturing_context),
-        patch.object(runner_mod, "load_skill_for_run", side_effect=_fake_load_skill_for_run),
-        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_fake_start),
-        patch(
-            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
-            return_value="env-id",
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
-            return_value=42,
-        ),
-    ):
-        await arun_signals_scout(team_id=ateam.id, skill_name=skill.name)
-    return captured.get("posthog_mcp_scopes")
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_opted_in_scout_gets_insight_write_on_top_of_report_posture(ateam):
-    # The runner resolves the scout preset through the public resolve_scopes API and appends
-    # the opt-in scope. The shared OAuth token code only ever sees a plain list.
-    from posthog.temporal.oauth import resolve_scopes
-
-    scopes = await _capture_mcp_scopes(ateam, allowed_tools=["emit_report", "edit_report", "update_insights"])
-    assert scopes == [*resolve_scopes("signals_scout_reports"), "insight:write"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_scout_without_opt_in_keeps_the_bare_preset(ateam):
-    scopes = await _capture_mcp_scopes(ateam, allowed_tools=["emit_report", "edit_report"])
-    assert scopes == "signals_scout_reports"
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_opt_in_also_applies_to_non_report_scouts(ateam):
-    from posthog.temporal.oauth import resolve_scopes
-
-    scopes = await _capture_mcp_scopes(ateam, allowed_tools=["update_insights"])
-    assert scopes == [*resolve_scopes("signals_scout"), "insight:write"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_custom_or_diverged_skill_cannot_hold_the_write_scope(ateam):
-    # The confused-deputy gate: a member can edit any scout skill's body and `allowed_tools`
-    # through the generic skills API. A loaded skill classified as custom (hand-authored, or a
-    # diverged seeded row) must therefore get the bare preset even when it lists the opt-in
-    # tool. The MCP catalog then lacks `insight-update` and the run degrades to read + reports.
-    scopes = await _capture_mcp_scopes(
-        ateam, allowed_tools=["emit_report", "edit_report", "update_insights"], origin="custom"
-    )
-    assert scopes == "signals_scout_reports"
-
-
-# ---------------------------------------------------------------------------
 # 3. Static skill tests
 # ---------------------------------------------------------------------------
 
@@ -832,9 +627,10 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
         assert (SKILL_DIR / "SKILL.md").is_file()
         assert (SKILL_DIR / "references" / "queries.md").is_file()
 
-    def test_frontmatter_opts_into_report_channel_and_insight_write(self) -> None:
-        assert sorted(self.canonical.allowed_tools) == ["edit_report", "emit_report", "update_insights"]
-        assert skill_opted_in_user_write_scopes(list(self.canonical.allowed_tools)) == ["insight:write"]
+    def test_frontmatter_opts_into_the_report_channel_only(self) -> None:
+        # Report-only by design: the scout suggests fixes; humans apply them. No user-write
+        # tools may appear in the frontmatter.
+        assert sorted(self.canonical.allowed_tools) == ["edit_report", "emit_report"]
 
     def test_frontmatter_description_stands_alone(self) -> None:
         assert self.canonical.description

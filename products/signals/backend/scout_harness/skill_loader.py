@@ -20,60 +20,6 @@ SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
 # and the viewset fail-closes the write on it (`views.py`). Keep them resolving the same set.
 REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
 
-# Per-skill opt-in user-facing WRITE scopes.
-# A skill lists one of these tool names in `allowed_tools` to request the mapped scope.
-# This mirrors the report-channel opt-in, but grants ordinary product writes.
-# Scopes already in the fleet-wide `SCOUT_USER_WRITE_SCOPES` need no opt-in.
-# The runner adds the mapped scope to the sandbox token of the scout that asked.
-# Opt-ins only apply to a pristine canonical skill (`origin == "canonical"`): a seeded row
-# whose content hash still matches the repo copy. A custom or in-place-diverged skill can list
-# the same tool in `allowed_tools`, but the opt-in resolver hands back nothing for it. This is
-# the security gate: any project member with `llm_skill:write` can edit a skill's body and
-# `allowed_tools` through the generic skills API, so a member-editable declaration must never
-# mint a user-write scope. The canonical skill bodies are reviewed in the repo (including the
-# write's narrow purpose), and the sandbox token runs as the team's acting user, a confused
-# deputy if the steering body is member-controlled.
-#
-# The MCP server filters its tool catalog by token scope, so a scout without `insight:write`
-# never sees `insight-update`. The PostHog API re-checks the scope on the call.
-# Add an entry only when a scout genuinely needs that write unattended. The value must belong to
-# `MCP_WRITE_SCOPES`, or token resolution raises.
-OPT_IN_USER_WRITE_TOOLS: dict[str, str] = {
-    # Lets a scout fix a saved insight's name or description in place (the insight-hygiene scout).
-    # Grants the full `insight:write` object: create, update, and delete all surface.
-    # The skill body must restrict itself to metadata-only edits.
-    "update_insights": "insight:write",
-}
-
-
-def skill_opted_in_user_write_scopes(allowed_tools: list[str] | None, origin: str = "canonical") -> list[str]:
-    """The user-facing write scopes a skill requested in `allowed_tools`, in stable order.
-
-    Returns an empty list unless `origin` is `"canonical"`. A custom skill, or a canonical row
-    the team edited in place (both classify as custom), gets no user-write scope even when its
-    `allowed_tools` lists an opt-in tool. The MCP tool catalog then simply lacks the tool: the
-    run degrades to read-only + reports instead of holding a member-authored write privilege.
-
-    Validate each mapped scope against `MCP_WRITE_SCOPES` (imported lazily to keep the import
-    graph small). A bad entry in the repo-controlled map raises here, close to the runner,
-    instead of minting a token that carries a scope nothing understands.
-    """
-    from posthog.temporal.oauth import MCP_WRITE_SCOPES
-
-    if origin != "canonical":
-        return []
-    tools = set(allowed_tools or [])
-    resolved = []
-    for tool, scope in OPT_IN_USER_WRITE_TOOLS.items():
-        if tool not in tools:
-            continue
-        if scope not in MCP_WRITE_SCOPES:
-            raise ValueError(
-                f"OPT_IN_USER_WRITE_TOOLS maps {tool!r} to {scope!r}, which is not an advertised MCP write scope"
-            )
-        resolved.append(scope)
-    return resolved
-
 
 def skill_uses_report_channel(allowed_tools: list[str] | None) -> bool:
     """Whether a skill opted into the report-authoring channel via its `allowed_tools`."""

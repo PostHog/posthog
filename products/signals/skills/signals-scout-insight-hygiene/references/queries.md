@@ -91,7 +91,7 @@ Extract the strongest date-range claim from the name, then from the description.
 
 | Phrase shape                                   | Claim (`date_from` form)                        |
 | ---------------------------------------------- | ----------------------------------------------- |
-| "last/past N days", "N days", "14d / 7 d"      | `-Nd` (exact-day; rename-eligible)              |
+| "last/past N days", "N days", "14d / 7 d"      | `-Nd` (exact-day; substitution-eligible)       |
 | "last/past week·fortnight·month·quarter·year"  | `-1w` · `-2w` · `-1m` · `-1q` · `-1y`           |
 | "last/past N weeks·months·quarters·years·hours" | `-Nw/m/q/y/h`                                   |
 | "today", "this week·month·quarter·year"        | `-0dStart`, `-0wStart`, `-0mStart`, `-0qStart`, `-0yStart` |
@@ -101,10 +101,10 @@ Rules:
 
 - A claim that equals `date_from` (in canonical form) is clean.
 - Compare windows symbolically, not by string: `-2w` and "last 14 days" are the same window. Day equivalences: `w=7`, `m=30`, `y=365`. This mapping is fixed on purpose; a calendar-aware comparison would flip verdicts month to month.
-- A cadence claim is satisfied by any window **at least as long**. WAU over 90 days is still WAU. WAU over one day is stale: report it, never rename it.
+- A cadence claim is satisfied by any window **at least as long**. WAU over 90 days is still WAU. WAU over one day is stale: report it. No mechanical substitution exists for cadence names, so the fix column names the mismatch instead.
 - A claimed window on an all-time (`"all"`) insight is stale.
 - **Digit guard.** A window claim needs day-unit glue ("days" or "d"). Bare digits never claim a window. Runs of 3+ digits are identifiers ("2024", "404 errors", "project 725"), not dates.
-- **Rename-eligible** only for exact-day claims with an exact-day replacement. Substitute the phrase and keep the rest of the title identical. Example: `Pageviews (last 14 days)` + `date_from=-30d` → `Pageviews (last 30 days)`. Keep the shorthand style: `All pageviews, last 7d` + `-14d` → `All pageviews, last 14d`. `-Nw`, `-Nm`, and `-Ny` replacements rephrase as "last M days" using the fixed day equivalences. `*Start`, ISO, and all-time windows have no substitution: report them.
+- **Rename-eligible** only for exact-day claims with an exact-day replacement. The scout never applies the rename. It prints the substitution as the suggested fix in the report, and the human applies it with one edit. Substitute the phrase and keep the rest of the title identical. Example: `Pageviews (last 14 days)` + `date_from=-30d` → suggested fix "Rename to `Pageviews (last 30 days)`". Keep the shorthand style: `All pageviews, last 7d` + `-14d` → "Rename to `All pageviews, last 14d`". `-Nw`, `-Nm`, and `-Ny` replacements rephrase as "last M days" using the fixed day equivalences. `*Start`, ISO, and all-time windows have no substitution: the fix column describes the mismatch instead.
 
 ### 2. Stale event
 
@@ -127,10 +127,10 @@ The name matches `A vs B` and the query holds fewer than two series. Report-only
 
 ## Worked examples
 
-| Name                          | Query                                | Verdict  | Action                                   |
+| Name                          | Query                                | Verdict  | Fix column in the report                  |
 | ----------------------------- | ------------------------------------ | -------- | ---------------------------------------- |
-| Pageviews (last 14 days)      | -30d, `$pageview`                    | stale window | RENAME → "Pageviews (last 30 days)"  |
-| All pageviews, last 7d        | -14d, `$pageview`                    | stale window | RENAME → "All pageviews, last 14d" (shorthand stays shorthand) |
+| Pageviews (last 14 days)      | -30d, `$pageview`                    | stale window | "Rename to `Pageviews (last 30 days)`"  |
+| All pageviews, last 7d        | -14d, `$pageview`                    | stale window | "Rename to `All pageviews, last 14d`" (shorthand stays shorthand) |
 | Pageviews (last 30 days)      | -30d, `$pageview`                    | clean    | —                                        |
 | All pageviews, last 7d        | -7d, `$pageview`                     | clean    | —                                        |
 | Pageviews (last 14 days)      | -2w, `$pageview`                     | clean (equivalent window) | —                 |

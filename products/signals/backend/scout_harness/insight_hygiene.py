@@ -17,8 +17,8 @@ What the mechanical core covers (anything subtler stays LLM judgment):
   The code unwraps `query.source`. It also reads a bare source and legacy `filters` JSON.
   Match event mentions in the name ("pageviews", "sign ups", "$pageview") against the series.
 - Detect names that imply a comparison ("A vs B") when the query holds one series.
-- Suggest a mechanical new name only when the fix swaps the stale token for the value from the
-  query. Anything ambiguous downgrades to report-only.
+- Compute a mechanical replacement title when the fix only swaps the stale token for the value
+  from the query. The scout never edits the insight: the suggestion goes in the report.
 """
 
 from __future__ import annotations
@@ -38,8 +38,7 @@ class Verdict(str, Enum):
 
 class Action(str, Enum):
     NONE = "none"  # nothing wrong
-    RENAME = "rename"  # mechanical fix. The scout renames the title in place.
-    REPORT = "report"  # confusing, but the fix needs human judgment. List it in the report.
+    REPORT = "report"  # confusing. List it in the report, with the mechanical fix as a suggestion when one exists.
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +357,8 @@ def extract_date_from(query_json: dict[str, Any] | None, legacy_filters: dict[st
 def suggest_renamed_name(
     old_name: str, verdict: Verdict, *, claim: DateRangeClaim | None, date_from: str | None
 ) -> str | None:
-    """Build a strictly mechanical replacement title. None when the fix needs judgment.
+    """Build a strictly mechanical replacement title for the report's fix column. None when the
+    fix needs judgment.
 
     Only exact-day window claims qualify: swap the stale phrase for the query's actual window
     ("Pageviews (last 14 days)" becomes "Pageviews (last 30 days)"). Cadence claims and
@@ -407,8 +407,9 @@ def assess_insight(
     known_events: set[str] | None = None,
 ) -> InsightAssessment:
     """Score one saved insight for staleness of its name or description. The rules are
-    conservative: unknown shapes score OK instead of guessing, and a rename suggestion exists
-    only for a strictly mechanical token swap.
+    conservative: unknown shapes score OK instead of guessing. A suggested replacement name
+    exists only for a strictly mechanical token swap. The scout never edits the insight: every
+    finding lands in the report, and the suggestion goes in the fix column.
     """
     assessment = InsightAssessment()
 
@@ -422,11 +423,9 @@ def assess_insight(
         suggested = name and suggest_renamed_name(name, date_verdict, claim=claim, date_from=date_from)
         claim_text = f"name/description claims '{claim.matched}' ({claim.canonical()})" if claim else "claimed window"
         assessment.reason = f"{claim_text} but the query's date_from is {date_from!r}"
+        assessment.action = Action.REPORT
         if suggested and suggested != name:
-            assessment.action = Action.RENAME
             assessment.suggested_name = suggested
-        else:
-            assessment.action = Action.REPORT
         return assessment
 
     event_verdict = check_series_event(name, description, series, known_events=known_events)
