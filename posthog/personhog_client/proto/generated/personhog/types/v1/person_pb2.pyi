@@ -12,10 +12,32 @@ from google.protobuf import (
     descriptor as _descriptor,
     message as _message,
 )
-from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import (
+    containers as _containers,
+    enum_type_wrapper as _enum_type_wrapper,
+)
 from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class LifecycleOpType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    LIFECYCLE_OP_TYPE_UNSPECIFIED: _ClassVar[LifecycleOpType]
+    LIFECYCLE_OP_TYPE_DELETE: _ClassVar[LifecycleOpType]
+    LIFECYCLE_OP_TYPE_MERGE: _ClassVar[LifecycleOpType]
+
+class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RELEASE_OUTCOME_UNSPECIFIED: _ClassVar[ReleaseOutcome]
+    RELEASE_OUTCOME_COMMITTED: _ClassVar[ReleaseOutcome]
+    RELEASE_OUTCOME_ABORTED: _ClassVar[ReleaseOutcome]
+
+LIFECYCLE_OP_TYPE_UNSPECIFIED: LifecycleOpType
+LIFECYCLE_OP_TYPE_DELETE: LifecycleOpType
+LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType
+RELEASE_OUTCOME_UNSPECIFIED: ReleaseOutcome
+RELEASE_OUTCOME_COMMITTED: ReleaseOutcome
+RELEASE_OUTCOME_ABORTED: ReleaseOutcome
 
 class Person(_message.Message):
     __slots__ = (
@@ -30,6 +52,7 @@ class Person(_message.Message):
         "is_identified",
         "is_user_id",
         "last_seen_at",
+        "is_deleted",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     UUID_FIELD_NUMBER: _ClassVar[int]
@@ -42,6 +65,7 @@ class Person(_message.Message):
     IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
     IS_USER_ID_FIELD_NUMBER: _ClassVar[int]
     LAST_SEEN_AT_FIELD_NUMBER: _ClassVar[int]
+    IS_DELETED_FIELD_NUMBER: _ClassVar[int]
     id: int
     uuid: str
     team_id: int
@@ -53,6 +77,7 @@ class Person(_message.Message):
     is_identified: bool
     is_user_id: bool
     last_seen_at: int
+    is_deleted: bool
 
     def __init__(
         self,
@@ -67,6 +92,7 @@ class Person(_message.Message):
         is_identified: bool = ...,
         is_user_id: bool = ...,
         last_seen_at: _Optional[int] = ...,
+        is_deleted: bool = ...,
     ) -> None: ...
 
 class DistinctIdWithVersion(_message.Message):
@@ -493,3 +519,62 @@ class SetPersonVersionFloorResponse(_message.Message):
     updated: bool
 
     def __init__(self, updated: bool = ...) -> None: ...
+
+class FencePersonRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "op_id", "op_type")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    OP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    op_id: str
+    op_type: LifecycleOpType
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        op_id: _Optional[str] = ...,
+        op_type: _Optional[_Union[LifecycleOpType, str]] = ...,
+    ) -> None: ...
+
+class FencePersonResponse(_message.Message):
+    __slots__ = ("sealed",)
+    SEALED_FIELD_NUMBER: _ClassVar[int]
+    sealed: Person
+
+    def __init__(self, sealed: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
+
+class ReleaseFenceRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "person_uuid", "op_id", "outcome", "sealed_version", "created_at")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    SEALED_VERSION_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    person_uuid: str
+    op_id: str
+    outcome: ReleaseOutcome
+    sealed_version: int
+    created_at: int
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        person_uuid: _Optional[str] = ...,
+        op_id: _Optional[str] = ...,
+        outcome: _Optional[_Union[ReleaseOutcome, str]] = ...,
+        sealed_version: _Optional[int] = ...,
+        created_at: _Optional[int] = ...,
+    ) -> None: ...
+
+class ReleaseFenceResponse(_message.Message):
+    __slots__ = ()
+
+    def __init__(self) -> None: ...
