@@ -326,7 +326,6 @@ export class AgentPluginsService {
       );
       const updated: AgentPluginPersistedInstallation = {
         ...installation,
-        enabled: true,
         approvedStdioDigests,
       };
       await this.writeState({

@@ -1316,8 +1316,10 @@ describe("Agent Plugins skills support", () => {
       "Review and approve",
     );
     const approved = await service.approveStdio(installation.id);
-    expect(approved.enabled).toBe(true);
+    expect(approved.enabled).toBe(false);
     expect(approved.stdioApprovalRequired).toBe(false);
+    const enabled = await service.setEnabled(installation.id, true);
+    expect(enabled.enabled).toBe(true);
     await service.prepareRuntimeMcpServers("task-1", "run-2", new Set());
     const bridgeRegistration = vi.mocked(stdioBridge.register).mock
       .calls[0]?.[0];
