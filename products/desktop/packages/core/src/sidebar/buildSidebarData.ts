@@ -33,7 +33,30 @@ export interface SidebarTask {
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
+    /** "interactive" or "background"; see `readRunMode`. */
+    mode?: RunMode | null;
   } | null;
+}
+
+/**
+ * Whether anyone is expected to follow the run. The backend keeps an
+ * interactive run `in_progress` after it succeeds, on purpose — the session
+ * stays open for a follow-up, so that status is not a claim that work is
+ * happening. Only a background run is one-shot, and only its `in_progress`
+ * means the agent is still on it.
+ */
+export type RunMode = "interactive" | "background";
+
+/**
+ * The run's mode, off the untyped `state` bag the backend stores it in. It
+ * defaults to background there, so an absent value defaults the same way here.
+ */
+export function readRunMode(state: unknown): RunMode {
+  const mode =
+    state && typeof state === "object"
+      ? (state as { mode?: unknown }).mode
+      : undefined;
+  return mode === "interactive" ? "interactive" : "background";
 }
 
 // Accepts both the local `FullTask` shape and the canonical `Task` from
@@ -52,6 +75,7 @@ export function narrowFullTask(task: FullTask | Task): SidebarTask {
           status: task.latest_run.status,
           environment: task.latest_run.environment ?? null,
           output: task.latest_run.output ?? null,
+          mode: readRunMode(task.latest_run.state),
         }
       : null,
     origin_product: task.origin_product,
@@ -176,6 +200,7 @@ export function deriveTaskData(
     folderId: workspace?.folderId || undefined,
     taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
     taskRunEnvironment: task.latest_run?.environment ?? undefined,
+    runMode: task.latest_run?.mode ?? undefined,
     // The `latest_run` fallback only matters in the `showAllUsers` view: the
     // default view's `filterVisibleTasks` already restricts to tasks with a
     // local `workspace`, so a pure-cloud task without one only shows up there.
