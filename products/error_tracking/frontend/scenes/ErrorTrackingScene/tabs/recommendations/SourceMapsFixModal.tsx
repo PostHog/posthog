@@ -2,40 +2,113 @@ import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconCheckCircle, IconCopy, IconTerminal, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { CloudSetupLauncher, CloudSetupPreload, SourceMapsCloudSetup } from './SourceMapsCloudSetup'
+import { sourceMapsCloudSetupLogic } from './sourceMapsCloudSetupLogic'
 import { RATING_SCALE, sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
 import { WizardHog } from './sourceMapsWizardVisuals'
 
 export function SourceMapsFixModal(): JSX.Element {
     const { isModalOpen } = useValues(sourceMapsFixWizardLogic)
     const { closeModal } = useActions(sourceMapsFixWizardLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const canScanRepository = useFeatureFlag('ERROR_TRACKING_REPOSITORY_DETECTION') && !!isCloudOrDev
     const [castKey, setCastKey] = useState(0)
 
     return (
-        <LemonModal isOpen={isModalOpen} onClose={closeModal} width={540} simple>
-            <div className="relative">
-                <div className="flex flex-col items-center gap-2 px-6 pt-8 pb-6 text-center bg-[radial-gradient(ellipse_at_top_left,rgba(43,111,244,0.18),transparent_55%),radial-gradient(ellipse_at_bottom_right,rgba(255,101,31,0.16),transparent_55%)]">
-                    <WizardHog castKey={castKey} className="w-24 h-24" />
-                    <h3 className="text-xl font-bold mb-0">Readable stack traces in one command</h3>
+        <>
+            {canScanRepository && <CloudSetupPreload />}
+            <LemonModal isOpen={isModalOpen} onClose={closeModal} width={540} simple>
+                <div className="relative">
+                    {canScanRepository ? (
+                        <CloudSetupModalContent castKey={castKey} onCopy={setCastKey} />
+                    ) : (
+                        <>
+                            <WizardHero castKey={castKey} title="Readable stack traces in one command" />
+                            <div className="flex flex-col gap-3 px-6 pb-6 pt-2">
+                                <ManualCommandSection onCopy={setCastKey} />
+                                <WizardFeedbackSection />
+                            </div>
+                        </>
+                    )}
+                </div>
+            </LemonModal>
+        </>
+    )
+}
+
+// Mounts the cloud setup logic, so it only lives (and polls) while the flag is on and the
+// modal is open.
+function CloudSetupModalContent({ castKey, onCopy }: { castKey: number; onCopy: (key: number) => void }): JSX.Element {
+    const { step } = useValues(sourceMapsCloudSetupLogic)
+
+    return (
+        <>
+            <WizardHero castKey={castKey} title="Readable stack traces in a few clicks" minimal={step !== 'intro'} />
+            {step === 'intro' ? (
+                <div className="flex flex-col gap-3 px-6 pb-6 pt-2">
+                    <CloudSetupLauncher />
+                    <OrDivider />
+                    <ManualCommandSection onCopy={onCopy} />
+                    <WizardFeedbackSection />
+                </div>
+            ) : (
+                <SourceMapsCloudSetup />
+            )}
+        </>
+    )
+}
+
+function WizardHero({
+    castKey,
+    title,
+    minimal = false,
+}: {
+    castKey: number
+    title: string
+    minimal?: boolean
+}): JSX.Element {
+    return (
+        <div className="flex flex-col items-center gap-2 px-6 pt-8 pb-6 text-center bg-[radial-gradient(ellipse_at_top_left,rgba(43,111,244,0.18),transparent_55%),radial-gradient(ellipse_at_bottom_right,rgba(255,101,31,0.16),transparent_55%)]">
+            <WizardHog castKey={castKey} className="w-24 h-24" />
+            {!minimal && (
+                <>
+                    <h3 className="text-xl font-bold mb-0">{title}</h3>
                     <p className="text-secondary text-sm mb-0 max-w-sm">
                         The wizard detects your framework, sets up automatic source map uploads in your project, and
                         verifies everything works.
                     </p>
-                </div>
-                <div className="flex flex-col gap-3 px-6 pb-6 pt-2">
-                    <div className="flex justify-center">
-                        <WizardCommand onCopy={setCastKey} />
-                    </div>
-                    <p className="text-xs text-muted text-center mb-0">Run it in your project's root directory</p>
-                    <WizardFeedbackSection />
-                </div>
+                </>
+            )}
+        </div>
+    )
+}
+
+function OrDivider(): JSX.Element {
+    return (
+        <div className="flex items-center gap-3">
+            <LemonDivider className="flex-1 my-0" />
+            <span className="text-xs text-muted">or</span>
+            <LemonDivider className="flex-1 my-0" />
+        </div>
+    )
+}
+
+function ManualCommandSection({ onCopy }: { onCopy: (key: number) => void }): JSX.Element {
+    return (
+        <>
+            <div className="flex justify-center">
+                <WizardCommand onCopy={onCopy} />
             </div>
-        </LemonModal>
+            <p className="text-xs text-muted text-center mb-0">Run it in your project's root directory</p>
+        </>
     )
 }
 
