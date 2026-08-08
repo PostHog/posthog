@@ -88,5 +88,4 @@ Stdio processes receive a minimal host environment needed to find executables an
 
 - Only local directory installation is available.
 - Legacy SSE MCP transport is skipped with a diagnostic.
-- Agent Plugins does not define portable commands, hooks, or agents. PostHog Desktop does not load those components from a portable plugin.
 - Plugin updates and registries are not supported. Edit or update the source directory directly.
