@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.http import HttpResponse
 from django.shortcuts import redirect
+from django.utils import timezone
 
 import requests
 import structlog
@@ -180,6 +181,11 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     def validate_end_date(self, value: Optional[str]) -> Optional[str]:
         """Validate and normalize the end_date."""
         return self._parse_date(value, "end_date")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["end_date"] = timezone.now().date().isoformat()
+        return attrs
 
     def validate_usage_types(self, value: Optional[str]) -> Optional[str]:
         if not value:

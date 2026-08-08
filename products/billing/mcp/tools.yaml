@@ -158,9 +158,13 @@ tools:
             specific products or teams.
         param_overrides:
             start_date:
-                description: Start date (YYYY-MM-DD), or "all" for earliest available data.
+                description: >
+                    Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as
+                    the last 30 days. If you use "all", also pass end_date.
             end_date:
-                description: End date (YYYY-MM-DD), inclusive.
+                description: >
+                    End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user
+                    did not name one.
             team_ids:
                 description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
             usage_types:
@@ -207,9 +211,13 @@ tools:
             for cost (spend) breakdowns call billing-spend-retrieve.
         param_overrides:
             start_date:
-                description: Start date (YYYY-MM-DD), or "all" for earliest available data.
+                description: >
+                    Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as
+                    the last 30 days. If you use "all", also pass end_date.
             end_date:
-                description: End date (YYYY-MM-DD), inclusive.
+                description: >
+                    End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user
+                    did not name one.
             team_ids:
                 description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
             usage_types:

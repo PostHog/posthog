@@ -64,9 +64,11 @@ const billingList = (): ToolBase<typeof BillingListSchema, Schemas.BillingOvervi
 
 const BillingSpendRetrieveSchema = BillingSpendRetrieveQueryParams.extend({
     start_date: BillingSpendRetrieveQueryParams.shape['start_date'].describe(
-        'Start date (YYYY-MM-DD), or "all" for earliest available data.'
+        'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
     ),
-    end_date: BillingSpendRetrieveQueryParams.shape['end_date'].describe('End date (YYYY-MM-DD), inclusive.'),
+    end_date: BillingSpendRetrieveQueryParams.shape['end_date'].describe(
+        "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
+    ),
     team_ids: BillingSpendRetrieveQueryParams.shape['team_ids'].describe(
         'Comma-separated team (project) IDs to filter by. Omit for all teams in the org.'
     ),
@@ -103,9 +105,11 @@ const billingSpendRetrieve = (): ToolBase<typeof BillingSpendRetrieveSchema, unk
 
 const BillingUsageRetrieveSchema = BillingUsageRetrieveQueryParams.extend({
     start_date: BillingUsageRetrieveQueryParams.shape['start_date'].describe(
-        'Start date (YYYY-MM-DD), or "all" for earliest available data.'
+        'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
     ),
-    end_date: BillingUsageRetrieveQueryParams.shape['end_date'].describe('End date (YYYY-MM-DD), inclusive.'),
+    end_date: BillingUsageRetrieveQueryParams.shape['end_date'].describe(
+        "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
+    ),
     team_ids: BillingUsageRetrieveQueryParams.shape['team_ids'].describe(
         'Comma-separated team (project) IDs to filter by. Omit for all teams in the org.'
     ),

@@ -1118,10 +1118,19 @@ class TestBillingUsageRequestSerializer(TestCase):
         self.assertEqual(serializer.validated_data["start_date"], "2025-02-08")
         self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
 
-    def test_start_date_all(self):
+    @freeze_time("2025-02-15")
+    def test_start_date_all_defaults_end_date_to_today(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-15")
+
+    @freeze_time("2025-02-15")
+    def test_start_date_without_end_date_defaults_end_date_to_today(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2025-01-01")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-15")
 
     def test_passthrough_fields(self):
         data = {
