@@ -112,4 +112,20 @@ describe("suggestBranchName", () => {
       ]),
     ).toBe("posthog-code/fix-bug-4");
   });
+
+  it("uses custom prefix when provided", () => {
+    expect(suggestBranchName("Fix bug", "abc", [], "custom/")).toBe(
+      "custom/fix-bug",
+    );
+  });
+
+  it("appends -2 on collision with custom prefix", () => {
+    expect(
+      suggestBranchName("Fix bug", "abc", ["custom/fix-bug"], "custom/"),
+    ).toBe("custom/fix-bug-2");
+  });
+
+  it("uses empty prefix when provided", () => {
+    expect(suggestBranchName("Fix bug", "abc", [], "")).toBe("fix-bug");
+  });
 });

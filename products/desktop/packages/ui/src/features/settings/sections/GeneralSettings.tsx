@@ -22,11 +22,12 @@ import {
   type SendMessagesWith,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
+import { BRANCH_PREFIX } from "@posthog/shared";
 import { track } from "@posthog/ui/shell/analytics";
 import type { ThemePreference } from "@posthog/ui/shell/themeStore";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { Button, Flex, Link, Select, Switch, Text } from "@radix-ui/themes";
+import { Button, Flex, Link, Select, Switch, Text, TextField } from "@radix-ui/themes";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 
@@ -53,6 +54,7 @@ export function GeneralSettings() {
   const { localWorkspaces } = useHostCapabilities();
   const { preventSleepWhileRunning, setPreventSleepWhileRunning } =
     useSettingsStore();
+  const { branchPrefix, setBranchPrefix } = useSettingsStore();
   const { data: serverPreventSleep } = useQuery(
     hostTRPC.sleep.getEnabled.queryOptions(undefined, {
       enabled: localWorkspaces,
@@ -411,6 +413,19 @@ export function GeneralSettings() {
       <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
         Editor
       </Text>
+
+      <SettingRow
+        label="Branch prefix"
+        description={`Default branch name prefix when creating branches from PostHog (default: "${BRANCH_PREFIX}"). Set to empty for no prefix.`}
+      >
+        <TextField.Input
+          value={branchPrefix}
+          onChange={(e) => setBranchPrefix(e.target.value)}
+          placeholder={BRANCH_PREFIX}
+          size="1"
+          className="min-w-[200px]"
+        />
+      </SettingRow>
 
       <SettingRow
         label="Open diffs in"

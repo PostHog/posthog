@@ -263,6 +263,10 @@ interface SettingsStore {
   recordHintShown: (key: string) => void;
   markHintLearned: (key: string) => void;
 
+  // Branch naming
+  branchPrefix: string;
+  setBranchPrefix: (prefix: string) => void;
+
   _hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
 }
@@ -517,6 +521,10 @@ export const useSettingsStore = create<SettingsStore>()(
           };
         }),
 
+      // Branch naming
+      branchPrefix: "posthog-code/",
+      setBranchPrefix: (prefix) => set({ branchPrefix: prefix }),
+
       _hasHydrated: false,
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
     }),
@@ -615,6 +623,9 @@ export const useSettingsStore = create<SettingsStore>()(
 
         // Onboarding hints
         hints: state.hints,
+
+        // Branch naming
+        branchPrefix: state.branchPrefix,
       }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {

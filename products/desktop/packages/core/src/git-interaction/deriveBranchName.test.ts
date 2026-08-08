@@ -48,4 +48,16 @@ describe("deriveBranchName", () => {
       "posthog-code/task-abc123",
     );
   });
+
+  it("uses custom prefix when provided", () => {
+    expect(deriveBranchName("Fix bug", "abc", "custom/")).toBe("custom/fix-bug");
+  });
+
+  it("uses empty prefix when provided", () => {
+    expect(deriveBranchName("Fix bug", "abc", "")).toBe("fix-bug");
+  });
+
+  it("uses custom prefix with empty title", () => {
+    expect(deriveBranchName("", "xyz", "myorg/")).toBe("myorg/task-xyz");
+  });
 });

@@ -54,7 +54,8 @@ export function validateBranchName(name: string): string | null {
   return null;
 }
 
-export function deriveBranchName(title: string, fallbackId: string): string {
+export function deriveBranchName(title: string, fallbackId: string, prefix?: string): string {
+  const pfx = prefix ?? BRANCH_PREFIX;
   const slug = title
     .toLowerCase()
     .trim()
@@ -64,16 +65,17 @@ export function deriveBranchName(title: string, fallbackId: string): string {
     .slice(0, 60)
     .replace(/-$/, "");
 
-  if (!slug) return `${BRANCH_PREFIX}task-${fallbackId}`;
-  return `${BRANCH_PREFIX}${slug}`;
+  if (!slug) return `${pfx}task-${fallbackId}`;
+  return `${pfx}${slug}`;
 }
 
 export function suggestBranchName(
   title: string,
   fallbackId: string,
   existingBranches: string[],
+  prefix?: string,
 ): string {
-  const base = deriveBranchName(title, fallbackId);
+  const base = deriveBranchName(title, fallbackId, prefix);
 
   if (!existingBranches.includes(base)) return base;
 

@@ -4,6 +4,7 @@ import {
 } from "@posthog/core/git-interaction/branchName";
 import type { Task } from "@posthog/shared/domain-types";
 import type { QueryClient } from "@tanstack/react-query";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import type { GitCacheKeyProvider } from "../gitCacheProvider";
 
 export function getSuggestedBranchName(
@@ -24,12 +25,14 @@ export function getSuggestedBranchName(
     ? String(task.task_number)
     : (task?.slug ?? taskId);
 
-  if (!repoPath) return deriveBranchName(task?.title ?? "", fallbackId);
+  const { branchPrefix } = useSettingsStore.getState();
+
+  if (!repoPath) return deriveBranchName(task?.title ?? "", fallbackId, branchPrefix);
 
   const cached =
     queryClient.getQueryData<string[]>(
       provider.gitQueryKey("getAllBranches", { directoryPath: repoPath }),
     ) ?? [];
 
-  return suggestBranchName(task?.title ?? "", fallbackId, cached);
+  return suggestBranchName(task?.title ?? "", fallbackId, cached, branchPrefix);
 }
