@@ -127,7 +127,7 @@ describe('meta ads template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        const body = parseJSON(response.invocation.queueParameters!.body as string)
+        const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
         expect(body.data[0].user_data.fbc).toEqual('fb.1.1735689600000.AbC_123-x')
     })
 
