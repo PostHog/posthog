@@ -6,7 +6,12 @@ across message, tool, text, trace, and span formatters.
 """
 
 # Truncation and display limits
-DEFAULT_TRUNCATE_BUFFER = 1000  # Characters to show at start/end when truncating
+# Total characters kept when truncating a block (head + tail, middle dropped). Sized above the
+# median tool-output length so a typical Responses API tool result reaches the LLM judge whole
+# rather than with its middle cut. Matches the sibling per-field cap MAX_RESPONSES_FIELD_CHARS
+# below; the outer JUDGE_TRACE_MAX_CHARS cap (with uniform sampling) still bounds the whole
+# judge transcript.
+DEFAULT_TRUNCATE_BUFFER = 2000
 MAX_UNPARSED_DISPLAY_LENGTH = 500  # Max length for unparsed content display
 MAX_UNABLE_TO_PARSE_REPR_LENGTH = 500  # Max length for repr() fallback in error messages
 
