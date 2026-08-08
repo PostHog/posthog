@@ -614,7 +614,9 @@ class TestRewriteIntoTemp:
         )
 
         final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
-        assert sorted(final.column("id").to_pylist()) == list(range(len(rows)))
+        # Count plus set: every source id present exactly once (equal count rules out duplicates).
+        assert final.num_rows == len(rows)
+        assert set(final.column("id").to_pylist()) == set(range(len(rows)))
 
     def test_a_finished_rewrite_beats_the_deadline(self, tmp_path):
         # One source file, one batch, so the reader is exhausted on the second loop iteration. The
@@ -1369,8 +1371,8 @@ class TestRewriteCheckpointResume:
             )
 
         purge.assert_not_awaited()  # the prefix must not be swept
-        assert rewrite.await_args.kwargs["temp_uri"] == "s3://bucket/live__repartitioned_old"
-        assert rewrite.await_args.kwargs["skip_rows"] == 1
+        assert rewrite.await_args_list[0].kwargs["temp_uri"] == "s3://bucket/live__repartitioned_old"
+        assert rewrite.await_args_list[0].kwargs["skip_rows"] == 1
         schema.clear_repartition_rewrite.assert_called_once()  # obsolete once temp is complete
         assert result["outcome"] == "completed"
 
@@ -1410,8 +1412,8 @@ class TestRewriteCheckpointResume:
 
         schema.clear_repartition_rewrite.assert_called()  # stale checkpoint dropped
         purge.assert_awaited_once()  # fresh rebuild sweeps orphans
-        assert rewrite.await_args.kwargs["temp_uri"].endswith("__repartitioned_tok")
-        assert rewrite.await_args.kwargs["skip_rows"] == 0
+        assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
+        assert rewrite.await_args_list[0].kwargs["skip_rows"] == 0
 
 
 class TestClaimFencing:
