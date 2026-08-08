@@ -28,17 +28,17 @@ web explorer.
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
 minimum viable scale or not at all.
-The suite explores ~37M states across 31 runs.
+The suite explores ~34M states across 31 runs.
 Its long pole is the two-partition double-zombie pair, which is most of the wall clock on its own:
 
 | Scenario | Unique states | Wall time |
 |---|---|---|
-| `epoch_fenced_two_partitions_double_zombie_is_safe` | 16.2M | 21s |
-| `two_partitions_double_zombie_loses_acked_writes` | 12.6M | 15s |
-| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 3.0s |
-| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 1.1M | 1.0s |
-| `current_two_partitions_single_zombie_is_safe` | 0.9M | 1.0s |
-| *everything else (26 runs)* | 4.0M | 4s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 13.1M | 20s |
+| `two_partitions_double_zombie_loses_acked_writes` | 12.6M | 16s |
+| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 3.9s |
+| `current_two_partitions_single_zombie_is_safe` | 0.9M | 1.4s |
+| `probe_dual_role_pod_is_reachable_and_safe` | 0.7M | 1.1s |
+| *everything else (26 runs)* | 3.7M | 4s |
 
 Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
 Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
@@ -99,7 +99,7 @@ queue — mapped to named production behavior for review:
 | `Action::ClientWrite` | The raw proxy leader path: stash if stashing, else forward to the table entry; leader admission = warmed + unfenced (`try_begin`) |
 | `Action::CrashRestartWithinTtl` | Process death + same-name restart before lease expiry: registration and assignments survive, memory wiped |
 | `Action::LeaseExpire` / `SelfFence` | Lease loss with the bounded zombie window before the keepalive self-fences (fix 1); same pair for routers, where lease loss also drops them from the freeze quorum |
-| `Changelog.epoch` under `Variant::EpochFenced` | Kafka transactional-producer fencing: warming = `init_transactions`, bumping the broker epoch; stale-epoch produces are rejected before any client ack |
+| `Changelog.epoch_holder` under `Variant::EpochFenced` | Kafka transactional-producer fencing: warming = `init_transactions`, which takes the fence from whoever held it; a produce from a fenced-out producer is rejected before any client ack |
 
 Full elimination of the second table would mean deterministic
 simulation — a trait seam over `PersonhogStore` with an in-memory

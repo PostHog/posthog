@@ -244,15 +244,19 @@ impl HandoffModel {
         if !pod.registered && pod.zombie_writes_left == 0 {
             return false;
         }
-        let Some(warm) = pod.warmed.get(&partition) else {
+        if !pod.warmed.contains_key(&partition) {
             return false;
-        };
+        }
         if pod.fenced.contains(&partition) {
             return false;
         }
         match self.variant {
             Variant::Current => true,
-            Variant::EpochFenced => warm.epoch == state.changelogs[&partition].epoch,
+            // The broker accepts one producer per partition — whichever
+            // acquired the fence most recently. A warmed pod that is no
+            // longer the holder would be producing under a fenced-out
+            // producer, and the broker rejects it before any client ack.
+            Variant::EpochFenced => state.changelogs[&partition].epoch_holder == Some(x),
         }
     }
 
@@ -292,11 +296,10 @@ impl HandoffModel {
             let warm = {
                 let log = state.changelogs.get_mut(&partition).unwrap();
                 if self.variant == Variant::EpochFenced {
-                    log.epoch = log.epoch.wrapping_add(1);
+                    log.epoch_holder = Some(x);
                 }
                 WarmState {
                     for_handoff,
-                    epoch: log.epoch,
                     visible: log.len,
                 }
             };
@@ -325,10 +328,9 @@ impl HandoffModel {
                 // the gap sits beyond it, invisible forever.
                 let warm = {
                     let log = state.changelogs.get_mut(&partition).unwrap();
-                    log.epoch = log.epoch.wrapping_add(1);
+                    log.epoch_holder = Some(x);
                     WarmState {
                         for_handoff,
-                        epoch: log.epoch,
                         visible: cutoff,
                     }
                 };
@@ -856,23 +858,13 @@ impl HandoffModel {
                 } else if pod.fenced.contains(&p) {
                     mutate(last, |state| {
                         // `resume_partition`. Under EpochFenced the
-                        // cancelled handoff's target may have bumped the
-                        // broker epoch past this pod's producer;
-                        // production re-acquires the fence before
-                        // re-admitting writes, or every write would fail
-                        // as fenced until the next handoff.
+                        // cancelled handoff's target may have taken the
+                        // broker fence from this pod's producer;
+                        // production re-acquires it before re-admitting
+                        // writes, or every write would fail as fenced
+                        // until the next handoff.
                         if self.variant == Variant::EpochFenced {
-                            let log = state.changelogs.get_mut(&p).unwrap();
-                            log.epoch = log.epoch.wrapping_add(1);
-                            let epoch = log.epoch;
-                            state
-                                .pods
-                                .get_mut(&x)
-                                .unwrap()
-                                .warmed
-                                .get_mut(&p)
-                                .unwrap()
-                                .epoch = epoch;
+                            state.changelogs.get_mut(&p).unwrap().epoch_holder = Some(x);
                         }
                         state.pods.get_mut(&x).unwrap().fenced.remove(&p);
                     })
