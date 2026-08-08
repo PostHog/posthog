@@ -160,6 +160,27 @@ describe("Agent Plugin stdio runtime", () => {
     ).rejects.toThrow("escapes app-managed storage");
   });
 
+  it("does not create a plugin data working directory through a symlink", async () => {
+    const pluginRoot = await makePlugin("plugin-data-cwd");
+    const pluginData = path.join(root, "data", "installation");
+    const outside = path.join(root, "outside-data-cwd");
+    await fs.promises.mkdir(pluginData, { recursive: true });
+    await fs.promises.mkdir(outside);
+    await fs.promises.symlink(outside, path.join(pluginData, "escape"));
+
+    await expect(
+      resolveStdioServer(pluginRoot, pluginData, {
+        name: "server",
+        type: "stdio",
+        command: "node",
+        cwd: `\${PLUGIN_DATA}/escape/new`,
+      }),
+    ).rejects.toThrow("escapes its allowed root");
+    await expect(
+      fs.promises.lstat(path.join(outside, "new")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("rejects a working directory that escapes through a symlink", async () => {
     const pluginRoot = await makePlugin("plugin");
     const outside = path.join(root, "outside");

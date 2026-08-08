@@ -1009,6 +1009,27 @@ describe("Agent Plugins skills support", () => {
     ).toHaveLength(0);
   });
 
+  it("rejects case-insensitive duplicate stdio environment names", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      local: {
+        type: "stdio",
+        command: "node",
+        env: { NODE_OPTIONS: "first", Node_Options: "second" },
+      },
+    });
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.mcpServers).toEqual([]);
+    expect(preview.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_mcp_server" }),
+      ]),
+    );
+  });
+
   it("prepares deterministic MCP names and revokes disabled installations", async () => {
     const pluginDirectory = path.join(root, "plugin");
     const appDataPath = path.join(root, "app-data");

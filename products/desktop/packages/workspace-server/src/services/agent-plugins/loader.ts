@@ -98,6 +98,13 @@ function isReservedStdioEnvironmentName(name: string): boolean {
   return normalized === "PLUGIN_ROOT" || normalized === "PLUGIN_DATA";
 }
 
+function hasCaseInsensitiveDuplicateKeys(
+  value: Record<string, unknown>,
+): boolean {
+  const normalizedKeys = Object.keys(value).map((name) => name.toUpperCase());
+  return new Set(normalizedKeys).size !== normalizedKeys.length;
+}
+
 export function isPathContained(root: string, candidate: string): boolean {
   const relativePath = path.relative(root, candidate);
   return (
@@ -756,6 +763,7 @@ async function parseStdioMcpServer(
   if (
     value.env !== undefined &&
     (!isObject(value.env) ||
+      hasCaseInsensitiveDuplicateKeys(value.env) ||
       Object.keys(value.env).some(isReservedStdioEnvironmentName) ||
       !Object.values(value.env).every(
         (environmentValue) => typeof environmentValue === "string",
