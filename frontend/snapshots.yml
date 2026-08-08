@@ -7002,6 +7002,10 @@ snapshots:
         hash: v1.k794b7964.743d310929077c6f9536dfc962dce2f27df811003c65cc516fd17d8f0b5eeecd.aW0-0vZESyFTHDpkkwh-h9qMuBPV_vSckCJPimIcCw0
     scenes-app-replay-vision--scanner-configuration--light:
         hash: v1.k794b7964.1206162998fff84813f6229193f0b899b1dd6070278daacf44aecc05221a93e7.ojPoX16jVxawSkCy296WSxvBu8RtOPQBH5RcaNX13hw
+    scenes-app-replay-vision--scanner-configuration-tier-names--dark:
+        hash: v1.k794b7964.b8ac97b2eeb1809548ba38f22f3b9bcf959e05dae7c7b6ab25f0a2a9b8897cbd.zWWTm0YR8k5zyzy1jofPE4GEJrgjqxzirG5jV1PZS1I
+    scenes-app-replay-vision--scanner-configuration-tier-names--light:
+        hash: v1.k794b7964.3a61073bc17d4ebaa1699dfa71674909d94af7571d5114bd1056c053e617d4d4.OhgwYxXR--cEguOyHANN5bfVvM1zQWMH3h1ZMNkiJGA
     scenes-app-replay-vision--scanner-digests--dark:
         hash: v1.k794b7964.cfb6e46fefd93430d17c650dfceeb62bc813855dd034c2a815db8559686dbeab.4iB6ZrgxCuEO7AoLgZCuqcAMX6eqMa42Fn3j6N6n5Xg
     scenes-app-replay-vision--scanner-digests--light:
@@ -7010,6 +7014,10 @@ snapshots:
         hash: v1.k794b7964.329c7556ad85d746580d8662dad3a6a0c125926a21aa0cd1cd857ef60559b57c.gRO-AooWlKqPdgRt2ESC64X8njkXNgN3AHc-tz0QIqQ
     scenes-app-replay-vision--scanner-editor-configure--light:
         hash: v1.k794b7964.a5a08cc989e7c33b8e809d85faf68e5944f8e419d4b56fc200b8758005237933.xcQ7tgZqUe4NJeN-RmXX2rGfxbTvVkILJjka4SL1nzs
+    scenes-app-replay-vision--scanner-editor-configure-tier-names--dark:
+        hash: v1.k794b7964.54a591d5a9c4e7ee136a0ae16f3aba2854890630c1b99fabfd73fe809ea116f3.u6BUDK3AL8hBaHZ__KDmQYLLhvGEuP6qjoW3xKrKCGI
+    scenes-app-replay-vision--scanner-editor-configure-tier-names--light:
+        hash: v1.k794b7964.ce4949dd405f5c3f649603d9ef8c456fdbdb54bba316315da99de61381ed2adb.JE7suDQnoBdS-7uamAnvAQ49DzNNiyKXg8gh2HkeSOw
     scenes-app-replay-vision--scanner-editor-triggers--dark:
         hash: v1.k794b7964.f3ba8840b00d2ad1cadba6bcc7e3394d5327327e2659676525564444c3502b5c.Cbr24do3OGZCDLPDZvcP8QXJnytpytSi4I8WB8cdz5s
     scenes-app-replay-vision--scanner-editor-triggers--light:

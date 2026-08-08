@@ -20,6 +20,7 @@ import {
 import { pngHoggie } from 'lib/brand/hoggies'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -45,7 +46,7 @@ import {
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
-import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
+import { SCANNER_TYPE_OPTIONS, getModelOptions } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -223,6 +224,7 @@ function ConfigureStep(): JSX.Element {
     const { scanner, isNew } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
+    const showTierNames = useFeatureFlag('REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT', 'test')
     const isTypeSelectable = isNew && !searchParams.template
 
     if (!scanner) {
@@ -301,10 +303,16 @@ function ConfigureStep(): JSX.Element {
 
             <div className="flex flex-col gap-1 items-start">
                 <LemonField name="model" label="Model" className="items-start">
-                    <LemonSelect className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
+                    <LemonSelect
+                        className="max-w-full"
+                        value={scanner.model}
+                        options={getModelOptions(showTierNames)}
+                    />
                 </LemonField>
                 <div className="text-xs text-muted">
-                    Newer models tend to produce higher-quality observations, but cost more per observation.
+                    {showTierNames
+                        ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
+                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
                 </div>
             </div>
 
