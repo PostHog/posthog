@@ -7,6 +7,7 @@ from unittest import mock
 from dateutil import parser
 from google.api_core.exceptions import (
     BadRequest,
+    DeadlineExceeded,
     Forbidden,
     InternalServerError,
     InvalidArgument,
@@ -18,6 +19,7 @@ from google.auth.exceptions import RefreshError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
@@ -1561,6 +1563,33 @@ def test_bigquery_read_rows_retry_does_not_reconnect_on_deterministic_errors(exc
     assert BIGQUERY_READ_ROWS_RETRY._predicate(exc) is False
 
 
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # The observed production failure: `create_read_session` itself returning a transient
+        # gRPC INTERNAL before any stream exists. The library default only retries
+        # DeadlineExceeded/ServiceUnavailable, so this escaped and crashed the import activity.
+        InternalServerError("request failed: internal error"),
+        ServiceUnavailable("503 The service is currently unavailable."),
+        DeadlineExceeded("504 Deadline Exceeded"),
+    ],
+)
+def test_bigquery_create_read_session_retry_retries_transient_errors(exc):
+    assert BIGQUERY_CREATE_READ_SESSION_RETRY._predicate(exc) is True
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # Deterministic failures must surface rather than retry forever.
+        NotFound("404 Requested table was not found."),
+        BadRequest("400 request failed"),
+    ],
+)
+def test_bigquery_create_read_session_retry_does_not_retry_deterministic_errors(exc):
+    assert BIGQUERY_CREATE_READ_SESSION_RETRY._predicate(exc) is False
+
+
 def test_bigquery_get_primary_keys_for_table_passes_job_retry():
     """The primary-key probe must run under the extended job retry so a transient BigQuery job
     error is re-tried in place instead of crashing the import."""
@@ -1577,6 +1606,28 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
     assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_bigquery_get_primary_keys_for_table_retries_transient_job_not_found(mock_sleep):
+    """The primary-key probe hits BigQuery's job-metadata race the same as the other queries in this
+    file; it must retry with a fresh job instead of crashing the whole sync."""
+    table = mock.MagicMock()
+    table.schema = [SimpleNamespace(name="id")]
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+
+    client = mock.MagicMock()
+    ok_job = mock.MagicMock()
+    ok_job.result.return_value = iter([{"column_name": "id"}])
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc"), ok_job]
+
+    primary_keys = _get_primary_keys_for_table(table, client)
+
+    assert primary_keys == ["id"]
+    assert client.query.call_count == 2
+    mock_sleep.assert_called_once()
 
 
 def test_run_destination_query_passes_job_retry():

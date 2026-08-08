@@ -328,6 +328,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
             <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist
                     logicKey={`experiment-${experiment.id}`}
+                    analyticsSource="experiment-recordings-tab"
                     filters={recordingsFilters}
                     updateSearchParams={false}
                     onFiltersChange={(filters) => playlistFiltersChanged(filters)}

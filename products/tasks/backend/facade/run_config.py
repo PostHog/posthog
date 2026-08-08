@@ -34,8 +34,10 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_models_for_runtime_adapter,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_runtime_adapter_for_model,
     get_supported_reasoning_efforts,
     parse_run_state,
+    validate_model_selection,
 )
 
 TaskArtifactType = _TaskArtifact.ArtifactType
@@ -63,6 +65,8 @@ __all__ = [
     "get_models_for_runtime_adapter",
     "get_provider_for_runtime_adapter",
     "get_reasoning_effort_error",
+    "get_runtime_adapter_for_model",
     "get_supported_reasoning_efforts",
     "parse_run_state",
+    "validate_model_selection",
 ]
