@@ -113,6 +113,9 @@ pub async fn load_person_from_pg(
         created_at: created_at.timestamp_millis(),
         version: version.unwrap_or(0),
         is_identified,
+        // The query filters is_deleted = false; a tombstoned row is
+        // answered as not-found above, never loaded.
+        is_deleted: false,
         last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
     }))
 }
