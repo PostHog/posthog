@@ -88,4 +88,4 @@ Stdio processes receive a minimal host environment needed to find executables an
 
 - Only local directory installation is available.
 - Legacy SSE MCP transport is skipped with a diagnostic.
-- Plugin updates and registries are not supported. Edit or update the source directory directly.
+- PostHog Desktop does not download or update plugins. Manage plugin files in the installed local directory.
