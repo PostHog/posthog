@@ -25,6 +25,57 @@ const MANIFEST_FIELDS = new Set([
   "extensions",
 ]);
 const AUTHOR_FIELDS = new Set(["name", "email", "url"]);
+const MAX_PLUGIN_TEXT_FILE_BYTES = 1024 * 1024;
+export const MAX_SKILL_TREE_ENTRIES = 512;
+export const MAX_SKILL_TREE_DEPTH = 32;
+const FILE_READ_CHUNK_BYTES = 64 * 1024;
+
+class AgentPluginFileTooLargeError extends Error {}
+
+async function readTextFileWithinLimit(filePath: string): Promise<string> {
+  const noFollow = fs.constants.O_NOFOLLOW ?? 0;
+  const handle = await fs.promises.open(
+    filePath,
+    fs.constants.O_RDONLY | noFollow,
+  );
+  try {
+    const initialStat = await handle.stat();
+    if (!initialStat.isFile()) throw new Error("not a regular file");
+    if (initialStat.size > MAX_PLUGIN_TEXT_FILE_BYTES) {
+      throw new AgentPluginFileTooLargeError();
+    }
+
+    const chunks: Buffer[] = [];
+    let bytesRead = 0;
+    while (bytesRead <= MAX_PLUGIN_TEXT_FILE_BYTES) {
+      const remaining = MAX_PLUGIN_TEXT_FILE_BYTES + 1 - bytesRead;
+      const chunk = Buffer.allocUnsafe(
+        Math.min(FILE_READ_CHUNK_BYTES, remaining),
+      );
+      const result = await handle.read(chunk, 0, chunk.byteLength, null);
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+      if (bytesRead > MAX_PLUGIN_TEXT_FILE_BYTES) {
+        throw new AgentPluginFileTooLargeError();
+      }
+      chunks.push(chunk.subarray(0, result.bytesRead));
+    }
+
+    const finalStat = await handle.stat();
+    if (
+      initialStat.dev !== finalStat.dev ||
+      initialStat.ino !== finalStat.ino ||
+      initialStat.size !== finalStat.size ||
+      initialStat.mtimeMs !== finalStat.mtimeMs ||
+      bytesRead !== finalStat.size
+    ) {
+      throw new Error("file changed while it was read");
+    }
+    return Buffer.concat(chunks, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -210,8 +261,15 @@ async function validateSkillTree(
   skillRoot: string,
 ): Promise<string | null> {
   const visited = new Set<string>();
+  let entryCount = 0;
 
-  const walk = async (directory: string): Promise<string | null> => {
+  const walk = async (
+    directory: string,
+    depth: number,
+  ): Promise<string | null> => {
+    if (depth > MAX_SKILL_TREE_DEPTH) {
+      return "Skill directories are nested too deeply.";
+    }
     const resolvedDirectory = await fs.promises.realpath(directory);
     if (!isPathContained(pluginRoot, resolvedDirectory)) {
       return "Skill files must remain inside the plugin directory.";
@@ -223,6 +281,10 @@ async function validateSkillTree(
       withFileTypes: true,
     });
     for (const entry of entries) {
+      entryCount += 1;
+      if (entryCount > MAX_SKILL_TREE_ENTRIES) {
+        return "A skill contains too many files or directories.";
+      }
       const entryPath = path.join(resolvedDirectory, entry.name);
       const lstat = await fs.promises.lstat(entryPath);
       if (lstat.isSymbolicLink()) {
@@ -233,7 +295,7 @@ async function validateSkillTree(
         return "Skill files must remain inside the plugin directory.";
       }
       if (lstat.isDirectory()) {
-        const error = await walk(resolvedEntry);
+        const error = await walk(resolvedEntry, depth + 1);
         if (error) return error;
       } else if (!lstat.isFile()) {
         return "Skill directories can contain only regular files and directories.";
@@ -242,7 +304,7 @@ async function validateSkillTree(
     return null;
   };
 
-  return walk(skillRoot);
+  return walk(skillRoot, 0);
 }
 
 function parseSkillFrontmatter(
@@ -322,9 +384,8 @@ export async function validateAgentPluginSkillSnapshot(
   );
   if (treeError) return treeError;
 
-  const content = await fs.promises.readFile(
+  const content = await readTextFileWithinLimit(
     path.join(resolvedSkillRoot, "SKILL.md"),
-    "utf8",
   );
   const frontmatter = parseSkillFrontmatter(content, skillName);
   return typeof frontmatter === "string" ? frontmatter : null;
@@ -474,7 +535,7 @@ async function loadSkills(
         continue;
       }
 
-      const content = await fs.promises.readFile(resolvedSkillMd, "utf8");
+      const content = await readTextFileWithinLimit(resolvedSkillMd);
       const frontmatter = parseSkillFrontmatter(content, entry.name);
       if (typeof frontmatter === "string") {
         diagnostics.push(
@@ -492,12 +553,14 @@ async function loadSkills(
         description: frontmatter.description,
         path: resolvedSkillDirectory,
       });
-    } catch {
+    } catch (error) {
       diagnostics.push(
         diagnostic(
           "error",
           "invalid_skill",
-          `Skipped ${entry.name}: the skill could not be read.`,
+          error instanceof AgentPluginFileTooLargeError
+            ? `Skipped ${entry.name}: SKILL.md exceeds the 1 MiB limit.`
+            : `Skipped ${entry.name}: the skill could not be read.`,
           `skills/${entry.name}`,
         ),
       );
@@ -571,7 +634,7 @@ export async function loadAgentPlugin(
     const stat = await fs.promises.stat(resolvedManifestPath);
     if (!stat.isFile()) throw new Error("not a file");
     rawManifest = JSON.parse(
-      await fs.promises.readFile(resolvedManifestPath, "utf8"),
+      await readTextFileWithinLimit(resolvedManifestPath),
     );
   } catch (error) {
     diagnostics.push(
@@ -580,7 +643,9 @@ export async function loadAgentPlugin(
         "invalid_manifest",
         error instanceof SyntaxError
           ? "plugin.json is not valid JSON."
-          : "plugin.json is missing or is not a regular file.",
+          : error instanceof AgentPluginFileTooLargeError
+            ? "plugin.json exceeds the 1 MiB limit."
+            : "plugin.json is missing or is not a regular file.",
         "plugin.json",
       ),
     );
