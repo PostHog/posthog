@@ -657,6 +657,36 @@ describe("Agent Plugins skills support", () => {
     expect(skipped).toEqual(["summarize"]);
   });
 
+  it("removes partial runtime snapshots when preparation fails", async () => {
+    const appDataPath = path.join(root, "app-data");
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    await writeSkill(pluginDirectory, "summarize");
+    const service = createService(appDataPath, [pluginDirectory]);
+    await registerSelectedPlugin(service);
+    const originalWriteFile = fs.promises.writeFile.bind(fs.promises);
+    vi.spyOn(fs.promises, "writeFile").mockImplementation(
+      async (target, data, options) => {
+        if (
+          String(target).includes(path.join("runtime", "run-cleanup")) &&
+          String(target).endsWith("plugin.json")
+        ) {
+          throw new Error("Simulated runtime metadata failure");
+        }
+        return originalWriteFile(target, data, options);
+      },
+    );
+
+    await expect(
+      service.prepareRuntimePlugins("run-cleanup", new Set()),
+    ).rejects.toThrow("Simulated runtime metadata failure");
+    await expect(
+      fs.promises.lstat(
+        path.join(appDataPath, "agent-plugins", "runtime", "run-cleanup"),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it.each([
     [
       "file bytes",
