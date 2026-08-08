@@ -10,12 +10,15 @@
  * When the agent supplies `filters` on update, merge in group-targeting fields
  * from the existing flag whenever the incoming payload left them unset.
  *
- * Note on `super_groups`: the backend also stores `filters.super_groups[]` for
- * legacy multi-condition evaluation. Group-targeted flags used by MCP agents
- * today put group aggregation on `filters.groups` / flag-level
- * `aggregation_group_type_index`. We do not rewrite `super_groups` here; if a
- * future product path stores group properties only under `super_groups`, extend
- * this helper to walk that array the same way as `groups`.
+ * Note on `super_groups`: a legacy pre-`holdout` key. Stored flags may still
+ * carry it, but the flags API drops it from writes (LEGACY_UNKNOWN_FILTER_KEYS
+ * in products/feature_flags/backend/api/filters_schema.py), so there is no
+ * group targeting under it worth preserving and this helper ignores it.
+ *
+ * Explicit null: `aggregation_group_type_index: null` means person-level
+ * aggregation (API/docs). Only a missing key is treated as "fill from existing".
+ * Explicit person/cohort/flag properties pin the condition set to person
+ * aggregation so the backend does not 400 on group-aggregated person props.
  */
 
 export type FlagProperty = {
@@ -37,7 +40,7 @@ export type FlagConditionGroup = {
 
 export type FlagFilters = {
     groups?: FlagConditionGroup[] | null
-    /** See file header — not rewritten by preserveGroupTargetingFilters today. */
+    /** Legacy pre-holdout key — ignored on write by the flags API; not rewritten here. */
     super_groups?: FlagConditionGroup[] | null
     aggregation_group_type_index?: number | null
     multivariate?: unknown
@@ -51,6 +54,11 @@ function isPresentType(type: unknown): type is string {
 
 function isPresentGroupIndex(index: unknown): index is number {
     return typeof index === 'number' && Number.isFinite(index)
+}
+
+/** True when the payload explicitly set aggregation_group_type_index to null/undefined (person). */
+function explicitlyClearsAggregation(obj: Record<string, unknown> | null | undefined): boolean {
+    return !!obj && Object.prototype.hasOwnProperty.call(obj, 'aggregation_group_type_index') && !isPresentGroupIndex(obj.aggregation_group_type_index)
 }
 
 /**
@@ -122,29 +130,59 @@ function mergeProperty(
     return out
 }
 
+type MergeConditionOptions = {
+    /** Restore set-level aggregation only from a same-index existing group (not a fallback group). */
+    allowAggregationRestore: boolean
+    /** Incoming set explicitly cleared aggregation (null) — do not restore group index. */
+    incomingClearsAggregation: boolean
+}
+
 function mergeConditionGroup(
     incoming: FlagConditionGroup,
-    existingGroup: FlagConditionGroup | undefined,
+    propertySourceGroup: FlagConditionGroup | undefined,
     flagLevelGroupIndex: number | undefined,
-    crossGroupPropsByKey: Map<string, FlagProperty[]>
+    crossGroupPropsByKey: Map<string, FlagProperty[]>,
+    options: MergeConditionOptions
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...incoming }
 
-    // Prefer explicit incoming aggregation; else keep group-level aggregation from existing.
-    if (!isPresentGroupIndex(out.aggregation_group_type_index)) {
-        if (existingGroup && isPresentGroupIndex(existingGroup.aggregation_group_type_index)) {
-            out.aggregation_group_type_index = existingGroup.aggregation_group_type_index
+    // Every property is explicitly person/cohort/flag: the API rejects group
+    // aggregation around non-group properties, so pin this set to person
+    // aggregation rather than restoring an index the payload can't carry.
+    const allPropsExplicitlyNonGroup =
+        Array.isArray(incoming.properties) &&
+        incoming.properties.length > 0 &&
+        incoming.properties.every((p) => isPresentType(p?.type) && p.type !== 'group')
+    if (allPropsExplicitlyNonGroup) {
+        if (!isPresentGroupIndex(out.aggregation_group_type_index)) {
+            out.aggregation_group_type_index = null
         }
+        // Still allow property-level pass-through; no group type inference.
+        return out
     }
 
-    const effectiveGroupIndex = isPresentGroupIndex(out.aggregation_group_type_index)
-        ? out.aggregation_group_type_index
-        : flagLevelGroupIndex
+    // Prefer explicit incoming aggregation; only fill when the key is absent
+    // (not when it is explicitly null = person aggregation).
+    if (
+        options.allowAggregationRestore &&
+        !options.incomingClearsAggregation &&
+        !Object.prototype.hasOwnProperty.call(out, 'aggregation_group_type_index') &&
+        propertySourceGroup &&
+        isPresentGroupIndex(propertySourceGroup.aggregation_group_type_index)
+    ) {
+        out.aggregation_group_type_index = propertySourceGroup.aggregation_group_type_index
+    }
+
+    const effectiveGroupIndex = options.incomingClearsAggregation
+        ? undefined
+        : isPresentGroupIndex(out.aggregation_group_type_index)
+          ? out.aggregation_group_type_index
+          : flagLevelGroupIndex
 
     if (Array.isArray(out.properties)) {
         const sameGroupByKey = new Map<string, FlagProperty[]>()
-        if (Array.isArray(existingGroup?.properties)) {
-            for (const p of existingGroup.properties) {
+        if (Array.isArray(propertySourceGroup?.properties)) {
+            for (const p of propertySourceGroup.properties) {
                 if (p && typeof p.key === 'string') {
                     const list = sameGroupByKey.get(p.key) ?? []
                     list.push(p)
@@ -175,15 +213,16 @@ function mergeConditionGroup(
  * Merge incoming MCP filters with the flag's current filters so group targeting
  * is not silently demoted to person targeting.
  *
- * Incoming values always win when explicitly set. Only *missing* type /
- * group_type_index / aggregation_group_type_index fields are filled from existing.
+ * Incoming values always win when explicitly set (including `null` for person
+ * aggregation). Only *missing* type / group_type_index / aggregation_group_type_index
+ * keys are filled from existing.
  */
 export function preserveGroupTargetingFilters(
     existing: FlagFilters | null | undefined,
     incoming: FlagFilters | null | undefined
-): FlagFilters {
+): FlagFilters | null | undefined {
     if (!incoming || typeof incoming !== 'object') {
-        return incoming as FlagFilters
+        return incoming
     }
 
     const result: FlagFilters = { ...incoming }
@@ -192,14 +231,23 @@ export function preserveGroupTargetingFilters(
         ? existing!.aggregation_group_type_index!
         : undefined
 
-    // Preserve flag-level group aggregation (UI "Target by" group type).
-    if (!isPresentGroupIndex(result.aggregation_group_type_index) && isPresentGroupIndex(existingFlagGroupIndex)) {
+    const incomingClearsAggregation = explicitlyClearsAggregation(incoming as Record<string, unknown>)
+
+    // Preserve flag-level group aggregation (UI "Target by" group type) only when
+    // the key is omitted — not when agents send explicit null (person targeting).
+    if (
+        !incomingClearsAggregation &&
+        !Object.prototype.hasOwnProperty.call(result, 'aggregation_group_type_index') &&
+        isPresentGroupIndex(existingFlagGroupIndex)
+    ) {
         result.aggregation_group_type_index = existingFlagGroupIndex
     }
 
-    const effectiveFlagGroupIndex = isPresentGroupIndex(result.aggregation_group_type_index)
-        ? result.aggregation_group_type_index!
-        : existingFlagGroupIndex
+    const effectiveFlagGroupIndex = incomingClearsAggregation
+        ? undefined
+        : isPresentGroupIndex(result.aggregation_group_type_index)
+          ? result.aggregation_group_type_index!
+          : existingFlagGroupIndex
 
     const crossGroupPropsByKey = indexExistingProperties(existing)
 
@@ -209,13 +257,21 @@ export function preserveGroupTargetingFilters(
             if (!group || typeof group !== 'object') {
                 return group
             }
-            // Prefer same-index group, then any existing group with group aggregation.
-            const existingGroup =
-                existingGroups[index] ??
+
+            const sameIndexGroup = existingGroups[index]
+            // Property restore may use a fallback group; aggregation restore only
+            // from same-index so appending a person set does not inherit org index.
+            const propertySourceGroup =
+                sameIndexGroup ??
                 existingGroups.find((g) => isPresentGroupIndex(g?.aggregation_group_type_index)) ??
                 existingGroups[0]
 
-            return mergeConditionGroup(group, existingGroup, effectiveFlagGroupIndex, crossGroupPropsByKey)
+            const groupClearsAggregation = explicitlyClearsAggregation(group as Record<string, unknown>)
+
+            return mergeConditionGroup(group, propertySourceGroup, effectiveFlagGroupIndex, crossGroupPropsByKey, {
+                allowAggregationRestore: sameIndexGroup !== undefined,
+                incomingClearsAggregation: groupClearsAggregation || incomingClearsAggregation,
+            })
         })
     }
 

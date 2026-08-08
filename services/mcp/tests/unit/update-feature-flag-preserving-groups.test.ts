@@ -52,6 +52,7 @@ describe('update-feature-flag preserving groups', () => {
 
         const result = await tool.handler(createMockContext(request), {
             id: 9,
+            name: 'Renamed',
             filters: {
                 groups: [
                     {
@@ -72,11 +73,14 @@ describe('update-feature-flag preserving groups', () => {
             path: '/api/projects/42/feature_flags/9/',
         })
         const patchBody = request.mock.calls[1][0].body as {
+            name?: string
             filters: {
                 aggregation_group_type_index?: number
                 groups: Array<{ properties: Array<{ type?: string; group_type_index?: number; value?: unknown }> }>
             }
         }
+        // Non-filters fields must still be forwarded alongside the merged filters.
+        expect(patchBody).toMatchObject({ name: 'Renamed' })
         expect(patchBody.filters.aggregation_group_type_index).toBe(0)
         expect(patchBody.filters.groups[0].properties[0].type).toBe('group')
         expect(patchBody.filters.groups[0].properties[0].group_type_index).toBe(0)

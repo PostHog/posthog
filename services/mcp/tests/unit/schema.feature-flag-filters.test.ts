@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { FeatureFlagsCreateBody, FeatureFlagsListQueryParams } from '@/generated/feature_flags/api'
+import {
+    FeatureFlagsCreateBody,
+    FeatureFlagsListQueryParams,
+    FeatureFlagsPartialUpdateBody,
+} from '@/generated/feature_flags/api'
 import { SurveysCreateBody } from '@/generated/surveys/api'
 
 describe('Feature flag filter schemas', () => {
@@ -258,7 +262,7 @@ describe('Filter groups schema', () => {
     })
 
     it('should accept group property filters with type and group_type_index (#46501)', () => {
-        const result = filtersSchema.safeParse({
+        const payload = {
             aggregation_group_type_index: 0,
             groups: [
                 {
@@ -274,7 +278,9 @@ describe('Filter groups schema', () => {
                     rollout_percentage: 100,
                 },
             ],
-        })
+        }
+
+        const result = filtersSchema.safeParse(payload)
 
         expect(result.success).toBe(true)
         if (result.success) {
@@ -286,5 +292,9 @@ describe('Filter groups schema', () => {
             expect(prop?.group_type_index).toBe(0)
             expect(result.data?.aggregation_group_type_index).toBe(0)
         }
+
+        // update-feature-flag advertises FeatureFlagsPartialUpdateBody.filters (separate copy).
+        const updateResult = FeatureFlagsPartialUpdateBody.shape.filters.safeParse(payload)
+        expect(updateResult.success).toBe(true)
     })
 })
