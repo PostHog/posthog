@@ -45,6 +45,9 @@ tools:
     billing-partial-update:
         operation: billing_partial_update
         enabled: false
+    billing-period-retrieve:
+        operation: billing_period_retrieve
+        enabled: false
     billing-portal-retrieve:
         operation: billing_portal_retrieve
         enabled: false
