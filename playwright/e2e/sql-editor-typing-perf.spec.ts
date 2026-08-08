@@ -46,10 +46,18 @@ interface TypingStats {
 
 const FRAME_BUDGET_MS = 1000 / 60
 
-/** Blocked time and worst stall within a slice of the measured window. */
-function statsBetween(stats: TypingStats, from: number, to: number): { blockedMs: number; maxGapMs: number } {
+/**
+ * Blocked time and worst stall within a slice of the measured window. `frames` is reported so a
+ * window that landed in the wrong place is obvious — a near-empty slice scores a flattering 0.
+ */
+function statsBetween(
+    stats: TypingStats,
+    from: number,
+    to: number
+): { blockedMs: number; maxGapMs: number; frames: number } {
     let blocked = 0
     let maxGap = 0
+    let frames = 0
     for (let i = 1; i < stats.frameTimes.length; i++) {
         const t = stats.frameTimes[i]
         if (t < from || t > to) {
@@ -58,8 +66,9 @@ function statsBetween(stats: TypingStats, from: number, to: number): { blockedMs
         const gap = stats.frameTimes[i] - stats.frameTimes[i - 1]
         blocked += Math.max(0, gap - FRAME_BUDGET_MS)
         maxGap = Math.max(maxGap, gap)
+        frames++
     }
-    return { blockedMs: Math.round(blocked), maxGapMs: Math.round(maxGap) }
+    return { blockedMs: Math.round(blocked), maxGapMs: Math.round(maxGap), frames }
 }
 
 async function mark(page: Page, label: string): Promise<void> {
@@ -139,15 +148,12 @@ function buildLargeQuery(): string {
 // column names are fine, since this only needs to parse, not resolve.
 const SCROLL_QUERY_LINES = 900
 
-function buildNestedLongQuery(trailingComment?: string): string {
+function buildNestedLongQuery(): string {
     const columns = Array.from({ length: SCROLL_QUERY_LINES }, (_, i) => `        sum(metric_${i}) AS agg_${i}`).join(
         ',\n'
     )
-    // An optional comment line inside the inner SELECT gives the edit benchmark somewhere to type
-    // that leaves the query valid.
-    const tail = trailingComment ? `\n        ${trailingComment}` : ''
 
-    return `SELECT sub.agg_0\nFROM (\n    SELECT\n${columns}${tail}\n    FROM events\n) AS sub`
+    return `SELECT sub.agg_0\nFROM (\n    SELECT\n${columns}\n    FROM events\n) AS sub`
 }
 
 async function startMeasuring(page: Page): Promise<void> {
@@ -219,6 +225,33 @@ async function goToSqlEditor(page: Page): Promise<void> {
         .catch(() => {})
 }
 
+/**
+ * Put the cursor immediately after the first occurrence of `needle`, via Monaco's own API.
+ *
+ * Keyboard navigation is not reliable for this: ControlOrMeta+End is Cmd+End on macOS, which Monaco
+ * does not bind to end-of-document, so a "go to the end and walk up" sequence silently lands
+ * somewhere near the top and the benchmark then edits whatever line it happened to find.
+ */
+async function placeCursorAfterText(page: Page, needle: string): Promise<number> {
+    return await page.evaluate((text) => {
+        const editor = (window as any).__monacoEditors?.at(-1)
+        if (!editor) {
+            throw new Error('Monaco handle missing — is __PERF_MONACO_HOOK__ set before load?')
+        }
+        const model = editor.getModel()
+        for (let line = 1; line <= model.getLineCount(); line++) {
+            const index = model.getLineContent(line).indexOf(text)
+            if (index !== -1) {
+                editor.focus()
+                editor.setPosition({ lineNumber: line, column: index + text.length + 1 })
+                editor.revealLineInCenter(line)
+                return line
+            }
+        }
+        throw new Error(`no line containing ${JSON.stringify(text)}`)
+    }, needle)
+}
+
 test.describe('SQL editor performance', () => {
     test.describe.configure({ mode: 'serial' })
     test.setTimeout(180000)
@@ -234,6 +267,11 @@ test.describe('SQL editor performance', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        // Exposes the Monaco instance so the benchmarks can place the cursor exactly and time
+        // editor methods. Must run before any navigation, since the app reads it as it mounts.
+        await page.addInitScript(() => {
+            ;(window as any).__PERF_MONACO_HOOK__ = true
+        })
         await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
         await goToSqlEditor(page)
     })
@@ -286,14 +324,8 @@ test.describe('SQL editor performance', () => {
         })
 
         await test.step('put the cursor inside the long inner SELECT', async () => {
-            // Lines are: 1 `SELECT sub.agg_0`, 2 `FROM (`, 3 `SELECT`, 4+ the columns. Landing on
-            // line 5 puts the cursor inside the inner SELECT, so the outline spans ~900 lines.
-            await editorArea.click()
-            await page.keyboard.press('ControlOrMeta+Home')
-            for (let i = 0; i < 4; i++) {
-                await page.keyboard.press('ArrowDown')
-            }
-            await page.keyboard.press('End')
+            // Anywhere inside the inner SELECT will do — the outline then spans its ~900 lines.
+            await placeCursorAfterText(page, 'AS agg_0')
         })
 
         await test.step('confirm the active-query outline is showing', async () => {
@@ -347,40 +379,39 @@ test.describe('SQL editor performance', () => {
         // changes no text at all, so any blocking there is pure waste; an edit has to reparse
         // once. Reported separately because they have different fixes and different budgets.
         const editorArea = page.getByTestId('hogql-query-editor')
-        const editComment = '-- edit target'
+
+        // Park just after the first column's alias, so the cursor-move phase's single ArrowDown
+        // lands in the same column of the next line — the two lines are the same length — which is
+        // just after `agg_1`. Typing there extends the alias to `agg_1x` and leaves the query valid.
+        // That matters: an invalid query makes the parser fail fast, which reports as a perfect
+        // score. (Appending at end-of-line instead would glue the character onto the *next*
+        // column, which is exactly how this benchmark first measured a misleading zero.)
+        // Note the outline only resolves with the cursor near the top of the range; the same
+        // placement near the bottom leaves it hidden, which is worth a look on its own.
 
         await test.step('load a long nested query with the cursor inside the inner SELECT', async () => {
-            await page.goto('/sql#q=' + encodeURIComponent(buildNestedLongQuery(editComment)))
+            await page.goto('/sql#q=' + encodeURIComponent(buildNestedLongQuery()))
             await expect(page.getByTestId('editor-scene')).toBeVisible({ timeout: 60000 })
             await expect(editorArea).toBeVisible()
             await waitForQuiescence(page)
 
-            // Park on the trailing comment line, which sits inside the inner SELECT. Typing there
-            // keeps the query valid — an invalid query makes the parser fail fast, which would
-            // hide the very cost being measured.
-            await editorArea.click()
-            await page.keyboard.press('ControlOrMeta+End')
-            for (let i = 0; i < 2; i++) {
-                await page.keyboard.press('ArrowUp')
-            }
-            await page.keyboard.press('End')
+            await placeCursorAfterText(page, 'AS agg_0')
             await expect(editorArea.locator('.active-query-outline')).toBeVisible({ timeout: 30000 })
             await waitForQuiescence(page)
         })
 
         await startMeasuring(page)
 
+        // One action per phase, and the edit happens wherever the cursor move left us, so neither
+        // phase has to reposition — repositioning is itself a cursor move, and its parse would land
+        // in whichever window it happened to fall in.
         await test.step('move the cursor without changing any text', async () => {
             await mark(page, 'cursor-move')
-            await page.keyboard.press('ArrowUp')
+            await page.keyboard.press('ArrowDown')
             await waitForQuiescence(page)
         })
 
         await test.step('type one character', async () => {
-            // Back to the comment line so the edit lands somewhere harmless.
-            await page.keyboard.press('ArrowDown')
-            await page.keyboard.press('End')
-            await waitForQuiescence(page)
             await mark(page, 'edit')
             await page.keyboard.type('x')
             await waitForQuiescence(page)
@@ -388,14 +419,32 @@ test.describe('SQL editor performance', () => {
         })
 
         const stats = await stopMeasuring(page)
-        const markAt = (label: string): number => stats.marks.find((m) => m.label === label)?.t ?? 0
+        // A missing mark would silently produce a nonsense window (and a flattering 0), so refuse
+        // to report rather than guess.
+        const markAt = (label: string): number => {
+            const found = stats.marks.find((m) => m.label === label)
+            if (!found) {
+                throw new Error(`benchmark mark '${label}' was never recorded`)
+            }
+            return found.t
+        }
         const cursor = statsBetween(stats, markAt('cursor-move'), markAt('edit'))
         const edit = statsBetween(stats, markAt('edit'), markAt('end'))
+
+        // Prove the keystroke landed where it was aimed. Without this an edit that missed the
+        // editor — or hit the wrong line — reports as a perfect score. Checked against the model
+        // rather than the DOM, since Monaco only renders the lines currently on screen.
+        const edited = await page.evaluate(
+            (needle) => (window as any).__monacoEditors.at(-1).getModel().getValue().includes(needle),
+            'AS agg_1x,'
+        )
+        expect(edited, 'expected the typed character to extend the alias on the agg_1 line').toBe(true)
 
         const summary =
             `queryLines=${SCROLL_QUERY_LINES} ` +
             `cursorMoveBlockedMs=${cursor.blockedMs} cursorMoveMaxGapMs=${cursor.maxGapMs} ` +
-            `editBlockedMs=${edit.blockedMs} editMaxGapMs=${edit.maxGapMs}`
+            `cursorMoveFrames=${cursor.frames} ` +
+            `editBlockedMs=${edit.blockedMs} editMaxGapMs=${edit.maxGapMs} editFrames=${edit.frames}`
         testInfo.annotations.push({ type: 'edit-perf', description: summary })
         // eslint-disable-next-line no-console
         console.log(`\n[SQL editor edit perf] ${summary}\n`)
