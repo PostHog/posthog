@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 
-import { featureFlagLogic } from './featureFlagLogic'
+import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagUsageLogic } from './featureFlagUsageLogic'
 import { DEFAULT_USAGE_DATE_RANGE } from './featureFlagUsageQueries'
 
@@ -15,12 +15,12 @@ const FLAG_ID = 1
 
 function flag(overrides: Partial<FeatureFlagType> = {}): FeatureFlagType {
     return {
+        ...NEW_FLAG,
         id: FLAG_ID,
         key: 'alpha-feature',
-        filters: { groups: [], multivariate: null, payloads: {} },
         has_enriched_analytics: false,
         ...overrides,
-    } as FeatureFlagType
+    }
 }
 
 describe('featureFlagUsageLogic', () => {
@@ -87,6 +87,16 @@ describe('featureFlagUsageLogic', () => {
     it('keeps the default range when the URL carries no date params', async () => {
         await expectLogic(logic, () => {
             router.actions.push(urls.featureFlag(FLAG_ID), { edit: 'true' })
+        }).toMatchValues({ dateRange: DEFAULT_USAGE_DATE_RANGE })
+    })
+
+    it('resets a custom range back to default when navigating to a bare URL', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-7d', null)
+        }).toMatchValues({ dateRange: { date_from: '-7d', date_to: null } })
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlag(FLAG_ID))
         }).toMatchValues({ dateRange: DEFAULT_USAGE_DATE_RANGE })
     })
 })

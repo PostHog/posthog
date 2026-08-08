@@ -117,6 +117,15 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
         [urls.featureFlag(props.id)]: (_, searchParams) => {
             // Absent params mean "use the default range", not "clear the range".
             if (!searchParams.date_from && !searchParams.date_to) {
+                if (
+                    values.dateRange.date_from !== DEFAULT_USAGE_DATE_RANGE.date_from ||
+                    values.dateRange.date_to !== DEFAULT_USAGE_DATE_RANGE.date_to
+                ) {
+                    actions.setDates(
+                        DEFAULT_USAGE_DATE_RANGE.date_from ?? null,
+                        DEFAULT_USAGE_DATE_RANGE.date_to ?? null
+                    )
+                }
                 return
             }
             const dateFrom = searchParams.date_from ?? null

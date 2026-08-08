@@ -770,7 +770,7 @@ export interface featureFlagLogicValues {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -821,7 +821,7 @@ export interface featureFlagLogicValues {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -1259,7 +1259,7 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
@@ -1298,7 +1298,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -1438,7 +1438,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }>
@@ -1478,7 +1478,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }>
@@ -1603,7 +1603,7 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
@@ -1642,7 +1642,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -1682,7 +1682,7 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
@@ -1721,7 +1721,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
