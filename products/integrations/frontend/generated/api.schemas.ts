@@ -168,6 +168,7 @@ export interface RoleLookupResponseApi {
  * * `gitlab` - Gitlab
  * * `google-ads` - Google Ads
  * * `google-analytics` - Google Analytics
+ * * `google-calendar` - Google Calendar
  * * `google-cloud-service-account` - Google Cloud Service Account
  * * `google-cloud-storage` - Google Cloud Storage
  * * `google-pubsub` - Google Pubsub
@@ -216,6 +217,7 @@ export const IntegrationKindEnumApi = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
@@ -477,6 +479,7 @@ export interface IntegrationAccessRequestApi {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -564,6 +567,26 @@ export interface PostHogConnectionForwardResponseApi {
     data: unknown
 }
 
+export interface PostHogConnectionTargetApi {
+    /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+    project_id: number
+    /** Name of the connected project. */
+    project_name: string
+    /** Id of the organization the connected project belongs to. */
+    organization_id: string
+    /** Name of the organization the connected project belongs to. */
+    organization_name: string
+    /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+    region: string
+    /** Base URL requests through this connection are sent to. */
+    base_url: string
+}
+
+export interface PostHogConnectionTargetErrorApi {
+    /** Why the connected project's context could not be read. */
+    error: string
+}
+
 export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -617,6 +640,7 @@ export type IntegrationsListParams = {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -676,6 +700,7 @@ export const IntegrationsListKind = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',

@@ -762,6 +762,14 @@ describe("TaskCommentsList", () => {
         context: { anchor: { kind: "document" } },
       }),
     );
+    // The list is ordered by when a thread started, so the new one lands at the
+    // top, away from the composer it was written in.
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"],
+    ).toMatchObject({
+      target: { scope: "task", itemId: "task-1" },
+      threadId: "created-comment",
+    });
   });
 
   it("polls at most 20 artifact comment targets plus the task", () => {
