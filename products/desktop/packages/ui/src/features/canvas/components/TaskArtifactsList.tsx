@@ -115,12 +115,16 @@ function ArtifactCard({
       onPointerEnter={onHoverStart}
       onFocus={onHoverStart}
     >
-      <div
-        // One neutral fill for every kind: the icons bring their own colors,
-        // and a per-kind tint clashes with whichever icon lands on it.
-        className="flex size-9 shrink-0 items-center justify-center rounded-md bg-gray-4"
-      >
-        {icon}
+      <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-gray-4">
+        {/* The icon again, blown up and blurred: the tile tints itself with
+            the icon's own colors, so new icons never need a color mapping. */}
+        <div
+          aria-hidden
+          className="absolute inset-0 flex scale-[2.4] items-center justify-center opacity-40 blur-[9px] saturate-[1.8] dark:opacity-70"
+        >
+          {icon}
+        </div>
+        <div className="relative flex items-center justify-center">{icon}</div>
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{title}</div>
