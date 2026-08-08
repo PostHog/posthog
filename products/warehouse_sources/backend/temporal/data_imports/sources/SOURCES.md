@@ -335,6 +335,7 @@ the row lists both.
 | inflowinventory                  | HTTP                        | requests                                                        | ✅                          |
 | inngest                          | HTTP                        | requests                                                        | ✅                          |
 | insightly                        | HTTP                        | requests                                                        | ✅                          |
+| instagram                        | HTTP                        | requests                                                        | ✅                          |
 | instana                          | HTTP                        | requests                                                        | ✅                          |
 | instantly                        | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | instatus                         | HTTP                        | requests                                                        | ✅                          |
@@ -1065,7 +1066,6 @@ doesn't conflict with concurrent PRs.
 - influxdb_cloud
 - infor_nexus
 - insightful
-- instagram
 - interzoid
 - inth
 - iyzico
