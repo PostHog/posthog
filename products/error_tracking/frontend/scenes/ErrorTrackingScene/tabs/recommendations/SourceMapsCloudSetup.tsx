@@ -6,30 +6,13 @@ import { LemonButton, LemonMenu, LemonSkeleton, Spinner } from '@posthog/lemon-u
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { GitHubRepositoryPicker, useRepositories } from 'lib/integrations/GitHubIntegrationHelpers'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { DetectedProject, SCAN_STEPS, sourceMapsCloudSetupLogic } from './sourceMapsCloudSetupLogic'
-
-/**
- * Warms the caches the launcher needs (the integrations list and the first account's
- * repositories) while the modal is still closed, so opening it doesn't shift layout.
- * Renders nothing.
- */
-export function CloudSetupPreload(): JSX.Element | null {
-    const { integrations } = useValues(integrationsLogic)
-    const githubIntegration = integrations?.find((integration) => integration.kind === 'github')
-    return githubIntegration ? <PreloadRepositories integrationId={githubIntegration.id} /> : null
-}
-
-function PreloadRepositories({ integrationId }: { integrationId: number }): null {
-    useRepositories(integrationId)
-    return null
-}
 
 /** The intro view's cloud setup row: account | repository | launch, as one control group. */
 export function CloudSetupLauncher(): JSX.Element {

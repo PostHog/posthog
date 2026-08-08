@@ -9,7 +9,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
-import { CloudSetupLauncher, CloudSetupPreload, SourceMapsCloudSetup } from './SourceMapsCloudSetup'
+import { CloudSetupLauncher, SourceMapsCloudSetup } from './SourceMapsCloudSetup'
 import { sourceMapsCloudSetupLogic } from './sourceMapsCloudSetupLogic'
 import { RATING_SCALE, sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
 import { WizardHog } from './sourceMapsWizardVisuals'
@@ -21,24 +21,21 @@ export function SourceMapsFixModal(): JSX.Element {
     const [castKey, setCastKey] = useState(0)
 
     return (
-        <>
-            {canScanRepository && <CloudSetupPreload />}
-            <LemonModal isOpen={isModalOpen} onClose={closeModal} width={540} simple>
-                <div className="relative">
-                    {canScanRepository ? (
-                        <CloudSetupModalContent castKey={castKey} onCopy={setCastKey} />
-                    ) : (
-                        <>
-                            <WizardHero castKey={castKey} title="Readable stack traces in one command" />
-                            <div className="flex flex-col gap-3 px-6 pb-6 pt-2">
-                                <ManualCommandSection onCopy={setCastKey} />
-                                <WizardFeedbackSection />
-                            </div>
-                        </>
-                    )}
-                </div>
-            </LemonModal>
-        </>
+        <LemonModal isOpen={isModalOpen} onClose={closeModal} width={540} simple>
+            <div className="relative">
+                {canScanRepository ? (
+                    <CloudSetupModalContent castKey={castKey} onCopy={setCastKey} />
+                ) : (
+                    <>
+                        <WizardHero castKey={castKey} title="Readable stack traces in one command" />
+                        <div className="flex flex-col gap-3 px-6 pb-6 pt-2">
+                            <ManualCommandSection onCopy={setCastKey} />
+                            <WizardFeedbackSection />
+                        </div>
+                    </>
+                )}
+            </div>
+        </LemonModal>
     )
 }
 
