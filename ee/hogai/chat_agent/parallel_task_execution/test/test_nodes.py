@@ -6,9 +6,8 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import ConfigDict
-
 from langgraph.errors import GraphRecursionError
+from pydantic import ConfigDict
 
 from posthog.schema import AssistantToolCall, TaskExecutionStatus
 
@@ -508,8 +507,9 @@ class TestInsightCreationRecursionLimit(TestCase):
     @patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph")
     async def test_recursion_limit_degrades_without_error_tracking(self, MockInsightsGraph, mock_capture):
         async def raising_astream(*args, **kwargs):
+            # Yield a falsy chunk (the loop skips it) so this is an async generator, then hit the limit.
+            yield None
             raise GraphRecursionError("recursion limit reached")
-            yield  # noqa: unreachable — makes this an async generator
 
         MockInsightsGraph.return_value.compile_full_graph.return_value.astream = raising_astream
 
