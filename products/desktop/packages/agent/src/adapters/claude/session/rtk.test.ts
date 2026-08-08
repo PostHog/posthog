@@ -59,19 +59,19 @@ describe("rewriteBashForRtk", () => {
     ["cd /tmp && cat file.ts"],
     // Unbalanced quotes — the splitter can't model the line, fail safe.
     ["ls 'unclosed && git status"],
-    // find actions that execute, delete, or reformat output — never touched:
-    // the pipe fallback's find filter would mis-summarize non-list output.
+    // find predicates rtk's parser rejects run raw: rewriting would swap the
+    // file list for an error, and these shapes are typically used when the
+    // complete matched set matters (rtk's filters truncate large lists).
+    ["find . -not -path '*/node_modules/*'"],
     ["find . -name '*.tmp' -exec rm {} \\;"],
     ["find . -name '*.log' -delete"],
+    ["find . -newer package.json"],
+    ["find . ! -name '*.md'"],
+    ["find . -mtime -1"],
     ["find . -type f -print0"],
-    ["find . -maxdepth 1 -ls"],
-    ["find . -printf '%p %s\\n'"],
-    // rg output shapes the grep pipe filter would corrupt stay raw.
-    ["rg --json foo src"],
-    ["rg -l foo src"],
-    ["rg --files src"],
-    ["rg -c foo src"],
-    ["rg --stats foo src"],
+    // rg stays raw unless rgOnPath is passed (rtk rg execs a real rg binary).
+    ["rg -n foo src"],
+    ["rg -i pattern ."],
     // A leading env assignment or explicit path is not a bare allowlisted head.
     ["FOO=bar git status"],
     ["/usr/bin/git status"],
@@ -110,35 +110,11 @@ describe("rewriteBashForRtk", () => {
       "find src -type f -name '*.ts' -maxdepth 2",
       "rtk find src -type f -name '*.ts' -maxdepth 2",
     ],
-    // find predicates rtk's parser rejects but that still emit a plain file
-    // list fall back to compacting stdout through rtk's pipe filter, inside a
-    // pipefail subshell so the command's own exit code survives the pipe.
-    [
-      "find . -not -path '*/node_modules/*'",
-      "( set -o pipefail; find . -not -path '*/node_modules/*' | rtk pipe -f find )",
-    ],
-    [
-      "find . -mtime -1",
-      "( set -o pipefail; find . -mtime -1 | rtk pipe -f find )",
-    ],
-    [
-      "find . ! -name '*.md'",
-      "( set -o pipefail; find . ! -name '*.md' | rtk pipe -f find )",
-    ],
-    // …and each find shape resolves independently inside a chain.
+    // …and each find shape resolves independently inside a chain: an
+    // rtk-unsupported find runs raw while its sibling still compresses.
     [
       "find src -name '*.ts' && find . -not -path '*/dist/*'",
-      "rtk find src -name '*.ts' && ( set -o pipefail; find . -not -path '*/dist/*' | rtk pipe -f find )",
-    ],
-    // rg runs natively (it is often a shell function rtk cannot exec) with
-    // stdout compacted through the grep pipe filter.
-    [
-      "rg -n foo packages/agent/src",
-      "( set -o pipefail; rg -n foo packages/agent/src | rtk pipe -f grep )",
-    ],
-    [
-      "cd /tmp && rg -i pattern .",
-      "cd /tmp && ( set -o pipefail; rg -i pattern . | rtk pipe -f grep )",
+      "rtk find src -name '*.ts' && find . -not -path '*/dist/*'",
     ],
   ])("rewrites chained %j", (input, expected) => {
     expect(rewriteBashForRtk(input, "rtk")).toBe(expected);
@@ -153,10 +129,14 @@ describe("rewriteBashForRtk", () => {
     expect(rewriteBashForRtk(input, "rtk", { rgOnPath: true })).toBe(expected);
   });
 
-  test("unsafe rg output flags stay raw even with rg on PATH", () => {
-    expect(
-      rewriteBashForRtk("rg --json foo src", "rtk", { rgOnPath: true }),
-    ).toBeNull();
+  test.each([
+    ["rg --json foo src"],
+    ["rg -l foo src"],
+    ["rg --files src"],
+    ["rg -c foo src"],
+    ["rg --stats foo src"],
+  ])("unsafe rg output flags stay raw even with rg on PATH: %j", (input) => {
+    expect(rewriteBashForRtk(input, "rtk", { rgOnPath: true })).toBeNull();
   });
 
   test("chained rewrite preserves untouched-segment whitespace and `;;`", () => {
@@ -168,8 +148,6 @@ describe("rewriteBashForRtk", () => {
   test.each([
     ["rtk git status", "rtk"],
     ["rtk git status && rtk ls", "rtk"],
-    ["( set -o pipefail; find . -mtime -1 | rtk pipe -f find )", "rtk"],
-    ["( set -o pipefail; rg -n foo src | rtk pipe -f grep )", "rtk"],
   ])("is idempotent — does not double-wrap %j", (input, prefix) => {
     expect(rewriteBashForRtk(input, prefix)).toBeNull();
   });
@@ -197,7 +175,7 @@ describe("resolveRtkPrefix", () => {
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "rtk-test-"));
     binary = path.join(dir, "rtk");
-    fs.writeFileSync(binary, "#!/bin/sh\n");
+    fs.writeFileSync(binary, "#!/bin/sh\n", { mode: 0o755 });
   });
 
   afterAll(() => {
@@ -248,7 +226,7 @@ describe("detectRtkBinary", () => {
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "rtk-detect-"));
     binary = path.join(dir, "rtk");
-    fs.writeFileSync(binary, "#!/bin/sh\n");
+    fs.writeFileSync(binary, "#!/bin/sh\n", { mode: 0o755 });
   });
 
   afterAll(() => {
@@ -290,7 +268,7 @@ describe("rgOnPath", () => {
 
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "rg-test-"));
-    fs.writeFileSync(path.join(dir, "rg"), "#!/bin/sh\n");
+    fs.writeFileSync(path.join(dir, "rg"), "#!/bin/sh\n", { mode: 0o755 });
   });
 
   afterAll(() => {
@@ -304,6 +282,23 @@ describe("rgOnPath", () => {
   test("reports false when rg is absent (e.g. only a shell function)", () => {
     expect(rgOnPath({ PATH: "/nonexistent" })).toBe(false);
   });
+
+  // The shell would skip a non-executable file; counting it as available
+  // would rewrite rg into `rtk rg`, which then dies with permission denied.
+  test.skipIf(process.platform === "win32")(
+    "reports false for a non-executable rg file on PATH",
+    () => {
+      const noExecDir = fs.mkdtempSync(path.join(os.tmpdir(), "rg-noexec-"));
+      fs.writeFileSync(path.join(noExecDir, "rg"), "#!/bin/sh\n", {
+        mode: 0o644,
+      });
+      try {
+        expect(rgOnPath({ PATH: noExecDir })).toBe(false);
+      } finally {
+        fs.rmSync(noExecDir, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("createRtkRewriteHook", () => {

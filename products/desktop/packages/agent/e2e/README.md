@@ -49,14 +49,16 @@ big input blob trips auto-compaction, and the adapter must surface
 `rtk-context-fidelity.e2e.test.ts` — claude only (RTK is a deterministic
 PreToolUse rewrite hook there; codex gets instruction-level guidance with
 nothing assertable). Proves RTK compression preserves the information the
-agent needs: over three sequential turns in one session against a seeded
+agent needs: over four sequential turns in one session against a seeded
 ~130-file repo, the agent must recover an exact file+line from compressed
-grep output, an exact file count through the `find -not` pipe fallback, and
-per-file git state from a compressed `&&` chain — asserted as JSON side
-effects against seeded ground truth, never prose. Anti-skip-to-green:
-`RTK_DB_PATH` isolates rtk telemetry to the run and `rtk gain` must report
-tracked commands with positive savings, so a disabled hook fails instead of
-passing vacuously. Self-skips (visibly) when rtk is not on PATH.
+grep output, an exact file count from a guarded (raw) `find -not`, an exact
+match total past rtk's 200-result truncation cap (only the uncapped summary
+header carries it), and per-file git state from a compressed `&&` chain —
+asserted as JSON side effects against seeded ground truth, never prose.
+Anti-skip-to-green: `RTK_DB_PATH` isolates rtk telemetry to the run and
+`rtk gain` must report tracked commands with positive savings, so a disabled
+hook fails instead of passing vacuously. Self-skips (visibly) when rtk is
+not on PATH.
 
 `guard.e2e.test.ts` — always runs: fails loudly when the token is missing (every
 arm would self-skip) or the codex binary is absent despite a token, so the suite

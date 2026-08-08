@@ -148,11 +148,8 @@ export const RTK_FIND_SUPPORTED_FLAGS = new Set([
 ]);
 
 // rg flags that change the output away from the plain file:line:content
-// matches the grep pipe filter models — compacting them would corrupt counts,
-// file lists, or JSON that a consumer (or the model) reads structurally.
-// rg is piped (`rg … | rtk pipe -f grep`) rather than prefix-routed because
-// rg is commonly a shell function (Claude Code's embedded ripgrep), which
-// `rtk rg` cannot exec.
+// matches rtk's rg filter models — compacting them would corrupt counts, file
+// lists, or JSON that a consumer (or the model) reads structurally.
 const RG_UNSAFE_FLAGS = new Set([
   "--json",
   "--files",
@@ -169,24 +166,6 @@ const RG_UNSAFE_FLAGS = new Set([
   "--quiet",
   "-r",
   "--replace",
-]);
-
-// find actions that execute commands, write output elsewhere, or change the
-// stdout format away from a plain file list. Their invocations are never
-// touched: the pipe fallback's find filter would mis-summarize non-list output.
-const FIND_ACTION_FLAGS = new Set([
-  "-exec",
-  "-execdir",
-  "-ok",
-  "-okdir",
-  "-delete",
-  "-ls",
-  "-fls",
-  "-print0",
-  "-printf",
-  "-fprint",
-  "-fprint0",
-  "-fprintf",
 ]);
 
 function findFlagTokens(trimmed: string): string[] {
@@ -211,33 +190,11 @@ function rtkSupportsFindInvocation(trimmed: string): boolean {
   return true;
 }
 
-function findEmitsPlainFileList(trimmed: string): boolean {
-  return !findFlagTokens(trimmed).some((bare) => FIND_ACTION_FLAGS.has(bare));
-}
-
-/**
- * Compacts a command's stdout through rtk's pipe filter without rtk running
- * the command itself — for commands rtk can't exec (rg as a shell function)
- * or can't parse (find predicates outside its allowlist). The subshell scopes
- * `pipefail` so the segment's exit code is still the command's own (a bare
- * pipe would report rtk's exit and flip rg's no-match 1 to 0, breaking `&&`
- * short-circuits), and on re-entry its `|` disqualifies the segment, keeping
- * the rewrite idempotent.
- */
-function pipeFallback(
-  trimmed: string,
-  quotedPrefix: string,
-  filter: string,
-): string {
-  return `( set -o pipefail; ${trimmed} | ${quotedPrefix} pipe -f ${filter} )`;
-}
-
 export interface RtkRewriteOptions {
   /**
-   * Whether `rg` is a real executable on PATH. Native `rtk rg` compresses far
-   * harder than the pipe filter (it applies the proxy's result caps and match
-   * summary) but execs rg itself, which fails when rg is only a shell
-   * function (Claude Code's embedded ripgrep). Detected once per session via
+   * Whether `rg` is a real executable on PATH. `rtk rg` execs rg itself, so
+   * it fails where rg is only a shell function (Claude Code's embedded
+   * ripgrep) — those environments leave rg raw. Detected once per session via
    * `rgOnPath(env)`.
    */
   rgOnPath?: boolean;
@@ -248,10 +205,12 @@ export function rgOnPath(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * Returns the rewritten form of one chain segment, or null to leave it
- * untouched. Two shapes: `<prefix> <cmd>` when rtk can run the command itself,
- * and the pipeFallback subshell when only the command's stdout can be
- * compacted.
+ * Returns the `<prefix> <cmd>` rewrite of one chain segment, or null to leave
+ * it untouched. rtk's filters are explicitly lossy at scale (result caps with
+ * `+N` truncation markers), so only commands rtk proxies natively — where the
+ * truncation is discoverable from an uncapped total header — are rewritten;
+ * a command piped anywhere (e.g. `rg … | cat`) always bypasses the rewrite,
+ * which is the exact-output escape hatch.
  */
 function rewriteSegmentInvocation(
   segment: string,
@@ -277,17 +236,23 @@ function rewriteSegmentInvocation(
     return `${quotedPrefix} ${trimmed}`;
   }
   if (head === "find") {
-    if (rtkSupportsFindInvocation(trimmed)) return `${quotedPrefix} ${trimmed}`;
-    if (findEmitsPlainFileList(trimmed)) {
-      return pipeFallback(trimmed, quotedPrefix, "find");
-    }
-    return null;
+    // Predicates outside rtk's parser (-not, -exec, !, …) run raw. They tend
+    // to be used when the agent needs the complete matched set, and rtk's
+    // pipe filters truncate large lists (10 per dir, `+N` markers) —
+    // compressing there deletes exactly what the invocation exists to produce.
+    if (!rtkSupportsFindInvocation(trimmed)) return null;
+    return `${quotedPrefix} ${trimmed}`;
   }
   if (head === "rg") {
+    // Only when rg is a real executable — `rtk rg` execs rg itself, which
+    // fails where rg is a shell function (Claude Code's embedded ripgrep).
+    // The rg proxy applies the same result caps as the long-shipped grep
+    // proxy and reports the uncapped total ("N matches in M files"), so
+    // truncation stays discoverable.
+    if (!options.rgOnPath) return null;
     const tokens = trimmed.split(/\s+/).slice(1);
     if (tokens.some((t) => RG_UNSAFE_FLAGS.has(t))) return null;
-    if (options.rgOnPath) return `${quotedPrefix} ${trimmed}`;
-    return pipeFallback(trimmed, quotedPrefix, "grep");
+    return `${quotedPrefix} ${trimmed}`;
   }
   if (!RTK_PLAIN_COMMANDS.has(head)) return null;
   return `${quotedPrefix} ${trimmed}`;
@@ -331,16 +296,21 @@ export function rewriteBashForRtk(
 
 function findOnPath(bin: string, env: NodeJS.ProcessEnv): string | undefined {
   const pathVar = env.PATH ?? env.Path ?? "";
-  const exts =
-    process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
+  const isWindows = process.platform === "win32";
+  const exts = isWindows ? [".exe", ".cmd", ".bat", ""] : [""];
   for (const dir of pathVar.split(path.delimiter)) {
     if (!dir) continue;
     for (const ext of exts) {
       const full = path.join(dir, bin + ext);
       try {
-        if (fs.statSync(full).isFile()) return full;
+        if (!fs.statSync(full).isFile()) continue;
+        // The shell would skip a non-executable file and resolve the next PATH
+        // entry (or a shell function); treating it as available would produce
+        // rewrites that die with EACCES. Windows has no execute bit.
+        if (!isWindows) fs.accessSync(full, fs.constants.X_OK);
+        return full;
       } catch {
-        // Not in this dir; keep looking.
+        // Not here or not executable; keep looking.
       }
     }
   }

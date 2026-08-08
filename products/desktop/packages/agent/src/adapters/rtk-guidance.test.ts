@@ -15,7 +15,7 @@ describe("rtk guidance for codex", () => {
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "rtk-guidance-test-"));
     binary = path.join(dir, "rtk");
-    fs.writeFileSync(binary, "#!/bin/sh\n");
+    fs.writeFileSync(binary, "#!/bin/sh\n", { mode: 0o755 });
   });
 
   afterAll(() => {

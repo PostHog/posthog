@@ -19,12 +19,13 @@ import { type Capture, cleanupRepo, openSession, setupRepo } from "./driver";
  * guidance the model may or may not follow, so nothing is assertable).
  *
  * The claim under test: routing Bash output through rtk compresses it WITHOUT
- * deleting the information the agent needs. Each turn forces the agent to
- * recover a specific ground-truth fact (file path, line number, file count,
- * git state) from compressed output at a scale where rtk's filters genuinely
- * engage (hundreds of files), across sequential turns in ONE session so
- * compressed context compounds the way long real sessions do. Assertions are
- * deterministic JSON side effects against seeded ground truth — never prose.
+ * deleting the information the agent needs — including past rtk's truncation
+ * caps, where only the uncapped summary header carries the truth. Each turn
+ * forces the agent to recover a specific ground-truth fact (file path, line
+ * number, file count, an above-cap match total, git state) from compressed
+ * output, across sequential turns in ONE session so compressed context
+ * compounds the way long real sessions do. Assertions are deterministic JSON
+ * side effects against seeded ground truth — never prose.
  *
  * Anti-skip-to-green: RTK_DB_PATH points rtk's telemetry at a throwaway DB;
  * after the turns, `rtk gain` against that DB must show commands were tracked
@@ -36,6 +37,10 @@ const NEEDLE = "NEEDLE_e2e_7f3a9c";
 const NEEDLE_FILE = "src/mod7/service.ts";
 const NEEDLE_LINE = 47;
 const FIXTURE_COUNT = 9; // *.fixture.md outside vendor/
+// 12 dirs × 10 files × 40 lines, every line matching "export const mod" — far
+// past rtk grep's 200-shown-results cap, so the only place the true total
+// survives compression is the "N matches in M files" header.
+const NOISE_MATCH_TOTAL = 12 * 10 * 40;
 const MODIFIED_FILES = [
   "src/mod1/file3.ts",
   "src/mod4/file0.ts",
@@ -159,23 +164,29 @@ describe.skipIf(!!skip)(title, () => {
         `Step 2: from its output, write a file named answer-grep.json containing ` +
         `exactly {"file": "<relative path of the file containing ${NEEDLE}>", "line": <line number as an integer>}. ` +
         `Do nothing else, then stop.`,
-      // Turn 2 — find with -not (rtk-unsupported predicate → pipe fallback):
-      // the full file list must survive compression to count it.
+      // Turn 2 — find with -not (rtk-unsupported predicate): the guard must
+      // leave it raw, so the complete list arrives and the count is exact.
       `Step 1: run exactly this single Bash command: find . -type f -name "*.fixture.md" -not -path "./vendor/*"\n` +
         `Step 2: count the files in its output and write a file named answer-find.json containing ` +
         `exactly {"count": <integer>}. Do nothing else, then stop.`,
-      // Turn 3 — chained git segments: per-file status must survive compression.
+      // Turn 3 — the lossy threshold: thousands of matches, far past rtk's
+      // 200-shown cap. The exact total only survives in the summary header.
+      `Step 1: run exactly this single Bash command: grep -rn "export const mod" src\n` +
+        `Step 2: from its output, determine the TOTAL number of matches (the output may show ` +
+        `a summary with the total alongside a subset of matches) and write a file named ` +
+        `answer-count.json containing exactly {"matches": <integer>}. Do nothing else, then stop.`,
+      // Turn 4 — chained git segments: per-file status must survive compression.
       `Step 1: run exactly this single Bash command: git status && git diff --stat\n` +
         `Step 2: from its output, write a file named answer-git.json containing exactly ` +
         `{"modified": [<relative paths of modified tracked files, sorted>], ` +
         `"untracked": [<relative paths of untracked files, sorted>]}. ` +
-        `Exclude answer-grep.json and answer-find.json from both lists. Do nothing else, then stop.`,
+        `Exclude answer-grep.json, answer-find.json and answer-count.json from both lists. Do nothing else, then stop.`,
     ];
 
     try {
       for (const [i, text] of prompts.entries()) {
-        // Mutate the worktree between turn 2 and 3 so turn 3 has real git state.
-        if (i === 2) {
+        // Mutate the worktree before the git turn so it has real state.
+        if (i === 3) {
           for (const file of MODIFIED_FILES) {
             appendFileSync(join(repo, file), "export const changed = true;\n");
           }
@@ -204,9 +215,9 @@ describe.skipIf(!!skip)(title, () => {
     rmSync(rtkDbPath, { force: true });
   });
 
-  it("completes all three turns", () => {
+  it("completes all four turns", () => {
     if (turnError) throw turnError;
-    expect(turns).toHaveLength(3);
+    expect(turns).toHaveLength(4);
     for (const t of turns) expect(t.stopReason).toBe("end_turn");
   });
 
@@ -217,10 +228,19 @@ describe.skipIf(!!skip)(title, () => {
     expect(answer.line).toBe(NEEDLE_LINE);
   });
 
-  it("recovers an exact file count from the find pipe fallback", () => {
+  it("recovers an exact file count from a guarded (raw) find -not", () => {
     if (turnError) throw turnError;
     const answer = readAnswer(repo, "answer-find.json");
     expect(answer.count).toBe(FIXTURE_COUNT);
+  });
+
+  // The lossy threshold the small turns sail under: rtk grep shows at most
+  // 200 matches, so the agent can only get the exact total from the uncapped
+  // summary header. This is the discoverability contract at real scale.
+  it("recovers the exact match total past rtk's truncation cap", () => {
+    if (turnError) throw turnError;
+    const answer = readAnswer(repo, "answer-count.json");
+    expect(answer.matches).toBe(NOISE_MATCH_TOTAL);
   });
 
   it("recovers per-file git state from a compressed && chain", () => {
