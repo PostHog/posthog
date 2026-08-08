@@ -23,36 +23,61 @@ FROM system.insights
 WHERE saved = 1 AND deleted = 0
 ```
 
-Sweep form. Page through rows in `last_modified_at DESC` order. ~200 rows per run is plenty:
+Sweep form. Page through rows in `last_modified_at DESC` order. ~200 rows per run is plenty.
+Select the numeric `id` as well: `insights-activity-retrieve` only accepts a numeric id. Pass
+that, never `short_id`, when you pull an insight's edit history.
 
 ```sql
-SELECT short_id, name, description, query, filters, last_modified_at, created_by_id, last_modified_by_id
+SELECT id, short_id, name, description, query, filters, last_modified_at, created_by_id, last_modified_by_id
 FROM system.insights
 WHERE saved = 1 AND deleted = 0
 ORDER BY last_modified_at DESC
 LIMIT 200
 ```
 
-The tracked-event vocabulary for the stale-event check: every event that any insight's series references. This is your positive-evidence set. Fold it into `pattern:insight_hygiene:events` memory:
+When the sweep returns the full 200 rows, the run has not seen the whole population. Filter the
+next run with `AND last_modified_at < {oldest last_modified_at you scored this run}` and keep
+walking. Record how far you got in `pattern:insight_hygiene:baseline` (covered through
+{timestamp}). The quick close-out only applies once the baseline says the full population was
+covered. Until then, every run must make progress, even when nothing changed recently.
+
+The tracked-event vocabulary: every event any insight's series references. Use it for one job
+only: mapping a title word to a possible event name (the display-form dictionary). It is NOT
+evidence for a stale-event verdict. A stale event fires only on per-insight evidence: you once
+saw the event in THIS insight's own series (its current query, or the series list in its
+`dedupe:` entry). "Pageviews" on an insight that always tracked `$autocapture` is a naming
+choice, even when other insights in the project track `$pageview`.
+
+Saved insight queries are persisted wrapped (`{"kind": "InsightVizNode", "source": {...}}`),
+so read series from `query.source`, falling back to the bare node for unwrapped rows:
 
 ```sql
-SELECT DISTINCT JSONExtractString(series.value, 'event') AS event
+SELECT DISTINCT JSONExtractString(series, 'event') AS event
 FROM system.insights
-ARRAY JOIN JSONExtractArrayRaw(query, 'series') AS series
+ARRAY JOIN JSONExtractArrayRaw(coalesce(nullIf(JSONExtractRaw(query, 'source'), ''), JSONExtractRaw(query)), 'series') AS series
 WHERE saved = 1 AND deleted = 0
-  AND JSONExtractString(series.value, 'kind') = 'EventsNode'
+  AND JSONExtractString(series, 'kind') = 'EventsNode'
   AND event != ''
 ```
 
-For the human-renamed-vs-query-edited check on a candidate, call `insights-activity-retrieve` with the insight's `short_id`. Read the most recent activities. A `name` change after the last `query` or `filters` change means the name is deliberate.
+Fold the list into `pattern:insight_hygiene:events` memory as the recognition dictionary.
+
+For the human-renamed-vs-query-edited check on a candidate, call `insights-activity-retrieve`
+with the insight's numeric `id` from the sweep row (the tool does not accept `short_id`). Read
+the most recent activities. A `name` change after the last `query` or `filters` change means
+the name is deliberate.
 
 ## Query formats
 
-**New-style (`query` JSON).** The trend-family kinds are `TrendsQuery`, `StickinessQuery`, and `LifecycleQuery`:
+**New-style (`query` JSON).** The API persists ordinary saved trend-family queries wrapped:
+`{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}`. Unwrap `query.source`
+first. Older rows can hold the bare kind directly. The supported trend-family kinds are
+`TrendsQuery`, `StickinessQuery`, and `LifecycleQuery`:
 
-- Window: `query.dateRange.date_from` (e.g. `-7d`, `-30d`, `-0mStart`). Absent or `null` means the project default: treat it as no contradiction. `"all"` means all time.
-- Series: `query.series[]`. An `EventsNode` entry has an `event` field and an optional `name` display alias. An `ActionsNode` entry has an `id` and an optional `name` display label; the name is what you match against, never parse it. A `DataWarehouseNode` series is judgment-only.
-- Breakdown: `query.breakdownFilter.breakdown`. A name claiming "by browser" on a query with no `breakdownFilter` is judgment-confusing: report it. This is not a mechanical check.
+- Window: `source.dateRange.date_from` (e.g. `-7d`, `-30d`, `-0mStart`). Absent or `null` means the project default: treat it as no contradiction. `"all"` means all time.
+- Series: `source.series[]`. An `EventsNode` entry has an `event` field and an optional `name` display alias. An `ActionsNode` entry has an `id` and an optional `name` display label; the name is what you match against, never parse it. A `DataWarehouseNode` series is judgment-only.
+- Breakdown: `source.breakdownFilter.breakdown`. A name claiming "by browser" on a query with no `breakdownFilter` is judgment-confusing: report it. This is not a mechanical check.
+- An `InsightVizNode` whose source kind is out of scope (funnels, retention, paths) is judgment-only, like an unwrapped one.
 
 **Legacy (`filters` JSON, `query` empty).** Window: `filters.date_from`. Series: `filters.events[]` (each has a `name`) plus `filters.actions[]` (each has a `name`).
 
@@ -83,11 +108,17 @@ Rules:
 
 ### 2. Stale event
 
-The name or description references a **known-tracked** event that is absent from the current series.
+The name or description references an event absent from this insight's current series.
 Event display forms: `$pageview` → "pageview(s)", "page view(s)"; `$exception` → "exception(s)", "error(s)"; `$autocapture` → "autocapture(s)"; `$screen` → "screenview(s)", "screen view(s)"; `$rageclick` → "rageclick(s)", "rage click(s)"; `$dead_click` → "deadclick(s)", "dead click(s)".
 Custom events use three forms: the raw name, the `$`-stripped name, and the separators-to-spaces form (`signed_up` → "signed up").
 Longest phrase wins: "page views" beats "view".
-The event must sit in your positive-evidence set (this insight's own query, or `pattern:insight_hygiene:events` memory). An unknown word never fires.
+
+Fire only with PER-INSIGHT evidence: you positively saw the event in THIS insight's series. Two
+sources: the insight's own current query (a drop added but the event still present means no
+fire), or its `dedupe:` entry (each entry records the series events you scored). The project-
+wide vocabulary query above is only the display-form recognition dictionary. An insight titled
+"Pageviews" that always tracked `$autocapture` never fires, regardless of what other insights
+track. An unknown word never fires.
 **Always report-only.** Which event the insight is "about" after a swap is a human call.
 
 ### 3. Broken comparison

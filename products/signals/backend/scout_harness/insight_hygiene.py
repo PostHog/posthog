@@ -12,9 +12,10 @@ What the mechanical core covers (anything subtler stays LLM judgment):
 
 - Read a date-range claim from a name or description ("last 14 days", "30d", "past week",
   "this month"). Compare it with the query's `dateRange.date_from`.
-- Read the tracked events and actions from a Trends, Stickiness, or Lifecycle query
-  (`query` JSON, or legacy `filters` JSON). Match event mentions in the name ("pageviews",
-  "sign ups", "$pageview") against them.
+- Read the tracked events, actions, and date range from a Trends, Stickiness, or Lifecycle
+  query. Saved insights persist it wrapped as `{"kind": "InsightVizNode", "source": {...}}`.
+  The code unwraps `query.source`. It also reads a bare source and legacy `filters` JSON.
+  Match event mentions in the name ("pageviews", "sign ups", "$pageview") against the series.
 - Detect names that imply a comparison ("A vs B") when the query holds one series.
 - Suggest a mechanical new name only when the fix swaps the stale token for the value from the
   query. Anything ambiguous downgrades to report-only.
@@ -292,14 +293,30 @@ def check_series_count(name: str | None, series: list[SeriesInfo]) -> Verdict | 
 # ---------------------------------------------------------------------------
 
 
+def unwrap_query_node(query_json: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Resolve the payload node of a saved insight's `query` JSON.
+
+    The API persists trend-family queries wrapped: `{"kind": "InsightVizNode", "source": {...}}`
+    (`InsightSerializer.validate_query` auto-wraps bare sources so the UI renders them). Older
+    rows and bare MCP writes can hold the bare query kind directly. Checks must read the source
+    of the wrapper, or every saved insight looks windowless and seriesless.
+    """
+    if isinstance(query_json, dict) and query_json.get("kind") == "InsightVizNode":
+        source = query_json.get("source")
+        if isinstance(source, dict):
+            return source
+    return query_json
+
+
 def extract_series(query_json: dict[str, Any] | None, legacy_filters: dict[str, Any] | None) -> list[SeriesInfo]:
     """Read the series of trend-family queries (TrendsQuery, StickinessQuery, LifecycleQuery, or
     legacy filter insights). Funnel, retention, and paths queries return empty. Their names
     describe flows, and this detector stays out of flows on purpose. The scout's LLM judgment
     still applies there."""
     series: list[SeriesInfo] = []
-    if isinstance(query_json, dict) and isinstance(query_json.get("series"), list):
-        for node in query_json["series"]:
+    payload = unwrap_query_node(query_json)
+    if isinstance(payload, dict) and isinstance(payload.get("series"), list):
+        for node in payload["series"]:
             if not isinstance(node, dict):
                 continue
             if node.get("kind") == "EventsNode" and node.get("event"):
@@ -321,10 +338,11 @@ def extract_series(query_json: dict[str, Any] | None, legacy_filters: dict[str, 
 
 
 def extract_date_from(query_json: dict[str, Any] | None, legacy_filters: dict[str, Any] | None) -> str | None:
-    """Read the query's dateRange.date_from. Supported formats: new-style query JSON and legacy
-    filters JSON."""
-    if isinstance(query_json, dict):
-        date_range = query_json.get("dateRange")
+    """Read the query's dateRange.date_from. Supported formats: new-style query JSON (bare or
+    InsightVizNode-wrapped) and legacy filters JSON."""
+    payload = unwrap_query_node(query_json)
+    if isinstance(payload, dict):
+        date_range = payload.get("dateRange")
         if isinstance(date_range, dict) and isinstance(date_range.get("date_from"), str):
             return date_range["date_from"]
     if isinstance(legacy_filters, dict) and isinstance(legacy_filters.get("date_from"), str):

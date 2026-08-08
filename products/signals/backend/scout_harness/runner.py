@@ -498,12 +498,16 @@ async def _spawn_and_run(
         network_access_level,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
-    # Per-skill user-write opt-ins (see OPT_IN_USER_WRITE_TOOLS).
-    # When a skill opts in, resolve the scout preset through the public resolve_scopes() here and
-    # append the opted-in scopes as an explicit list. The shared OAuth token code keeps no scout
-    # knowledge. When nothing opts in, pass the plain preset string.
+    # Per-skill user-write opt-ins (see OPT_IN_USER_WRITE_TOOLS). The resolver gates on the
+    # loaded skill's origin: only a pristine canonical skill can hold a user-write scope. A
+    # member-edited (diverged) or hand-authored skill may list the same opt-in tool, but
+    # `allowed_tools` is member-editable through the generic skills API — never evidence enough
+    # to mint a write scope for a token running as another user.
+    # When a pristine canonical skill opts in, resolve the scout preset through the public
+    # resolve_scopes() here and append the opted-in scopes as an explicit list. The shared OAuth
+    # token code keeps no scout knowledge. When nothing opts in, pass the plain preset string.
     scope_preset: McpScopePreset = "signals_scout_reports" if report_channel else "signals_scout"
-    opted_in_write_scopes = skill_opted_in_user_write_scopes(skill.allowed_tools)
+    opted_in_write_scopes = skill_opted_in_user_write_scopes(skill.allowed_tools, origin=skill.origin)
     scout_mcp_scopes: PosthogMcpScopes = scope_preset
     if opted_in_write_scopes:
         scout_mcp_scopes = [*resolve_scopes(scope_preset), *opted_in_write_scopes]

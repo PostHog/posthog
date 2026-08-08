@@ -35,11 +35,11 @@ You hold `insight:write` (via your `allowed_tools` `update_insights` opt-in). It
 
 A name that matches, or makes no checkable claim at all, is baseline. It is never a finding. Internalize that rule: _no claim in the title, or claim matches the query → not your finding._
 
-Check [`references/queries.md`](references/queries.md) for the full semantics: the query formats to parse (Trends, Stickiness, Lifecycle `query` JSON and legacy `filters` JSON), the date-claim phrase vocabulary, the event display forms, and worked examples. A tested Python reference for these rules lives at `products/signals/backend/scout_harness/insight_hygiene.py`, with a scenario corpus in `products/signals/backend/test/test_insight_hygiene.py`. If your judgment and those rules disagree on a mechanical case, prefer the rules. Note the disagreement in memory.
+Check [`references/queries.md`](references/queries.md) for the full semantics: the query formats to parse (the `InsightVizNode` wrapper around Trends, Stickiness, and Lifecycle sources; bare sources; legacy `filters` JSON), the date-claim phrase vocabulary, the event display forms, and worked examples. A tested Python reference for these rules lives at `products/signals/backend/scout_harness/insight_hygiene.py`, with a scenario corpus in `products/signals/backend/test/test_insight_hygiene.py`. If your judgment and those rules disagree on a mechanical case, prefer the rules. Note the disagreement in memory.
 
 ## Quick close-out: are there saved insights at all?
 
-Run the sweep query's COUNT form (queries.md §Sweep). If the project has **zero saved, non-deleted insights**, write one `not-in-use:insight_hygiene:team{team_id}` entry and close out empty. If the count equals your `pattern:insight_hygiene:baseline` entry AND no insight's `last_modified_at` is newer than your last run, refresh the baseline note and close out. Naming hygiene only drifts when edits happen.
+Run the sweep query's COUNT form (queries.md §Sweep). If the project has **zero saved, non-deleted insights**, write one `not-in-use:insight_hygiene:team{team_id}` entry and close out empty. If the count equals your `pattern:insight_hygiene:baseline` entry, no insight's `last_modified_at` is newer than your last run, AND the baseline says the full population was covered (its "covered through" marker reached the oldest insight), refresh the baseline note and close out. Naming hygiene only drifts when edits happen. Until the first full pass completes, there is no close-out: every run keeps walking the tail (queries.md §Sweep), even in a quiet project.
 
 ## How a run works
 
@@ -50,7 +50,7 @@ Run the sweep query's COUNT form (queries.md §Sweep). If the project has **zero
 
 ### Sweep
 
-Pull every saved insight with its definition via `execute-sql` over `system.insights` (queries.md §Sweep). First confirm the columns against `system.information_schema.columns`, per the `execute-sql` contract. Then one query: `saved = 1 AND deleted = 0`, reading name, description, query, filters, last_modified_at, created_by, last_modified_by. A big project can have thousands of insights. Work through them in `last_modified_at DESC` order. Cap a run's deep-reads at ~200 most recently modified. Staleness only enters through edits. Earlier runs checked the long-untouched tail (your `dedupe:` entries carry each insight's last-seen signature).
+Pull every saved insight with its definition via `execute-sql` over `system.insights` (queries.md §Sweep). First confirm the columns against `system.information_schema.columns`, per the `execute-sql` contract. Then one query: `saved = 1 AND deleted = 0`, reading the numeric `id`, short_id, name, description, query, filters, last_modified_at, created_by, last_modified_by. A big project can have thousands of insights. Work through them in `last_modified_at DESC` order. Cap a run's deep-reads at ~200. If the sweep returns the full cap, next run continues where you stopped: filter `last_modified_at` below the oldest row you scored, and record the new coverage point in the baseline entry. Staleness only enters through edits. Once the full population is covered, the long-untouched tail only needs a look when its rows change (your `dedupe:` entries carry each insight's last-seen signature).
 
 ### Score each insight
 
@@ -70,7 +70,7 @@ Apply the three mechanical checks (rules in queries.md). The reference implement
 
 After each rename, rewrite the insight's `dedupe:insight_hygiene:{short_id}` entry. Record the old and new titles, the query evidence, and the new signature. That entry is both the audit log and the re-process gate. Include the rename in the day's report (a "Fixed automatically" section) so the team can audit and revert. **Never rename the same insight twice.** If the `dedupe:` entry's signature still matches, the title is yours. If a human changed it back, that is a revert. Write an `allowlist:` entry and never touch it again.
 
-**Report everything else** in ONE bundled report per run (the digest pattern: one report a human can triage, never one report per insight). The rest means: stale-event verdicts, broken comparisons, description drift, stale windows with no clean substitution, and anything ambiguous. Title: `N saved insights have confusing names or descriptions`. Body: a table with one row per insight. Columns: the insight (linked by `short_id`), its current name or description excerpt, why it is confusing ("title says last 14 days; the query tracks last 30 days"), and the suggested fix. Set `actionability=requires_human_input` and `repository` to the `NO_REPO` sentinel (a metadata fix, not a repo task). Priority **P3** (P2 only if a contradicting insight sits on the project's most-viewed dashboard, or is favorited). Check the inbox first (your `report:insight_hygiene:batch` pointer, else an `inbox-reports-list` search). Edit the live batch report across runs: `append_note` the fresh list, drop resolved entries. Never author a second batch report.
+**Report everything else** in ONE bundled report per run (the digest pattern: one report a human can triage, never one report per insight). The rest means: stale-event verdicts, broken comparisons, description drift, stale windows with no clean substitution, and anything ambiguous. Title: `N saved insights have confusing names or descriptions`. Body: a table with one row per insight. Columns: the insight (linked by `short_id`), its current name or description excerpt, why it is confusing ("title says last 14 days; the query tracks last 30 days"), and the suggested fix. Set `actionability=requires_human_input` and `repository` to the `NO_REPO` sentinel (a metadata fix, not a repo task). Priority **P3** (P2 only if a contradicting insight sits on the project's most-viewed dashboard, or is favorited). Check the inbox first (your `report:insight_hygiene:batch` pointer, else an `inbox-reports-list` search). Edit the live batch report across runs: `append_note` the fresh list, drop resolved entries. If the pointed report is no longer pending (a human resolved, suppressed, or failed it), do not edit it. Author a fresh batch report and repoint `report:insight_hygiene:batch`. Fresh findings on a closed report stay buried and never resurface.
 
 ### Save memory as you go
 
@@ -78,7 +78,7 @@ Reuse the fleet's key prefixes (`<prefix>:insight_hygiene:<entity>`). Invent no 
 
 - `pattern:insight_hygiene:baseline` — "{N} saved insights, {M} scored confusing, {R} renamed at {timestamp}".
 - `pattern:insight_hygiene:events` — the tracked-event vocabulary you positively saw in this project's insight queries. It feeds the stale-event check on later runs.
-- `dedupe:insight_hygiene:{short_id}` — "Checked {date}: signature {name + query hash} → {clean | reported in {report_id} | renamed '{old}' → '{new}'}. Skip while the signature holds." For a rename, include the query evidence ({date_from, series}) in the same entry. It doubles as the audit log.
+- `dedupe:insight_hygiene:{short_id}` — "Checked {date}: signature {name + query hash}, series {events you saw}, window {date_from} → {clean | reported in {report_id} | renamed '{old}' → '{new}'}. Skip while the signature holds." The series list doubles as the per-insight sighting evidence for the stale-event check (queries.md §2). For a rename, keep the query evidence in the same entry. It doubles as the audit log.
 - `allowlist:insight_hygiene:{short_id}` — "Human renamed after the query edit (or reverted my rename) on {date}: deliberate naming choice, never touch."
 - `report:insight_hygiene:batch` — the `report_id` of the current bundled confusing-insights report.
 
@@ -105,7 +105,7 @@ When in doubt, remember instead of renaming or reporting.
 Direct:
 
 - `execute-sql` — the sweep over `system.insights` (queries.md §Sweep) and any narrowing follow-ups.
-- `insights-activity-retrieve` — per-insight edit history, to answer: did a human rename after the query edit?
+- `insights-activity-retrieve` — per-insight edit history, to answer: did a human rename after the query edit? It takes the numeric `id` from the sweep row, not the `short_id`.
 - `insight-update` — **rename only** (`id` + `name`, nothing else). Enabled by your `update_insights` opt-in. It fails closed: a 403 means the scope is gone. Stop renaming and report instead.
 - `insight-get` — read one insight's full definition when a sweep row needs a second look.
 

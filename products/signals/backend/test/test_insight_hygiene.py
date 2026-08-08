@@ -75,6 +75,13 @@ def legacy_filters(events: list[str], date_from: str) -> dict:
     return {"events": [{"id": e, "name": e} for e in events], "date_from": date_from}
 
 
+def wrapped_trends_query(events: list[str], date_from: str | None = "-7d") -> dict:
+    # How the API persists every ordinary saved trend-family insight since the auto-wrap:
+    # InsightSerializer.validate_query wraps the bare source in an InsightVizNode so the UI
+    # renders it. The checks must read through `source`.
+    return {"kind": "InsightVizNode", "source": trends_query(events, date_from)}
+
+
 # ---------------------------------------------------------------------------
 # 1. Scenario corpus
 # ---------------------------------------------------------------------------
@@ -401,6 +408,53 @@ SCENARIOS = [
         Action.REPORT,
         None,
     ),
+    # --- InsightVizNode wrapper: how the API persists every ordinary saved trend-family
+    # insight. The checks must read through `source`, or wrapped insights look windowless and
+    # seriesless (stale windows missed, valid A-vs-B insights falsely reported as zero-series).
+    (
+        "wrapped_window_edit_rename",
+        "Pageviews (last 14 days)",
+        None,
+        wrapped_trends_query(["$pageview"], "-30d"),
+        None,
+        None,
+        True,
+        Action.RENAME,
+        "Pageviews (last 30 days)",
+    ),
+    (
+        "wrapped_window_match",
+        "Pageviews (last 30 days)",
+        None,
+        wrapped_trends_query(["$pageview"], "-30d"),
+        None,
+        None,
+        False,
+        Action.NONE,
+        None,
+    ),
+    (
+        "wrapped_vs_two_series",
+        "Signups vs logins",
+        None,
+        wrapped_trends_query(["signed_up", "logged_in"], "-30d"),
+        None,
+        {"signed_up", "logged_in"},
+        False,
+        Action.NONE,
+        None,
+    ),
+    (
+        "wrapped_vs_one_series",
+        "Signups vs logins",
+        None,
+        wrapped_trends_query(["signed_up"], "-30d"),
+        None,
+        {"signed_up"},
+        True,
+        Action.REPORT,
+        None,
+    ),
 ]
 
 
@@ -590,6 +644,17 @@ class TestUpdateInsightsOptIn(SimpleTestCase):
     def test_unknown_allowed_tools_are_ignored(self) -> None:
         assert skill_opted_in_user_write_scopes(["delete_everything"]) == []
 
+    def test_custom_and_diverged_skills_get_no_user_write_scope(self) -> None:
+        # The security gate: `allowed_tools` is member-editable through the generic skills API,
+        # so only a pristine canonical skill (origin == "canonical") may hold `insight:write`.
+        # A custom scout, or a canonical row the team edited in place (both classify as custom),
+        # gets nothing even when it lists the opt-in tool.
+        assert (
+            skill_opted_in_user_write_scopes(["emit_report", "edit_report", "update_insights"], origin="custom") == []
+        )
+        # Origin omitted: default keeps historical callers on the pristine-canonical path.
+        assert skill_opted_in_user_write_scopes(["update_insights"], origin="any-garbage") == []
+
     def test_opt_in_map_targets_only_advertised_scopes(self) -> None:
         for tool, scope in OPT_IN_USER_WRITE_TOOLS.items():
             assert scope in MCP_WRITE_SCOPES, f"{tool} → {scope} is not an advertised MCP write scope"
@@ -650,10 +715,12 @@ def _make_fake_session(team: Team) -> tuple[MagicMock, MagicMock]:
     return session, result
 
 
-async def _capture_mcp_scopes(ateam: Team, *, allowed_tools: list[str]) -> object:
+async def _capture_mcp_scopes(ateam: Team, *, allowed_tools: list[str], origin: str = "canonical") -> object:
     """Run one scout with a fake session and capture the `posthog_mcp_scopes` the runner put in
-    the sandbox context."""
+    the sandbox context. The skill load is stubbed so a test can pick the loaded skill's origin
+    directly (origin computation itself is covered by the loader and lazy_seed suites)."""
     from products.signals.backend.scout_harness import runner as runner_mod
+    from products.signals.backend.scout_harness.skill_loader import LoadedSkill
 
     skill = await sync_to_async(LLMSkill.objects.create)(
         team=ateam,
@@ -662,6 +729,20 @@ async def _capture_mcp_scopes(ateam: Team, *, allowed_tools: list[str]) -> objec
         body="scout",
         allowed_tools=allowed_tools,
     )
+
+    def _fake_load_skill_for_run(*args, **kwargs) -> LoadedSkill:
+        return LoadedSkill(
+            name=skill.name,
+            version=1,
+            body="scout",
+            description="test scout",
+            allowed_tools=list(allowed_tools),
+            files=[],
+            skill_id=str(skill.id),
+            origin=origin,  # type: ignore[arg-type]
+            authors=[],
+        )
+
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
     original_context = runner_mod.CustomPromptSandboxContext
@@ -677,6 +758,7 @@ async def _capture_mcp_scopes(ateam: Team, *, allowed_tools: list[str]) -> objec
 
     with (
         patch.object(runner_mod, "CustomPromptSandboxContext", side_effect=_capturing_context),
+        patch.object(runner_mod, "load_skill_for_run", side_effect=_fake_load_skill_for_run),
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_fake_start),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
@@ -716,6 +798,19 @@ async def test_opt_in_also_applies_to_non_report_scouts(ateam):
 
     scopes = await _capture_mcp_scopes(ateam, allowed_tools=["update_insights"])
     assert scopes == [*resolve_scopes("signals_scout"), "insight:write"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_custom_or_diverged_skill_cannot_hold_the_write_scope(ateam):
+    # The confused-deputy gate: a member can edit any scout skill's body and `allowed_tools`
+    # through the generic skills API. A loaded skill classified as custom (hand-authored, or a
+    # diverged seeded row) must therefore get the bare preset even when it lists the opt-in
+    # tool. The MCP catalog then lacks `insight-update` and the run degrades to read + reports.
+    scopes = await _capture_mcp_scopes(
+        ateam, allowed_tools=["emit_report", "edit_report", "update_insights"], origin="custom"
+    )
+    assert scopes == "signals_scout_reports"
 
 
 # ---------------------------------------------------------------------------
