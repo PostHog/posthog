@@ -313,6 +313,7 @@ export function TaskCommentsList({
   const [draft, setDraft] = useState("");
   const sourceFilterTouched = useRef(false);
   const previousTaskId = useRef(task.id);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (previousTaskId.current === task.id) return;
@@ -564,6 +565,33 @@ export function TaskCommentsList({
     return () => clearTimeout(timer);
   }, [pulseThreadId]);
 
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (
+      onlySource ||
+      !sentinel ||
+      !taskComments.hasNextPage ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !taskComments.isFetchingNextPage) {
+          void taskComments.fetchNextPage();
+        }
+      },
+      { root: sentinel.parentElement },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    onlySource,
+    taskComments.fetchNextPage,
+    taskComments.hasNextPage,
+    taskComments.isFetchingNextPage,
+  ]);
+
   const commentsLoading = onlySource
     ? singleSourceComments.isLoading
     : taskComments.isLoading;
@@ -723,19 +751,7 @@ export function TaskCommentsList({
           )
         )}
         {!onlySource && taskComments.hasNextPage && (
-          <div className="flex justify-center py-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={taskComments.isFetchingNextPage}
-              onClick={() => {
-                void taskComments.fetchNextPage();
-              }}
-            >
-              {taskComments.isFetchingNextPage && <Spinner />}
-              Load older comments
-            </Button>
-          </div>
+          <div ref={loadMoreRef} aria-hidden />
         )}
       </div>
       <footer className="sticky bottom-0 shrink-0 border-border border-t bg-background p-2">
