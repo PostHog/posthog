@@ -221,6 +221,49 @@ describe("Agent Plugins skills support", () => {
     );
   });
 
+  it.each([
+    [
+      "plugin.json",
+      async (pluginDirectory: string, _skillDirectory: string) => {
+        await writeSparseFile(
+          path.join(pluginDirectory, "plugin.json"),
+          1024 * 1024 + 1,
+        );
+      },
+      false,
+    ],
+    [
+      "SKILL.md",
+      async (_pluginDirectory: string, skillDirectory: string) => {
+        await writeSparseFile(
+          path.join(skillDirectory, "SKILL.md"),
+          1024 * 1024 + 1,
+        );
+      },
+      true,
+    ],
+  ])(
+    "rejects an oversized %s before parsing it",
+    async (_label, addPayload, manifestRemainsValid) => {
+      const pluginDirectory = path.join(root, "plugin");
+      await writePlugin(pluginDirectory);
+      const skillDirectory = await writeSkill(pluginDirectory, "summarize");
+      await addPayload(pluginDirectory, skillDirectory);
+
+      const preview = await loadAgentPlugin(pluginDirectory);
+
+      expect(preview.valid).toBe(manifestRemainsValid);
+      expect(preview.skills).toEqual([]);
+      expect(preview.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: manifestRemainsValid ? "invalid_skill" : "invalid_manifest",
+          }),
+        ]),
+      );
+    },
+  );
+
   it("isolates invalid skills and does not search nested descendants", async () => {
     const pluginDirectory = path.join(root, "plugin");
     await writePlugin(pluginDirectory);
@@ -270,6 +313,52 @@ describe("Agent Plugins skills support", () => {
       ]),
     );
   });
+
+  it.each([
+    [
+      "entry count",
+      async (skillDirectory: string) => {
+        await Promise.all(
+          Array.from({ length: 512 }, (_, index) =>
+            fs.promises.mkdir(path.join(skillDirectory, `directory-${index}`)),
+          ),
+        );
+      },
+      "too many files or directories",
+    ],
+    [
+      "directory depth",
+      async (skillDirectory: string) => {
+        let nestedDirectory = skillDirectory;
+        for (let depth = 0; depth < 33; depth += 1) {
+          nestedDirectory = path.join(nestedDirectory, "d");
+          await fs.promises.mkdir(nestedDirectory);
+        }
+      },
+      "nested too deeply",
+    ],
+  ])(
+    "rejects a skill that exceeds the tree %s limit",
+    async (_label, addPayload, expectedMessage) => {
+      const pluginDirectory = path.join(root, "plugin");
+      await writePlugin(pluginDirectory);
+      const skillDirectory = await writeSkill(pluginDirectory, "summarize");
+      await addPayload(skillDirectory);
+
+      const preview = await loadAgentPlugin(pluginDirectory);
+
+      expect(preview.valid).toBe(true);
+      expect(preview.skills).toEqual([]);
+      expect(preview.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "skill_escape",
+            message: expect.stringContaining(expectedMessage),
+          }),
+        ]),
+      );
+    },
+  );
 
   it("persists stable installation identity and enablement", async () => {
     const pluginDirectory = path.join(root, "plugin");
@@ -713,6 +802,27 @@ describe("Agent Plugins skills support", () => {
     await expect(
       service.register(preview?.selectionToken ?? ""),
     ).rejects.toThrow("Choose the Agent Plugin directory again");
+  });
+
+  it("rejects an oversized mcp.json before parsing it", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    await writeSkill(pluginDirectory, "summarize");
+    await writeSparseFile(
+      path.join(pluginDirectory, "mcp.json"),
+      1024 * 1024 + 1,
+    );
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.valid).toBe(true);
+    expect(preview.skills.map((skill) => skill.name)).toEqual(["summarize"]);
+    expect(preview.mcpServers).toEqual([]);
+    expect(preview.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_mcp_config" }),
+      ]),
+    );
   });
 
   it("isolates a top-level MCP failure from valid skills", async () => {
