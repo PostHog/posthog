@@ -1,6 +1,7 @@
 import type { IconProps } from "@phosphor-icons/react";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
+import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
 import { InboxDetailPageHeader } from "@posthog/ui/features/inbox/components/InboxDetailPageHeader";
 import {
   InboxMetaSeparator,
@@ -22,7 +23,6 @@ import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBa
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportSignals } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { Flex, Text } from "@radix-ui/themes";
 import type { ComponentType, ReactNode } from "react";
 
 interface InboxDetailFrameProps {
@@ -101,7 +101,7 @@ export function InboxDetailFrame({
     evidenceSection != null && EvidenceIcon != null && evidenceCount > 0;
 
   return (
-    <Flex direction="column" className="min-h-full">
+    <div className="flex min-h-full flex-col">
       <InboxDetailPageHeader
         backTo={backTo}
         backLabel={backLabel}
@@ -159,10 +159,10 @@ export function InboxDetailFrame({
           </>
         }
         actions={
-          <Flex align="center" className="gap-2.5">
+          <div className="flex items-center gap-2.5">
             {showDismiss && dismissButton}
             {primaryAction}
-          </Flex>
+          </div>
         }
       />
 
@@ -181,10 +181,18 @@ export function InboxDetailFrame({
             <DetailSection Icon={SummaryIcon} title={summarySection.title}>
               <SignalReportSummaryMarkdown
                 content={report.summary}
-                fallback="No summary yet – the agent is still investigating."
+                fallback="No summary yet. The agent is still investigating."
                 variant="detail"
                 pending={report.status === "in_progress"}
               />
+              {report.charts && report.charts.length > 0 && (
+                <div className="mt-4">
+                  <ReportChartsSection
+                    reportId={report.id}
+                    charts={report.charts}
+                  />
+                </div>
+              )}
             </DetailSection>
             {belowSummary}
           </div>
@@ -195,10 +203,10 @@ export function InboxDetailFrame({
                 Icon={EvidenceIcon}
                 title={evidenceSection.title}
                 rightSlot={
-                  <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
+                  <span className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
                     {evidenceCount} signal
                     {evidenceCount === 1 ? "" : "s"}
-                  </Text>
+                  </span>
                 }
               >
                 {signals.length > 0 ? (
@@ -213,6 +221,6 @@ export function InboxDetailFrame({
         </div>
         {showDismiss && dismissDialog}
       </div>
-    </Flex>
+    </div>
   );
 }
