@@ -259,8 +259,8 @@ export interface TaskRunArtifact {
   metadata?: TaskRunArtifactMetadata;
   storage_path?: string;
   uploaded_at?: string;
-  uploaded_by?: "agent" | "user" | null;
-  uploaded_by_user_id?: number | null;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
   dismissed_at?: string | null;
 }
 

@@ -25,7 +25,7 @@ import {
   Text,
 } from "@posthog/quill";
 import { formatRelativeTimeShort, type TaskRunArtifact } from "@posthog/shared";
-import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import {
   getAuthIdentity,
   useAuthStateValue,
@@ -108,7 +108,8 @@ export function CloudArtifactDownloads({
   >({});
   const [showDismissed, setShowDismissed] = useState(false);
   const runId = task?.latest_run?.id;
-  const isTerminal = isTerminalStatus(cloudStatus ?? task?.latest_run?.status);
+  const runStatus = cloudStatus ?? task?.latest_run?.status;
+  const isLive = runStatus === "queued" || runStatus === "in_progress";
   const { data: fetchedArtifacts, refetch } = useQuery({
     queryKey: ["cloudRunArtifacts", authIdentity, taskId, runId],
     queryFn: () =>
@@ -117,8 +118,8 @@ export function CloudArtifactDownloads({
       authIdentity !== null && taskId !== undefined && runId !== undefined,
     retry: false,
     staleTime: 15_000,
-    // Backstop only, for an upload whose tool call never reached this client.
-    refetchInterval: isTerminal ? false : 30_000,
+    // Tool completion triggers an immediate refresh; this only covers missing tool events.
+    refetchInterval: isLive ? 120_000 : false,
   });
 
   // The agent's own upload_artifact call is the earliest signal a new file exists,
@@ -129,13 +130,9 @@ export function CloudArtifactDownloads({
   > | null>(null);
   uploadTracker.current ??= createArtifactUploadTracker();
   const tracker = uploadTracker.current;
-  const completedUploads = useMemo(
-    () => tracker.update(events ?? []),
-    [events, tracker],
-  );
   useEffect(() => {
-    if (completedUploads > 0) void refetch();
-  }, [completedUploads, refetch]);
+    if (tracker.update(events ?? []) > 0) void refetch();
+  }, [events, tracker, refetch]);
   const groups = useMemo(
     () =>
       groupRunArtifactVersions(
@@ -169,16 +166,23 @@ export function CloudArtifactDownloads({
     }: {
       group: ArtifactGroup;
       dismissed: boolean;
-    }) =>
-      sessionService.setCloudRunArtifactsDismissed(
+    }) => {
+      const artifactIds = group.versions.flatMap((version) =>
+        version.id ? [version.id] : [],
+      );
+      if (artifactIds.length !== group.versions.length) {
+        throw new Error("Artifact versions are still uploading");
+      }
+      return sessionService.setCloudRunArtifactsDismissed(
         taskId ?? "",
         runId ?? "",
-        group.versions.flatMap((version) => version.id ?? []),
+        artifactIds,
         dismissed,
-      ),
+      );
+    },
     // Overlay just the dismissal stamps from the response, so the row updates at once without
     // parking a whole-manifest snapshot over a source that keeps refreshing behind it.
-    onSuccess: (manifest) =>
+    onSuccess: async (manifest) => {
       setDismissalOverrides((current) => ({
         ...current,
         ...Object.fromEntries(
@@ -186,23 +190,29 @@ export function CloudArtifactDownloads({
             entry.id ? [[entry.id, entry.dismissed_at ?? null]] : [],
           ),
         ),
-      })),
+      }));
+      const refreshed = await refetch();
+      if (refreshed?.data) setDismissalOverrides({});
+    },
     onError: () => toast.error("Couldn't update this file"),
   });
 
   if (!runId || groups.length === 0) return null;
 
   const renderRow = (group: ArtifactGroup) => {
-    const selectedIndex = Math.max(
-      group.versions.findIndex(
-        (version) =>
-          runArtifactVersionKey(version) === selectedVersionByName[group.name],
-      ),
-      0,
+    const pickedIndex = group.versions.findIndex(
+      (version) =>
+        runArtifactVersionKey(version) === selectedVersionByName[group.name],
     );
+    const newestVisibleIndex = group.versions.findIndex(
+      (version) => !version.dismissed_at,
+    );
+    const selectedIndex =
+      pickedIndex >= 0 ? pickedIndex : Math.max(newestVisibleIndex, 0);
     const selected = group.versions[selectedIndex] as TaskRunArtifact;
     const size = formatFileSize(selected.size);
     const canDownload = Boolean(selected.id);
+    const canChangeDismissal = group.versions.every((version) => version.id);
 
     return (
       <div
@@ -277,7 +287,7 @@ export function CloudArtifactDownloads({
           <Button
             size="sm"
             variant="outline"
-            disabled={dismissal.isPending}
+            disabled={dismissal.isPending || !canChangeDismissal}
             onClick={() => dismissal.mutate({ group, dismissed: false })}
           >
             Restore
@@ -305,7 +315,7 @@ export function CloudArtifactDownloads({
               size="icon-sm"
               variant="outline"
               aria-label={`Dismiss ${group.name}`}
-              disabled={dismissal.isPending}
+              disabled={dismissal.isPending || !canChangeDismissal}
               onClick={() => dismissal.mutate({ group, dismissed: true })}
             >
               <X size={14} />

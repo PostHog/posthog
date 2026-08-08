@@ -7,6 +7,7 @@ const getCloudAttachmentPreviewUrl = vi.fn();
 const setCloudRunArtifactsDismissed = vi.fn();
 const openArtifactTab = vi.fn();
 const refetch = vi.fn();
+const queryOptions = vi.fn();
 let fetchedArtifacts: unknown[] | undefined = [];
 let session: {
   cloudArtifacts?: unknown[];
@@ -50,16 +51,20 @@ vi.mock("@posthog/ui/features/auth/useMeQuery", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: fetchedArtifacts, refetch }),
+  useQuery: (options: unknown) => {
+    queryOptions(options);
+    return { data: fetchedArtifacts, refetch };
+  },
   useMutation: ({
     mutationFn,
     onSuccess,
   }: {
     mutationFn: (variables: unknown) => Promise<unknown>;
-    onSuccess: (result: unknown) => void;
+    onSuccess: (result: unknown) => Promise<void> | void;
   }) => ({
     isPending: false,
-    mutate: (variables: unknown) => void mutationFn(variables).then(onSuccess),
+    mutate: (variables: unknown) =>
+      void mutationFn(variables).then((result) => onSuccess(result)),
   }),
 }));
 
@@ -103,6 +108,8 @@ describe("CloudArtifactDownloads", () => {
     ];
     session = {};
     refetch.mockReset();
+    refetch.mockResolvedValue({ data: undefined });
+    queryOptions.mockReset();
     getCloudAttachmentPreviewUrl.mockReset();
     setCloudRunArtifactsDismissed.mockReset();
     openArtifactTab.mockReset();
@@ -259,6 +266,36 @@ describe("CloudArtifactDownloads", () => {
     });
   });
 
+  it("defaults to the newest undismissed version", () => {
+    fetchedArtifacts = [
+      {
+        id: "output-1",
+        name: "report.pdf",
+        type: "output",
+        size: 1_000,
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+      },
+      {
+        id: "output-2",
+        name: "report.pdf",
+        type: "output",
+        size: 2_000,
+        uploaded_at: "2026-07-27T09:00:00+00:00",
+        dismissed_at: "2026-07-27T10:00:00+00:00",
+      },
+    ];
+
+    renderDownloads();
+
+    expect(screen.getByText("1 KB")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("report.pdf"));
+    expect(openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "output-1",
+      name: "report.pdf",
+    });
+  });
+
   // A manifest entry carries an id only once the upload is finalized, and a
   // version the picker cannot switch to is worse than no picker at all.
   it("switches to a version that has no id", () => {
@@ -289,6 +326,29 @@ describe("CloudArtifactDownloads", () => {
     expect(screen.getByText("1 KB")).toBeInTheDocument();
   });
 
+  it("disables dismissal until every version has an id", () => {
+    fetchedArtifacts = [
+      {
+        name: "report.pdf",
+        type: "output",
+        uploaded_at: "2026-07-27T09:00:00+00:00",
+      },
+      {
+        id: "output-1",
+        name: "report.pdf",
+        type: "output",
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+      },
+    ];
+
+    renderDownloads();
+
+    const dismiss = screen.getByLabelText("Dismiss report.pdf");
+    expect(dismiss).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(dismiss);
+    expect(setCloudRunArtifactsDismissed).not.toHaveBeenCalled();
+  });
+
   // Dismissing the row a user sees has to take the versions behind it too,
   // otherwise the file reappears as its own older upload.
   it("dismisses every version of a file", async () => {
@@ -311,6 +371,10 @@ describe("CloudArtifactDownloads", () => {
       dismissed_at: "2026-07-27T10:00:00+00:00",
     }));
     setCloudRunArtifactsDismissed.mockResolvedValue(dismissedManifest);
+    refetch.mockImplementation(async () => {
+      fetchedArtifacts = dismissedManifest;
+      return { data: dismissedManifest };
+    });
 
     renderDownloads();
 
@@ -432,6 +496,20 @@ describe("CloudArtifactDownloads", () => {
     );
 
     expect(refetch).toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: "in_progress", interval: 120_000 },
+    { status: "completed", interval: false },
+    { status: undefined, interval: false },
+  ])("uses the backstop poll for $status runs", ({ status, interval }) => {
+    session = { cloudStatus: status };
+
+    renderDownloads();
+
+    expect(queryOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ refetchInterval: interval }),
+    );
   });
 
   // Collapse state lives in a module-scoped store that nothing here resets, so

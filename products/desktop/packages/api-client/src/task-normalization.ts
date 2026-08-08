@@ -10,8 +10,8 @@ import type { Schemas } from "./generated";
 
 export type TaskRunArtifactDTO = Schemas.TaskRunArtifactResponse & {
   metadata?: unknown;
-  uploaded_by?: "agent" | "user" | null;
-  uploaded_by_user_id?: number | null;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
   dismissed_at?: string | null;
 };
 

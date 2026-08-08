@@ -261,11 +261,7 @@ export function ArtifactPreview({
   const previewData: PreviewData | undefined = isArtifactPreviewResult(data)
     ? data.preview
     : (data as PreviewData | undefined);
-  const previewUrl = useMemo(
-    () =>
-      previewData instanceof Blob ? URL.createObjectURL(previewData) : null,
-    [previewData],
-  );
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const comments = commentsEnabled
     ? (commentsQuery.data ?? EMPTY_COMMENTS)
     : EMPTY_COMMENTS;
@@ -284,10 +280,14 @@ export function ArtifactPreview({
   );
 
   useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
+    if (!(previewData instanceof Blob)) {
+      setPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(previewData);
+    setPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [previewData]);
 
   /** This artifact's share of the task's focus, if the focus is on it at all. */
   const focusedThreadId =
@@ -613,7 +613,15 @@ export function ArtifactPreview({
     );
   }
 
-  if (!previewUrl || !previewData) return <ArtifactPreviewError />;
+  if (!previewData) return <ArtifactPreviewError />;
+  if (previewData instanceof Blob && !previewUrl) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+  if (!previewUrl) return <ArtifactPreviewError />;
 
   if (
     previewData instanceof Blob &&

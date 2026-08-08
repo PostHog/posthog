@@ -275,12 +275,14 @@ function FileRow({
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const { download, downloadingId } = useArtifactDownload();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const selectedIndex = Math.max(
-    group.versions.findIndex(
-      (version) => runArtifactVersionKey(version) === selectedKey,
-    ),
-    0,
+  const pickedIndex = group.versions.findIndex(
+    (version) => runArtifactVersionKey(version) === selectedKey,
   );
+  const newestVisibleIndex = group.versions.findIndex(
+    (version) => !version.dismissed_at,
+  );
+  const selectedIndex =
+    pickedIndex >= 0 ? pickedIndex : Math.max(newestVisibleIndex, 0);
   const selected = group.versions[selectedIndex] ?? group.latest;
   const canOpen = !!selected.id;
   const onOpen = canOpen

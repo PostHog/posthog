@@ -359,6 +359,36 @@ describe("TaskArtifactsList", () => {
     expect(screen.getByText(/File · Edited by you ·/)).toBeInTheDocument();
   });
 
+  it("defaults to the newest undismissed version", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          outputFile({
+            id: "a",
+            size: 1_000,
+            uploaded_at: "2026-07-27T08:00:00+00:00",
+          }),
+          outputFile({
+            id: "b",
+            size: 2_000,
+            uploaded_at: "2026-07-27T09:00:00+00:00",
+            dismissed_at: "2026-07-27T10:00:00+00:00",
+          }),
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText(/^File · 1 KB · /)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("report.md"));
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "a",
+      name: "report.md",
+    });
+  });
+
   // A file dismissed in the chat's Files box has to go from this pane too, but
   // only once every version of it is dismissed.
   it.each([
