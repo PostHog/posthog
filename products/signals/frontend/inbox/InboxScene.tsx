@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
 import { IconArrowLeft, IconBug } from '@posthog/icons'
@@ -233,6 +234,13 @@ export function InboxScene(): JSX.Element {
     const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
+    const { searchParams } = useValues(router)
+
+    // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
+    // send the not-found state back there rather than the inbox, mirroring `InboxDetailFrame`.
+    const rawBack = searchParams.back
+    const backOverride =
+        typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
 
     // Detail routes (report or scout) render full-width over the list (desktop parity), but the list view
     // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
@@ -320,8 +328,8 @@ export function InboxScene(): JSX.Element {
                                     This report does not exist. It may have been removed.
                                 </p>
                             </div>
-                            <LemonButton type="secondary" to={urls.inbox(activeTab)}>
-                                Back to inbox
+                            <LemonButton type="secondary" to={backOverride ?? urls.inbox(activeTab)}>
+                                {backOverride ? 'Back' : 'Back to inbox'}
                             </LemonButton>
                         </div>
                     )}

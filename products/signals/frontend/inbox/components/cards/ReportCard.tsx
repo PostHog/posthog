@@ -251,7 +251,9 @@ export function ReportCard({
                 <div className="absolute right-4 top-3 z-10">
                     <PrBadge
                         prNumber={prNumber}
-                        prUrl={prUrl}
+                        // No link in preview mode: the sample PR url is fabricated, and a link would
+                        // stay keyboard-focusable inside the otherwise non-routable card.
+                        prUrl={preview ? null : prUrl}
                         state={derivePrState(report.status, report.implementation_pr_merged === true)}
                     />
                 </div>

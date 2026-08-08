@@ -42,4 +42,13 @@ describe('ReportCard', () => {
         expect(getByText('Hooli traffic is hammering the beta')).toBeInTheDocument()
         expect(container.querySelector('a')).toBeNull()
     })
+
+    it('exposes no link on a preview PR card either (the PR badge url is fabricated)', () => {
+        const report = makeReport({
+            title: 'fix(compression): stop 4K streams dropping to single-threaded encode',
+            implementation_pr_url: 'https://github.com/PiedPiper/pipernet/pull/486',
+        })
+        const { container } = render(<ReportCard report={report} preview />)
+        expect(container.querySelector('a')).toBeNull()
+    })
 })

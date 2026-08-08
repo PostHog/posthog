@@ -415,10 +415,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         selectedReportResponse: [
             null as SignalReport | null,
             {
-                loadSelectedReport: async ({ id }: { id: string }) => {
+                loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
                     try {
-                        return await api.signalReports.get(id)
+                        const report = await api.signalReports.get(id)
+                        breakpoint()
+                        return report
                     } catch (error) {
+                        // Discard a superseded load so a slow response for a report the user already
+                        // navigated away from can't overwrite the current one (e.g. a stale 404
+                        // blanking a valid report that resolved first).
+                        breakpoint()
                         // An unresolvable id (a stale deep link, or the onboarding sample card) 404s.
                         // Return null so the scene shows a "not found" empty state instead of the
                         // global raw error toast. Let every other failure surface as before.
