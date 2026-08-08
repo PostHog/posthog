@@ -88,7 +88,7 @@ export function SpendAnalysisSection() {
             rows={data.by_model.items}
             scopedCostUsd={data.summary.scoped_cost_usd}
           />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
             <ToolBreakdownCard rows={data.by_tool.items} />
             <ProductBreakdownCard rows={data.by_product.items} />
           </div>

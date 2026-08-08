@@ -7,16 +7,20 @@ import type {
   SpendAnalysisProductRow,
   SpendAnalysisToolRow,
 } from "@posthog/core/billing/spendAnalysisTypes";
-import { Table, Text } from "@radix-ui/themes";
+import { Table } from "@radix-ui/themes";
 import { UsageCard } from "./UsageCard";
 
+interface BreakdownColumn {
+  label: string;
+  width: string;
+  numeric?: boolean;
+}
+
 function BreakdownTable({
-  headers,
-  widths,
+  columns,
   children,
 }: {
-  headers: string[];
-  widths: string[];
+  columns: BreakdownColumn[];
   children: React.ReactNode;
 }) {
   return (
@@ -26,19 +30,38 @@ function BreakdownTable({
     >
       <Table.Header>
         <Table.Row>
-          {headers.map((h, i) => (
+          {columns.map((column) => (
             <Table.ColumnHeaderCell
-              key={h}
-              className="font-normal text-[12px] text-gray-11"
-              style={{ width: widths[i] }}
+              key={column.label}
+              className={`!text-gray-11 whitespace-nowrap font-normal text-[12px] ${column.numeric ? "text-right" : ""}`}
+              style={{ width: column.width }}
             >
-              {h}
+              {column.label}
             </Table.ColumnHeaderCell>
           ))}
         </Table.Row>
       </Table.Header>
       <Table.Body>{children}</Table.Body>
     </Table.Root>
+  );
+}
+
+/** Long tool and product names truncate; the full value stays in the title. */
+function NameCell({ value }: { value: string }) {
+  return (
+    <Table.Cell>
+      <span className="block truncate" title={value}>
+        {value}
+      </span>
+    </Table.Cell>
+  );
+}
+
+function NumericCell({ value }: { value: string }) {
+  return (
+    <Table.Cell className="whitespace-nowrap text-right tabular-nums">
+      {value}
+    </Table.Cell>
   );
 }
 
@@ -50,15 +73,19 @@ export function ToolBreakdownCard({ rows }: { rows: SpendAnalysisToolRow[] }) {
       title="By tool"
     >
       <BreakdownTable
-        headers={["Tool", "Generations", "Avg input", "Cost"]}
-        widths={["40%", "20%", "20%", "20%"]}
+        columns={[
+          { label: "Tool", width: "44%" },
+          { label: "Gens", width: "16%", numeric: true },
+          { label: "Avg input", width: "20%", numeric: true },
+          { label: "Cost", width: "20%", numeric: true },
+        ]}
       >
         {rows.slice(0, 10).map((r) => (
           <Table.Row key={r.tool ?? "(null)"}>
-            <Table.Cell>{r.tool ?? "Text response"}</Table.Cell>
-            <Table.Cell>{r.generation_count.toLocaleString()}</Table.Cell>
-            <Table.Cell>{formatTokens(r.avg_input_tokens)}</Table.Cell>
-            <Table.Cell>{formatUsd(r.cost_usd)}</Table.Cell>
+            <NameCell value={r.tool ?? "Text response"} />
+            <NumericCell value={r.generation_count.toLocaleString()} />
+            <NumericCell value={formatTokens(r.avg_input_tokens)} />
+            <NumericCell value={formatUsd(r.cost_usd)} />
           </Table.Row>
         ))}
       </BreakdownTable>
@@ -78,16 +105,17 @@ export function ProductBreakdownCard({
       title="By product"
     >
       <BreakdownTable
-        headers={["Product", "Events", "Cost"]}
-        widths={["50%", "25%", "25%"]}
+        columns={[
+          { label: "Product", width: "50%" },
+          { label: "Events", width: "25%", numeric: true },
+          { label: "Cost", width: "25%", numeric: true },
+        ]}
       >
         {rows.map((r) => (
           <Table.Row key={r.product ?? "(null)"}>
-            <Table.Cell>
-              <Text className="truncate">{r.product ?? "(none)"}</Text>
-            </Table.Cell>
-            <Table.Cell>{r.event_count.toLocaleString()}</Table.Cell>
-            <Table.Cell>{formatUsd(r.cost_usd)}</Table.Cell>
+            <NameCell value={r.product ?? "(none)"} />
+            <NumericCell value={r.event_count.toLocaleString()} />
+            <NumericCell value={formatUsd(r.cost_usd)} />
           </Table.Row>
         ))}
       </BreakdownTable>
