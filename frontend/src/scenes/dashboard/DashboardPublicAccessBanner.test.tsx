@@ -60,7 +60,8 @@ describe('DashboardPublicAccessBanner', () => {
                 'This dashboard is shared publicly. Updates you make here may be visible to anyone with the public link. Avoid adding sensitive data.'
             )
         ).toBeInTheDocument()
-        expect(screen.getAllByText('Manage sharing')).toHaveLength(2)
+        // LemonBanner renders a single action button, not two responsive copies.
+        expect(screen.getAllByText('Manage sharing')).toHaveLength(1)
     })
 
     it('shows for read-only team users', async () => {
