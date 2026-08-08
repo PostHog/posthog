@@ -1,11 +1,12 @@
+import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, F, Max, Q, QuerySet, Window
-from django.db.models.functions import RowNumber
+from django.db.models import Count, F, Max, Q, QuerySet, TextField, Value, Window
+from django.db.models.functions import Coalesce, Left, Length, RowNumber
 
 from posthog.models import Comment
 
@@ -20,7 +21,9 @@ LIST_CONTENT_BYTES = 1024
 SELECTED_TEXT_BYTES = 1024
 DETAIL_CONTENT_BUDGET_BYTES = 64 * 1024
 LIST_THREAD_CONTENT_BUDGET_BYTES = 256 * 1024
+LIST_THREAD_CONTENT_LIMIT_CHARS = 4096
 LIST_THREAD_REPLY_LIMIT = 20
+ANCHOR_CONTEXT_BYTES = 1024
 ANCHOR_QUOTE_BYTES = 4096
 
 
@@ -35,7 +38,13 @@ def _item_context(comment: Comment) -> dict:
 def _content_chunk(content: str, *, limit: int, offset: int = 0) -> tuple[str, int | None]:
     encoded = content.encode("utf-8")
     end = min(len(encoded), offset + limit)
-    chunk = encoded[offset:end].decode("utf-8", errors="ignore")
+    while end > offset and end < len(encoded) and encoded[end] & 0b11000000 == 0b10000000:
+        end -= 1
+    if end == offset and offset < len(encoded) and limit > 0:
+        end += 1
+        while end < len(encoded) and encoded[end] & 0b11000000 == 0b10000000:
+            end += 1
+    chunk = encoded[offset:end].decode("utf-8")
     return chunk, end if end < len(encoded) else None
 
 
@@ -53,8 +62,14 @@ def _bounded_anchor(comment: Comment) -> dict | None:
     bounded = {"kind": kind}
     allowed_fields = allowed_fields_by_kind[kind]
     for field in allowed_fields:
-        if field in anchor:
-            bounded[field] = anchor[field]
+        if field not in anchor:
+            continue
+        value = anchor[field]
+        bounded[field] = (
+            _content_chunk(value, limit=ANCHOR_CONTEXT_BYTES)[0]
+            if field in {"prefix", "suffix"} and isinstance(value, str)
+            else value
+        )
     if kind == "text" and isinstance(anchor.get("quote"), str):
         bounded["quote"] = _content_chunk(anchor["quote"], limit=ANCHOR_QUOTE_BYTES)[0]
     return bounded
@@ -103,6 +118,28 @@ def _human_replies(queryset: QuerySet[Comment]) -> QuerySet[Comment]:
         | ~Q(item_context__has_key="threadState")
         | ~Q(item_context__threadState__in=COMMENT_STATES)
     )
+
+
+def _with_bounded_content(queryset: QuerySet[Comment]) -> QuerySet[Comment]:
+    return queryset.defer("content", "rich_content").annotate(
+        preview_content=Left(
+            Coalesce("content", Value("", output_field=TextField()), output_field=TextField()),
+            LIST_THREAD_CONTENT_LIMIT_CHARS,
+        ),
+        preview_content_length=Length(
+            Coalesce("content", Value("", output_field=TextField()), output_field=TextField())
+        ),
+    )
+
+
+def _preview_content(comment: Comment) -> str:
+    value = getattr(comment, "preview_content", None)
+    return value if isinstance(value, str) else (comment.content or "")
+
+
+def _preview_content_length(comment: Comment) -> int | None:
+    value = getattr(comment, "preview_content_length", None)
+    return value if isinstance(value, int) else None
 
 
 def _encode_cursor(created_at: datetime, comment_id: UUID) -> str:
@@ -262,7 +299,7 @@ def list_comments(
             batch_qs = batch_qs.filter(Q(created_at__lt=before) | Q(created_at=before, id__lt=before_id))
         remaining = limit - len(result)
         if include_thread:
-            batch_qs = batch_qs.select_related("created_by")
+            batch_qs = _with_bounded_content(batch_qs.select_related("created_by"))
         batch = list(batch_qs.order_by("-created_at", "-id")[: remaining + 1])
         has_more = len(batch) > remaining
         roots = batch[:remaining]
@@ -288,7 +325,7 @@ def list_comments(
         replies_by_root: dict[UUID, list[Comment]] = defaultdict(list)
         if include_thread:
             preview_replies = (
-                human_replies.select_related("created_by")
+                _with_bounded_content(human_replies.select_related("created_by"))
                 .annotate(
                     thread_row=Window(
                         expression=RowNumber(),
@@ -307,7 +344,8 @@ def list_comments(
             resolved = _resolved(root, latest_states.get(root.id))
             if resolved and not include_resolved:
                 continue
-            content, content_next_offset = _content_chunk(root.content or "", limit=LIST_CONTENT_BYTES)
+            root_content = _preview_content(root) if include_thread else (root.content or "")
+            content, content_next_offset = _content_chunk(root_content, limit=LIST_CONTENT_BYTES)
             anchor = _item_context(root).get("anchor")
             selected_text = anchor.get("quote") if isinstance(anchor, dict) else None
             if isinstance(selected_text, str):
@@ -319,12 +357,28 @@ def list_comments(
             comments_truncated = False
             if include_thread:
                 thread_comments = []
-                for comment in [root, *replies_by_root[root.id]]:
-                    entry = _entry(comment, content_budget=max(remaining_thread_content_bytes, 0))
-                    remaining_thread_content_bytes -= len(entry.content.encode("utf-8"))
+                preview_models = [root, *replies_by_root[root.id]]
+                for comment in preview_models:
+                    anchor_bytes = len(
+                        json.dumps(_bounded_anchor(comment), separators=(",", ":"), default=str).encode("utf-8")
+                    )
+                    if remaining_thread_content_bytes <= anchor_bytes:
+                        comments_truncated = True
+                        break
+                    entry = _entry(
+                        comment,
+                        content_budget=remaining_thread_content_bytes - anchor_bytes,
+                        content_override=_preview_content(comment),
+                        original_content_length=_preview_content_length(comment),
+                    )
+                    remaining_thread_content_bytes -= anchor_bytes + len(entry.content.encode("utf-8"))
                     comments_truncated = comments_truncated or entry.content_truncated
                     thread_comments.append(entry)
-                comments_truncated = comments_truncated or reply_count > len(replies_by_root[root.id])
+                comments_truncated = (
+                    comments_truncated
+                    or len(thread_comments) < len(preview_models)
+                    or reply_count > len(replies_by_root[root.id])
+                )
             result.append(
                 contracts.TaskCommentSummaryDTO(
                     id=root.id,
@@ -351,11 +405,12 @@ def list_comments(
 
 def count_open_comments(*, team_id: int, task_id: UUID) -> contracts.TaskCommentCountsDTO:
     comments_qs = _comments(team_id, task_id)
-    roots = list(comments_qs.filter(source_comment_id__isnull=True))
+    roots = list(comments_qs.filter(source_comment_id__isnull=True).values_list("id", "item_id", "completed_at"))
     latest_states = {
         source_comment_id: item_context.get("threadState")
         for source_comment_id, item_context in comments_qs.filter(
-            source_comment_id__in=[root.id for root in roots], item_context__threadState__in=COMMENT_STATES
+            source_comment_id__in=[root_id for root_id, _, _ in roots],
+            item_context__threadState__in=COMMENT_STATES,
         )
         .order_by("source_comment_id", "-created_at", "-id")
         .distinct("source_comment_id")
@@ -363,9 +418,11 @@ def count_open_comments(*, team_id: int, task_id: UUID) -> contracts.TaskComment
         if isinstance(item_context, dict)
     }
     counts: dict[str, int] = defaultdict(int)
-    for root in roots:
-        if root.item_id and not _resolved(root, latest_states.get(root.id)):
-            counts[root.item_id] += 1
+    for root_id, item_id, completed_at in roots:
+        latest_state = latest_states.get(root_id)
+        resolved = latest_state == "resolved" if latest_state is not None else completed_at is not None
+        if item_id and not resolved:
+            counts[item_id] += 1
     return contracts.TaskCommentCountsDTO(
         counts=[
             contracts.TaskCommentCountDTO(item_id=item_id, count=count) for item_id, count in sorted(counts.items())
@@ -373,10 +430,24 @@ def count_open_comments(*, team_id: int, task_id: UUID) -> contracts.TaskComment
     )
 
 
-def _entry(comment: Comment, *, content_budget: int, content_offset: int = 0) -> contracts.TaskCommentEntryDTO:
+def _entry(
+    comment: Comment,
+    *,
+    content_budget: int,
+    content_offset: int = 0,
+    content_override: str | None = None,
+    original_content_length: int | None = None,
+) -> contracts.TaskCommentEntryDTO:
     creator = comment.created_by
     author = " ".join(filter(None, [creator.first_name, creator.last_name])) or None if creator is not None else None
-    content, content_next_offset = _content_chunk(comment.content or "", limit=content_budget, offset=content_offset)
+    source_content = content_override if content_override is not None else (comment.content or "")
+    content, content_next_offset = _content_chunk(source_content, limit=content_budget, offset=content_offset)
+    if (
+        content_next_offset is None
+        and original_content_length is not None
+        and original_content_length > len(source_content)
+    ):
+        content_next_offset = len(source_content.encode("utf-8"))
     return contracts.TaskCommentEntryDTO(
         id=comment.id,
         content=content,

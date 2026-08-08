@@ -123,7 +123,14 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             item_id="artifact-1",
             item_context={
                 "taskId": str(task.id),
-                "anchor": {"kind": "text", "quote": "important output", "start": 0, "end": 16},
+                "anchor": {
+                    "kind": "text",
+                    "quote": "important output",
+                    "prefix": "p" * 2000,
+                    "suffix": "s" * 2000,
+                    "start": 0,
+                    "end": 16,
+                },
                 "canvasVersionId": "version-2",
             },
             content="Please tighten this section",
@@ -180,6 +187,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "Malformed state is still a reply",
         ]
         assert all(entry["created_by_id"] == self.user.id for entry in summary["comments"])
+        assert summary["comments"][0]["anchor"]["prefix"] == "p" * 1024
+        assert summary["comments"][0]["anchor"]["suffix"] == "s" * 1024
 
         detail = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/")
         assert detail.status_code == status.HTTP_200_OK
@@ -193,8 +202,10 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert detail.json()["comments"][0]["anchor"] == {
             "end": 16,
             "kind": "text",
+            "prefix": "p" * 1024,
             "quote": "important output",
             "start": 0,
+            "suffix": "s" * 1024,
         }
         assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
         assert detail.json()["next"] is None
@@ -259,13 +270,14 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
     def test_task_comment_bodies_are_byte_bounded_and_continuable(self) -> None:
         task = self._task_artifact_target()
+        content = "a" * (64 * 1024 - 1) + "é" + "tail"
         root = Comment.objects.create(
             team=self.team,
             created_by=self.user,
             scope="task_artifact",
             item_id="artifact-1",
             item_context={"taskId": str(task.id), "anchor": {"kind": "document"}},
-            content="é" * 40_000,
+            content=content,
         )
         client = self._sandbox_task_comment_client(task.id)
 
@@ -286,6 +298,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert continuation["content"]
         assert continuation["content_truncated"] is False
         assert continuation["content_next_offset"] is None
+        assert first_chunk["content"] + continuation["content"] == content
 
     def test_task_comments_use_an_opaque_cursor(self) -> None:
         task = self._task_artifact_target()
