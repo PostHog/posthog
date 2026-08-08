@@ -102,6 +102,7 @@ export function FlagSelector({
             >
                 <LemonButton
                     id={id}
+                    data-attr="flag-selector-trigger"
                     type="secondary"
                     onClick={() => setVisible(!visible)}
                     disabledReason={readOnly && (disabledReason || "I'm read-only")}
