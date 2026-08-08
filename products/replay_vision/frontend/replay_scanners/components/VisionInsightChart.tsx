@@ -41,22 +41,30 @@ export type ChartOverlayState = 'none' | 'loading' | 'error'
 /**
  * `insightData` is always a truthy object, but `insightData.result` is `undefined` until a query resolves (an empty
  * result is `[]`), so it — not the object — is the real "is there anything to render" signal. No data while loading is
- * a spinner; no data once settled is a failed/cancelled query we surface as a retry rather than a blank box.
+ * a spinner. No data once settled splits by whether the query actually errored: a real failure is already rendered
+ * inside the embedded insight (a readable memory-limit / validation message with its own actions), so we defer to it
+ * and show no overlay — otherwise two error states stack in the same box. Only a settled query with no error and no
+ * result (cancelled, or nothing cached) falls through to the overlay's own retry, which is why the overlay exists.
  */
 export function chartOverlayState(
     insightData: { result?: unknown } | null | undefined,
-    loading: boolean
+    loading: boolean,
+    hasError: boolean
 ): ChartOverlayState {
     if (insightData?.result != null) {
         return 'none'
     }
-    return loading ? 'loading' : 'error'
+    if (loading) {
+        return 'loading'
+    }
+    return hasError ? 'none' : 'error'
 }
 
 /**
- * Embedded insight chart with a guaranteed loading/error state. Off a dashboard, InsightViz can fall through to a
- * blank box when a query is cancelled or hasn't resolved (its empty/refresh fallbacks are dashboard-only), so we
- * overlay our own spinner/retry whenever there's no response to render.
+ * Embedded insight chart with a guaranteed loading state. Off a dashboard, InsightViz can fall through to a blank box
+ * when a query is cancelled or hasn't resolved (its empty/refresh fallbacks are dashboard-only), so we overlay our own
+ * spinner while loading and a retry for that blank case. A real query failure is left to the embedded insight, which
+ * renders one readable error (e.g. the memory-limit message with retry) — the overlay must not stack a second on top.
  */
 export function VisionInsightChart({
     query,
@@ -71,10 +79,10 @@ export function VisionInsightChart({
         [chartProps, onDataPointClick]
     )
     const logic = insightVizDataLogic(chartProps)
-    const { insightData, insightDataLoading } = useValues(logic)
+    const { insightData, insightDataLoading, insightDataError } = useValues(logic)
     const { loadData } = useActions(logic)
 
-    const overlay = chartOverlayState(insightData, insightDataLoading)
+    const overlay = chartOverlayState(insightData, insightDataLoading, insightDataError != null)
 
     return (
         <div className={clsx('relative', className)}>
