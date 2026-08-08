@@ -23,17 +23,19 @@ function BreakdownTable({
   columns: BreakdownColumn[];
   children: React.ReactNode;
 }) {
+  // Cells render at the page's 13px body size; headers stay at the 12px muted
+  // label size the KPI tiles use.
   return (
     <Table.Root
       size="1"
-      className="[&_td]:!py-1.5 [&_th]:!py-1.5 [&_table]:w-full [&_table]:table-fixed [&_td]:overflow-hidden [&_td]:align-middle [&_th]:align-middle"
+      className="[&_table]:w-full [&_table]:table-fixed [&_td]:overflow-hidden [&_td]:py-2 [&_td]:align-middle [&_td]:text-[13px] [&_td]:text-gray-12 [&_th]:py-2 [&_th]:align-middle [&_th]:font-normal [&_th]:text-[12px] [&_th]:text-gray-11"
     >
       <Table.Header>
         <Table.Row>
           {columns.map((column) => (
             <Table.ColumnHeaderCell
               key={column.label}
-              className={`!text-gray-11 whitespace-nowrap font-normal text-[12px] ${column.numeric ? "text-right" : ""}`}
+              className={`whitespace-nowrap ${column.numeric ? "text-right" : ""}`}
               style={{ width: column.width }}
             >
               {column.label}
@@ -74,10 +76,10 @@ export function ToolBreakdownCard({ rows }: { rows: SpendAnalysisToolRow[] }) {
     >
       <BreakdownTable
         columns={[
-          { label: "Tool", width: "44%" },
-          { label: "Gens", width: "16%", numeric: true },
-          { label: "Avg input", width: "20%", numeric: true },
-          { label: "Cost", width: "20%", numeric: true },
+          { label: "Tool", width: "52%" },
+          { label: "Generations", width: "16%", numeric: true },
+          { label: "Avg input", width: "16%", numeric: true },
+          { label: "Cost", width: "16%", numeric: true },
         ]}
       >
         {rows.slice(0, 10).map((r) => (
@@ -106,9 +108,9 @@ export function ProductBreakdownCard({
     >
       <BreakdownTable
         columns={[
-          { label: "Product", width: "50%" },
-          { label: "Events", width: "25%", numeric: true },
-          { label: "Cost", width: "25%", numeric: true },
+          { label: "Product", width: "52%" },
+          { label: "Events", width: "24%", numeric: true },
+          { label: "Cost", width: "24%", numeric: true },
         ]}
       >
         {rows.map((r) => (
