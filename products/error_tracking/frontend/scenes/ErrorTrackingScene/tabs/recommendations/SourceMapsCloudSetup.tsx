@@ -1,14 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { TextMorph } from 'torph/react'
 
-import {
-    IconCheckCircle,
-    IconChevronDown,
-    IconChevronLeft,
-    IconChevronRight,
-    IconExternal,
-    IconSparkles,
-} from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconChevronRight, IconExternal, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -20,8 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { DetectedProject, MOCK_RUN_STEPS, SCAN_STEPS, sourceMapsCloudSetupLogic } from './sourceMapsCloudSetupLogic'
-import { sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
+import { DetectedProject, SCAN_STEPS, sourceMapsCloudSetupLogic } from './sourceMapsCloudSetupLogic'
 
 /**
  * Warms the caches the launcher needs (the integrations list and the first account's
@@ -135,11 +127,9 @@ export function CloudSetupLauncher(): JSX.Element {
 }
 
 export function SourceMapsCloudSetup(): JSX.Element {
-    const { step } = useValues(sourceMapsCloudSetupLogic)
-
     return (
         <div className="flex flex-col gap-4 px-6 pt-2 pb-6 text-left">
-            {step === 'project' ? <ProjectStep /> : <RunStep />}
+            <ProjectStep />
         </div>
     )
 }
@@ -275,16 +265,14 @@ function frameworkLabel(project: DetectedProject): string {
 }
 
 function ProjectOption({ project }: { project: DetectedProject }): JSX.Element {
-    const { selectProject } = useActions(sourceMapsCloudSetupLogic)
-
     const disabledReason = !project.instrumentable
         ? project.reason || "The agent can't set this project up automatically."
         : undefined
 
     const option = (
+        // Intentionally inert: the cloud wizard run that a click will start ships separately.
         <button
             type="button"
-            onClick={() => !disabledReason && selectProject(project.path)}
             aria-disabled={!!disabledReason}
             className={cn(
                 'group flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors border-b border-primary last:border-b-0',
@@ -307,53 +295,4 @@ function ProjectOption({ project }: { project: DetectedProject }): JSX.Element {
     )
 
     return disabledReason ? <Tooltip title={disabledReason}>{option}</Tooltip> : option
-}
-
-function RunStep(): JSX.Element {
-    const { isMockRunDone, mockRunStepIndex, selectedProjectPath, selectedRepositoryFull } =
-        useValues(sourceMapsCloudSetupLogic)
-    const { closeModal } = useActions(sourceMapsFixWizardLogic)
-
-    if (!isMockRunDone) {
-        return (
-            <>
-                <StepHeader
-                    title="Setting up source maps"
-                    description="The agent is applying the setup and opening a pull request."
-                />
-                <div className="flex flex-col items-center gap-2 py-4">
-                    <TextMorph as="span" className="text-sm text-secondary">
-                        {MOCK_RUN_STEPS[mockRunStepIndex]}
-                    </TextMorph>
-                    <LoadingBar loadId={selectedProjectPath} speed={12} wrapperClassName="my-0 max-w-full" />
-                </div>
-            </>
-        )
-    }
-
-    return (
-        <div className="flex flex-col items-center gap-3 py-2 text-center">
-            <IconCheckCircle className="text-5xl text-success" />
-            <div>
-                <h3 className="text-base font-semibold mb-0.5">All done</h3>
-                <p className="text-xs text-secondary mb-0 max-w-sm">
-                    The agent opened a pull request with the source map setup. Review and merge it to finish.
-                </p>
-            </div>
-            <div className="flex items-center gap-2">
-                <LemonButton type="secondary" onClick={closeModal}>
-                    Close
-                </LemonButton>
-                {/* Placeholder target until the run reports a real pull request URL. */}
-                <LemonButton
-                    type="primary"
-                    sideIcon={<IconExternal />}
-                    to={selectedRepositoryFull ? `https://github.com/${selectedRepositoryFull}/pulls` : undefined}
-                    targetBlank
-                >
-                    View pull request
-                </LemonButton>
-            </div>
-        </div>
-    )
 }
