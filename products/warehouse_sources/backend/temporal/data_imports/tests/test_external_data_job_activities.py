@@ -1,7 +1,8 @@
+import asyncio
+
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
@@ -92,7 +93,7 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
                 "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
             ) as mock_update_job_status,
         ):
-            async_to_sync(env.run)(update_external_data_job_model, inputs)
+            asyncio.run(env.run(update_external_data_job_model, inputs))
 
         mock_capture_exception.assert_not_called()
         mock_finish_row_tracking.assert_called_once_with(self.team.id, inputs.schema_id)
