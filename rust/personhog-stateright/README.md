@@ -28,17 +28,17 @@ web explorer.
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
 minimum viable scale or not at all.
-The suite explores ~83M states across 31 runs.
+The suite explores ~47M states across 31 runs.
 Its long pole is the two-partition double-zombie pair, which is most of the wall clock on its own:
 
 | Scenario | Unique states | Wall time |
 |---|---|---|
-| `epoch_fenced_two_partitions_double_zombie_is_safe` | 39.3M | 55s |
-| `two_partitions_double_zombie_loses_acked_writes` | 29.8M | 39s |
-| `cancellation_with_live_owner_reaffirms_and_resumes` | 3.5M | 4.0s |
-| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 2.1M | 1.9s |
-| `current_two_partitions_single_zombie_is_safe` | 1.8M | 2.0s |
-| *everything else (26 runs)* | 6.9M | 7s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 21.1M | 25s |
+| `two_partitions_double_zombie_loses_acked_writes` | 15.9M | 20s |
+| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.8M | 3.0s |
+| `epoch_fenced_resume_after_cancelled_handoff_stays_live` | 1.6M | 1.5s |
+| `current_two_partitions_single_zombie_is_safe` | 1.0M | 1.1s |
+| *everything else (26 runs)* | 2.6M | 5s |
 
 Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
 Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.

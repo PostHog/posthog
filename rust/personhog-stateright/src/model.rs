@@ -379,7 +379,7 @@ impl HandoffModel {
         if visible < state.changelogs[&partition].len {
             state.stale_strong_read = true;
         }
-        state.reads_served = state.reads_served.saturating_add(1);
+        state.read_served = true;
         true
     }
 
@@ -493,8 +493,6 @@ impl HandoffModel {
             return false;
         }
         if router.stashing.contains(&partition) {
-            let id = state.next_write_id;
-            state.next_write_id += 1;
             state
                 .routers
                 .get_mut(&r)
@@ -502,7 +500,7 @@ impl HandoffModel {
                 .stash
                 .entry(partition)
                 .or_default()
-                .push(StashedRequest::Write(id));
+                .push(StashedRequest::Write);
             return true;
         }
         let Some(target) = router.table.get(&partition).copied() else {
@@ -980,7 +978,7 @@ impl HandoffModel {
                     };
                     for entry in parked {
                         match entry {
-                            StashedRequest::Write(_) => {
+                            StashedRequest::Write => {
                                 if self.write_capable(state, new_owner, p) {
                                     self.accept_write(state, new_owner, p);
                                 }
@@ -1023,7 +1021,7 @@ impl HandoffModel {
                     for entry in parked {
                         let Some(owner) = assignment else { continue };
                         match entry {
-                            StashedRequest::Write(_) => {
+                            StashedRequest::Write => {
                                 if self.write_capable(state, owner, p) {
                                     self.accept_write(state, owner, p);
                                 }
@@ -1100,8 +1098,7 @@ impl Model for HandoffModel {
             rejoins_left: self.rejoins,
             router_joins_left: self.router_joins,
             cancels_left: self.cancels,
-            next_write_id: 0,
-            reads_served: 0,
+            read_served: false,
             lost_acked_write: false,
             double_planned_handoff: false,
             stale_strong_read: false,
@@ -1411,7 +1408,7 @@ impl Model for HandoffModel {
             Property::<Self>::sometimes("some_strong_read_served", |m, s| {
                 // Vacuously discoverable in configs without reads, so
                 // `assert_properties` stays usable across the matrix.
-                m.reads == 0 || s.reads_served > 0
+                m.reads == 0 || s.read_served
             }),
             // Replacement-cancellation reachability. Guards make each
             // probe vacuous outside the configs shaped to reach it, so
