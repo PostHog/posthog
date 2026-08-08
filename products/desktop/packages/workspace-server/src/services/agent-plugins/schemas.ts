@@ -61,7 +61,6 @@ export const agentPluginMcpServer = z.discriminatedUnion("type", [
 export const agentPluginMcpServerSummary = z.object({
   name: z.string(),
   type: z.enum(["streamable-http", "stdio", "sse"]),
-  supported: z.boolean(),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   cwd: z.string().optional(),

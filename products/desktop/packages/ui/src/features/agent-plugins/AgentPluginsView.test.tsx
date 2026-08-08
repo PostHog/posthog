@@ -122,7 +122,6 @@ describe("AgentPluginsView", () => {
           {
             name: "local-server",
             type: "stdio",
-            supported: true,
             command,
             args: [firstArgument, secondArgument],
             cwd,
