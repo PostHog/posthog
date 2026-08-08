@@ -1,4 +1,5 @@
 import type { IconProps } from "@phosphor-icons/react";
+import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
@@ -184,6 +185,7 @@ export function InboxDetailFrame({
                 fallback="No summary yet. The agent is still investigating."
                 variant="detail"
                 pending={report.status === "in_progress"}
+                chartIds={renderableReportChartIds(report.charts)}
               />
               {report.charts && report.charts.length > 0 && (
                 <div className="mt-4">

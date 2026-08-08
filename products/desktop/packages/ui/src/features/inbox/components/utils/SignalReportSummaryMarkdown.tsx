@@ -4,6 +4,7 @@ import {
   MarkdownRenderer,
 } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { reportChartAnchorId } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
+import { useMemo } from "react";
 import type { Components } from "react-markdown";
 
 const BaseAnchor = baseComponents.a as Extract<
@@ -19,40 +20,16 @@ interface SignalReportSummaryMarkdownProps {
   variant: "list" | "detail";
   /** Render in italic to indicate the summary is still being written. */
   pending?: boolean;
+  /**
+   * Ids of the charts rendered below this summary. `chart:` links to these
+   * become in-page jumps; every other chart reference degrades to plain text,
+   * matching the web inbox's no-renderer fallback.
+   */
+  chartIds?: readonly string[];
 }
 
 // Matches the id charset the backend enforces on `chart_id` (report_charts.py).
 const CHART_REF = /^chart:[a-z0-9][a-z0-9_-]*$/;
-
-/**
- * Chart references in the summary render as in-page jumps to the chart card
- * below the prose. On list rows (where no charts render) and for ids the
- * report doesn't carry, the label degrades to plain text, matching the web
- * inbox's no-renderer fallback.
- */
-const chartRefComponents: Partial<Components> = {
-  a: (props) => {
-    const { href, children } = props;
-    if (typeof href === "string" && CHART_REF.test(href)) {
-      const anchorId = reportChartAnchorId(href.slice("chart:".length));
-      return (
-        <a
-          href={`#${anchorId}`}
-          className="markdown-link"
-          onClick={(event) => {
-            event.preventDefault();
-            document
-              .getElementById(anchorId)
-              ?.scrollIntoView({ behavior: "smooth", block: "center" });
-          }}
-        >
-          {children}
-        </a>
-      );
-    }
-    return <BaseAnchor {...props} />;
-  },
-};
 
 const listComponents: Partial<Components> = {
   a: (props) => {
@@ -75,6 +52,7 @@ export function SignalReportSummaryMarkdown({
   fallback,
   variant,
   pending,
+  chartIds,
 }: SignalReportSummaryMarkdownProps) {
   const rawContent = content?.trim() ? content : fallback;
   const raw = formatSignalReportSummaryMarkdown(rawContent);
@@ -83,6 +61,39 @@ export function SignalReportSummaryMarkdown({
   const listMarkdown = rawContent.split(/\r?\n/)[0] ?? "";
 
   const pendingClass = pending ? "italic" : "";
+
+  const detailComponents = useMemo<Partial<Components>>(() => {
+    const renderedIds = new Set(chartIds ?? []);
+    return {
+      a: (props) => {
+        const { href, children } = props;
+        if (typeof href === "string" && CHART_REF.test(href)) {
+          const chartId = href.slice("chart:".length);
+          // A reference without a rendered card has nowhere to jump, so the
+          // label stays plain text instead of becoming a dead link.
+          if (!renderedIds.has(chartId)) {
+            return <span>{children}</span>;
+          }
+          const anchorId = reportChartAnchorId(chartId);
+          return (
+            <a
+              href={`#${anchorId}`}
+              className="markdown-link"
+              onClick={(event) => {
+                event.preventDefault();
+                document
+                  .getElementById(anchorId)
+                  ?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+        return <BaseAnchor {...props} />;
+      },
+    };
+  }, [chartIds]);
 
   if (variant === "list") {
     return (
@@ -105,7 +116,7 @@ export function SignalReportSummaryMarkdown({
     <div
       className={`min-w-0 max-w-[80ch] text-pretty break-words text-[13px] text-gray-11 [&_*]:leading-relaxed [&_.rt-Text]:mb-2 [&_a]:pointer-events-auto [&_li]:mb-1 [&_p:last-child]:mb-0 ${pendingClass}`}
     >
-      <MarkdownRenderer content={raw} componentsOverride={chartRefComponents} />
+      <MarkdownRenderer content={raw} componentsOverride={detailComponents} />
     </div>
   );
 }

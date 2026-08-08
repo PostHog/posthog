@@ -66,6 +66,19 @@ export function planReportChart(query: unknown): ReportChartPlan {
   return { kind: "open-only" };
 }
 
+/**
+ * Ids of the charts that will actually mount a card (`invalid` plans render
+ * nothing), so summary `chart:` links only become in-page jumps when a target
+ * exists.
+ */
+export function renderableReportChartIds(
+  charts: readonly { chart_id: string; query: unknown }[] | undefined,
+): string[] {
+  return (charts ?? [])
+    .filter((chart) => planReportChart(chart.query).kind !== "invalid")
+    .map((chart) => chart.chart_id);
+}
+
 export interface ReportChartSeries {
   key: string;
   label: string;
