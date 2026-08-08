@@ -9,6 +9,8 @@ import { type ReactElement, type ReactNode, useState } from "react";
 
 interface DocumentPreviewHeaderProps {
   label: string;
+  /** Version stepper rendered beside the label (see ArtifactVersionNav). */
+  versionNav?: ReactNode;
   content: string;
   getContent?: () => string;
   showRendered: boolean;
@@ -24,6 +26,7 @@ interface DocumentPreviewHeaderProps {
 
 export function DocumentPreviewHeader({
   label,
+  versionNav,
   content,
   getContent,
   showRendered,
@@ -45,10 +48,13 @@ export function DocumentPreviewHeader({
   };
 
   return (
-    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-b-(--gray-6) px-3 py-2">
-      <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
-        {label}
-      </span>
+    <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-b-(--gray-6) px-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
+          {label}
+        </span>
+        {versionNav}
+      </div>
       <div className="flex shrink-0 items-center gap-1">
         {actions}
         {!editing && onToggleRendered && (

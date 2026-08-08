@@ -36,6 +36,7 @@ const artifactComments = vi.hoisted(() => ({
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
 const commentsFlag = vi.hoisted(() => ({ enabled: true }));
+const taskRuns = vi.hoisted(() => ({ data: [] as unknown[] }));
 const orgMembersOptions = vi.hoisted(() => vi.fn());
 const artifactMocks = vi.hoisted(() => ({
   getCloudRunArtifacts: vi.fn(),
@@ -71,6 +72,10 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   usePanelLayoutStore: () => artifactMocks.openArtifactTab,
+}));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
+  useTaskRuns: () => ({ runs: taskRuns.data, isLoading: false }),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
@@ -212,6 +217,7 @@ describe("ArtifactPreview", () => {
     });
     artifactComments.data = [];
     artifactComments.isError = false;
+    taskRuns.data = [];
     createComment.mockReset();
     createComment.mockResolvedValue({ id: "created-comment" });
     useQuery.mockReset();
@@ -940,6 +946,62 @@ describe("ArtifactPreview", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  // The tab header steps through a file's versions in place, retargeting the
+  // preview fetch instead of opening more tabs.
+  it("steps between versions from the header", () => {
+    taskRuns.data = [
+      {
+        id: "run-1",
+        artifacts: [
+          {
+            id: "artifact-0",
+            name: "report.md",
+            type: "output",
+            storage_path: "runs/1/report-v1.md",
+            uploaded_at: "2026-08-06T10:00:00Z",
+          },
+          {
+            id: "artifact-1",
+            name: "report.md",
+            type: "output",
+            storage_path: "runs/1/report-v2.md",
+            uploaded_at: "2026-08-07T10:00:00Z",
+          },
+        ],
+      },
+    ];
+    useQuery.mockReturnValue({
+      data: editablePreview(),
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    expect(screen.getByText("v2/2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
+    ).toHaveAttribute("aria-disabled", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Older version" }));
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Older version" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    const lastCall = useQuery.mock.calls.at(-1)?.[0] as {
+      queryKey: unknown[];
+    };
+    expect(lastCall.queryKey).toContain("artifact-0");
   });
 
   it("saves edited source as a new output version under the same name", async () => {

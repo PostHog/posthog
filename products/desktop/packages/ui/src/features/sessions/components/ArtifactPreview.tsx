@@ -1,4 +1,10 @@
+import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
+import {
+  groupRunArtifactVersions,
+  OUTPUT_ARTIFACT_TYPES,
+  parseRunArtifacts,
+} from "@posthog/core/canvas/runArtifactSchemas";
 import {
   type CommentAnchor,
   type CommentTarget,
@@ -9,12 +15,13 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
-import { Spinner } from "@posthog/quill";
+import { Button, Spinner } from "@posthog/quill";
 import {
   getAuthIdentity,
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
+import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
@@ -62,14 +69,42 @@ export function ArtifactPreview({
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const [showRendered, setShowRendered] = useState(true);
+  // Every version of this file across the task's runs, newest first - the
+  // same grouping the artifact list shows. Stepping through them swaps what
+  // this tab renders without opening more tabs.
+  const { runs } = useTaskRuns(taskId);
+  const versions = useMemo(() => {
+    const files = runs.flatMap((run) =>
+      parseRunArtifacts(
+        (run as { artifacts?: unknown }).artifacts,
+        OUTPUT_ARTIFACT_TYPES,
+      ).flatMap((file) =>
+        file.name === name && file.id ? [{ ...file, runId: run.id }] : [],
+      ),
+    );
+    return (
+      groupRunArtifactVersions(files).find(
+        (candidate) => candidate.name === name,
+      )?.versions ?? []
+    );
+  }, [runs, name]);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
+    null,
+  );
+  const activeArtifactId = selectedVersionId ?? artifactId;
+  const versionIndex = versions.findIndex(
+    (version) => version.id === activeArtifactId,
+  );
+  const activeRunId =
+    versionIndex >= 0 ? (versions[versionIndex]?.runId ?? runId) : runId;
   const markdownRootRef = useRef<HTMLDivElement>(null);
   const markdownContainerRef = useRef<HTMLDivElement>(null);
   const [imageError, setImageError] = useState(false);
   const [imageCommenting, setImageCommenting] = useState(false);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const commentTarget = useMemo<CommentTarget>(
-    () => ({ scope: "task_artifact", itemId: artifactId }),
-    [artifactId],
+    () => ({ scope: "task_artifact", itemId: activeArtifactId }),
+    [activeArtifactId],
   );
   const commentsQuery = useCommentsQuery(commentTarget, taskId, {
     enabled: commentsEnabled,
@@ -88,15 +123,15 @@ export function ArtifactPreview({
       sessionService,
       authIdentity,
       taskId,
-      runId,
-      artifactId,
+      runId: activeRunId,
+      artifactId: activeArtifactId,
       name,
     });
   const editing = useArtifactEditing({
     sessionService,
     artifactResult,
     taskId,
-    runId,
+    runId: activeRunId,
     name,
     authIdentity,
     openArtifactTab,
@@ -165,6 +200,39 @@ export function ArtifactPreview({
     [createComment, activateThread],
   );
 
+  const versionNav =
+    versions.length > 1 && versionIndex >= 0 ? (
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Button
+          size="icon"
+          variant="default"
+          aria-label="Older version"
+          disabled={versionIndex >= versions.length - 1}
+          onClick={() => {
+            const older = versions[versionIndex + 1];
+            if (older?.id) setSelectedVersionId(older.id);
+          }}
+        >
+          <CaretLeftIcon size={12} />
+        </Button>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          v{versions.length - versionIndex}/{versions.length}
+        </span>
+        <Button
+          size="icon"
+          variant="default"
+          aria-label="Newer version"
+          disabled={versionIndex <= 0}
+          onClick={() => {
+            const newer = versions[versionIndex - 1];
+            if (newer?.id) setSelectedVersionId(newer.id);
+          }}
+        >
+          <CaretRightIcon size={12} />
+        </Button>
+      </div>
+    ) : null;
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -200,6 +268,7 @@ export function ArtifactPreview({
   return (
     <ArtifactPreviewContent
       name={name}
+      versionNav={versionNav}
       taskId={taskId}
       commentTarget={commentTarget}
       commentsEnabled={commentsEnabled}

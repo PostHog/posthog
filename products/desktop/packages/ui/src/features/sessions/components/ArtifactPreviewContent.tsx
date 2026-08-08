@@ -4,7 +4,13 @@ import type {
   CommentAnchor,
   CommentTarget,
 } from "@posthog/core/comments/anchors";
-import { Button, Spinner } from "@posthog/quill";
+import {
+  Button,
+  Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { isAllowedImageMimeType } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import type {
@@ -43,16 +49,21 @@ export function ArtifactPreviewError(): ReactElement {
 
 function GenericArtifactHeader({
   name,
+  versionNav,
   actions,
 }: {
   name: string;
+  versionNav?: ReactNode;
   actions?: ReactNode;
 }): ReactElement {
   return (
-    <header className="flex h-11 shrink-0 items-center justify-between border-border border-b px-3">
-      <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
-        {name}
-      </span>
+    <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-border border-b px-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
+          {name}
+        </span>
+        {versionNav}
+      </div>
       {actions}
     </header>
   );
@@ -60,6 +71,7 @@ function GenericArtifactHeader({
 
 export function ArtifactPreviewContent({
   name,
+  versionNav,
   taskId,
   commentTarget,
   commentsEnabled,
@@ -86,6 +98,7 @@ export function ArtifactPreviewContent({
   artifactResult,
 }: {
   name: string;
+  versionNav?: ReactNode;
   taskId: string;
   commentTarget: CommentTarget;
   commentsEnabled: boolean;
@@ -120,6 +133,7 @@ export function ArtifactPreviewContent({
       <div className="flex h-full flex-col overflow-hidden">
         <DocumentPreviewHeader
           label={name}
+          versionNav={versionNav}
           content={previewData}
           getContent={() => previewData}
           showRendered={showRendered}
@@ -180,6 +194,7 @@ export function ArtifactPreviewContent({
       <div className="flex h-full flex-col overflow-hidden">
         <DocumentPreviewHeader
           label={name}
+          versionNav={versionNav}
           content={previewData.html}
           getContent={() => previewData.html}
           showRendered
@@ -229,21 +244,40 @@ export function ArtifactPreviewContent({
       previewData.type === SVG_MIME_TYPE)
   ) {
     const imageActions = commentsEnabled ? (
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
-        <Button
-          size="sm"
-          variant={imageCommenting ? "primary" : "outline"}
-          onClick={() => setImageCommenting((commenting) => !commenting)}
-        >
-          {imageCommenting ? <XIcon /> : <CrosshairSimpleIcon />}
-          {imageCommenting ? "Cancel" : "Pin comment…"}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon"
+                variant={imageCommenting ? "primary" : "default"}
+                aria-label={imageCommenting ? "Cancel pinning" : "Pin comment…"}
+                onClick={() => setImageCommenting((commenting) => !commenting)}
+              />
+            }
+          >
+            {imageCommenting ? (
+              <XIcon size={14} />
+            ) : (
+              <CrosshairSimpleIcon size={14} />
+            )}
+          </TooltipTrigger>
+          <TooltipContent>
+            {imageCommenting
+              ? "Cancel pinning"
+              : "Pin a comment to a spot on the image"}
+          </TooltipContent>
+        </Tooltip>
       </div>
     ) : undefined;
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <GenericArtifactHeader name={name} actions={imageActions} />
+        <GenericArtifactHeader
+          name={name}
+          versionNav={versionNav}
+          actions={imageActions}
+        />
         {commentLoadError}
         <div className="min-h-0 min-w-0 flex-1">
           <AnnotatedArtifactImage
@@ -272,6 +306,7 @@ export function ArtifactPreviewContent({
       {editableKind === "plain-text" && artifactResult?.source !== undefined ? (
         <DocumentPreviewHeader
           label={name}
+          versionNav={versionNav}
           content={artifactResult.source}
           getContent={() => artifactResult.source ?? ""}
           showRendered
@@ -280,7 +315,11 @@ export function ArtifactPreviewContent({
           actions={documentActions}
         />
       ) : (
-        <GenericArtifactHeader name={name} actions={documentActions} />
+        <GenericArtifactHeader
+          name={name}
+          versionNav={versionNav}
+          actions={documentActions}
+        />
       )}
       {commentLoadError}
       <div className="min-h-0 min-w-0 flex-1">
