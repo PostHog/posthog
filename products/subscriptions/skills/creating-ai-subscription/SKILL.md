@@ -37,9 +37,11 @@ not a fixed chart they already built. For an insight/dashboard subscription, set
 > **specifically asks** for a free-text / AI-written report, or (b) no existing insight
 > or dashboard covers the ask and the value really is the analysis itself. If the user
 > wants the key numbers from an **existing dashboard or insight** delivered on a
-> schedule — even phrased as "set up a scout/bot to post this daily" — that is a
-> **dashboard (or insight) subscription with `summary_enabled: true`**, not a prompt
-> subscription. See `managing-subscriptions` for that happy path.
+> schedule — even phrased as "set up a scout/bot to post this daily" — a
+> **dashboard (or insight) subscription with `summary_enabled: true`** is usually the
+> better fit. Respect a user who's sure they want a prompt subscription, but when it's
+> ambiguous, suggest that and confirm first. See `managing-subscriptions` for the happy
+> path.
 
 This skill covers **creating** the subscription. Once it exists you manage its
 lifecycle with the same `subscriptions-*` tools (see below): list it, edit/disable/

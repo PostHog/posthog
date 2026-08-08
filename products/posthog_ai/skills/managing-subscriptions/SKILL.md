@@ -15,7 +15,7 @@ Use this skill when the user:
 - Wants to "track", "follow", "subscribe to", or "get updates" about an insight or dashboard
 - Asks for "daily updates", "weekly reports", or "send me this every morning"
 - Wants an **AI-written summary** attached to each delivery of an insight or dashboard (see step 6)
-- Asks to "post", "send", or "share" the key numbers from an existing dashboard or insight to a channel on a schedule — even when phrased as "set up a scout/bot to post this daily" (this is a dashboard/insight subscription, not a Signals scout)
+- Asks to "post", "send", or "share" the key numbers from an existing dashboard or insight to a channel on a schedule — even when phrased as "set up a scout/bot to post this daily" (a recurring message like this is usually a better fit for a dashboard/insight subscription than a Signals scout; when it's unclear which they want, confirm before building — see the happy path below)
 - Wants to know what subscriptions they have
 - Asks to stop, pause, or unsubscribe from something
 - Wants to change who receives an update or how often
@@ -37,10 +37,10 @@ When someone wants the **key numbers from an existing dashboard or insight** pos
 - Set `dashboard` (or `insight`), pick the tiles via `dashboard_export_insights`, deliver to Slack or email, and set `summary_enabled: true` so each delivery carries a short written summary alongside the snapshot.
 - This sends the **actual rendered tiles**, so the quoted numbers are exact — no LLM re-deriving them.
 
-Do **not** reach for a **prompt subscription** (`creating-ai-subscription`) or a **Signals scout** for this.
-A prompt subscription composes its own HogQL and can drift from the dashboard's numbers; use it only when the user specifically asks for a free-text AI report, or no existing insight/dashboard covers the ask.
-A scout is for open-ended watching that decides what's worth surfacing — not scheduled delivery of a fixed, user-specified metric set.
-If a scout request is really "deliver these dashboard numbers on a schedule", build the subscription instead.
+Usually a better fit than a **prompt subscription** (`creating-ai-subscription`) or a **Signals scout**.
+A prompt subscription composes its own HogQL and can drift from the dashboard's numbers; a scout is for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
+Don't override a user who's certain they want one of those — but when the ask is ambiguous (e.g. "set up a scout to post this daily"), suggest the subscription and confirm before building: _"A dashboard subscription is a better fit for a recurring message. Want me to set that up?"_
+Reach for a prompt subscription when the user specifically asks for a free-text AI report, or when no existing insight/dashboard covers the ask.
 
 ## Workflow
 
