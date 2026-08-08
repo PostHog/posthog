@@ -18,6 +18,11 @@ message Person {
   optional bool is_user_id = 10;
   // Epoch milliseconds (matching created_at); the writer decodes it as such.
   optional int64 last_seen_at = 11;
+  // True on a death document: the changelog record the leader produces when
+  // a lifecycle saga destroys the person (version = sealed_version + 1).
+  // Consumers treat the person as gone; the writer projects it as the
+  // Postgres tombstone. proto3 default (false) keeps old records live.
+  bool is_deleted = 12;
 }
 
 // DistinctIdWithVersion pairs a distinct_id with its version for consistency tracking
@@ -281,3 +286,72 @@ message SetPersonVersionFloorResponse {
   // True if a row was updated (the stored version was below min_version).
   bool updated = 1;
 }
+
+// FencePersonRequest freezes a person for a lifecycle operation (see
+// PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
+// op_type selects the rejection surfaced to writers while the fence holds.
+message FencePersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  string op_id = 3;
+  LifecycleOpType op_type = 4;
+}
+
+// The kind of lifecycle operation — mirrors lifecycle_op.op_type. The
+// canonical string mapping lives on this enum's impl in personhog-proto;
+// derive from it everywhere instead of repeating the literals.
+enum LifecycleOpType {
+  LIFECYCLE_OP_TYPE_UNSPECIFIED = 0;
+  LIFECYCLE_OP_TYPE_DELETE = 1;
+  LIFECYCLE_OP_TYPE_MERGE = 2;
+}
+
+message FencePersonResponse {
+  // The sealed state: the person's final word — no write can follow it
+  // while the fence holds. Delete uses sealed.version only; merge seals
+  // the full document (properties included).
+  //
+  // Failure is reported through the gRPC status, never in-band:
+  // FAILED_PRECONDITION with x-person-fenced metadata when another op
+  // holds the person, NOT_FOUND when the person is destroyed,
+  // FAILED_PRECONDITION when this pod does not serve the partition (the
+  // retry re-routes), and RESOURCE_EXHAUSTED when the fence map is at
+  // capacity (retry later).
+  Person sealed = 1;
+}
+
+// ReleaseFenceRequest closes a fence (see PersonHogLeader.ReleaseFence).
+// person_uuid, sealed_version, and created_at travel in the request so a
+// leader with no cache entry — after a restart — re-derives the death
+// document deterministically. All three come from the sealed state the
+// fence returned (the saga persists it in the mark row for replay).
+message ReleaseFenceRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  string person_uuid = 3;
+  string op_id = 4;
+  ReleaseOutcome outcome = 5;
+  // The version sealed at fence time. The death document is produced at
+  // sealed_version + 1. Required when outcome = COMMITTED. Explicitly
+  // optional because 0 is a legitimate sealed version — a fresh person
+  // stub is created at version 0 — so absence must stay distinguishable
+  // from it.
+  optional int64 sealed_version = 6;
+  // The person's creation time as sealed at fence time, in epoch
+  // seconds — the unit Person.created_at carries end to end (the leader
+  // loads `timestamp()`, the writer binds via `epoch_secs_to_datetime`).
+  // The death document carries it verbatim — a cold leader has nothing
+  // to re-derive it from, and the writer projects it onto the tombstone
+  // row. Required when outcome = COMMITTED.
+  int64 created_at = 7;
+}
+
+enum ReleaseOutcome {
+  RELEASE_OUTCOME_UNSPECIFIED = 0;
+  // The person was destroyed: produce the death document, evict, unfence.
+  RELEASE_OUTCOME_COMMITTED = 1;
+  // The op backed out: unfence, keep the entry, produce nothing.
+  RELEASE_OUTCOME_ABORTED = 2;
+}
+
+message ReleaseFenceResponse {}
