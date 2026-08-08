@@ -43,6 +43,9 @@ def _get_previous_jobs(saved_query_id: UUID, current_job_id: UUID, count: int) -
     return (
         DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE)
         .exclude(id=current_job_id)
+        # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
+        # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
+        .exclude(status=DataModelingJobStatus.SKIPPED)
         .order_by("-created_at")[:count]
     )
 
