@@ -15,10 +15,10 @@ callouts in ``authoring-scouts`` / ``working-with-scouts``:
   become a scout — the skill says "don't override a user who's certain".
 
 All scorers self-skip via ``expected`` so one scorer list spans the suite's
-heterogeneous cases (the ``experiments`` domain pattern). ``NoScoutCreated``
-returns ``score=1.0`` with ``skipped`` metadata on inapplicable cases — not
-``score=None`` — because Braintrust's local summary builder crashes aggregating
-``None``.
+heterogeneous cases. A skip returns ``score=None``, which the harness engine
+preserves per-case and excludes from aggregates (see ``engines/base.py`` and the
+``test_none_score_preserved_per_case_and_excluded_from_aggregate`` conformance
+test), so an inapplicable case never counts as a pass or inflates a scorer mean.
 """
 
 from __future__ import annotations
@@ -29,10 +29,21 @@ from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 # MCP tools whose successful call means the agent built (or materialized) a
-# Signals scout. ``scout-create`` authors a custom scout skill + config in one
-# confirm-gated call; ``scout-config-create`` registers a config for an existing
-# scout skill; ``scout-config-sync`` materializes the whole canonical fleet.
-SCOUT_CREATION_TOOLS = frozenset({"scout-create", "scout-config-create", "scout-config-sync"})
+# Signals scout. ``scout-create`` is confirm-gated and surfaces at runtime as a
+# ``scout-create-prepare`` then ``scout-create-execute`` pair (see
+# services/mcp/src/tools/generated/signals.ts) — ``-execute`` is the call that
+# actually materializes the scout, so all three variants are caught.
+# ``scout-config-create`` registers a config for an existing scout skill;
+# ``scout-config-sync`` materializes the whole canonical fleet.
+SCOUT_CREATION_TOOLS = frozenset(
+    {
+        "scout-create",
+        "scout-create-prepare",
+        "scout-create-execute",
+        "scout-config-create",
+        "scout-config-sync",
+    }
+)
 
 
 def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
@@ -73,15 +84,47 @@ class NoScoutCreated(Scorer):
 
     def _run_eval_sync(self, output: dict | None, expected: Any = None, **kwargs) -> Score:
         if not _is_applicable(expected, self._name()):
-            return Score(
-                name=self._name(), score=1.0, metadata={"skipped": True, "reason": "Not applicable to this case"}
-            )
+            return Score(name=self._name(), score=None, metadata={"skipped": True, "reason": "Not applicable"})
         parser = _parser_for(output)
         if parser is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
         created = sorted({c.name for c in parser.get_tool_calls() if not c.is_error and c.name in SCOUT_CREATION_TOOLS})
         if created:
             return Score(name=self._name(), score=0.0, metadata={"scout_tools_called": created})
+        return Score(name=self._name(), score=1.0, metadata={})
+
+
+class NoUnilateralSubscription(Scorer):
+    """Deterministic: on the ambiguous case the agent must not create a
+    subscription before offering the user the choice.
+
+    Opt-in via ``expected={"no_unilateral_subscription": True}``. The
+    ``OffersInformedChoice`` judge only sees the final prose, so it can't tell
+    that the agent already called ``subscriptions-create`` before asking. This
+    catches that silent overreach: on an ambiguous ask the right move is to
+    present the tradeoff and confirm, not to build either option unprompted.
+    ``NoScoutCreated`` covers the scout side; this covers the subscription side.
+    """
+
+    def _name(self) -> str:
+        return "no_unilateral_subscription"
+
+    def _run_eval_sync(self, output: dict | None, expected: Any = None, **kwargs) -> Score:
+        if not _is_applicable(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"skipped": True, "reason": "Not applicable"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        created = [c for c in parser.get_tool_calls("subscriptions-create") if not c.is_error]
+        if created:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "Created a subscription before offering the choice",
+                    "tool": "subscriptions-create",
+                },
+            )
         return Score(name=self._name(), score=1.0, metadata={})
 
 
@@ -98,9 +141,7 @@ class RoutedToSubscription(JudgedScorer):
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
         if not _is_applicable(expected, self._name()):
-            return Score(
-                name=self._name(), score=1.0, metadata={"skipped": True, "reason": "Not applicable to this case"}
-            )
+            return Score(name=self._name(), score=None, metadata={"skipped": True, "reason": "Not applicable"})
         if not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
         last_message = output.get("last_message")
@@ -153,9 +194,7 @@ class OffersInformedChoice(JudgedScorer):
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
         if not _is_applicable(expected, self._name()):
-            return Score(
-                name=self._name(), score=1.0, metadata={"skipped": True, "reason": "Not applicable to this case"}
-            )
+            return Score(name=self._name(), score=None, metadata={"skipped": True, "reason": "Not applicable"})
         if not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
         last_message = output.get("last_message")
@@ -210,9 +249,7 @@ class RespectedScoutRequest(JudgedScorer):
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
         if not _is_applicable(expected, self._name()):
-            return Score(
-                name=self._name(), score=1.0, metadata={"skipped": True, "reason": "Not applicable to this case"}
-            )
+            return Score(name=self._name(), score=None, metadata={"skipped": True, "reason": "Not applicable"})
         if not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
         last_message = output.get("last_message")

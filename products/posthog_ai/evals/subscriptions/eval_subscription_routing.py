@@ -27,6 +27,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.subscriptions.scorers import (
     NoScoutCreated,
+    NoUnilateralSubscription,
     OffersInformedChoice,
     RespectedScoutRequest,
     RoutedToSubscription,
@@ -59,7 +60,11 @@ async def eval_subscription_routing(ctx: EvalContext) -> None:
                 f"Set up a scout to post the numbers from our '{DASHBOARD_NAME}' dashboard "
                 f"to the team in Slack every morning."
             ),
-            expected={"offers_informed_choice": True, "no_scout_created": True},
+            expected={
+                "offers_informed_choice": True,
+                "no_scout_created": True,
+                "no_unilateral_subscription": True,
+            },
         ),
         # Genuine open-ended watching, user is explicit about wanting a scout →
         # respect it. Guards against the routing guidance over-correcting into a
@@ -81,6 +86,7 @@ async def eval_subscription_routing(ctx: EvalContext) -> None:
             RoutedToSubscription(),
             OffersInformedChoice(),
             NoScoutCreated(),
+            NoUnilateralSubscription(),
             RespectedScoutRequest(),
         ],
         ctx=ctx,
