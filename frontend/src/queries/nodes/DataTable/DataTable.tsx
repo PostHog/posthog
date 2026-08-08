@@ -395,7 +395,10 @@ export function DataTable({
                                             <LemonDivider />
                                             <TaxonomicPopover
                                                 groupType={TaxonomicFilterGroupType.HogQLExpression}
-                                                value={key}
+                                                // Seed the editor with the expression only. The trailing
+                                                // `-- label` comment is the column's display name, not part
+                                                // of the expression, so it must not reach validation.
+                                                value={removeExpressionComment(key)}
                                                 groupTypes={groupTypes}
                                                 metadataSource={query.source}
                                                 renderValue={() => <>Edit column</>}

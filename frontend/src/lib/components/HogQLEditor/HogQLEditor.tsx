@@ -50,6 +50,7 @@ export function HogQLEditor({
     showBreakdownLabelHint,
 }: HogQLEditorProps): JSX.Element {
     const [bufferedValue, setBufferedValue] = useState(value ?? '')
+    const [error, setError] = useState<string | null>(null)
     useEffect(() => {
         setBufferedValue(value ?? '')
     }, [value])
@@ -73,6 +74,7 @@ export function HogQLEditor({
                 autoFocus={!disableAutoFocus}
                 sourceQuery={metadataSource}
                 globals={globals}
+                onError={setError}
                 onPressCmdEnter={
                     disableCmdEnter
                         ? undefined
@@ -99,8 +101,11 @@ export function HogQLEditor({
                 className="mt-2"
                 fullWidth
                 type="primary"
+                data-attr="hogql-editor-save"
                 onClick={() => onChange(bufferedValue)}
-                disabledReason={!bufferedValue ? 'Please enter a SQL expression' : null}
+                disabledReason={
+                    !bufferedValue ? 'Please enter a SQL expression' : error ? 'Fix the errors in your SQL' : null
+                }
                 center
             >
                 {submitText ?? 'Update SQL expression'}
