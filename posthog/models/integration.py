@@ -3909,7 +3909,7 @@ class GitLabIntegration:
             timeout=10,
         )
 
-        return response.json()
+        return GitLabIntegration._parse_response(response)
 
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
@@ -3926,6 +3926,23 @@ class GitLabIntegration:
             allow_redirects=False,
             timeout=10,
         )
+
+        return GitLabIntegration._parse_response(response)
+
+    @staticmethod
+    def _parse_response(response: requests.Response) -> dict:
+        # GitLab answers a bad token or missing project with a non-2xx status and an error body.
+        # Reject it here so callers never store that body as a working integration.
+        if not response.ok:
+            detail = ""
+            try:
+                body = response.json()
+                if isinstance(body, dict):
+                    detail = str(body.get("message") or body.get("error") or "")
+            except ValueError:
+                pass
+            message = f"GitLab request failed ({response.status_code})"
+            raise GitLabIntegrationError(f"{message}: {detail}" if detail else message)
 
         return response.json()
 

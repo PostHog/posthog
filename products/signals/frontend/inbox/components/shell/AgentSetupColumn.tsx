@@ -11,6 +11,7 @@ import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
@@ -299,10 +300,14 @@ function NotificationsWidget(): JSX.Element {
  * The GitHub OAuth round trip returns to `next`, and this modal opens from the rail beside any of the
  * list tabs – so `next` has to be wherever the user actually started, not a fixed tab. `setup=github`
  * comes back with them so the modal reopens showing the result.
+ *
+ * `GithubIntegration` adds the `/project/<id>` prefix itself, so pass a project-relative path here –
+ * `location.pathname` already carries the prefix and would otherwise be doubled into a dead route.
  */
 function GithubSetupBody(): JSX.Element {
     const { location, searchParams } = useValues(router)
-    return <GithubIntegration next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url} />
+    const path = removeProjectIdIfPresent(location.pathname)
+    return <GithubIntegration next={combineUrl(path, { ...searchParams, setup: 'github' }).url} />
 }
 
 const SETUP_MODALS: Record<

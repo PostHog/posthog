@@ -4340,6 +4340,19 @@ class TestGitLabIntegrationSSRFProtection:
 
         mock_post.assert_not_called()
 
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_get_raises_on_error_status(self, mock_is_url_allowed, mock_get):
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        mock_is_url_allowed.return_value = (True, None)
+        mock_get.return_value.ok = False
+        mock_get.return_value.status_code = 401
+        mock_get.return_value.json.return_value = {"message": "401 Unauthorized"}
+
+        with pytest.raises(GitLabIntegrationError, match="401 Unauthorized"):
+            GitLabIntegration.get("https://gitlab.com", "projects/1", "bad-token")
+
 
 class TestPostgreSQLIntegrationModel(BaseTest):
     @parameterized.expand(

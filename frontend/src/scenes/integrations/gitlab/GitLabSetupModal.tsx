@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconGitLab } from '@posthog/icons'
@@ -11,7 +11,6 @@ import { GitLabSetupModalLogicProps, gitlabSetupModalLogic } from './gitlabSetup
 export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element => {
     const logic = gitlabSetupModalLogic(props)
     const { isGitlabIntegrationSubmitting } = useValues(logic)
-    const { submitGitlabIntegration } = useActions(logic)
 
     return (
         <LemonModal
@@ -24,7 +23,7 @@ export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element
             }
             onClose={props.onComplete}
         >
-            <Form logic={gitlabSetupModalLogic} props={props} formKey="gitlabIntegration">
+            <Form logic={gitlabSetupModalLogic} props={props} formKey="gitlabIntegration" enableFormOnSubmit>
                 <div className="gap-4 flex flex-col">
                     <LemonField name="hostname" label="Hostname">
                         <LemonInput type="text" placeholder="https://gitlab.com" />
@@ -64,12 +63,7 @@ export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element
                         />
                     </LemonField>
                     <div className="flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            loading={isGitlabIntegrationSubmitting}
-                            onClick={submitGitlabIntegration}
-                        >
+                        <LemonButton type="primary" htmlType="submit" loading={isGitlabIntegrationSubmitting}>
                             Connect
                         </LemonButton>
                     </div>
