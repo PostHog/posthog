@@ -9,6 +9,7 @@ import {
   detectRtkBinary,
   resolveRtkPrefix,
   rewriteBashForRtk,
+  rgOnPath,
 } from "./rtk";
 
 describe("rewriteBashForRtk", () => {
@@ -47,12 +48,30 @@ describe("rewriteBashForRtk", () => {
     ["npm test"],
     ["cat file.ts"],
     ["echo hello"],
-    // Shell operators mean more than one invocation — never rewrite.
+    // Pipes, redirection, and substitution disqualify the segment they're in.
     ["git status | grep foo"],
-    ["git status && ls"],
     ["grep foo src > out.txt"],
-    ["ls; pwd"],
     ["echo $(git status)"],
+    ["git status || echo failed"],
+    ["ls & wait"],
+    // Chains whose segments are all ineligible stay untouched.
+    ["pnpm install && pnpm test"],
+    ["cd /tmp && cat file.ts"],
+    // Unbalanced quotes — the splitter can't model the line, fail safe.
+    ["ls 'unclosed && git status"],
+    // find actions that execute, delete, or reformat output — never touched:
+    // the pipe fallback's find filter would mis-summarize non-list output.
+    ["find . -name '*.tmp' -exec rm {} \\;"],
+    ["find . -name '*.log' -delete"],
+    ["find . -type f -print0"],
+    ["find . -maxdepth 1 -ls"],
+    ["find . -printf '%p %s\\n'"],
+    // rg output shapes the grep pipe filter would corrupt stay raw.
+    ["rg --json foo src"],
+    ["rg -l foo src"],
+    ["rg --files src"],
+    ["rg -c foo src"],
+    ["rg --stats foo src"],
     // A leading env assignment or explicit path is not a bare allowlisted head.
     ["FOO=bar git status"],
     ["/usr/bin/git status"],
@@ -63,8 +82,96 @@ describe("rewriteBashForRtk", () => {
     expect(rewriteBashForRtk(input, "rtk")).toBeNull();
   });
 
-  test("is idempotent — does not double-wrap", () => {
-    expect(rewriteBashForRtk("rtk git status", "rtk")).toBeNull();
+  test.each([
+    // Every eligible segment in a chain gets the prefix.
+    ["git status && ls", "rtk git status && rtk ls"],
+    ["ls; pwd", "rtk ls; pwd"],
+    [
+      "grep -rn foo src && git diff --stat",
+      "rtk grep -rn foo src && rtk git diff --stat",
+    ],
+    // Ineligible segments run untouched alongside rewritten ones.
+    ["cd /tmp && ls -la", "cd /tmp && rtk ls -la"],
+    ["pnpm build && git status", "pnpm build && rtk git status"],
+    ["git add -A && git status", "git add -A && rtk git status"],
+    // A piped segment stays raw while its siblings are rewritten.
+    [
+      "git log --oneline | head -5; git status",
+      "git log --oneline | head -5; rtk git status",
+    ],
+    // Operators inside quotes don't split or disqualify.
+    [
+      `grep -rn "a && b" src && git status`,
+      `rtk grep -rn "a && b" src && rtk git status`,
+    ],
+    ["grep 'x;y' src", "rtk grep 'x;y' src"],
+    // rtk-supported find primaries are still rewritten…
+    [
+      "find src -type f -name '*.ts' -maxdepth 2",
+      "rtk find src -type f -name '*.ts' -maxdepth 2",
+    ],
+    // find predicates rtk's parser rejects but that still emit a plain file
+    // list fall back to compacting stdout through rtk's pipe filter, inside a
+    // pipefail subshell so the command's own exit code survives the pipe.
+    [
+      "find . -not -path '*/node_modules/*'",
+      "( set -o pipefail; find . -not -path '*/node_modules/*' | rtk pipe -f find )",
+    ],
+    [
+      "find . -mtime -1",
+      "( set -o pipefail; find . -mtime -1 | rtk pipe -f find )",
+    ],
+    [
+      "find . ! -name '*.md'",
+      "( set -o pipefail; find . ! -name '*.md' | rtk pipe -f find )",
+    ],
+    // …and each find shape resolves independently inside a chain.
+    [
+      "find src -name '*.ts' && find . -not -path '*/dist/*'",
+      "rtk find src -name '*.ts' && ( set -o pipefail; find . -not -path '*/dist/*' | rtk pipe -f find )",
+    ],
+    // rg runs natively (it is often a shell function rtk cannot exec) with
+    // stdout compacted through the grep pipe filter.
+    [
+      "rg -n foo packages/agent/src",
+      "( set -o pipefail; rg -n foo packages/agent/src | rtk pipe -f grep )",
+    ],
+    [
+      "cd /tmp && rg -i pattern .",
+      "cd /tmp && ( set -o pipefail; rg -i pattern . | rtk pipe -f grep )",
+    ],
+  ])("rewrites chained %j", (input, expected) => {
+    expect(rewriteBashForRtk(input, "rtk")).toBe(expected);
+  });
+
+  test.each([
+    // Native `rtk rg` compresses far harder than the pipe filter, but only
+    // works when rg is a real executable rtk can exec.
+    ["rg -n foo packages/agent/src", "rtk rg -n foo packages/agent/src"],
+    ["cd /tmp && rg -i pattern .", "cd /tmp && rtk rg -i pattern ."],
+  ])("routes rg natively when rg is on PATH: %j", (input, expected) => {
+    expect(rewriteBashForRtk(input, "rtk", { rgOnPath: true })).toBe(expected);
+  });
+
+  test("unsafe rg output flags stay raw even with rg on PATH", () => {
+    expect(
+      rewriteBashForRtk("rg --json foo src", "rtk", { rgOnPath: true }),
+    ).toBeNull();
+  });
+
+  test("chained rewrite preserves untouched-segment whitespace and `;;`", () => {
+    expect(rewriteBashForRtk("case x in x) echo hi;; esac; ls", "rtk")).toBe(
+      "case x in x) echo hi;; esac; rtk ls",
+    );
+  });
+
+  test.each([
+    ["rtk git status", "rtk"],
+    ["rtk git status && rtk ls", "rtk"],
+    ["( set -o pipefail; find . -mtime -1 | rtk pipe -f find )", "rtk"],
+    ["( set -o pipefail; rg -n foo src | rtk pipe -f grep )", "rtk"],
+  ])("is idempotent — does not double-wrap %j", (input, prefix) => {
+    expect(rewriteBashForRtk(input, prefix)).toBeNull();
   });
 
   test("shell-quotes a binary path containing spaces", () => {
@@ -175,6 +282,27 @@ describe("detectRtkBinary", () => {
     expect(
       detectRtkBinary({ POSTHOG_RTK: path.join(dir, "missing"), PATH: dir }),
     ).toBeUndefined();
+  });
+});
+
+describe("rgOnPath", () => {
+  let dir: string;
+
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "rg-test-"));
+    fs.writeFileSync(path.join(dir, "rg"), "#!/bin/sh\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("detects a real rg executable on PATH", () => {
+    expect(rgOnPath({ PATH: dir })).toBe(true);
+  });
+
+  test("reports false when rg is absent (e.g. only a shell function)", () => {
+    expect(rgOnPath({ PATH: "/nonexistent" })).toBe(false);
   });
 });
 
