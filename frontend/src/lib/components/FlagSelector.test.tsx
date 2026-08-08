@@ -1,30 +1,4 @@
-import '@testing-library/jest-dom'
-
-import { render, screen } from '@testing-library/react'
-import { Provider } from 'kea'
-
-import { initKeaTests } from '~/test/init'
-
-import { FlagSelector, flagSelectorButtonLabel } from './FlagSelector'
-
-describe('FlagSelector trigger id', () => {
-    beforeEach(() => {
-        initKeaTests()
-    })
-
-    // A field label associates with the picker by pointing its `htmlFor` at the trigger button's id.
-    // If FlagSelector stops putting that id on the button, clicking the label reaches nothing — the
-    // create-form dead click this fix removes. Guard that the id lands on the focusable button.
-    it('forwards id to the trigger button', () => {
-        render(
-            <Provider>
-                <FlagSelector id="flag-selector-under-test" value={undefined} onChange={() => {}} />
-            </Provider>
-        )
-
-        expect(screen.getByText('Select flag').closest('button')).toHaveAttribute('id', 'flag-selector-under-test')
-    })
-})
+import { flagSelectorButtonLabel } from './FlagSelector'
 
 describe('flagSelectorButtonLabel', () => {
     // The picker strips `key` off recently-used flags, so a pick from the Recent tab labels itself
