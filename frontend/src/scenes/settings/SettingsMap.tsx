@@ -102,6 +102,7 @@ import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import { IPCaptureLink } from './environment/IPCaptureLink'
 import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
 import {
     LogsCaptureSettings,
@@ -266,6 +267,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: ['JS_SNIPPET_VERSIONING'],
                 component: <JsSnippetVersionPin />,
                 keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
+            },
+            {
+                id: 'privacy-ip-data',
+                title: 'Discard client IP data',
+                description:
+                    'The toggle to stop storing client IP addresses with your events lives under Privacy settings.',
+                component: <IPCaptureLink />,
+                keywords: ['ip', 'ip address', 'client ip', 'discard', 'anonymize', 'gdpr', 'privacy', 'compliance'],
             },
         ],
     },
@@ -1615,12 +1624,27 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'datacapture',
-                title: 'IP data capture configuration',
+                title: 'Discard client IP data',
                 description:
                     'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded. Note: this does not apply when Cookieless server hash mode is enabled, which strips the IP before transformations run.',
                 docsUrl: 'https://posthog.com/docs/privacy',
                 component: <IPCapture />,
-                keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard'],
+                keywords: [
+                    'ip',
+                    'ip address',
+                    'client ip',
+                    'discard',
+                    'discard ip',
+                    'anonymize',
+                    'anonymise',
+                    'anonymization',
+                    'mask ip',
+                    'gdpr',
+                    'privacy',
+                    'compliance',
+                    'geolocation',
+                    'geoip',
+                ],
             },
         ],
     },

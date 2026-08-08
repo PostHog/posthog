@@ -34,6 +34,8 @@ const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
 const MOVED_SETTINGS: Record<string, SettingSectionId> = {
     'internal-user-filtering': 'project-customization',
     'warehouse-person-properties': 'environment-customer-analytics',
+    // The IP data control moved from the product analytics section to Privacy.
+    datacapture: 'project-privacy',
 }
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)

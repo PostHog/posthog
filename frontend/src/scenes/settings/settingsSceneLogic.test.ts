@@ -120,6 +120,20 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
     })
 
+    it('redirects datacapture deep links to the Privacy section', async () => {
+        // The IP data control moved from the product analytics section to Privacy; docs and
+        // bookmarks still point at the old section.
+        router.actions.push('/settings/project-product-analytics', {}, { datacapture: true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-privacy',
+        })
+
+        expect(router.values.location.pathname).toContain('/settings/project-privacy')
+        expect(router.values.hashParams).toHaveProperty('datacapture')
+    })
+
     it('redirects the removed toolbar section to web analytics', async () => {
         router.actions.push('/settings/project-toolbar')
 
