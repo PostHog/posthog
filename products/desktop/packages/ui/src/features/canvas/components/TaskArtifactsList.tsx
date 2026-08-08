@@ -3,7 +3,6 @@ import {
   CaretDownIcon,
   ChatCircleIcon,
   DownloadSimpleIcon,
-  EyeIcon,
   PackageIcon,
   SlackLogoIcon,
 } from "@phosphor-icons/react";
@@ -11,7 +10,6 @@ import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
   type RunArtifactVersions,
   runArtifactVersionKey,
-  runArtifactVersionLabel,
 } from "@posthog/core/canvas/runArtifactSchemas";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
@@ -53,104 +51,95 @@ import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEna
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { type ReactNode, useMemo, useState } from "react";
+import { type MouseEvent, type ReactNode, useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
 
-function ArtifactListRow({
+interface CurrentUser {
+  id?: number;
+  first_name?: string | null;
+}
+
+function CommentCountBadge({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <Badge>
+      <ChatCircleIcon />
+      {count}
+    </Badge>
+  );
+}
+
+/**
+ * One artifact card. The whole card is the open control - a `role="button"`
+ * div rather than a `<button>`, because the version picker and the trailing
+ * actions are real buttons and HTML forbids nesting those (see NestedButton
+ * for the same call). Inner controls stop propagation so they don't open it.
+ */
+function ArtifactCard({
   icon,
+  tint,
   title,
-  detail,
-  external,
+  meta,
   onOpen,
-  onOpenExternal,
-  fileActions,
   onHoverStart,
-  trailing,
+  actions,
 }: {
   icon: ReactNode;
+  /** Background classes of the thumbnail square, keyed to the artifact kind. */
+  tint: string;
   title: string;
-  detail?: ReactNode;
-  external?: boolean;
+  meta?: ReactNode;
   onOpen?: () => void;
-  /** Renders a trailing button that leaves the app instead of opening the
-   *  artifact in place. Absent when there is nowhere safe to send the user. */
-  onOpenExternal?: () => void;
-  fileActions?: {
-    onDownload: () => void;
-    downloading: boolean;
-  };
   onHoverStart?: () => void;
-  trailing?: ReactNode;
+  /** Always-visible trailing cluster: comment badge, download, open externally. */
+  actions?: ReactNode;
 }) {
   return (
-    // overflow-hidden so each half's hover fill is clipped to the row's radius.
-    <div className="flex w-full items-center overflow-hidden rounded-md border border-border bg-muted text-[13px]">
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={!onOpen}
-        onPointerEnter={onHoverStart}
-        onFocus={onHoverStart}
-        className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition-colors enabled:hover:bg-gray-3"
+    // biome-ignore lint/a11y/useSemanticElements: nested real buttons forbid a <button> card
+    <div
+      data-artifact-card
+      role="button"
+      tabIndex={onOpen ? 0 : undefined}
+      aria-disabled={onOpen ? undefined : true}
+      aria-label={`View ${title}`}
+      className={`flex w-full items-center gap-2.5 rounded-lg border border-border bg-muted py-2 pr-1.5 pl-2 text-[13px] transition-colors ${
+        onOpen ? "cursor-pointer hover:border-gray-6 hover:bg-gray-3" : ""
+      }`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        // Only the card itself: inner controls' key presses bubble up here.
+        if (event.target !== event.currentTarget) return;
+        if (onOpen && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      onPointerEnter={onHoverStart}
+      onFocus={onHoverStart}
+    >
+      <div
+        className={`flex size-9 shrink-0 items-center justify-center rounded-md ${tint}`}
       >
         {icon}
-        <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
-        {detail && (
-          <span className="shrink-0 text-muted-foreground">{detail}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{title}</div>
+        {meta && (
+          <div className="flex items-center gap-1 whitespace-nowrap text-[12px] text-muted-foreground">
+            {meta}
+          </div>
         )}
-        {external && (
-          <ArrowSquareOutIcon size={12} className="shrink-0 text-gray-9" />
-        )}
-      </button>
-      {trailing}
-      {onOpenExternal && (
-        <button
-          type="button"
-          onClick={onOpenExternal}
-          aria-label={`Open ${title} externally`}
-          className="flex shrink-0 items-center self-stretch border-border border-l px-2 text-muted-foreground transition-colors hover:bg-gray-3 hover:text-foreground"
-        >
-          <ArrowSquareOutIcon size={12} />
-        </button>
-      )}
-      {fileActions && onOpen && (
-        <div className="flex shrink-0 items-center gap-0.5 border-border border-l px-1">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="default"
-                  size="icon-sm"
-                  aria-label={`View ${title}`}
-                  onClick={onOpen}
-                />
-              }
-            >
-              <EyeIcon size={14} />
-            </TooltipTrigger>
-            <TooltipContent>View</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="default"
-                  size="icon-sm"
-                  aria-label={`Download ${title}`}
-                  disabled={fileActions.downloading}
-                  onClick={fileActions.onDownload}
-                />
-              }
-            >
-              <DownloadSimpleIcon size={14} />
-            </TooltipTrigger>
-            <TooltipContent>Download</TooltipContent>
-          </Tooltip>
-        </div>
+      </div>
+      {actions && (
+        <div className="flex shrink-0 items-center gap-1">{actions}</div>
       )}
     </div>
   );
+}
+
+function stopCardOpen(event: MouseEvent) {
+  event.stopPropagation();
 }
 
 function PrRow({
@@ -166,31 +155,19 @@ function PrRow({
   const comments = usePrComments(countsWanted ? safeUrl : null);
   const threads = usePrReviewThreads(countsWanted ? safeUrl : null);
 
-  const commentCount =
+  const prCommentCount =
     (comments.data?.length ?? 0) +
     (threads.data ?? []).reduce(
       (sum, thread) => sum + thread.comments.length,
       0,
     );
-  const detailParts = [
-    stateLabel,
-    comments.data || threads.data
-      ? `${commentCount} ${commentCount === 1 ? "comment" : "comments"}`
-      : null,
-  ].filter(Boolean);
 
   return (
-    <ArtifactListRow
-      icon={
-        <Icon
-          size={14}
-          weight="bold"
-          className="shrink-0"
-          style={{ color: iconColor }}
-        />
-      }
+    <ArtifactCard
+      icon={<Icon size={16} weight="bold" style={{ color: iconColor }} />}
+      tint="bg-violet-3"
       title={title}
-      detail={detailParts.join(" · ") || null}
+      meta={stateLabel}
       onHoverStart={() => setCountsWanted(true)}
       onOpen={
         safeUrl
@@ -200,7 +177,24 @@ function PrRow({
                 : openExternalUrl(safeUrl)
           : undefined
       }
-      onOpenExternal={safeUrl ? () => openExternalUrl(safeUrl) : undefined}
+      actions={
+        <>
+          <CommentCountBadge count={prCommentCount} />
+          {safeUrl && (
+            <Button
+              variant="default"
+              size="icon-sm"
+              aria-label={`Open ${title} externally`}
+              onClick={(event) => {
+                stopCardOpen(event);
+                openExternalUrl(safeUrl);
+              }}
+            >
+              <ArrowSquareOutIcon size={14} />
+            </Button>
+          )}
+        </>
+      }
     />
   );
 }
@@ -216,20 +210,13 @@ function CanvasRow({
 }) {
   const open = canvasArtifactOpenHandler(url);
   return (
-    <ArtifactListRow
-      icon={iconForTemplate("", { size: 14, className: "text-violet-9" })}
+    <ArtifactCard
+      icon={iconForTemplate("", { size: 16, className: "text-amber-11" })}
+      tint="bg-amber-3"
       title={name}
-      detail={
-        commentCount > 0 ? (
-          <Badge>
-            <ChatCircleIcon />
-            {commentCount}
-          </Badge>
-        ) : (
-          "Canvas"
-        )
-      }
+      meta="Canvas"
       onOpen={open}
+      actions={<CommentCountBadge count={commentCount} />}
     />
   );
 }
@@ -245,32 +232,51 @@ function wasEditedByCurrentUser(
   );
 }
 
+/** Who a version came from, named rather than described. */
+function uploaderLabel(
+  artifact: RunFile,
+  currentUser: CurrentUser | undefined,
+): string {
+  if (artifact.uploaded_by !== "user") return "Agent";
+  if (wasEditedByCurrentUser(artifact, currentUser?.id)) {
+    return currentUser?.first_name?.trim() || "You";
+  }
+  return "Teammate";
+}
+
+/** Compact one-based version label: v1 is oldest, v{total} is newest. */
+function versionShortLabel(index: number, total: number): string {
+  return `v${total - index}`;
+}
+
 function fileVersionMenuLabel(
   artifact: RunFile,
   index: number,
   total: number,
-  currentUserId: number | undefined,
+  currentUser: CurrentUser | undefined,
 ): string {
   return [
-    runArtifactVersionLabel(index, total),
-    wasEditedByCurrentUser(artifact, currentUserId) ? "Edited by you" : null,
+    versionShortLabel(index, total),
+    uploaderLabel(artifact, currentUser),
     artifact.uploaded_at ? formatRelativeTimeLong(artifact.uploaded_at) : null,
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+
 function FileRow({
   taskId,
   group,
   commentCount,
-  currentUserId,
+  currentUser,
 }: {
   taskId: string;
   group: RunArtifactVersions<RunFile>;
   /** Supplied by the pane's single comments query so each row doesn't fetch. */
   commentCount: number;
-  currentUserId: number | undefined;
+  currentUser: CurrentUser | undefined;
 }) {
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const { download, downloadingId } = useArtifactDownload();
@@ -304,71 +310,87 @@ function FileRow({
         });
       }
     : undefined;
-  const detail = [
-    "File",
-    formatFileSize(selected.size),
-    wasEditedByCurrentUser(selected, currentUserId) ? "Edited by you" : null,
+  const metaText = [
+    uploaderLabel(selected, currentUser),
     selected.uploaded_at ? formatRelativeTimeLong(selected.uploaded_at) : null,
+    formatFileSize(selected.size),
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
-    <ArtifactListRow
-      icon={<FileIcon filename={group.name} size={14} />}
+    <ArtifactCard
+      icon={<FileIcon filename={group.name} size={18} />}
+      tint={IMAGE_EXTENSIONS.test(group.name) ? "bg-green-3" : "bg-blue-3"}
       title={group.name}
-      detail={
-        <div className="flex items-center gap-1.5">
-          <span>{detail}</span>
-          {commentCount > 0 && (
-            <Badge>
-              <ChatCircleIcon />
-              {commentCount}
-            </Badge>
+      meta={
+        <>
+          {metaText && <span className="truncate">{metaText}</span>}
+          {group.versions.length > 1 && (
+            <>
+              {metaText && <span>·</span>}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={`Choose a version of ${group.name}`}
+                      onClick={stopCardOpen}
+                      className="flex shrink-0 cursor-pointer items-center gap-0.5 text-foreground"
+                    >
+                      {versionShortLabel(selectedIndex, group.versions.length)}
+                      <CaretDownIcon size={10} />
+                    </button>
+                  }
+                />
+                <DropdownMenuContent align="start">
+                  {group.versions.map((version, index) => (
+                    <DropdownMenuItem
+                      key={runArtifactVersionKey(version)}
+                      onClick={() =>
+                        setSelectedKey(runArtifactVersionKey(version))
+                      }
+                    >
+                      {fileVersionMenuLabel(
+                        version,
+                        index,
+                        group.versions.length,
+                        currentUser,
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
-        </div>
+        </>
       }
       onOpen={onOpen}
-      fileActions={
-        onDownload
-          ? { onDownload, downloading: downloadingId === selected.id }
-          : undefined
-      }
-      trailing={
-        group.versions.length > 1 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="link-muted"
-                  size="sm"
-                  aria-label={`Choose a version of ${group.name}`}
-                >
-                  {runArtifactVersionLabel(
-                    selectedIndex,
-                    group.versions.length,
-                  )}
-                  <CaretDownIcon />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end">
-              {group.versions.map((version, index) => (
-                <DropdownMenuItem
-                  key={runArtifactVersionKey(version)}
-                  onClick={() => setSelectedKey(runArtifactVersionKey(version))}
-                >
-                  {fileVersionMenuLabel(
-                    version,
-                    index,
-                    group.versions.length,
-                    currentUserId,
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : undefined
+      actions={
+        <>
+          <CommentCountBadge count={commentCount} />
+          {onDownload && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="default"
+                    size="icon-sm"
+                    aria-label={`Download ${group.name}`}
+                    disabled={downloadingId === selected.id}
+                    onClick={(event) => {
+                      stopCardOpen(event);
+                      onDownload();
+                    }}
+                  />
+                }
+              >
+                <DownloadSimpleIcon size={14} />
+              </TooltipTrigger>
+              <TooltipContent>Download</TooltipContent>
+            </Tooltip>
+          )}
+        </>
       }
     />
   );
@@ -456,16 +478,29 @@ export function TaskArtifactsList({
             commentCount={
               row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
             }
-            currentUserId={currentUser?.id}
+            currentUser={currentUser}
           />
         ) : (
-          <ArtifactListRow
+          <ArtifactCard
             key={row.key}
-            icon={<SlackLogoIcon size={14} className="shrink-0 text-gray-11" />}
+            icon={<SlackLogoIcon size={16} className="text-gray-11" />}
+            tint="bg-gray-4"
             title="Slack thread"
-            detail="External"
-            external
+            meta="External"
             onOpen={() => openExternalUrl(row.url)}
+            actions={
+              <Button
+                variant="default"
+                size="icon-sm"
+                aria-label="Open Slack thread externally"
+                onClick={(event) => {
+                  stopCardOpen(event);
+                  openExternalUrl(row.url);
+                }}
+              >
+                <ArrowSquareOutIcon size={14} />
+              </Button>
+            }
           />
         ),
       )}
