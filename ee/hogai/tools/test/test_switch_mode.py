@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 from unittest import TestCase
@@ -10,12 +11,20 @@ from posthog.schema import AgentMode
 from ee.hogai.tools.switch_mode import SwitchModeTool
 from ee.hogai.utils.types import AssistantState
 
+if TYPE_CHECKING:
+    from ee.hogai.core.agent_modes.factory import AgentModeDefinition
+
 
 class TestSwitchModeTool(TestCase):
     def _build_tool(self, current_mode: AgentMode | None) -> SwitchModeTool:
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()), agent_mode=current_mode)
-        tool = SwitchModeTool(team=MagicMock(), user=MagicMock(), state=state, context_manager=MagicMock())
-        tool._mode_registry = {AgentMode.SQL: object(), AgentMode.PRODUCT_ANALYTICS: object()}  # type: ignore[assignment]
+        tool = SwitchModeTool(
+            team=MagicMock(), user=MagicMock(), state=state, context_manager=MagicMock(), description="Switch mode"
+        )
+        tool._mode_registry = cast(
+            "dict[AgentMode, AgentModeDefinition]",
+            {AgentMode.SQL: MagicMock(), AgentMode.PRODUCT_ANALYTICS: MagicMock()},
+        )
         return tool
 
     async def test_switching_to_current_mode_is_a_noop(self):
