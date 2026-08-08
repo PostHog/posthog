@@ -27,7 +27,7 @@ import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/store
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
 import { track } from "../../../shell/analytics";
@@ -202,6 +202,7 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const submitInFlightRef = useRef(false);
   const hostClient = useHostTRPCClient();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -250,7 +251,7 @@ export function useTaskCreation({
     isAuthenticated && isOnline && hasRequiredPath && !isCreatingTask;
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
-  const handleSubmit = useCallback(
+  const createTaskFromEditor = useCallback(
     async (contentOverride?: EditorContent): Promise<boolean> => {
       const editor = editorRef.current;
       if (!editor) return false;
@@ -319,8 +320,6 @@ export function useTaskCreation({
           log.warn("Failed to check worktree branch availability", { error });
         }
       }
-
-      setIsCreatingTask(true);
 
       const content = contentOverride ?? editor.getContent();
       const plainPromptText = contentToPlainText(content).trim();
@@ -546,8 +545,6 @@ export function useTaskCreation({
           openTaskInput({ initialPrompt: plainPromptText });
         }
         return false;
-      } finally {
-        setIsCreatingTask(false);
       }
     },
     [
@@ -593,6 +590,25 @@ export function useTaskCreation({
       taskService,
       tasks,
     ],
+  );
+
+  // A second submit can land before `isCreatingTask` re-renders, and the
+  // usage/worktree pre-flight awaits sit inside that window, so the state flag
+  // alone can't stop a repeat Enter from starting a duplicate task. The ref
+  // shuts the window synchronously; the state drives the visible in-flight UI.
+  const handleSubmit = useCallback(
+    async (contentOverride?: EditorContent): Promise<boolean> => {
+      if (submitInFlightRef.current) return false;
+      submitInFlightRef.current = true;
+      setIsCreatingTask(true);
+      try {
+        return await createTaskFromEditor(contentOverride);
+      } finally {
+        submitInFlightRef.current = false;
+        setIsCreatingTask(false);
+      }
+    },
+    [createTaskFromEditor],
   );
 
   return {
