@@ -55,11 +55,7 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
      * person uuid. A conflict on posthog_person.uuid leaves a person row that no
      * distinct-id row points at, so the uuid lookup keeps it recoverable.
      */
-    fetchConcurrentlyCreatedPerson(
-        teamId: number,
-        distinctIds: string[],
-        uuid: string
-    ): Promise<InternalPerson | null>
+    fetchConcurrentlyCreatedPerson(teamId: number, distinctIds: string[], uuid: string): Promise<InternalPerson | null>
 
     /**
      * Creates a new person
