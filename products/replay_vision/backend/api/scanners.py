@@ -79,6 +79,7 @@ from products.replay_vision.backend.quota import (
     ScannerSpend,
     credits_used_by_scanner,
     current_period_bounds,
+    sum_active_backfill_remaining_credits,
     sum_enabled_scanner_estimated_credits,
 )
 from products.replay_vision.backend.scanner_config import (
@@ -891,6 +892,13 @@ class EstimateResponseSerializer(serializers.Serializer):
             "double-count the edited scanner."
         ),
     )
+    active_backfill_credits = serializers.IntegerField(
+        help_text=(
+            "Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's "
+            "projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own "
+            "segment instead of adding it to a per-month total."
+        ),
+    )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
     )
@@ -1545,6 +1553,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "credits_per_observation": credits_per_observation,
                     "estimated_credits_per_month": observations_per_month * credits_per_observation,
                     "other_enabled_scanners_monthly_credits": other_enabled_scanners_monthly_credits,
+                    "active_backfill_credits": sum_active_backfill_remaining_credits(self.team.organization_id),
                     "sampling_rate": sampling_rate,
                 }
             ).data

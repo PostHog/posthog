@@ -54,10 +54,15 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     // race the estimate-refresh cadence and double-count the scanner right after creating it.
     const fleetMonthly = quota?.projected_monthly_credits ?? 0
     const othersMonthly = scannerEstimate?.other_enabled_scanners_monthly_credits ?? 0
+    // Backfill commitments sit in the snapshot's projection but not in `othersMonthly`, so replacing the fleet
+    // total with `others + this` drops them. That is what this projection wants: `projectQuota` pro-rates a
+    // monthly rate across the days left, and a backfill is charged once, so it is added back at full value as
+    // its own segment below instead.
+    const backfillCredits = scannerEstimate?.active_backfill_credits ?? 0
     // projectQuota wants a delta off the stored fleet total, so compute the new fleet total (others + this) and pass the difference.
     const newFleetMonthly = projectedCredits !== null ? othersMonthly + projectedCredits : fleetMonthly
     const projection = projectQuota(quota, newFleetMonthly - fleetMonthly)
-    const { status, percentLabel, resetsOn, usedPct, usedFreePct, projectedPct } = projection
+    const { status, resetsOn, usedPct, usedFreePct, projectedPct } = projection
 
     const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
@@ -66,7 +71,13 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const imminentDays = projectedCredits !== null ? daysUntilCapReached(projection) : null
 
     const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)
-    const [freeWidth, billedWidth, othersWidth, thisWidth] = quotaMeterWidths(usedPct, usedFreePct, [
+    // Ahead of the projections, matching the backfill cost card: a committed one-off keeps its width and the
+    // rest-of-period forecast is what gets truncated when the total overshoots the limit.
+    const backfillPct = hasCap && cap > 0 ? (backfillCredits / cap) * 100 : 0
+    // The bar carries the backfill segment, so the headline percentage has to as well or the two disagree.
+    const periodEndPct = Math.round(usedPct + projectedPct + backfillPct)
+    const [freeWidth, billedWidth, backfillWidth, othersWidth, thisWidth] = quotaMeterWidths(usedPct, usedFreePct, [
+        backfillPct,
         othersPct,
         thisScannerPct,
     ])
@@ -82,6 +93,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             <div>
                 Projected from other scanners: <strong>~{formatCreditCount(othersMonthly)}/month</strong>
             </div>
+            {backfillCredits > 0 && (
+                <div>
+                    Committed by active backfills: <strong>{formatCreditCount(backfillCredits)}</strong>
+                </div>
+            )}
             {hasCap && (
                 <div>
                     Monthly limit: <strong>{formatCreditCount(cap)}</strong>
@@ -103,7 +119,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 {hasCap && projectedCredits !== null && (
                     <Tooltip title={breakdown}>
                         <span className={`text-xs tabular-nums ${styles.text}`}>
-                            {percentLabel}%{' '}
+                            {periodEndPct}%{' '}
                             <span className="text-muted font-normal">by {resetsOn ?? 'period end'}</span>
                         </span>
                     </Tooltip>
@@ -162,11 +178,12 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                             usedPct={usedPct}
                             usedFreePct={usedFreePct}
                             projected={[
+                                { pct: backfillPct, barClass: 'bg-warning' },
                                 { pct: othersPct, barClass: 'bg-accent' },
                                 { pct: thisScannerPct, barClass: styles.bar, striped: true },
                             ]}
-                            valueNow={percentLabel}
-                            label={`Projected ${percentLabel}% of the monthly spend limit by ${
+                            valueNow={periodEndPct}
+                            label={`Projected ${periodEndPct}% of the monthly spend limit by ${
                                 resetsOn ?? 'period end'
                             }`}
                         />
@@ -177,6 +194,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         </QuotaMeterLegendItem>
                         <QuotaMeterLegendItem width={billedWidth}>
                             {freeWidth > 0 ? 'Billed' : 'Spent'}
+                        </QuotaMeterLegendItem>
+                        <QuotaMeterLegendItem barClass="bg-warning" width={backfillWidth}>
+                            Backfills
                         </QuotaMeterLegendItem>
                         <QuotaMeterLegendItem barClass="bg-accent" width={othersWidth}>
                             Projected (other scanners)
