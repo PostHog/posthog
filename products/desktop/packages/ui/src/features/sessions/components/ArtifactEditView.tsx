@@ -59,7 +59,12 @@ export function ArtifactEditView({
           onContentChange={onContentChange}
         />
       </div>
-      <AlertDialog open={conflictOpen} onOpenChange={onConflictOpenChange}>
+      <AlertDialog
+        open={conflictOpen}
+        onOpenChange={(open) => {
+          if (!saving) onConflictOpenChange(open);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>A newer version is available</AlertDialogTitle>
@@ -69,7 +74,10 @@ export function ArtifactEditView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>
+            <AlertDialogClose
+              disabled={saving}
+              render={<Button variant="outline" disabled={saving} />}
+            >
               Keep editing
             </AlertDialogClose>
             <Button variant="primary" loading={saving} onClick={onForceSave}>
