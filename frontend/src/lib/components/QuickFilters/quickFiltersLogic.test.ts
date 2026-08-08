@@ -16,7 +16,7 @@ describe('quickFiltersLogic', () => {
     it('falls back to an empty list when the request keeps failing', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/quick_filters/': (_, __, ctx) => [ctx.status(504)],
+                '/api/environments/:team_id/quick_filters/': () => [504],
             },
         })
         initKeaTests()
