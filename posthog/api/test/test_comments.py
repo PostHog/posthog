@@ -559,18 +559,6 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
-        Comment.objects.create(
-            team=self.team,
-            created_by=other,
-            content="Private canvas comment",
-            scope="desktop_canvas",
-            item_id=str(canvas.id),
-            item_context={"taskId": str(task.id)},
-        )
-        task_response = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
-        assert task_response.status_code == status.HTTP_200_OK
-        assert task_response.json()["comments"] == []
-
     def test_comment_without_a_mention_notifies_the_task_owner(self) -> None:
         task = self._task_artifact_target()
         owner = User.objects.create_and_join(self.organization, "owner@posthog.com", "password")

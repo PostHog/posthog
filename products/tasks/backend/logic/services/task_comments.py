@@ -123,25 +123,16 @@ def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
         raise InvalidTaskCommentCursor from None
 
 
-def _comments(team_id: int, task_id: UUID, visible_canvas_ids: Sequence[str]) -> QuerySet[Comment]:
+def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
     task_id_string = str(task_id)
     return (
         Comment.objects.filter(team_id=team_id, deleted=False)
         .filter(
             Q(scope="task", item_id=task_id_string)
-            | Q(scope="task_artifact", item_context__taskId=task_id_string)
-            | Q(scope="desktop_canvas", item_context__taskId=task_id_string, item_id__in=visible_canvas_ids)
+            | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
         )
         .filter(Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False))
     )
-
-
-def _visible_canvas_ids(*, team_id: int, task_id: UUID, user_id: int | None) -> list[str]:
-    from products.canvas.backend.comment_access import (
-        visible_canvas_ids_for_task,  # noqa: PLC0415 — avoids the canvas/tasks facade cycle
-    )
-
-    return visible_canvas_ids_for_task(team_id=team_id, user_id=user_id, task_id=task_id)
 
 
 def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> dict[str, str]:
@@ -250,18 +241,13 @@ def list_comments(
     *,
     team_id: int,
     task_id: UUID,
-    user_id: int | None,
     artifact_id: str | None,
     include_resolved: bool,
     include_thread: bool,
     limit: int,
     cursor: str | None,
 ) -> contracts.TaskCommentPageDTO:
-    comments_qs = _comments(
-        team_id,
-        task_id,
-        _visible_canvas_ids(team_id=team_id, task_id=task_id, user_id=user_id),
-    )
+    comments_qs = _comments(team_id, task_id)
     roots_qs = comments_qs.filter(source_comment_id__isnull=True)
     if artifact_id:
         roots_qs = roots_qs.filter(scope__in=["task_artifact", "desktop_canvas"], item_id=artifact_id)
@@ -363,12 +349,8 @@ def list_comments(
     return contracts.TaskCommentPageDTO(comments=result, next=next_cursor)
 
 
-def count_open_comments(*, team_id: int, task_id: UUID, user_id: int | None) -> contracts.TaskCommentCountsDTO:
-    comments_qs = _comments(
-        team_id,
-        task_id,
-        _visible_canvas_ids(team_id=team_id, task_id=task_id, user_id=user_id),
-    )
+def count_open_comments(*, team_id: int, task_id: UUID) -> contracts.TaskCommentCountsDTO:
+    comments_qs = _comments(team_id, task_id)
     roots = list(comments_qs.filter(source_comment_id__isnull=True))
     latest_states = {
         source_comment_id: item_context.get("threadState")
@@ -412,18 +394,13 @@ def retrieve_comment(
     *,
     team_id: int,
     task_id: UUID,
-    user_id: int | None,
     comment_id: UUID,
     limit: int,
     cursor: str | None,
     content_comment_id: UUID | None,
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
-    comments_qs = _comments(
-        team_id,
-        task_id,
-        _visible_canvas_ids(team_id=team_id, task_id=task_id, user_id=user_id),
-    )
+    comments_qs = _comments(team_id, task_id)
     root = comments_qs.select_related("created_by").filter(id=comment_id, source_comment_id__isnull=True).first()
     if root is None:
         return None
