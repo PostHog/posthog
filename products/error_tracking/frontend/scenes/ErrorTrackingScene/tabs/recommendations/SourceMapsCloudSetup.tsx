@@ -167,7 +167,7 @@ function ProjectStep(): JSX.Element {
                 title="Select a project"
                 description={
                     isScanRunning
-                        ? 'The agent is checking which projects are in your repository. This usually takes about a minute.'
+                        ? 'Finding the projects in your repository. This usually takes about a minute.'
                         : 'Pick the project the agent should set up.'
                 }
             />
