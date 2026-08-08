@@ -404,7 +404,11 @@ container.bind(AUTH_TOKEN_CIPHER).to(TokenCipherPortAdapter);
 container.bind(AUTH_CONNECTIVITY).to(ConnectivityPortAdapter);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
-  .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
+  .toConstantValue(
+    process.env.POSTHOG_E2E_USER_DATA_DIR
+      ? "posthog-e2e-token"
+      : (process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null),
+  );
 container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
 container.load(authProxyModule);

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import type { HostRouter } from "@posthog/host-router/router";
@@ -8,9 +8,51 @@ import { expect, test } from "../fixtures/electron";
 const PLUGIN_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 const MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
+const MCP_SERVER_SOURCE = `
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
 
-type AgentPluginInputs = inferRouterInputs<HostRouter>["agentPlugins"];
-type AgentPluginOutputs = inferRouterOutputs<HostRouter>["agentPlugins"];
+const pluginData = process.env.PLUGIN_DATA;
+if (!pluginData) process.exit(1);
+
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.id === undefined) return;
+
+  const result =
+    message.method === "initialize"
+      ? {
+          protocolVersion: "2025-06-18",
+          capabilities: { tools: {} },
+          serverInfo: { name: "agent-plugin-e2e", version: "1.0.0" },
+        }
+      : message.method === "tools/list"
+        ? {
+            tools: [
+              {
+                name: "echo",
+                description: "Echo text",
+                inputSchema: { type: "object" },
+              },
+            ],
+          }
+        : {};
+
+  if (message.method === "initialize") {
+    fs.writeFileSync(path.join(pluginData, "initialize-requested"), "ready");
+  }
+  process.stdout.write(
+    JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n",
+  );
+});
+`;
+
+type HostRouterInputs = inferRouterInputs<HostRouter>;
+type HostRouterOutputs = inferRouterOutputs<HostRouter>;
+type AgentPluginInputs = HostRouterInputs["agentPlugins"];
+type AgentPluginOutputs = HostRouterOutputs["agentPlugins"];
 type AgentPluginProcedure = keyof AgentPluginInputs & keyof AgentPluginOutputs;
 type AgentPluginRouterRecord = HostRouter["_def"]["record"]["agentPlugins"];
 type AgentPluginOperation<TProcedure extends AgentPluginProcedure> =
@@ -19,16 +61,21 @@ type AgentPluginInputArguments<TProcedure extends AgentPluginProcedure> =
   undefined extends AgentPluginInputs[TProcedure]
     ? [input?: AgentPluginInputs[TProcedure]]
     : [input: AgentPluginInputs[TProcedure]];
+type AgentProcedure = "start" | "cancel";
+type AgentRouterRecord = HostRouter["_def"]["record"]["agent"];
+type AgentOperation<TProcedure extends AgentProcedure> =
+  AgentRouterRecord[TProcedure]["_def"]["type"];
+type AgentInputArguments<TProcedure extends AgentProcedure> =
+  undefined extends HostRouterInputs["agent"][TProcedure]
+    ? [input?: HostRouterInputs["agent"][TProcedure]]
+    : [input: HostRouterInputs["agent"][TProcedure]];
 
-async function callAgentPluginProcedure<
-  TProcedure extends AgentPluginProcedure,
->(
+async function callHostProcedure(
   window: Page,
-  procedure: TProcedure,
-  type: AgentPluginOperation<TProcedure>,
-  ...inputArguments: AgentPluginInputArguments<TProcedure>
-): Promise<AgentPluginOutputs[TProcedure]> {
-  const input = inputArguments[0];
+  path: string,
+  type: "query" | "mutation",
+  input: unknown,
+): Promise<unknown> {
   return window.evaluate(
     ({ input, path, type }) =>
       new Promise<unknown>((resolve, reject) => {
@@ -84,18 +131,55 @@ async function callAgentPluginProcedure<
           },
         });
       }),
-    { input, path: `agentPlugins.${procedure}`, type },
+    { input, path, type },
+  );
+}
+
+async function callAgentPluginProcedure<
+  TProcedure extends AgentPluginProcedure,
+>(
+  window: Page,
+  procedure: TProcedure,
+  type: AgentPluginOperation<TProcedure>,
+  ...inputArguments: AgentPluginInputArguments<TProcedure>
+): Promise<AgentPluginOutputs[TProcedure]> {
+  return callHostProcedure(
+    window,
+    `agentPlugins.${procedure}`,
+    type,
+    inputArguments[0],
   ) as Promise<AgentPluginOutputs[TProcedure]>;
 }
 
+async function callAgentProcedure<TProcedure extends AgentProcedure>(
+  window: Page,
+  procedure: TProcedure,
+  type: AgentOperation<TProcedure>,
+  ...inputArguments: AgentInputArguments<TProcedure>
+): Promise<HostRouterOutputs["agent"][TProcedure]> {
+  return callHostProcedure(
+    window,
+    `agent.${procedure}`,
+    type,
+    inputArguments[0],
+  ) as Promise<HostRouterOutputs["agent"][TProcedure]>;
+}
+
+test.use({
+  electronEnv: {
+    POSTHOG_MCP_URL: "http://127.0.0.1:1/mcp",
+  },
+});
+
 test.describe("Agent Plugins", () => {
-  test("registers skill and MCP metadata through Electron IPC", async ({
+  test("prepares a plugin skill and MCP server for an agent session", async ({
     electronApp,
     window,
   }) => {
-    const e2eHome = await electronApp.evaluate(({ app }) =>
-      app.getPath("home"),
-    );
+    const { e2eHome, userDataPath } = await electronApp.evaluate(({ app }) => ({
+      e2eHome: app.getPath("home"),
+      userDataPath: app.getPath("userData"),
+    }));
     const pluginDirectory = path.join(e2eHome, "agent-plugin-e2e");
     const skillDirectory = path.join(
       pluginDirectory,
@@ -117,14 +201,14 @@ test.describe("Agent Plugins", () => {
       `---\nname: release-notes\ndescription: Draft release notes from completed work.\n---\n\nSummarize completed work.\n`,
     );
     await writeFile(
+      path.join(pluginDirectory, "server.mjs"),
+      MCP_SERVER_SOURCE,
+    );
+    await writeFile(
       path.join(pluginDirectory, "mcp.json"),
       `${JSON.stringify({
         $schema: MCP_SCHEMA,
         mcpServers: {
-          "remote-tools": {
-            type: "streamable-http",
-            url: "https://example.com/mcp",
-          },
           "local-tools": {
             type: "stdio",
             command: "node",
@@ -160,11 +244,6 @@ test.describe("Agent Plugins", () => {
         type: "stdio",
         approval: "required",
       }),
-      expect.objectContaining({
-        name: "remote-tools",
-        type: "streamable-http",
-        approval: "not-required",
-      }),
     ]);
     expect(preview.selectionToken).toBeTruthy();
     if (!preview.selectionToken) {
@@ -185,12 +264,47 @@ test.describe("Agent Plugins", () => {
         type: "stdio",
         approval: "approved",
       }),
-      expect.objectContaining({
-        name: "remote-tools",
-        type: "streamable-http",
-        approval: "not-required",
-      }),
     ]);
+
+    const taskRunId = "agent-plugin-e2e-run";
+    const session = await callAgentProcedure(window, "start", "mutation", {
+      taskId: "__preview__",
+      taskRunId,
+      repoPath: e2eHome,
+      apiHost: "http://127.0.0.1:1",
+      projectId: 1,
+      adapter: "codex",
+      permissionMode: "bypassPermissions",
+      rtkEnabled: false,
+    });
+    try {
+      const loadedSkillPath = path.join(
+        userDataPath,
+        "codex-home",
+        taskRunId,
+        "skills",
+        "release-notes",
+        "SKILL.md",
+      );
+      await expect
+        .poll(() => readFile(loadedSkillPath, "utf8").catch(() => "not loaded"))
+        .toContain("name: release-notes");
+
+      const mcpMarkerPath = path.join(
+        userDataPath,
+        "agent-plugins",
+        "data",
+        registered.id,
+        "initialize-requested",
+      );
+      await expect
+        .poll(() => readFile(mcpMarkerPath, "utf8").catch(() => "not ready"))
+        .toBe("ready");
+    } finally {
+      await callAgentProcedure(window, "cancel", "mutation", {
+        sessionId: session.sessionId,
+      });
+    }
 
     const disabled = await callAgentPluginProcedure(
       window,

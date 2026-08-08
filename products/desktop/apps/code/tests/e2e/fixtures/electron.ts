@@ -63,9 +63,14 @@ type ElectronFixtures = {
   window: Page;
 };
 
-export const test = base.extend<ElectronFixtures>({
-  // biome-ignore lint/correctness/noEmptyPattern: Playwright fixture requires empty destructuring
-  electronApp: async ({}, use) => {
+type ElectronOptions = {
+  electronEnv: Record<string, string>;
+};
+
+export const test = base.extend<ElectronFixtures & ElectronOptions>({
+  electronEnv: [{}, { option: true }],
+
+  electronApp: async ({ electronEnv }, use) => {
     const appPath = getAppPath();
     const e2eHome = mkdtempSync(path.join(os.tmpdir(), "posthog-code-e2e-"));
     const e2eAppData = path.join(e2eHome, "app-data");
@@ -79,6 +84,7 @@ export const test = base.extend<ElectronFixtures>({
         args: [],
         env: {
           ...process.env,
+          ...electronEnv,
           APPDATA: e2eAppData,
           ELECTRON_DISABLE_GPU: "1",
           HOME: e2eHome,
