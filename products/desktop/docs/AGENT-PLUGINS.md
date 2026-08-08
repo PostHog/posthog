@@ -87,5 +87,5 @@ Stdio processes receive a minimal host environment needed to find executables an
 ## Current limitations
 
 - Plugins must be installed from a directory on this device. Installation from URLs, Git repositories, archives, and registries is not supported.
-- Legacy SSE MCP transport is skipped with a diagnostic.
+- Only the `stdio` and `streamable-http` MCP transports are supported. PostHog Desktop reports the deprecated `sse` transport as unsupported without affecting other plugin components.
 - PostHog Desktop does not download or update plugins. Manage plugin files in the installed local directory.
