@@ -100,4 +100,19 @@ describe('errorTrackingIssueSceneLogic', () => {
             expect(logic.values.initialEventTimestamp).toBe('2026-01-02T03:04:05Z')
         }
     )
+
+    // A failed issue load used to be silently swallowed (only a 308 redirect was handled), so the
+    // scene sat empty forever. A 404 is a genuine absence; anything else is a retryable failure.
+    it.each<[string, number, 'not_found' | 'failed']>([
+        ['404 is a genuine absence', 404, 'not_found'],
+        ['403 is a retryable failure', 403, 'failed'],
+        ['500 is a retryable failure', 500, 'failed'],
+    ])('records the load error so the scene is not stuck empty (%s)', (_name, status, expected) => {
+        logic.actions.loadIssueFailure('error', { status, data: {} })
+        expect(logic.values.issueLoadError).toBe(expected)
+
+        // A later successful load clears the error state.
+        logic.actions.loadIssueSuccess({ id: 'issue-1' } as any)
+        expect(logic.values.issueLoadError).toBeNull()
+    })
 })

@@ -78,6 +78,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         ticket,
         person,
         ticketLoading,
+        ticketLoadError,
         status,
         priority,
         assignee,
@@ -114,6 +115,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     // unfiltered ticket list (see ticketListBackTo).
     const { searchParams } = useValues(router)
     const {
+        loadTicket,
         setStatus,
         setPriority,
         setAssignee,
@@ -195,6 +197,29 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     const isNewTicket = ticketId === 'new'
+
+    if (ticketLoadError === 'failed') {
+        return (
+            <SceneContent>
+                <div className="flex items-center justify-center h-96">
+                    <div className="text-center">
+                        <h2 className="text-xl font-semibold mb-2">Couldn't load this ticket</h2>
+                        <p className="text-secondary mb-4">
+                            The ticket may still be there. This is usually temporary, so try again.
+                        </p>
+                        <div className="flex gap-2 justify-center">
+                            <LemonButton type="primary" onClick={() => loadTicket()}>
+                                Try again
+                            </LemonButton>
+                            <LemonButton type="secondary" to={urls.supportTickets()}>
+                                Back to tickets
+                            </LemonButton>
+                        </div>
+                    </div>
+                </div>
+            </SceneContent>
+        )
+    }
 
     if (!ticket && !isNewTicket) {
         return (

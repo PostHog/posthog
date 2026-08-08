@@ -437,6 +437,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         queryset = queryset.filter(team_id=self.team_id)
         queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
 
+        # Saved views, query-param filters, and access-level filtering shape the list results only.
+        # Object lookups (retrieve, compose, reply, ...) resolve a single ticket by id or number, so
+        # applying the list stack to them can drop a ticket the user can actually see and turn it into
+        # a spurious 404. Object-level access is enforced by the permission layer, not here.
+        if self.action != "list":
+            return queryset
+
         filters: dict[str, Any] = {}
         view_short_id = self.request.query_params.get("view")
         if view_short_id:
@@ -484,7 +491,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         if search:
             self._search_path = "ticket_number" if is_ticket_number_search(search) else "text"
 
-        # Hide tickets the user has been explicitly denied object-level access to (list action only).
+        # Hide tickets the user has been explicitly denied object-level access to.
         queryset = self._filter_queryset_by_access_level(queryset)
 
         user = cast("User", self.request.user) if self.request.user and self.request.user.is_authenticated else None

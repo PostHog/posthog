@@ -174,6 +174,16 @@ class TestTicketAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/invalid/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_retrieve_ticket_ignores_list_filters(self, mock_on_commit):
+        # A retrieve carries whatever list query params rode along on the URL. Applying the list
+        # filter stack to a single-object lookup used to drop the ticket and return a spurious 404.
+        # The ticket is NEW, so a status=resolved filter would exclude it from the list.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/?status=resolved"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+
     def test_update_ticket_by_ticket_number(self, mock_on_commit):
         """Test updating a ticket using ticket_number."""
         response = self.client.patch(

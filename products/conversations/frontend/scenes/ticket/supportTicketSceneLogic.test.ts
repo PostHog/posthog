@@ -333,6 +333,34 @@ describe('supportTicketSceneLogic replyRecipientDescription', () => {
     })
 })
 
+describe('supportTicketSceneLogic load error handling', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    // A load that fails must not read as "Ticket not found": a 404 is a genuine absence, but any
+    // other error (403, 500, timeout) is a transient failure the scene should offer to retry.
+    // Regressing the split back to one empty state is the reported dead-end bug.
+    test.each<[string, number, 'not_found' | 'failed']>([
+        ['404 is a genuine absence', 404, 'not_found'],
+        ['403 is a retryable failure', 403, 'failed'],
+        ['500 is a retryable failure', 500, 'failed'],
+    ])('%s', async (_name, status, expected) => {
+        initKeaTests()
+        ticketGetMock.mockReset().mockRejectedValue({ status })
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['setTicketLoadError'])
+        expect(logic.values.ticketLoadError).toBe(expected)
+        expect(logic.values.ticket).toBeNull()
+        expect(logic.values.ticketLoading).toBe(false)
+    })
+})
+
 describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 

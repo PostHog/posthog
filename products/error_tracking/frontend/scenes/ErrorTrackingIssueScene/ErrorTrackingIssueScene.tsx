@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { IconFilter, IconList, IconRewindPlay, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -67,8 +68,9 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
-    const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueLoadError, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue, updateAssignee, updateStatus, updateName, setMobileDetailOpen } =
+        useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
@@ -232,6 +234,20 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             onClose={() => setMobileDetailOpen(false)}
                                         />
                                     </div>
+                                </div>
+                            </div>
+                        )}
+                        {!issue && issueLoadError === 'not_found' && <NotFound object="issue" />}
+                        {!issue && issueLoadError === 'failed' && (
+                            <div className="flex items-center justify-center h-full">
+                                <div className="text-center">
+                                    <h2 className="text-xl font-semibold mb-2">Couldn't load this issue</h2>
+                                    <p className="text-secondary mb-4">
+                                        The issue may still be there. This is usually temporary, so try again.
+                                    </p>
+                                    <LemonButton type="primary" onClick={() => loadIssue()}>
+                                        Try again
+                                    </LemonButton>
                                 </div>
                             </div>
                         )}

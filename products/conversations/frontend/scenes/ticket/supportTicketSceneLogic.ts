@@ -188,6 +188,12 @@ function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): Da
 export type EmailReplyBlockedReason = 'email_disabled' | 'no_recipient' | 'no_channel'
 
 /**
+ * Outcome of a failed ticket load. 'not_found' is a genuine 404; 'failed' is any other error
+ * (403, 500, timeout, network) that might succeed on retry. null means no load has failed.
+ */
+export type TicketLoadError = 'not_found' | 'failed' | null
+
+/**
  * Mirrors the backend gates in send_email_reply_on_team_message / _process_outbox_row:
  * a reply that fails any of these is saved as a comment but never delivered.
  */
@@ -265,6 +271,7 @@ export interface supportTicketSceneLogicValues {
     status: TicketStatus | null
     tags: string[]
     ticket: Ticket | null
+    ticketLoadError: TicketLoadError
     ticketLoading: boolean
     ticketUpdating: boolean
     unsavedTicketChanges: string[]
@@ -455,6 +462,9 @@ export interface supportTicketSceneLogicActions {
     setTicketLoading: (loading: boolean) => {
         loading: boolean
     }
+    setTicketLoadError: (error: TicketLoadError) => {
+        error: TicketLoadError
+    }
     setTicketUpdating: (updating: boolean) => {
         updating: boolean
     }
@@ -555,6 +565,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
+        setTicketLoadError: (error: TicketLoadError) => ({ error }),
         incrementUnreadCustomerCount: true,
         updateTicket: true,
         setTicketUpdating: (updating: boolean) => ({ updating }),
@@ -758,6 +769,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 loadTicket: () => true,
                 setTicket: () => false,
                 setTicketLoading: (_, { loading }) => loading,
+                setTicketLoadError: () => false,
+            },
+        ],
+        ticketLoadError: [
+            null as TicketLoadError,
+            {
+                loadTicket: () => null,
+                setTicket: () => null,
+                setTicketLoadError: (_, { error }) => error,
             },
         ],
         status: [
@@ -1128,7 +1148,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = await api.conversationsTickets.get(props.id.toString())
 
                 // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
-                const isUuid = props.id.toString().includes('-')
+                const isUuid = isUUIDLike(props.id.toString())
                 if (isUuid && ticket.ticket_number) {
                     router.actions.replace(urls.supportTicketDetail(ticket.ticket_number))
                     return
@@ -1162,9 +1182,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return () => clearInterval(intervalId)
                 }, 'messagePolling')
             } catch (error) {
-                console.error('Failed to load ticket:', error)
-                lemonToast.error('Failed to load ticket')
-                actions.setTicketLoading(false)
+                // A 404 means the ticket is genuinely gone; anything else (403, 500, timeout,
+                // network) is a load that failed and might succeed on retry. The scene shows a
+                // different state for each, so it never tells the user their data is gone when
+                // the request only failed.
+                const status = (error as { status?: number } | null)?.status
+                if (status === 404) {
+                    actions.setTicketLoadError('not_found')
+                } else {
+                    console.error('Failed to load ticket:', error)
+                    actions.setTicketLoadError('failed')
+                }
             }
         },
         loadPersonSuccess: async () => {
