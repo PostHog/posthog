@@ -30,6 +30,7 @@ export function WizardSyncSurface({
     onClear,
     onCancel,
     cancelling = false,
+    cancelled = false,
 }: {
     progress: InstallationProgress
     startedAt: string | undefined
@@ -48,6 +49,9 @@ export function WizardSyncSurface({
     /** Cancels the run server-side (cloud runs only) — shown in the dialog while the run is live. */
     onCancel?: () => void
     cancelling?: boolean
+    /** The backend acknowledged the cancel (cloud runs only): the run reads as cancelling and is
+     * dismissable right away, so the user is not left waiting out the staleness window. */
+    cancelled?: boolean
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
     const { dismiss, restore, openDialog, closeDialog, openHandoffDoc } = useActions(wizardSyncUiLogic)
@@ -109,7 +113,16 @@ export function WizardSyncSurface({
         reportWizardSyncMinimized(eventProps)
         dismiss(runKey)
     }
-    const dismissible = isTerminal || prOpened || stale
+    const dismissible = isTerminal || prOpened || stale || cancelled
+
+    // A cancel the backend acknowledged is the user's visible response: close the dialog they
+    // clicked Cancel in, so the run drops to the corner card in its cancelling state rather than
+    // leaving the modal unchanged behind a request that already succeeded.
+    useEffect(() => {
+        if (cancelled) {
+            closeDialog()
+        }
+    }, [cancelled, closeDialog])
 
     return (
         <>
@@ -130,6 +143,7 @@ export function WizardSyncSurface({
                         elapsedSeconds={elapsedSeconds}
                         mode={mode}
                         stale={stale}
+                        cancelled={cancelled}
                         startedByLabel={startedByLabel}
                         onViewReport={handleViewReport}
                         onExpand={() => {
@@ -157,6 +171,7 @@ export function WizardSyncSurface({
                 onClear={handleClear}
                 onCancel={onCancel}
                 cancelling={cancelling}
+                cancelled={cancelled}
             />
         </>
     )

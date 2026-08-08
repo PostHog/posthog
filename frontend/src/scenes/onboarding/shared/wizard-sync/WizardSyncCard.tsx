@@ -41,6 +41,7 @@ export function WizardSyncCard({
     elapsedSeconds,
     mode,
     stale = false,
+    cancelled = false,
     onViewReport,
     onExpand,
     onDismiss,
@@ -52,6 +53,9 @@ export function WizardSyncCard({
     mode: WizardSyncMode
     /** The run has gone quiet: the clock is replaced by the reason it stopped meaning anything. */
     stale?: boolean
+    /** The backend acknowledged a cancel but the terminal status has not streamed in yet: read the
+     * card as cancelling rather than still setting up. */
+    cancelled?: boolean
     /** A teammate's name for a local run they started (null when it's the viewer's own run or unknown). */
     startedByLabel?: string | null
     /** Opens the run's handoff doc (the setup report) — the completed card's payoff for runs with
@@ -63,7 +67,7 @@ export function WizardSyncCard({
     dismissTooltip?: string
 }): JSX.Element {
     const { completed, total } = stepCounts(progress.steps)
-    const task = currentTaskLabel(progress)
+    const task = currentTaskLabel(progress, cancelled)
     const question = pendingQuestionLabel(progress)
     const isRunning = progress.phase !== 'completed' && progress.phase !== 'error'
 
@@ -89,7 +93,7 @@ export function WizardSyncCard({
                         >
                             {task}
                         </p>
-                        <p className="m-0 text-xs text-muted truncate">{syncHeadline(progress)}</p>
+                        <p className="m-0 text-xs text-muted truncate">{syncHeadline(progress, cancelled)}</p>
                         {question && (
                             // ph-no-capture: the prompt is whatever the wizard asked, so it can
                             // carry project detail that must not reach autocapture.

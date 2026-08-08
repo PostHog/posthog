@@ -71,6 +71,7 @@ export interface activeCloudRunLogicValues {
     activeCloudRun: CloudRunHandle | null
     canHydrateFromServer: boolean
     cancellingRun: boolean
+    cancelAcknowledged: boolean
     persistedCloudRun: CloudRunHandle | null
 }
 
@@ -165,8 +166,10 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
         // server-side) and retires one the server no longer reports.
         hydrateFromServer: true,
         // Ask the backend to cancel the active run (terminates the workflow and tears down the
-        // sandbox). The handle is kept: the run stream delivers the terminal `cancelled` status,
-        // so the surface shows the outcome and the user dismisses it like any finished run.
+        // sandbox). The handle is kept so the run stream can still deliver the terminal `cancelled`
+        // status, but an acknowledged cancel marks the run dismissable at once (see
+        // `cancelAcknowledged`) so the user gets a visible response instead of waiting out the
+        // staleness window.
         cancelActiveCloudRun: true,
         cancelActiveCloudRunSuccess: true,
         cancelActiveCloudRunFailure: true,
@@ -196,6 +199,19 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
                 cancelActiveCloudRun: () => true,
                 cancelActiveCloudRunSuccess: () => false,
                 cancelActiveCloudRunFailure: () => false,
+                clearActiveCloudRun: () => false,
+                setActiveCloudRun: () => false,
+            },
+        ],
+        // A successful cancel makes the run dismissable right away, so the surface can drop into a
+        // "cancelling" state and close the dialog instead of leaving the user staring at an
+        // unchanged modal until the staleness window passes. The handle stays until dismissed
+        // (the stream still carries the terminal status). Resets on a new or cleared run, since the
+        // flag belongs to the run it was set for.
+        cancelAcknowledged: [
+            false,
+            {
+                cancelActiveCloudRunSuccess: () => true,
                 clearActiveCloudRun: () => false,
                 setActiveCloudRun: () => false,
             },
@@ -232,6 +248,7 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
             const handle = values.activeCloudRun
             const projectId = values.currentProjectId
             if (!handle || projectId == null) {
+                lemonToast.error('Could not cancel the run. Please try again.')
                 actions.cancelActiveCloudRunFailure()
                 return
             }

@@ -217,6 +217,20 @@ export const Stalled: Story = {
     },
 }
 
+// The backend acknowledged a Cancel: the card reads as cancelling and the X dismisses rather than
+// minimizes, before the terminal status has streamed in.
+export const Cancelling: Story = {
+    args: {
+        mode: 'cloud',
+        elapsedSeconds: 138,
+        cancelled: true,
+        dismissTooltip: 'Dismiss',
+        progress: progress({
+            steps: cloudSteps(['completed', 'completed', 'in_progress', 'pending', 'pending', 'pending']),
+        }),
+    },
+}
+
 export const Failed: Story = {
     args: {
         mode: 'cloud',
@@ -243,6 +257,7 @@ export const AllStates: Story = {
             { label: 'Completed', args: Completed.args },
             { label: 'Completed, local (report payoff)', args: CompletedLocal.args },
             { label: 'Stalled', args: Stalled.args },
+            { label: 'Cancelling', args: Cancelling.args },
             { label: 'Failed', args: Failed.args },
         ]
         return (
@@ -255,6 +270,7 @@ export const AllStates: Story = {
                             elapsedSeconds={args!.elapsedSeconds!}
                             mode={args!.mode!}
                             stale={args!.stale}
+                            cancelled={args!.cancelled}
                             startedByLabel={args!.startedByLabel}
                             onViewReport={() => {}}
                             onExpand={() => {}}

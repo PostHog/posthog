@@ -7,6 +7,7 @@ import {
     isStreamLost,
     pendingQuestionLabel,
     prName,
+    syncHeadline,
     STALE_RUN_MAX_AGE_MS,
     STALE_RUN_SILENCE_MS,
 } from './helpers'
@@ -147,6 +148,37 @@ describe('wizard-sync helpers', () => {
         it('has no question to show for a sensitive ask', () => {
             expect(pendingQuestionLabel(withQuestion([], true))).toBeNull()
             expect(currentTaskLabel(withQuestion([], true))).toBe('Your terminal needs your attention')
+        })
+    })
+
+    describe('a run the backend acknowledged a cancel for', () => {
+        const running: InstallationProgress = {
+            phase: 'running',
+            steps: [{ id: '1', label: 'Install the SDK', status: 'in_progress', detail: null }],
+            error: null,
+            prUrl: null,
+            prMerged: false,
+            isCurrent: true,
+            pendingInput: null,
+        } as InstallationProgress
+
+        it('reads as cancelling while no terminal status has streamed in', () => {
+            expect(currentTaskLabel(running, true)).toBe('Cancelling run')
+            expect(syncHeadline(running, true)).toBe('Stopping the agent and cleaning up')
+        })
+
+        it('lets a streamed terminal status win over the cancelling bridge', () => {
+            // The stream can still deliver the real outcome after a cancel is acknowledged, so the
+            // terminal copy must win rather than the transient "cancelling" text.
+            expect(syncHeadline({ ...running, phase: 'completed' } as InstallationProgress, true)).toBe(
+                'PostHog is set up'
+            )
+            const cancelled = {
+                ...running,
+                phase: 'error',
+                error: { title: 'Run cancelled', detail: 'Stopped.' },
+            } as InstallationProgress
+            expect(syncHeadline(cancelled, true)).toBe('Run cancelled')
         })
     })
 })

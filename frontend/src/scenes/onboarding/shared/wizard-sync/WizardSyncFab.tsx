@@ -18,7 +18,7 @@ function WizardSyncCloudFab({ handle }: { handle: CloudRunHandle }): JSX.Element
     const { installationProgress, taskRunState, lastActivityAt, taskConnectionStatus, isStalled } = useValues(
         installationProgressLogic({ mode: 'cloud', runId: handle.runId, taskId: handle.taskId })
     )
-    const { cancellingRun } = useValues(activeCloudRunLogic)
+    const { cancellingRun, cancelAcknowledged } = useValues(activeCloudRunLogic)
     const { clearActiveCloudRun, cancelActiveCloudRun } = useActions(activeCloudRunLogic)
     const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
     return (
@@ -33,6 +33,7 @@ function WizardSyncCloudFab({ handle }: { handle: CloudRunHandle }): JSX.Element
             onClear={clearActiveCloudRun}
             onCancel={cancelActiveCloudRun}
             cancelling={cancellingRun}
+            cancelled={cancelAcknowledged}
         />
     )
 }

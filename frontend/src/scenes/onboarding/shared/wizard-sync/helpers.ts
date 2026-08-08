@@ -84,13 +84,18 @@ export function elapsedLabel(elapsedSeconds: number, stale: boolean = false): st
     return stale ? 'Stalled' : formatElapsed(elapsedSeconds)
 }
 
-// The short status line shown in the collapsed card header.
-export function syncHeadline(progress: InstallationProgress): string {
+// The short status line shown in the collapsed card header. `cancelled` is the bridge state after
+// the backend acknowledges a cancel but before the stream delivers the terminal status, so it is
+// checked only once neither terminal phase has landed (a real terminal status wins).
+export function syncHeadline(progress: InstallationProgress, cancelled: boolean = false): string {
     if (progress.phase === 'completed') {
         return 'PostHog is set up'
     }
     if (progress.phase === 'error') {
         return progress.error?.title ?? 'Setup hit a snag'
+    }
+    if (cancelled) {
+        return 'Stopping the agent and cleaning up'
     }
     if (progress.prMerged) {
         return 'Pull request merged'
@@ -116,9 +121,12 @@ export function activeStep(steps: InstallationStep[]): InstallationStep | null {
 
 // The prominent line: the active step's live detail (the wizard's current sub-task) when present,
 // otherwise the step label. This is what gives the wizard's own work top billing in the card.
-export function currentTaskLabel(progress: InstallationProgress): string | null {
+export function currentTaskLabel(progress: InstallationProgress, cancelled: boolean = false): string | null {
     if (progress.phase === 'error') {
         return progress.error?.detail ?? 'Something stopped the run'
+    }
+    if (cancelled) {
+        return 'Cancelling run'
     }
     if (progress.prMerged) {
         return 'PR merged, congratulations!'
