@@ -705,29 +705,38 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
     ) -> ast.Tuple:
         def safe_bounce_rate(period_filter: ast.Expr) -> ast.Call:
+            # The numerator is a sum state and the denominator is a uniq state. A period that is
+            # written more than once (backfill re-run, overlapping jobs, retried insert) inflates
+            # only the numerator, so the ratio can exceed 1. Clamp to keep the rate in [0, 1].
             return ast.Call(
-                name="divide",
+                name="least",
                 args=[
                     ast.Call(
-                        name="sumMergeIf",
-                        args=[
-                            ast.Field(chain=["bounces_count_state"]),
-                            period_filter,
-                        ],
-                    ),
-                    ast.Call(
-                        name="nullif",
+                        name="divide",
                         args=[
                             ast.Call(
-                                name="uniqMergeIf",
+                                name="sumMergeIf",
                                 args=[
-                                    ast.Field(chain=["sessions_uniq_state"]),
+                                    ast.Field(chain=["bounces_count_state"]),
                                     period_filter,
                                 ],
                             ),
-                            ast.Constant(value=0),
+                            ast.Call(
+                                name="nullif",
+                                args=[
+                                    ast.Call(
+                                        name="uniqMergeIf",
+                                        args=[
+                                            ast.Field(chain=["sessions_uniq_state"]),
+                                            period_filter,
+                                        ],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            ),
                         ],
                     ),
+                    ast.Constant(value=1),
                 ],
             )
 

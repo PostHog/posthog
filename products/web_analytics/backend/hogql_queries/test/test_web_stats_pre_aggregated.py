@@ -379,6 +379,19 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
 
+    def test_page_breakdown_bounce_rate_stays_bounded_when_period_reinserted(self):
+        # The numerator is a sum state and the denominator is a uniq state, so re-inserting the same
+        # period (backfill re-run, overlapping jobs, retried insert) inflates only the numerator.
+        # Without a clamp the Paths tile bounce rate can exceed 1 and render as an impossible percentage.
+        self._populate_preaggregated_tables()
+
+        response = self._calculate_breakdown_query(WebStatsBreakdown.PAGE, use_preagg=True)
+
+        for result in response.results:
+            bounce_rate = result[3][0]
+            if bounce_rate is not None:
+                assert bounce_rate <= 1.0
+
     def test_viewport_breakdown(self):
         response = self._calculate_breakdown_query(WebStatsBreakdown.VIEWPORT, use_preagg=True)
 
