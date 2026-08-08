@@ -163,12 +163,25 @@ tools:
             - limit
             - offset
             - refresh
+            - version
         param_overrides:
             variables:
                 description: >
                     Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g.
                     {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name
                     as key.
+            refresh:
+                description: >
+                    How to fetch the results. Defaults to "cache". Use "cache" to return fresh cached results, and
+                    otherwise return the materialized results or run the query inline. Use "force" to bypass the cache
+                    and recompute the results. "force" is how you get a fresh run past a stale materialized table. Use
+                    "direct" to bypass the materialized results and query the raw data. "direct" is valid only for a
+                    materialized endpoint, and returns a 400 error on any other endpoint. Do not use the PostHog Query
+                    API refresh values here. The only valid values are "cache", "force", and "direct".
+            version:
+                description: >
+                    The endpoint version to run. Defaults to the latest version. Pass the version number as this
+                    parameter. Do not append it to the endpoint name.
     endpoint-update:
         operation: endpoints_partial_update
         enabled: true

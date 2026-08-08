@@ -208,12 +208,16 @@ const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unkno
 })
 
 const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true })
-    .extend(
-        EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
-    )
+    .extend(EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true }).shape)
     .extend({
         variables: EndpointsRunCreateBody.shape['variables'].describe(
             'Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g. {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name as key.'
+        ),
+        refresh: EndpointsRunCreateBody.shape['refresh'].describe(
+            'How to fetch the results. Defaults to "cache". Use "cache" to return fresh cached results, and otherwise return the materialized results or run the query inline. Use "force" to bypass the cache and recompute the results. "force" is how you get a fresh run past a stale materialized table. Use "direct" to bypass the materialized results and query the raw data. "direct" is valid only for a materialized endpoint, and returns a 400 error on any other endpoint. Do not use the PostHog Query API refresh values here. The only valid values are "cache", "force", and "direct".'
+        ),
+        version: EndpointsRunCreateBody.shape['version'].describe(
+            'The endpoint version to run. Defaults to the latest version. Pass the version number as this parameter. Do not append it to the endpoint name.'
         ),
     })
 
@@ -234,6 +238,9 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schema
         }
         if (params.variables !== undefined) {
             body['variables'] = params.variables
+        }
+        if (params.version !== undefined) {
+            body['version'] = params.version
         }
         const result = await context.api.request<Schemas.EndpointRunResponse>({
             method: 'POST',
