@@ -115,6 +115,20 @@ def is_offset_overflow_compaction_error(error: BaseException) -> bool:
     return isinstance(error, deltalake.exceptions.DeltaError) and DELTA_OFFSET_OVERFLOW_ERROR_NEEDLE in str(error)
 
 
+# The optimistic-concurrency conflict checker raises this when the loser of a race to commit the
+# very next version can't read back the winner's just-committed log entry (delta-rs
+# `kernel/transaction/conflict_checker.rs`'s `WinningCommitSummary::try_new`) — most commonly two
+# writers racing to create the very first version of the same brand-new table, where the version in
+# the message is 0. Unlike `CommitFailedError` (mapped from `DeltaTableError::Transaction`), this
+# variant falls through delta-rs's Python binding as a plain `DeltaError` (see its `python/src/error.rs`
+# catch-all), so callers need to recognize it by message to retry it the same way as a commit conflict.
+DELTA_INVALID_VERSION_RACE_NEEDLE = "Invalid table version:"
+
+
+def is_invalid_version_race(error: BaseException) -> bool:
+    return type(error) is deltalake.exceptions.DeltaError and DELTA_INVALID_VERSION_RACE_NEEDLE in str(error)
+
+
 def is_transient_maintenance_error(error: BaseException) -> bool:
     """Infra blips seen during delta maintenance that aren't a maintenance bug.
 

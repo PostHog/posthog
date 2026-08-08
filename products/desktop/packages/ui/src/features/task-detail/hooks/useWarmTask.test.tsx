@@ -23,7 +23,9 @@ import { takeWarmTaskLease } from "./warmTaskLease";
 interface Props {
   workspaceMode: WorkspaceMode;
   selectedRepository?: string | null;
+  repositories?: string[];
   githubIntegrationId?: number;
+  allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
   runtimeAdapter?: string | null;
@@ -116,6 +118,88 @@ describe("useWarmTask", () => {
     rerender(cloudTyping);
     await flushDebounce();
     expect(mockClient.warmTask).toHaveBeenCalledOnce();
+  });
+
+  it("does not reset the debounce when the composer rerenders", async () => {
+    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
+      initialProps: cloudTyping,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    rerender({ ...cloudTyping });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(mockClient.warmTask).toHaveBeenCalledOnce();
+  });
+
+  it("warms a repo-less cloud task when repositories are optional", async () => {
+    renderHook((props: Props) => useWarmTask(props), {
+      initialProps: {
+        ...cloudTyping,
+        selectedRepository: null,
+        githubIntegrationId: undefined,
+        allowNoRepo: true,
+      },
+    });
+
+    await flushDebounce();
+
+    expect(mockClient.warmTask).toHaveBeenCalledWith({
+      repository: null,
+      github_integration: null,
+      branch: "main",
+      ...NULL_RUNTIME,
+    });
+  });
+
+  it("warms all repositories selected for a multi-repo task", async () => {
+    renderHook((props: Props) => useWarmTask(props), {
+      initialProps: {
+        ...cloudTyping,
+        selectedRepository: null,
+        repositories: ["acme/app", "acme/api", "acme/docs"],
+        allowNoRepo: true,
+      },
+    });
+
+    await flushDebounce();
+
+    expect(mockClient.warmTask).toHaveBeenCalledWith({
+      repository: "acme/app",
+      repositories: ["acme/app", "acme/api", "acme/docs"],
+      github_integration: 42,
+      branch: "main",
+      ...NULL_RUNTIME,
+    });
+    expect(
+      takeWarmTaskLease({
+        repository: null,
+        repositories: ["acme/app", "acme/api", "acme/docs"],
+        branch: "main",
+        runtimeAdapter: null,
+        model: null,
+        reasoningEffort: null,
+      }),
+    ).toEqual({ taskId: "task-1", runId: "run-1" });
+  });
+
+  it("ignores a stale repository selection for a repo-less cloud task", async () => {
+    renderHook((props: Props) => useWarmTask(props), {
+      initialProps: { ...cloudTyping, allowNoRepo: true },
+    });
+
+    await flushDebounce();
+
+    expect(mockClient.warmTask).toHaveBeenCalledWith({
+      repository: null,
+      github_integration: null,
+      branch: "main",
+      ...NULL_RUNTIME,
+    });
   });
 
   it("does not re-fire for the same selection (backend dedups, client guards)", async () => {
