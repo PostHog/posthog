@@ -76,16 +76,28 @@ def extract_client_assertion(request: Any) -> tuple[str, str] | None:
     ``client_id`` is optional on the wire for this method (RFC 7521 section 4.2 allows the
     assertion to carry the identity), so it falls back to the assertion's own ``sub``.
     """
-    assertion = _request_field(request, "client_assertion")
-    assertion_type = _request_field(request, "client_assertion_type")
+    return resolve_client_assertion(
+        _request_field(request, "client_assertion"),
+        _request_field(request, "client_assertion_type"),
+        _request_field(request, "client_id"),
+    )
+
+
+def resolve_client_assertion(assertion: str, assertion_type: str, client_id: str) -> tuple[str, str] | None:
+    """Return the ``(client_assertion, client_id)`` from raw field values, or None.
+
+    Kept separate from ``extract_client_assertion`` so the oauthlib-backed token endpoint,
+    whose request object exposes these fields as plain attributes rather than through the DRF
+    ``request.data`` interface, can share the same resolution and ``sub`` fallback.
+    """
     if not assertion or assertion_type != CLIENT_ASSERTION_TYPE_JWT_BEARER:
         return None
 
-    client_id = _request_field(request, "client_id") or _unverified_subject(assertion)
-    if not client_id:
+    resolved_client_id = client_id or _unverified_subject(assertion)
+    if not resolved_client_id:
         return None
 
-    return assertion, client_id
+    return assertion, resolved_client_id
 
 
 def _unverified_subject(assertion: str) -> str:
