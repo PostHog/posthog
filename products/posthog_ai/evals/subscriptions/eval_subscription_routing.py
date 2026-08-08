@@ -25,7 +25,12 @@ from __future__ import annotations
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.evals.subscriptions.scorers import NoScoutCreated, RespectedScoutRequest, RoutedToSubscription
+from products.posthog_ai.evals.subscriptions.scorers import (
+    NoScoutCreated,
+    OffersInformedChoice,
+    RespectedScoutRequest,
+    RoutedToSubscription,
+)
 
 # A pinned dashboard in the seeded Hedgebox project (products/posthog_ai/evals/CLAUDE.md),
 # so the agent can resolve it by name without a seeder.
@@ -44,16 +49,17 @@ async def eval_subscription_routing(ctx: EvalContext) -> None:
             ),
             expected={"routed_to_subscription": True, "no_scout_created": True},
         ),
-        # The user says "scout" but wants fixed dashboard numbers on a schedule.
-        # Right move: recommend the subscription and confirm — must NOT silently
-        # build a scout just because the word "scout" appeared.
+        # The user says "scout" but describes fixed dashboard numbers on a schedule —
+        # genuinely ambiguous. Right move: explain the subscription-vs-scout tradeoff
+        # and ask which they want, rather than silently picking either. Must still not
+        # build a scout while asking.
         SandboxedEvalCase(
             name="ambiguous_scout_phrasing",
             prompt=(
                 f"Set up a scout to post the numbers from our '{DASHBOARD_NAME}' dashboard "
                 f"to the team in Slack every morning."
             ),
-            expected={"routed_to_subscription": True, "no_scout_created": True},
+            expected={"offers_informed_choice": True, "no_scout_created": True},
         ),
         # Genuine open-ended watching, user is explicit about wanting a scout →
         # respect it. Guards against the routing guidance over-correcting into a
@@ -73,6 +79,7 @@ async def eval_subscription_routing(ctx: EvalContext) -> None:
         cases=cases,
         scorers=[
             RoutedToSubscription(),
+            OffersInformedChoice(),
             NoScoutCreated(),
             RespectedScoutRequest(),
         ],

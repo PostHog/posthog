@@ -53,7 +53,7 @@ The real axis is **fixed metrics vs. judgment** — what is the user actually as
   It composes its own HogQL, so its numbers can drift from a saved dashboard's; use it only when the value is the analysis itself, or no existing insight/dashboard covers the ask.
 
 Don't override a user who's certain they want a scout or a prompt subscription.
-When the ask is ambiguous (e.g. "set up a scout to post this daily"), name the tradeoff and confirm before building: _"A dashboard subscription is a better fit for a recurring message. Want me to set that up?"_
+When the ask is ambiguous (e.g. "set up a scout to post this daily"), don't silently pick for them — explain the difference and ask which they'd prefer, leaning toward the subscription for a fixed recurring metric: _"A subscription posts these exact numbers on your schedule; a scout watches and flags what it judges worth surfacing (and runs an agent each time). For a fixed dashboard on a cadence the subscription is the better fit — want that, or a scout?"_
 
 ## Workflow
 
