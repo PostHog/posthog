@@ -108,15 +108,17 @@ export function projectQuota(
     const projectedAdditional = combinedDailyRate * daysRemaining
 
     const projectedPeriodEndRatio = (used + projectedAdditional) / cap
-    const capReachDate = combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
-    const capReachInPeriod = !!(capReachDate && periodEnd && capReachDate.isBefore(periodEnd))
+    // Only a cap reached within this period is a forecast worth showing; a date past period end never arrives.
+    const rawCapReach = combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
+    const capReachDate = rawCapReach && periodEnd && rawCapReach.isBefore(periodEnd) ? rawCapReach : null
 
-    // `used >= cap` without `exhausted`: a display clamp (startup cap) lowered the limit below spend,
-    // so the backend isn't blocking yet. Being over the limit must not read quieter than approaching it.
+    // Danger is a fact: the backend stopped scanning (`exhausted`), or spend already passed the displayed limit
+    // (`used >= cap`, e.g. the startup-cap clamp). A forecast — the cap projected to be reached in-period, or spend
+    // projected over the warn threshold — is only a warning, so a projection never reads as a spend limit reached.
     const status: QuotaStatus =
-        quota.exhausted || capReachInPeriod || used >= cap
+        quota.exhausted || used >= cap
             ? 'danger'
-            : projectedPeriodEndRatio >= QUOTA_WARN_THRESHOLD
+            : capReachDate || projectedPeriodEndRatio >= QUOTA_WARN_THRESHOLD
               ? 'warning'
               : 'safe'
 

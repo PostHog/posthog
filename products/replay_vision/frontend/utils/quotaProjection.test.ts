@@ -61,11 +61,18 @@ describe('projectQuota', () => {
         expect(proj.percentLabel).toBe(90)
     })
 
-    it('danger when projected to exhaust before period end', () => {
+    it('warning, not danger, when only projected to reach the cap before period end', () => {
         // 9,000 used + 100/day → cap reached in 10 days, 20 days left in the period.
+        // A forecast is a warning: danger is reserved for spend that has actually reached the limit.
         const proj = projectQuota(makeQuota({ credits_used: 9_000, projected_monthly_credits: 3_000 }))
-        expect(proj.status).toBe('danger')
+        expect(proj.status).toBe('warning')
         expect(proj.capReachDate).not.toBeNull()
+    })
+
+    it('leaves capReachDate null when the cap is only reached after the period ends', () => {
+        // 3,000 used + 300/day → cap reached in ~23 days, but only 20 days remain in the period.
+        const proj = projectQuota(makeQuota({ credits_used: 3_000, projected_monthly_credits: 9_000 }))
+        expect(proj.capReachDate).toBeNull()
     })
 
     it('danger when spend has passed the limit even without backend exhaustion', () => {

@@ -6,18 +6,23 @@ interface Props {
     onFreePlan: boolean
 }
 
-/** Red warning when the allocation is exhausted or projected to overshoot; renders nothing otherwise. */
+/**
+ * A short quota line: red for a spend fact (exhausted or already over the limit), amber for a forecast.
+ * A projection can only ever render as a forecast, never as a limit reached. Renders nothing when safe.
+ */
 export function QuotaStatusLine({ projection, onFreePlan }: Props): JSX.Element | null {
     const message = statusMessage(projection, onFreePlan)
-    return message ? <span className="text-danger">{message}</span> : null
+    if (!message) {
+        return null
+    }
+    // Facts are red; a forecast is amber, so "projected to be reached" never reads like a breach.
+    const isFact = projection.exhausted || projection.usedPct >= 100
+    return <span className={isFact ? 'text-danger' : 'text-warning'}>{message}</span>
 }
 
 function statusMessage(projection: QuotaProjection, onFreePlan: boolean): JSX.Element | string | null {
     if (projection.exhausted) {
         return onFreePlan ? 'Free credits used up' : 'Spend limit reached'
-    }
-    if (projection.status !== 'danger') {
-        return null
     }
     // Over the displayed limit but not backend-exhausted (the startup cap before billing clamps):
     // "exceeded" states the spend fact without claiming scanning is paused.
@@ -32,5 +37,5 @@ function statusMessage(projection: QuotaProjection, onFreePlan: boolean): JSX.El
             <>Spend limit projected to be reached on {date}</>
         )
     }
-    return onFreePlan ? 'Projected to use up the free credits' : 'Projected to exceed the monthly spend limit'
+    return null
 }
