@@ -339,6 +339,18 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                 actions.loadSpikeEventsForIssues(issueIds, dateRange)
             }
         },
+        loadDataFailure: ({ errorObject }) => {
+            const durationMs = cache.loadStartTime != null ? Math.round(performance.now() - cache.loadStartTime) : null
+
+            // Raw error detail can echo query fragments, so telemetry only gets coarse metadata.
+            const error = errorObject as { status?: number; code?: string | null; name?: string } | null
+            posthog.capture('error_tracking_issue_list_load_failed', {
+                duration_ms: durationMs,
+                error_status: error?.status ?? null,
+                error_code: error?.code ?? null,
+                was_cancelled: error?.name === 'AbortError',
+            })
+        },
         // optimistically update local results
         mergeIssues: ({ ids }) => {
             const { results } = values

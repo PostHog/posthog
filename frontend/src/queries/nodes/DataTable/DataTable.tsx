@@ -79,6 +79,7 @@ import {
 import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,
+    isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLAggregation,
@@ -1058,6 +1059,16 @@ export function DataTable({
                                                 onRetry={() => loadData('force_blocking')}
                                             />
                                         )
+                                    ) : isErrorTrackingQuery(query.source) && response === null ? (
+                                        // The load did not return a result (aborted, superseded, or a failure
+                                        // whose error got cleared), so there is no zero-result to report. Offer
+                                        // a retry instead of a "no issues found" state that reads as confirmed.
+                                        <InsightErrorState
+                                            query={query}
+                                            excludeDetail
+                                            onRetry={() => loadData('force_blocking')}
+                                            title="Could not load issues"
+                                        />
                                     ) : (
                                         <InsightEmptyState
                                             heading={context?.emptyStateHeading}
