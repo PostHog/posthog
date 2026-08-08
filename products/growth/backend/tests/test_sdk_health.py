@@ -262,19 +262,56 @@ class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
 
 
 class TestAssessSdkReason(SimpleTestCase):
-    def test_reason_when_matching_latest(self):
-        sdk = assess_sdk("posthog-node", "1.5.0", [_entry("1.5.0", 100, is_latest=True)], now=NOW)
+    # `reason` is the whole alert body forwarded to Slack/email/MCP, so these rows guard
+    # against it asserting a match while the in-use version is behind latest, or ahead of a
+    # stale cached latest. Patch-level and grace-period differences are never flagged, which
+    # is what makes the false all-clear reachable in the first place.
+    @parameterized.expand(
+        [
+            (
+                "matches_latest",
+                "posthog-node",
+                "1.5.0",
+                [_entry("1.5.0", 100)],
+                "Node.js is on 1.5.0 which matches or exceeds latest 1.5.0.",
+            ),
+            (
+                "behind_latest",
+                "posthog-node",
+                "1.5.9",
+                [_entry("1.5.0", 100, days_ago=100)],
+                "Node.js is on 1.5.0, behind latest 1.5.9. Upgrading is not urgent yet.",
+            ),
+            (
+                "traffic_alert_while_matching_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.298.1", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.298.1 matches or exceeds latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+            (
+                "traffic_alert_while_ahead_of_stale_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.299.0", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.299.0 matches or exceeds latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+            (
+                "traffic_alert_while_behind_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.298.0", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.298.0 is behind latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+        ]
+    )
+    def test_reason(self, _name: str, sdk_type: str, latest_version: str, usage: list[UsageEntry], expected: str):
+        sdk = assess_sdk(sdk_type, latest_version, usage, now=NOW)
         assert sdk is not None
-        assert "matches or exceeds latest 1.5.0" in sdk.reason
-
-    def test_reason_when_behind_within_tolerance_does_not_claim_latest(self):
-        # Patch-level differences are never flagged, but the healthy reason must not
-        # tell the user they match latest when they are versions behind it
-        sdk = assess_sdk("posthog-node", "1.5.9", [_entry("1.5.0", 100, days_ago=100)], now=NOW)
-        assert sdk is not None
-        assert sdk.needs_updating is False
-        assert "matches or exceeds" not in sdk.reason
-        assert "behind latest 1.5.9" in sdk.reason
+        assert sdk.reason == expected
 
 
 class TestAssessReleaseIsOld(SimpleTestCase):

@@ -688,11 +688,16 @@ def _build_reason(
         pieces.append(
             f"In-use version {current_version} is old ({current_release.days_since_release} days since release)."
         )
-    else:
+    elif current_release.is_current_or_newer:
         # The latest in-use version is fine; the alert is driven entirely by older versions
         # still taking traffic. State it so the reason stands on its own rather than reading
-        # as "outdated" while current and latest are the same.
-        pieces.append(f"Latest in-use version {current_version} matches latest {latest}.")
+        # as "outdated" while current and latest are the same. "or exceeds" covers the version
+        # being ahead of a stale cached latest, where a bare "matches" would contradict itself.
+        pieces.append(f"Latest in-use version {current_version} matches or exceeds latest {latest}.")
+    else:
+        # Behind latest but inside the patch/grace rules, so only the traffic alert drove this.
+        # The alert sentence below carries the verdict, so don't editorialize about urgency here.
+        pieces.append(f"Latest in-use version {current_version} is behind latest {latest}.")
 
     if outdated_traffic_alerts:
         versions = ", ".join(_safe_version_display(a.version) for a in outdated_traffic_alerts)
