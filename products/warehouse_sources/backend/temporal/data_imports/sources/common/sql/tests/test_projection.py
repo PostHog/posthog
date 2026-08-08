@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     format_projected_select_clause,
     project_arrow_columns,
     prune_enabled_columns,
+    resolve_names_to_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Column, Table
 
@@ -223,6 +224,37 @@ class TestPruneEnabledColumns:
     def test_preserves_caller_order(self) -> None:
         kept, _ = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
         assert kept == ["email", "id", "name"]
+
+
+class TestResolveNamesToSchema:
+    @parameterized.expand(
+        [
+            ("exact_match_passes_through", ["id", "email"], ["id", "email"], ["id", "email"], []),
+            # dlt-normalized stored names must fold back to the source's real casing, or the
+            # Storage Read API rejects them as fields that don't exist on the table.
+            (
+                "dlt_normalized_folds_to_source_casing",
+                ["user_id", "org_name"],
+                ["userID", "OrgName"],
+                ["userID", "OrgName"],
+                [],
+            ),
+            ("missing_name_is_reported", ["id", "ghost"], ["id"], ["id"], ["ghost"]),
+            # Two stored spellings of one column collapse to a single resolved field.
+            ("duplicate_folds_collapse", ["Id", "id"], ["id"], ["id"], []),
+        ]
+    )
+    def test_resolve_names_to_schema(
+        self,
+        _name: str,
+        names: list[str],
+        schema_names: list[str],
+        expected_resolved: list[str],
+        expected_missing: list[str],
+    ) -> None:
+        resolved, missing = resolve_names_to_schema(names, schema_names)
+        assert resolved == expected_resolved
+        assert missing == expected_missing
 
 
 class TestProjectArrowColumns:

@@ -779,6 +779,22 @@ def test_bigquery_unrecognized_column_name_is_non_retryable(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Single column selected for syncing was renamed/dropped from the live table.
+        "InvalidArgument: request failed: The following selected fields do not exist in the table schema: household_id",
+        # Multiple columns, different names — the match must not rely on the column names.
+        "400 The following selected fields do not exist in the table schema: household_id, org_name",
+    ],
+)
+def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Missing selected fields error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.

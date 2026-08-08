@@ -67,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
     is_multi_value_operator,
+    resolve_names_to_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     BacktickIdentifierQuoter,
@@ -1568,7 +1569,21 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
                 else:
                     if projected_columns is not None:
-                        storage_selected_fields = projected_columns
+                        # The Storage Read API matches `selected_fields` byte-for-byte, but
+                        # `projected_columns` can be stored dlt-normalized while the live table
+                        # keeps the source casing. Fold names back to the table's real spelling so
+                        # BigQuery doesn't reject them with "do not exist in the table schema".
+                        resolved_fields, missing_fields = resolve_names_to_schema(
+                            projected_columns, (field.name for field in bq_table.schema)
+                        )
+                        if missing_fields:
+                            raise ValueError(
+                                "The following selected fields do not exist in the table schema: "
+                                + ", ".join(missing_fields)
+                                + ". Update the source's column selection to match the table's current schema, "
+                                "then reconnect the source."
+                            )
+                        storage_selected_fields = resolved_fields
 
                 requested_session = bigquery_storage.ReadSession(
                     table=bq_table.to_bqstorage(),

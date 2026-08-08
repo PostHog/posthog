@@ -11,6 +11,7 @@ Semantics:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TypeVar
 
 import structlog
@@ -149,6 +150,35 @@ def filter_dwh_columns_by_enabled_columns(
         )
         return columns
     return filtered
+
+
+def resolve_names_to_schema(
+    names: list[str],
+    schema_names: Iterable[str],
+) -> tuple[list[str], list[str]]:
+    """Map `names` to their real spelling in `schema_names`, case-folded.
+
+    Returns `(resolved, missing)`. A name maps to the schema entry it folds to under
+    `_normalize_for_match`; `missing` collects names with no such entry. Use when a
+    consumer matches identifiers exactly — BigQuery's Storage Read API compares
+    `selected_fields` byte-for-byte, unlike BigQuery SQL, which folds case — while the
+    stored names may be dlt-normalized (snake_cased + lowercased) and the live schema
+    keeps the source casing. Duplicates that fold to the same entry collapse to one
+    resolved name, first occurrence winning, so a caller never sends the same field twice.
+    """
+    by_fold = {_normalize_for_match(name): name for name in schema_names}
+    seen: set[str] = set()
+    resolved: list[str] = []
+    missing: list[str] = []
+    for name in names:
+        fold = _normalize_for_match(name)
+        real = by_fold.get(fold)
+        if real is None:
+            missing.append(name)
+        elif fold not in seen:
+            seen.add(fold)
+            resolved.append(real)
+    return resolved, missing
 
 
 def project_arrow_columns(

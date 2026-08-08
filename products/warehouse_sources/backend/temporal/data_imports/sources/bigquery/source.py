@@ -304,6 +304,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # selection or incremental field to match the table's current schema. Matched on
             # BigQuery's stable wording, not the volatile column name or [row:col] location.
             "Unrecognized name:": "BigQuery couldn't run a query for this source because it referenced a column that no longer exists on the table — usually the configured incremental field, or a column selected for syncing, was renamed or removed. Retrying won't help — please update the source's column selection or incremental field to match the table's current schema, then reconnect the source.",
+            # The Storage Read API's `create_read_session` rejects a column selection whose names
+            # aren't on the live table with "The following selected fields do not exist in the
+            # table schema: ...". This is the direct-read twin of the "Unrecognized name:" query-job
+            # case above: a column selected for syncing was renamed or removed from the source table
+            # after the source was set up. `get_rows` raises the same wording when it can't resolve a
+            # stored name against the table schema. Either way it's a deterministic mismatch between
+            # our stored config and the customer's live schema — retrying can't recover it. Matched on
+            # BigQuery's stable wording, not the volatile column names.
+            "do not exist in the table schema": "BigQuery couldn't sync this source because a column selected for syncing no longer exists on the table — it was renamed or removed after the source was set up. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
         }
 
     def validate_credentials(
