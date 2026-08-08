@@ -496,6 +496,9 @@ class TestRuleEngineUnits(SimpleTestCase):
         assert check_date_range("Pageviews (last 14 days)", None, "-2w") is None
         assert check_date_range("Pageviews (last week)", None, "-7d") is None
         assert check_date_range("Pageviews (last week)", None, "-14d") == Verdict.STALE_DATE_RANGE
+        # deliberate approximation: "-1m" is treated as 30 days symbolically (NOT calendar-aware) —
+        # a calendar-aware comparison would flip verdicts month to month (see parse_relative_days)
+        assert check_date_range("Pageviews (last month)", None, "-30d") is None
 
     def test_event_display_forms_cover_common_events(self) -> None:
         assert "pageviews" in event_display_forms("$pageview")
@@ -592,6 +595,14 @@ class TestUpdateInsightsOptIn(SimpleTestCase):
         for tool, scope in OPT_IN_USER_WRITE_TOOLS.items():
             assert scope in MCP_WRITE_SCOPES, f"{tool} → {scope} is not an advertised MCP write scope"
 
+    def test_bad_map_entry_fails_loud_at_resolution_time(self) -> None:
+        # The map is repo-controlled, but if a future edit points it at a scope the MCP server
+        # doesn't advertise, resolution must raise one hop from the runner rather than minting a
+        # token carrying a scope nothing understands.
+        with patch.dict(OPT_IN_USER_WRITE_TOOLS, {"bad_tool": "planet:destroy"}):
+            with pytest.raises(ValueError, match="not an advertised MCP write scope"):
+                skill_opted_in_user_write_scopes(["bad_tool"])
+
 
 # `resolve_scopes`' preset-plus-extras resolution, validation, and `has_write_scopes` posture
 # are covered in `posthog/temporal/tests/test_oauth.py` (the canonical scope-test home).
@@ -684,8 +695,12 @@ async def _capture_mcp_scopes(ateam: Team, *, allowed_tools: list[str]) -> objec
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_opted_in_scout_gets_insight_write_on_top_of_report_posture(ateam):
+    # The runner resolves the scout preset through the PUBLIC resolve_scopes API and appends the
+    # opt-in scope — no change to the shared OAuth token code, which only ever sees a plain list.
+    from posthog.temporal.oauth import resolve_scopes
+
     scopes = await _capture_mcp_scopes(ateam, allowed_tools=["emit_report", "edit_report", "update_insights"])
-    assert scopes == ["signals_scout_reports", "insight:write"]
+    assert scopes == [*resolve_scopes("signals_scout_reports"), "insight:write"]
 
 
 @pytest.mark.asyncio
@@ -698,8 +713,10 @@ async def test_scout_without_opt_in_keeps_the_bare_preset(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_opt_in_also_applies_to_non_report_scouts(ateam):
+    from posthog.temporal.oauth import resolve_scopes
+
     scopes = await _capture_mcp_scopes(ateam, allowed_tools=["update_insights"])
-    assert scopes == ["signals_scout", "insight:write"]
+    assert scopes == [*resolve_scopes("signals_scout"), "insight:write"]
 
 
 # ---------------------------------------------------------------------------
@@ -766,6 +783,38 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
         assert "insight_hygiene.py" in self.skill_md
         assert "test_insight_hygiene.py" in self.skill_md
 
+    def test_body_reuses_fleet_scratchpad_prefixes_only(self) -> None:
+        """Fleet rule: a new scout introduces its own domain label but reuses the canonical key
+        prefixes (dedupe-and-memory.md) — no invented ones."""
+        canonical_prefixes = {
+            "pattern",
+            "noise",
+            "addressed",
+            "dedupe",
+            "allowlist",
+            "not-in-use",
+            "mcp-gap",
+            "improve",
+            "reported",
+            "report",
+            "reviewer",
+        }
+        body_prefixes = set(re.findall(r"`([a-z\-]+):" + r"insight_hygiene", self.skill_md))
+        assert body_prefixes, "no scoped scratchpad keys found in the body"
+        assert body_prefixes <= canonical_prefixes, (
+            f"invented scratchpad prefixes: {sorted(body_prefixes - canonical_prefixes)} — "
+            "use the fleet vocabulary (see authoring-scouts/references/dedupe-and-memory.md)"
+        )
+
+    def test_body_carries_sibling_courtesy(self) -> None:
+        """The adjacent insight-reading scouts must be named so runs don't re-own their surfaces:
+        dead-event insights are observability-gaps' insight-drift family."""
+        assert "observability-gaps" in self.skill_md
+        assert "Sibling courtesy" in self.skill_md
+        # and the digest convention: one bundled report per run, NO_REPO sentinel
+        assert "ONE bundled report" in self.skill_md
+        assert "NO_REPO" in self.skill_md
+
     def test_references_document_every_mechanical_rule(self) -> None:
         for token in (
             "-0mStart",
@@ -799,13 +848,25 @@ class TestInsightHygieneSkillDefinition(SimpleTestCase):
         from posthog.hogql.parser import parse_select
 
         blocks = re.findall(r"```sql\n(.*?)```", self.references, re.S)
-        assert len(blocks) >= 3, f"expected at least the count, sweep, and vocabulary queries, found {len(blocks)}"
+        assert len(blocks) >= 4, f"expected schema-confirm, count, sweep, and vocabulary queries, found {len(blocks)}"
         for sql in blocks:
             parse_select(sql.strip())
-        # and the sweep must select the columns the body tells the scout to read
-        sweep = next(b for b in blocks if "ORDER BY last_modified_at DESC" in b)
+
+    def test_sweep_read_uses_the_system_schema(self) -> None:
+        """Fleet convention (anomaly-detection, observability-gaps, revenue-analytics scouts): the
+        dashboard-item table is `system.insights`. A bare `insights` doesn't resolve in HogQL, and
+        the execute-sql contract requires confirming columns against information_schema first."""
+        sweep = next(
+            b for b in re.findall(r"```sql\n(.*?)```", self.references, re.S) if "ORDER BY last_modified_at DESC" in b
+        )
+        assert "FROM system.insights" in sweep, f"sweep must read system.insights, got: {sweep}"
         for column in ("short_id", "name", "description", "query", "filters", "last_modified_at"):
             assert column in sweep
+        assert "system.information_schema.columns" in self.references
+        # no query reads the bare table name (word-boundary check, `system.insights` must not match)
+        assert not re.search(r"FROM\s+insights\b", self.references), (
+            "found a bare `FROM insights` — must be `system.insights`"
+        )
 
 
 class TestFleetShape(SimpleTestCase):

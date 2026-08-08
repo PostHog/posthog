@@ -188,7 +188,12 @@ def check_date_range(name: str | None, description: str | None, date_from: str |
 
 
 def parse_relative_days(date_from: str) -> int | None:
-    """Days spanned by a `-N{d|w|m|y}` date_from (rough month/year), None for anchored/ISO forms."""
+    """Days spanned by a `-N{d|w|m|y}` date_from (rough month/year), None for anchored/ISO forms.
+
+    DELIBERATELY a fixed mapping (m=30, y=365), NOT the product's calendar-aware parser
+    (`relative_date_parse`): a title claim compares against a saved window _symbolically_, and a
+    calendar-aware comparison would flip verdicts month to month ("-1m" ≈ 31 days in July, 30 in
+    June) — flaky findings are worse than a documented approximation."""
     m = re.fullmatch(r"-(\d+)([dwmy])", date_from)
     if not m:
         return None

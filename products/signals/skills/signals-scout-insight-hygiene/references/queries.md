@@ -8,11 +8,20 @@ module saying the same thing; the corpus suite fails when they drift.
 
 ## §Sweep — pull every saved insight with its definition
 
+Per the `execute-sql` contract, confirm the columns first — `system.*` column sets drift:
+
+```sql
+SELECT column_name, data_type
+FROM system.information_schema.columns
+WHERE table_name = 'system.insights'
+ORDER BY column_name
+```
+
 Count form (quick close-out):
 
 ```sql
 SELECT count()
-FROM insights
+FROM system.insights
 WHERE saved = 1 AND deleted = 0
 ```
 
@@ -20,7 +29,7 @@ Sweep form (page through `last_modified_at DESC`, ~200 rows per run is plenty):
 
 ```sql
 SELECT short_id, name, description, query, filters, last_modified_at, created_by_id, last_modified_by_id
-FROM insights
+FROM system.insights
 WHERE saved = 1 AND deleted = 0
 ORDER BY last_modified_at DESC
 LIMIT 200
@@ -31,7 +40,7 @@ The tracked-event vocabulary for the stale-event check — events any insight's 
 
 ```sql
 SELECT DISTINCT JSONExtractString(series.value, 'event') AS event
-FROM insights
+FROM system.insights
 ARRAY JOIN JSONExtractArrayRaw(query, 'series') AS series
 WHERE saved = 1 AND deleted = 0
   AND JSONExtractString(series.value, 'kind') = 'EventsNode'

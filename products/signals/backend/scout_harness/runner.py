@@ -17,6 +17,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
+from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes, resolve_scopes
 
 from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
@@ -52,8 +53,6 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, TurnPollTimeout
 
 if TYPE_CHECKING:
-    from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes
-
     from products.tasks.backend.models import TaskRun
 
 logger = logging.getLogger(__name__)
@@ -500,14 +499,15 @@ async def _spawn_and_run(
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     # Per-skill opt-in user writes (`allowed_tools` → `OPT_IN_USER_WRITE_TOOLS`, e.g. the
-    # insight-hygiene scout's `update_insights` → `insight:write`). Carried as
-    # `["<preset>", "<scope>", ...]` so the run keeps the preset's full posture and adds the
-    # opted-in scope; a plain preset string when nothing is opted in.
+    # insight-hygiene scout's `update_insights` → `insight:write`): resolve the scout preset
+    # through the PUBLIC `resolve_scopes` API here and carry the result as an explicit scope
+    # list with the opt-ins appended — the shared OAuth token code in `posthog/temporal/oauth.py`
+    # stays completely scout-agnostic. A plain preset string when nothing is opted in.
     scope_preset: McpScopePreset = "signals_scout_reports" if report_channel else "signals_scout"
     opted_in_write_scopes = skill_opted_in_user_write_scopes(skill.allowed_tools)
     scout_mcp_scopes: PosthogMcpScopes = scope_preset
     if opted_in_write_scopes:
-        scout_mcp_scopes = [scope_preset, *opted_in_write_scopes]
+        scout_mcp_scopes = [*resolve_scopes(scope_preset), *opted_in_write_scopes]
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
     # team's GitHub integration to every task, so without this request a repo-less scout run on a
     # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on

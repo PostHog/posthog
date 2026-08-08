@@ -39,9 +39,25 @@ OPT_IN_USER_WRITE_TOOLS: dict[str, str] = {
 
 
 def skill_opted_in_user_write_scopes(allowed_tools: list[str] | None) -> list[str]:
-    """The user-facing write scopes a skill opted into via `allowed_tools`, in stable order."""
+    """The user-facing write scopes a skill opted into via `allowed_tools`, in stable order.
+
+    Validates each mapped scope against the advertised MCP surface (imported lazily to keep this
+    module's import graph small): a bad entry in the repo-controlled map fails LOUD here, one hop
+    from where the runner consumes it, instead of minting a token with a scope nothing understands.
+    """
+    from posthog.temporal.oauth import MCP_WRITE_SCOPES
+
     tools = set(allowed_tools or [])
-    return [scope for tool, scope in OPT_IN_USER_WRITE_TOOLS.items() if tool in tools]
+    resolved = []
+    for tool, scope in OPT_IN_USER_WRITE_TOOLS.items():
+        if tool not in tools:
+            continue
+        if scope not in MCP_WRITE_SCOPES:
+            raise ValueError(
+                f"OPT_IN_USER_WRITE_TOOLS maps {tool!r} to {scope!r}, which is not an advertised MCP write scope"
+            )
+        resolved.append(scope)
+    return resolved
 
 
 def skill_uses_report_channel(allowed_tools: list[str] | None) -> bool:
