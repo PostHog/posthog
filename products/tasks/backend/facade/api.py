@@ -38,6 +38,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
+from posthog.models.comment.task_access import visible_task_canvas_ids as _visible_task_canvas_ids
 from posthog.models.integration import Integration
 from posthog.utils import absolute_uri
 
@@ -6263,11 +6264,7 @@ def list_task_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskAr
 
 
 def visible_task_canvas_ids(*, team_id: int, task_id: UUID, user_id: int | None) -> list[str]:
-    from products.canvas.backend.comment_access import (
-        visible_canvas_ids_for_task,  # noqa: PLC0415 — avoids the canvas/tasks facade import cycle
-    )
-
-    return visible_canvas_ids_for_task(team_id=team_id, task_id=task_id, user_id=user_id)
+    return _visible_task_canvas_ids(team_id=team_id, task_id=task_id, user_id=user_id)
 
 
 def list_task_comments(
