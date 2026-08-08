@@ -44,7 +44,7 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { countCompletedArtifactUploads } from "./countArtifactUploads";
+import { useCompletedArtifactUploads } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
 
@@ -111,10 +111,7 @@ export function CloudArtifactDownloads({
   const runStatus = cloudStatus ?? task?.latest_run?.status;
   const isLive = runStatus === "queued" || runStatus === "in_progress";
   const events = useSessionSelector(taskId, (session) => session?.events);
-  const completedUploads = useMemo(
-    () => countCompletedArtifactUploads(events ?? []),
-    [events],
-  );
+  const completedUploads = useCompletedArtifactUploads(events ?? []);
   const { data: fetchedArtifacts, refetch } = useQuery({
     queryKey: [
       "cloudRunArtifacts",

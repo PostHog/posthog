@@ -45,7 +45,7 @@ import {
   type CommentLocateRequest,
   type HighlightResolution,
 } from "./commentViewTypes";
-import { countCompletedArtifactUploads } from "./countArtifactUploads";
+import { useCompletedArtifactUploads } from "./countArtifactUploads";
 import { useArtifactEditing } from "./useArtifactEditing";
 import {
   editorFilePath,
@@ -105,10 +105,7 @@ export function ArtifactPreview({
   // tool call re-keys the runs query so a just-delivered version is steppable
   // right away.
   const events = useSessionSelector(taskId, (session) => session?.events);
-  const completedUploads = useMemo(
-    () => countCompletedArtifactUploads(events ?? []),
-    [events],
-  );
+  const completedUploads = useCompletedArtifactUploads(events ?? []);
   const {
     runs,
     isLoading: runsLoading,

@@ -45,7 +45,7 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
-import { countCompletedArtifactUploads } from "@posthog/ui/features/sessions/components/countArtifactUploads";
+import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/components/countArtifactUploads";
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
@@ -414,10 +414,7 @@ export function TaskArtifactsList({
   // A finished upload_artifact tool call re-keys the runs query, so a file
   // the agent just delivered shows up now rather than on the next poll.
   const events = useSessionSelector(task.id, (session) => session?.events);
-  const completedUploads = useMemo(
-    () => countCompletedArtifactUploads(events ?? []),
-    [events],
-  );
+  const completedUploads = useCompletedArtifactUploads(events ?? []);
   const { runs } = useTaskRuns(task.id, completedUploads);
   const { data: currentUser } = useMeQuery();
   const rows = useMemo(
