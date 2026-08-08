@@ -30,7 +30,6 @@ export interface AgentPluginSkill {
 export interface AgentPluginMcpServerSummary {
   name: string;
   type: "streamable-http" | "stdio" | "sse";
-  supported: boolean;
   command?: string;
   args?: string[];
   cwd?: string;

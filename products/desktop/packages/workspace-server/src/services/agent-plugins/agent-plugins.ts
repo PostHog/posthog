@@ -124,7 +124,6 @@ function summarizeMcpServers(
       return {
         name: server.name,
         type: server.type,
-        supported: true,
         approval: "not-required" as const,
       };
     }
@@ -132,7 +131,6 @@ function summarizeMcpServers(
     return {
       name: server.name,
       type: server.type,
-      supported: true,
       command: server.command,
       args: server.args ?? [],
       cwd: server.cwd ?? "${PLUGIN_ROOT}",
