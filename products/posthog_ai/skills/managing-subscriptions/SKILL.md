@@ -15,6 +15,7 @@ Use this skill when the user:
 - Wants to "track", "follow", "subscribe to", or "get updates" about an insight or dashboard
 - Asks for "daily updates", "weekly reports", or "send me this every morning"
 - Wants an **AI-written summary** attached to each delivery of an insight or dashboard (see step 6)
+- Asks to "post", "send", or "share" the key numbers from an existing dashboard or insight to a channel on a schedule — even when phrased as "set up a scout/bot to post this daily" (this is a dashboard/insight subscription, not a Signals scout)
 - Wants to know what subscriptions they have
 - Asks to stop, pause, or unsubscribe from something
 - Wants to change who receives an update or how often
@@ -28,6 +29,18 @@ Subscriptions and alerts serve different purposes:
 
 If the user says "notify me when this drops below 100", use alerts.
 If the user says "send me this every morning", use subscriptions.
+
+## The happy path: recurring numbers from a dashboard or insight
+
+When someone wants the **key numbers from an existing dashboard or insight** posted to a channel on a schedule — "post the top-line from this dashboard in #launch once a day", "send the team these metrics every morning", or even "set up a scout/bot to post this daily" — the right tool is a **dashboard (or insight) subscription with the AI summary enabled**:
+
+- Set `dashboard` (or `insight`), pick the tiles via `dashboard_export_insights`, deliver to Slack or email, and set `summary_enabled: true` so each delivery carries a short written summary alongside the snapshot.
+- This sends the **actual rendered tiles**, so the quoted numbers are exact — no LLM re-deriving them.
+
+Do **not** reach for a **prompt subscription** (`creating-ai-subscription`) or a **Signals scout** for this.
+A prompt subscription composes its own HogQL and can drift from the dashboard's numbers; use it only when the user specifically asks for a free-text AI report, or no existing insight/dashboard covers the ask.
+A scout is for open-ended watching that decides what's worth surfacing — not scheduled delivery of a fixed, user-specified metric set.
+If a scout request is really "deliver these dashboard numbers on a schedule", build the subscription instead.
 
 ## Workflow
 
@@ -100,7 +113,7 @@ For an insight subscription via email:
 }
 ```
 
-For a dashboard subscription (requires selecting which insights to include, max 6):
+For a dashboard subscription (requires selecting which insights to include, max 10):
 
 ```json
 {
@@ -189,4 +202,4 @@ When the user doesn't specify details:
 - **Duplicate check**: If a subscription already exists for the same insight/dashboard and channel, inform the user and offer to update it rather than creating a duplicate
 - **Slack not connected**: If a Slack subscription is requested but no Slack integration exists, explain that Slack must be connected in [Project settings > Integrations](/settings/integrations) first, then offer email as an alternative. Do not attempt to create the subscription — it will fail with a validation error
 - **Slack integration wrong team**: The Slack integration must belong to the same PostHog team. If `integrations-list` returns Slack integrations but creation still fails, the integration may be misconfigured
-- **Dashboard insights**: Dashboard subscriptions require at least 1 and at most 6 insights selected via `dashboard_export_insights`. If the user doesn't specify which insights, fetch the dashboard with `dashboard-get` and select the first 6 insights from its tiles
+- **Dashboard insights**: Dashboard subscriptions require at least 1 and at most 10 insights selected via `dashboard_export_insights`. If the user doesn't specify which insights, fetch the dashboard with `dashboard-get` and select up to the first 10 insights from its tiles
