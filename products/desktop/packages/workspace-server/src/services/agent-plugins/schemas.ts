@@ -66,7 +66,6 @@ export const agentPluginMcpServerSummary = z.object({
   args: z.array(z.string()).optional(),
   cwd: z.string().optional(),
   envNames: z.array(z.string()).optional(),
-  digest: z.string().optional(),
   approval: z
     .enum(["not-required", "approved", "required"])
     .default("not-required"),

@@ -35,7 +35,6 @@ export interface AgentPluginMcpServerSummary {
   args?: string[];
   cwd?: string;
   envNames?: string[];
-  digest?: string;
   approval: "not-required" | "approved" | "required";
 }
 

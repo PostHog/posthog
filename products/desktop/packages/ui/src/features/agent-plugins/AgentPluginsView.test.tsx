@@ -127,7 +127,6 @@ describe("AgentPluginsView", () => {
             args: [firstArgument, secondArgument],
             cwd,
             envNames: [environmentName],
-            digest: "digest",
             approval: "required",
           },
         ],

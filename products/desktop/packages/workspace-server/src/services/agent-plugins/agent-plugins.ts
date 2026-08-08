@@ -17,6 +17,8 @@ import {
 import {
   isPathContained,
   loadAgentPlugin,
+  MAX_SKILL_TREE_DEPTH,
+  MAX_SKILL_TREE_ENTRIES,
   validateAgentPluginSkillSnapshot,
 } from "./loader";
 import {
@@ -55,6 +57,7 @@ interface PendingSelection {
 interface SnapshotUsage {
   files: number;
   bytes: number;
+  entries: number;
 }
 
 const SELECTION_TTL_MS = 10 * 60 * 1000;
@@ -63,6 +66,7 @@ const MAX_SKILL_SNAPSHOT_FILE_BYTES = 1024 * 1024;
 const MAX_SKILL_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_PLUGIN_SNAPSHOT_FILES = 1024;
 const MAX_PLUGIN_SNAPSHOT_BYTES = 32 * 1024 * 1024;
+const MAX_PLUGIN_SNAPSHOT_ENTRIES = 2048;
 const SNAPSHOT_READ_CHUNK_BYTES = 64 * 1024;
 
 export function agentPluginStdioDigest(
@@ -133,7 +137,6 @@ function summarizeMcpServers(
       args: server.args ?? [],
       cwd: server.cwd ?? "${PLUGIN_ROOT}",
       envNames: Object.keys(server.env ?? {}).sort(),
-      digest,
       approval:
         approvedStdioDigests[server.name] === digest
           ? ("approved" as const)
@@ -581,7 +584,7 @@ export class AgentPluginsService {
       const skillsPath = path.join(pluginPath, "skills");
       await this.makeManagedDirectory(skillsPath);
       const copiedSkillNames: string[] = [];
-      const pluginUsage: SnapshotUsage = { files: 0, bytes: 0 };
+      const pluginUsage: SnapshotUsage = { files: 0, bytes: 0, entries: 0 };
       for (const skill of availableSkills) {
         const destination = path.join(skillsPath, skill.name);
         try {
@@ -599,6 +602,7 @@ export class AgentPluginsService {
           if (snapshotError) throw new Error(snapshotError);
           pluginUsage.files += skillUsage.files;
           pluginUsage.bytes += skillUsage.bytes;
+          pluginUsage.entries += skillUsage.entries;
           copiedSkillNames.push(skill.name);
         } catch {
           await this.removeManagedPath(destination);
@@ -853,10 +857,11 @@ export class AgentPluginsService {
       throw new Error("Skill path escaped the plugin directory.");
     }
 
-    const skillUsage: SnapshotUsage = { files: 0, bytes: 0 };
+    const skillUsage: SnapshotUsage = { files: 0, bytes: 0, entries: 0 };
     const copyEntry = async (
       source: string,
       destination: string,
+      depth: number,
     ): Promise<void> => {
       const sourceStat = await fs.promises.lstat(source);
       if (sourceStat.isSymbolicLink()) {
@@ -865,6 +870,20 @@ export class AgentPluginsService {
       const resolvedSource = await fs.promises.realpath(source);
       if (!isPathContained(resolvedPluginRoot, resolvedSource)) {
         throw new Error("Skill path escaped the plugin directory.");
+      }
+      if (depth > MAX_SKILL_TREE_DEPTH) {
+        throw new Error("Skill snapshot directories are nested too deeply.");
+      }
+      if (depth > 0) {
+        const nextSkillEntries = skillUsage.entries + 1;
+        const nextPluginEntries = pluginUsage.entries + nextSkillEntries;
+        if (
+          nextSkillEntries > MAX_SKILL_TREE_ENTRIES ||
+          nextPluginEntries > MAX_PLUGIN_SNAPSHOT_ENTRIES
+        ) {
+          throw new Error("A skill contains too many snapshot entries.");
+        }
+        skillUsage.entries = nextSkillEntries;
       }
 
       if (sourceStat.isDirectory()) {
@@ -878,6 +897,7 @@ export class AgentPluginsService {
           await copyEntry(
             path.join(source, entry),
             path.join(destination, entry),
+            depth + 1,
           );
         }
         const finalStat = await fs.promises.lstat(source);
@@ -951,7 +971,7 @@ export class AgentPluginsService {
       }
     };
 
-    await copyEntry(resolvedSourceRoot, destinationRoot);
+    await copyEntry(resolvedSourceRoot, destinationRoot, 0);
     const finalPluginRootStat = await fs.promises.lstat(resolvedPluginRoot);
     if (!this.hasSameSnapshotMetadata(pluginRootStat, finalPluginRootStat)) {
       throw new Error("Agent Plugin directory changed while it was copied.");
