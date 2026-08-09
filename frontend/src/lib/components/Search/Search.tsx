@@ -20,7 +20,7 @@ import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/ic
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { filterSearchItems } from 'lib/components/Search/utils'
+import { filterSearchItems, promoteExactMatch } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -603,7 +603,14 @@ function SearchRoot({
 
     // Re-rank: pin the incumbent first item so async results don't shift what's highlighted.
     // Promotes the incumbent's group to the front if needed.
-    const stableGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
+    const reRankedGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
+
+    // Applied last so an exact name match wins over both the fixed category order and the
+    // incumbent pinned above, including when it only arrives with late async results.
+    const stableGroupedItems = useMemo(
+        () => promoteExactMatch(reRankedGroupedItems, searchValue),
+        [reRankedGroupedItems, searchValue]
+    )
 
     // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
     // exactly matches the DOM render order. Without this, Base UI's keyboard navigation

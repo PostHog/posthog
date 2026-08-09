@@ -1,4 +1,4 @@
-import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems } from './utils'
+import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems, promoteExactMatch } from './utils'
 
 interface TestItem {
     name: string
@@ -102,6 +102,42 @@ describe('filterSearchItems', () => {
             const results = filterSearchItems(items, 'xyzzyplugh')
             expect(results).toEqual([])
         })
+    })
+})
+
+// The first item of the first group is what gets highlighted and opened on Enter, so anything
+// that leaves an exact match behind a fuzzy one sends the user to the wrong scene.
+describe('promoteExactMatch', () => {
+    const groups = [
+        { category: 'tools', items: [makeItem('Evaluations'), makeItem('Error tracking')] },
+        { category: 'data-management', items: [makeItem('Annotations'), makeItem('Actions')] },
+    ]
+
+    const flatten = (result: typeof groups): string[] => result.flatMap((g) => g.items.map((i) => i.name))
+
+    it('hoists an exact match out of a later group, keeping the rest of the order', () => {
+        const result = promoteExactMatch(groups, 'actions')
+
+        expect(result.map((g) => g.category)).toEqual(['data-management', 'tools'])
+        expect(flatten(result)).toEqual(['Actions', 'Annotations', 'Evaluations', 'Error tracking'])
+    })
+
+    it('matches on displayName', () => {
+        const withDisplayName = [
+            { category: 'tools', items: [makeItem('Evaluations')] },
+            { category: 'recents', items: [makeItem('insight-42', 'recents', { displayName: 'Actions' })] },
+        ]
+
+        expect(flatten(promoteExactMatch(withDisplayName, 'Actions'))).toEqual(['insight-42', 'Evaluations'])
+    })
+
+    const noOpCases: [label: string, query: string][] = [
+        ['leaves order alone when nothing matches exactly', 'action'],
+        ['leaves order alone for an empty query', '   '],
+    ]
+
+    it.each(noOpCases)('%s', (_label, query) => {
+        expect(promoteExactMatch(groups, query)).toBe(groups)
     })
 })
 

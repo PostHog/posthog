@@ -36,6 +36,46 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
     return fuse.search(trimmed).map((r) => r.item)
 }
 
+interface ExactMatchCandidate {
+    name: string
+    displayName?: string
+}
+
+/**
+ * Hoist a result whose name is exactly what was typed to the very front. Fuzzy scoring and the
+ * fixed category order otherwise let something like "Evaluations" outrank "Actions" for the query
+ * "actions", and the front of the first group is what gets highlighted and opened on Enter.
+ */
+export function promoteExactMatch<G extends { items: ExactMatchCandidate[] }>(groups: G[], query: string): G[] {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) {
+        return groups
+    }
+
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+        const { items } = groups[groupIndex]
+        for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+            const item = items[itemIndex]
+            const isExact =
+                item.name.trim().toLowerCase() === normalizedQuery ||
+                item.displayName?.trim().toLowerCase() === normalizedQuery
+            if (!isExact) {
+                continue
+            }
+            if (groupIndex === 0 && itemIndex === 0) {
+                return groups
+            }
+            const promotedGroup = {
+                ...groups[groupIndex],
+                items: [item, ...items.slice(0, itemIndex), ...items.slice(itemIndex + 1)],
+            }
+            return [promotedGroup, ...groups.filter((_, index) => index !== groupIndex)]
+        }
+    }
+
+    return groups
+}
+
 /** Structural so this module avoids importing searchLogic, which imports this one. */
 interface NewTabCandidate {
     id: string
