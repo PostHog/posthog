@@ -76,5 +76,10 @@ jobs:
             - name: Turbo-discover dependent-cascade tests (Node)
               run: node --test .github/scripts/turbo-discover-cascade.test.js
 
+            # hashFiles guard: branches that predate this file must not fail here.
+            - name: Turbo-discover sharding tests (Node)
+              if: ${{ hashFiles('.github/scripts/turbo-discover-sharding.test.js') != '' }}
+              run: node --test .github/scripts/turbo-discover-sharding.test.js
+
             - name: Trunk impacted-targets tests (Node)
               run: node --test .github/scripts/trunk-impacted-targets.test.js

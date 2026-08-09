@@ -57,6 +57,15 @@ const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['managed-warehouse', 'warehous
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
 const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
+// Products whose pytest session exhausts the runner long before it exhausts the wall
+// clock: what kills them is memory accumulated across a session of many hundreds of
+// tests, not test work. The runner dies mid-step and GitHub reports "the self-hosted
+// runner lost communication with the server", so there is no pytest failure to read
+// and the job's logs are gone. Duration-based sharding is blind to that, so these
+// products get a shard floor regardless of how cheap their tests look. Trade-off:
+// extra runners and duplicate Docker setup for a product well under the wall-clock
+// target. Raise a floor if a product still dies; drop it once the leak is fixed.
+const MIN_SHARDS_BY_PRODUCT = { conversations: 3 }
 
 // --- Staleness detection for .test_durations ---
 // When a product's test files on disk significantly outnumber what .test_durations
@@ -591,7 +600,9 @@ function buildDjangoShards(durations) {
     return result
 }
 
-function buildMatrix(products, durations) {
+// shardFloors is a seam for unit tests, so they can exercise the floor behavior
+// without asserting against whichever products happen to be listed today.
+function buildMatrix(products, durations, shardFloors = MIN_SHARDS_BY_PRODUCT) {
     const matrix = []
     const packable = []
 
@@ -624,9 +635,13 @@ function buildMatrix(products, durations) {
             }
         }
 
-        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
-            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
+        const durationShards = raw > PRODUCT_TARGET_WALL_SECONDS ? Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS) : 1
+        const shardFloor = shardFloors[product] || 1
+        const shards = Math.max(durationShards, shardFloor)
+
+        if (shards > 1) {
+            const reason = shards > durationShards ? `shard floor of ${shardFloor}` : `${(raw / 60).toFixed(1)} min raw`
+            console.error(`  ${product}: ${reason} → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
             // order-preserving cuts as duration_based_chunks but balances them
@@ -672,6 +687,9 @@ module.exports = {
     checkProductStaleness,
     productPrefix,
     productEffectiveCost,
+    buildMatrix,
+    MIN_SHARDS_BY_PRODUCT,
+    PRODUCT_TARGET_WALL_SECONDS,
     STALENESS_COVERAGE_THRESHOLD,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
     parseTachModules,
