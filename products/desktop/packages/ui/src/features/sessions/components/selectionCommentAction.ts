@@ -65,10 +65,11 @@ export function commentActionButtonCss(): string {
 export function setCommentActionTheme(
   theme: string,
   themes: Record<string, CommentActionButtonTheme>,
+  target: HTMLElement = document.documentElement,
 ): void {
   const palette = themes[theme] || themes.light;
   if (!palette) return;
-  const style = document.documentElement.style;
+  const style = target.style;
   style.setProperty("--ph-comment-action-bg", palette.background);
   style.setProperty("--ph-comment-action-fg", palette.color);
   style.setProperty("--ph-comment-action-border", palette.border);

@@ -60,9 +60,25 @@ function releaseOn(dom: JSDOM, selector: string): void {
   );
 }
 
-function actionButton(dom: JSDOM): HTMLElement | null {
+function actionHost(dom: JSDOM): HTMLElement | null {
   return dom.window.document.querySelector<HTMLElement>(
-    ".ph-comment-action-button",
+    "[data-selection-comment-overlay]",
+  );
+}
+
+function actionButton(dom: JSDOM): HTMLElement | null {
+  return (
+    actionHost(dom)?.shadowRoot?.querySelector<HTMLElement>(
+      ".ph-comment-action-button",
+    ) ?? null
+  );
+}
+
+function pressAction(dom: JSDOM): void {
+  const element = actionButton(dom);
+  if (!element) throw new Error("missing comment action");
+  element.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true, composed: true }),
   );
 }
 
@@ -87,6 +103,26 @@ describe("artifactHtmlCommentBridge", () => {
     dom.window.close();
   });
 
+  it("keeps artifact styles from targeting the comment action", () => {
+    const dom = loadBridgeDocument(
+      '<html><head><style>button{all:unset!important}</style></head><body><button id="artifact-button">Artifact</button><p>some selectable text here</p></body></html>',
+    );
+
+    pressOn(dom, "p");
+    selectParagraph(dom);
+    releaseOn(dom, "p");
+
+    const host = actionHost(dom);
+    const button = actionButton(dom);
+    expect(button).not.toBeNull();
+    expect(button?.getRootNode()).toBe(host?.shadowRoot);
+    expect(dom.window.document.querySelectorAll("button")).toHaveLength(1);
+    expect(host?.shadowRoot?.querySelector("style")?.textContent).toContain(
+      ".ph-comment-action-button",
+    );
+    dom.window.close();
+  });
+
   it("ignores presses on the action button itself", () => {
     const dom = loadBridgeDocument(
       "<html><body><p>some selectable text here</p></body></html>",
@@ -97,50 +133,61 @@ describe("artifactHtmlCommentBridge", () => {
     releaseOn(dom, "p");
     expect(actionButton(dom)?.style.display).toBe("flex");
 
-    pressOn(dom, ".ph-comment-action-button");
+    pressAction(dom);
     expect(actionButton(dom)?.style.display).toBe("flex");
     dom.window.close();
   });
 
-  it("bakes the requested theme into the bridge styles", () => {
-    const dark = injectArtifactHtmlCommentBridge("<html><body></body></html>", {
-      channel: CHANNEL,
-      theme: "dark",
-    });
-    const light = injectArtifactHtmlCommentBridge(
-      "<html><body></body></html>",
-      { channel: CHANNEL, theme: "light" },
-    );
-    expect(dark).toContain(
-      `--ph-comment-action-bg:${COMMENT_ACTION_BUTTON_THEMES.dark.background}`,
-    );
-    expect(light).toContain(
-      `--ph-comment-action-bg:${COMMENT_ACTION_BUTTON_THEMES.light.background}`,
-    );
-  });
+  it.each(["light", "dark"] as const)(
+    "applies the %s theme to the isolated comment action",
+    (theme) => {
+      const dom = loadBridgeDocument(
+        "<html><body><p>text</p></body></html>",
+        theme,
+      );
+      pressOn(dom, "p");
+      selectParagraph(dom);
+      releaseOn(dom, "p");
 
-  it("re-themes a running document from a host theme message", () => {
+      expect(
+        actionButton(dom)?.style.getPropertyValue("--ph-comment-action-bg"),
+      ).toBe(COMMENT_ACTION_BUTTON_THEMES[theme].background);
+      dom.window.close();
+    },
+  );
+
+  it("uses host theme changes before and after the action is created", () => {
     const dom = loadBridgeDocument(
       "<html><body><p>text</p></body></html>",
       "light",
     );
-    // jsdom's postMessage leaves event.source null; the bridge ignores those.
-    dom.window.dispatchEvent(
-      new dom.window.MessageEvent("message", {
-        data: {
-          marker: BRIDGE_MARKER,
-          channel: CHANNEL,
-          type: "theme",
-          theme: "dark",
-        },
-        source: dom.window,
-      }),
-    );
+    const sendTheme = (theme: "light" | "dark") => {
+      // jsdom's postMessage leaves event.source null; the bridge ignores those.
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          data: {
+            marker: BRIDGE_MARKER,
+            channel: CHANNEL,
+            type: "theme",
+            theme,
+          },
+          source: dom.window,
+        }),
+      );
+    };
+
+    sendTheme("dark");
+    pressOn(dom, "p");
+    selectParagraph(dom);
+    releaseOn(dom, "p");
     expect(
-      dom.window.document.documentElement.style.getPropertyValue(
-        "--ph-comment-action-bg",
-      ),
+      actionButton(dom)?.style.getPropertyValue("--ph-comment-action-bg"),
     ).toBe(COMMENT_ACTION_BUTTON_THEMES.dark.background);
+
+    sendTheme("light");
+    expect(
+      actionButton(dom)?.style.getPropertyValue("--ph-comment-action-bg"),
+    ).toBe(COMMENT_ACTION_BUTTON_THEMES.light.background);
     dom.window.close();
   });
 });
