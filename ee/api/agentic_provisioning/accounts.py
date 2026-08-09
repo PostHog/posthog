@@ -15,6 +15,7 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes import scopes_within_ceiling
@@ -230,7 +231,22 @@ def handle_new_user(
         configuration = {}
 
     label = partner_label(partner)
-    org_name = configuration.get("organization_name") or f"{label} ({email})"
+    max_org_name_length = Organization._meta.get_field("name").max_length
+    supplied_org_name = configuration.get("organization_name")
+    if supplied_org_name:
+        # The partner can shorten a name it controls, so a too-long value is a partner
+        # bug that deserves an actionable 400 rather than a truncation the user never sees.
+        if len(supplied_org_name) > max_org_name_length:
+            raise ProvisioningError(
+                "invalid_request",
+                f"organization_name must be at most {max_org_name_length} characters",
+                request_id=request_id,
+            )
+        org_name = supplied_org_name
+    else:
+        # The user cannot change a long partner name or their own email, so truncate the
+        # generated fallback instead of failing the signup.
+        org_name = f"{label} ({email})"[:max_org_name_length]
 
     try:
         organization, team, user = User.objects.bootstrap(

@@ -117,6 +117,29 @@ class TestAccountRequests(ProvisioningTestBase):
         assert org is not None
         assert org.name == expected_org_name
 
+    def test_new_user_supplied_org_name_too_long_returns_400(self):
+        # A partner-supplied name over Organization.name's 64-char limit used to reach
+        # bootstrap and 500 with a Postgres truncation error, leaving the user no account.
+        config = {"region": "US", "organization_name": "A" * 65}
+        res = self._post_account_request(
+            self._account_request_payload(email="longorg@example.com", configuration=config)
+        )
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_request"
+        assert not User.objects.filter(email="longorg@example.com").exists()
+
+    def test_new_user_generated_org_name_truncated(self):
+        # The generated fallback is the partner label plus the user email; neither is
+        # under the user's control, so an over-64-char fallback is truncated, not rejected.
+        long_email = f"{'a' * 70}@example.com"
+        res = self._post_account_request(
+            self._account_request_payload(email=long_email, configuration={"region": "US"})
+        )
+        assert res.status_code == 200
+        org = User.objects.get(email=long_email).organization
+        assert org is not None
+        assert len(org.name) == 64
+
     @parameterized.expand(
         [
             ("us_instance_eu_region", "US", "EU", "eu.posthog.com"),
