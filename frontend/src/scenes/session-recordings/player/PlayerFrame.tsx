@@ -50,14 +50,12 @@ export const PlayerFrame = (): JSX.Element => {
             )
 
             const wrapper = player.replayer.wrapper
-            // Skip sub-percent updates on the same wrapper. A layout feedback loop (e.g. a
-            // scrollbar toggling, or the scale readout itself reflowing) makes the fit-scale
-            // oscillate between two values a fraction of a percent apart; without this the
-            // transform re-applies and setScale re-dispatches every frame, visibly shaking the
-            // player and churning every playerMetaLogic consumer. 0.005 pins the value once it
-            // settles while staying finer than any resize a viewer would notice. A re-initialized
-            // replayer has a fresh wrapper, so it still gets its transform even when scale is unchanged.
-            if (lastAppliedRef.current?.wrapper === wrapper && Math.abs(lastAppliedRef.current.scale - scale) < 0.005) {
+            // Skip near-identical updates on the same wrapper: sub-pixel jitter in
+            // getBoundingClientRect while a transform is applied would otherwise re-apply the
+            // transform and re-dispatch setScale every frame, churning every playerMetaLogic
+            // consumer. A re-initialized replayer has a fresh wrapper, so it still gets its
+            // transform even when the scale is unchanged.
+            if (lastAppliedRef.current?.wrapper === wrapper && Math.abs(lastAppliedRef.current.scale - scale) < 0.001) {
                 return
             }
             lastAppliedRef.current = { wrapper, scale }
