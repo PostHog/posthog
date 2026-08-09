@@ -9,6 +9,7 @@ from unittest import mock
 
 from django.db import InterfaceError, OperationalError
 
+import psycopg
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError
@@ -372,6 +373,58 @@ async def test_app_db_connection_error_reraised_as_non_reportable(_name: str, er
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_postgres_job_queue_wait_timeout_reraised_as_non_reportable():
+    # PostgresProducer/BatchQueue (the v3 pipeline's job queue) talk to
+    # WAREHOUSE_SOURCES_DATABASE_URL over a raw psycopg connection, never Django's ORM, so a
+    # PgBouncer query_wait_timeout here surfaces as a bare psycopg ProtocolViolation rather than
+    # the Django OperationalError/InterfaceError case above. It's the same transient pool-blip
+    # class, so it must be re-raised as NonReportableError rather than the bare exception, which
+    # the activity interceptor would still capture.
+    error = psycopg.errors.ProtocolViolation("query_wait_timeout")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_protocol_violation_with_unrelated_message_still_reported():
+    # A ProtocolViolation can also carry PgBouncer's cached-login-failure message (see
+    # postgres.py's `_is_connection_limit_error`), which is a real, actionable failure, not a
+    # pool-saturation blip. The query_wait_timeout classification above must match on the message,
+    # not just the type, or it would swallow this as non-reportable too.
+    error = psycopg.errors.ProtocolViolation(
+        "server login has been failing, cached error: FATAL: password authentication failed"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(psycopg.errors.ProtocolViolation):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio

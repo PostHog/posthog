@@ -8,6 +8,7 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+import psycopg
 from jsonpath_ng.exceptions import JSONPathError
 from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
@@ -474,6 +475,17 @@ async def _handle_import_error(
     if isinstance(error, OperationalError | InterfaceError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # The v3 pipeline's Postgres-backed job queue (PostgresProducer/BatchQueue) talks to
+    # WAREHOUSE_SOURCES_DATABASE_URL over a raw psycopg connection, never Django's ORM, so a
+    # `query_wait_timeout` here can't be wrapped as the Django OperationalError/InterfaceError
+    # above - psycopg surfaces PgBouncer's own "query waited too long for a free server
+    # connection" rejection as a bare ProtocolViolation. Same transient pool-saturation class,
+    # so classify it the same way rather than letting it fall through to a reported exception.
+    if isinstance(error, psycopg.errors.ProtocolViolation) and "query_wait_timeout" in error_msg:
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient Postgres job-queue pool timeout - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
