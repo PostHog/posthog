@@ -47,6 +47,7 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     COORDINATOR_INTERVAL_MINUTES,
+    DUE_GRACE_SECONDS,
     MAX_RUNS_PER_TICK,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
@@ -773,6 +774,12 @@ async def test_due_check_grace_boundary(ateam, seconds_short, expected_skill_nam
     assert [p.skill_name for p in planned] == expected_skill_names
 
 
+def _ceil_to_tick(moment: datetime) -> datetime:
+    tick = timedelta(minutes=COORDINATOR_INTERVAL_MINUTES)
+    ticks = -(-int(moment.timestamp()) // int(tick.total_seconds()))
+    return datetime.fromtimestamp(ticks * tick.total_seconds(), tz=UTC)
+
+
 class TestSlotAlignedDispatchAnchors:
     # Dispatch used to anchor on the post-fan-out wall clock, which made `last_run_at` absorb each
     # tick's latency: once the creep passed `DUE_GRACE_SECONDS` a cohort missed its usual tick and
@@ -790,6 +797,20 @@ class TestSlotAlignedDispatchAnchors:
             assert anchor <= tick_start
             assert tick_start - anchor < timedelta(minutes=interval)
             assert int(anchor.timestamp()) % (COORDINATOR_INTERVAL_MINUTES * 60) == 0
+
+    @parameterized.expand([(30, 30), (45, 60), (60, 60), (75, 90), (100, 120), (720, 720), (1440, 1440)])
+    def test_steady_state_cadence_matches_the_tick_grid(self, interval: int, expected_gap: int) -> None:
+        # `run_interval_minutes` takes any value in 30..43200, so an interval that is not a whole
+        # number of ticks is ordinary. Deriving the slot period by rounding DOWN shortened the
+        # cadence for those: a 75-minute scout ran hourly and a 100-minute scout every 90 minutes,
+        # both more often than configured.
+        config_pk = _SLOT_TEST_PKS[0]
+        dispatched_at = _slot_anchor(config_pk, interval, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
+        for _ in range(4):
+            due_at = dispatched_at + timedelta(minutes=interval, seconds=-DUE_GRACE_SECONDS)
+            next_tick = _ceil_to_tick(due_at)
+            assert next_tick - dispatched_at == timedelta(minutes=expected_gap)
+            dispatched_at = _slot_anchor(config_pk, interval, next_tick)
 
     def test_slot_does_not_move_between_processes(self) -> None:
         # Pinned rather than recomputed: a switch to the builtin `hash()` would still be stable

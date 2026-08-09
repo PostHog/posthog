@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Case, DateTimeField, Q, Value, When
 from django.utils import timezone
 
 import structlog
@@ -170,13 +170,16 @@ def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
 
 
 def _ticks_per_interval(run_interval_minutes: int) -> int:
-    """How many coordinator ticks fit in one run interval, floored at 1.
+    """The scout's dispatch period, as a count of coordinator ticks.
 
-    An interval shorter than a tick (or one that isn't a whole number of ticks) collapses to a
-    single slot, which makes the anchor the plain tick start: dispatch is quantized to the tick
-    grid either way, so there is nothing finer to spread such a scout across.
+    Rounded UP, because that is the cadence the tick grid already imposes: a scout is dispatched at
+    the first tick at or after it comes due, so a 75-minute interval has always run every 90
+    minutes. Rounding down would make the anchor period shorter than the real cadence and dispatch
+    that scout every 60 minutes instead, which is more often than its owner configured.
+    `run_interval_minutes` is validated to 30..43200 with no multiple-of-30 constraint, so
+    non-grid intervals are ordinary rather than exotic.
     """
-    return max(1, run_interval_minutes // COORDINATOR_INTERVAL_MINUTES)
+    return max(1, -(-run_interval_minutes // COORDINATOR_INTERVAL_MINUTES))
 
 
 def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datetime) -> datetime:
@@ -193,9 +196,14 @@ def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datet
     a per-team cap or a missed tick anchors on the slot it was meant to have, so cohorts drift back
     together on the grid instead of ratcheting forward off it.
 
-    The snapped anchor always lands in `(this tick - interval, this tick]`, which puts the next due
-    time in `(this tick, this tick + interval]`. So no scout can come due again immediately, and
-    none waits more than one extra interval, including on the first stamp after this rolled out.
+    The snapped anchor always lands in `(this tick - period, this tick]`, where the period is the
+    scout's cadence from `_ticks_per_interval`. Once a scout is dispatched on its own slot the
+    anchor is exactly that tick, so its cadence is the configured one forever after. Before then
+    the anchor can sit up to one period back, which shortens that single gap: the scout runs once
+    earlier than it otherwise would, and is then on its slot. That borrows the run from the next
+    period rather than adding one, so the fleet's total run count is unchanged. It is the
+    transition cost of moving a scout onto its slot, and it is paid once per scout, on rollout and
+    again after any interval edit.
     """
     ticks_per_interval = _ticks_per_interval(run_interval_minutes)
     slot = _dispatch_slot(config_pk, run_interval_minutes)
@@ -208,9 +216,12 @@ def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun], *, slot_aligned: b
     """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
     activity log.
 
-    Rolling-interval scouts are stamped with their slot anchor (see `_slot_anchor`), which means
-    one `.update()` per distinct anchor rather than one for the whole tick. Two kinds of config are
-    stamped with the wall clock instead:
+    Rolling-interval scouts are stamped with their slot anchor (see `_slot_anchor`). Anchors differ
+    per config, so they are applied through a single `CASE` expression rather than one `.update()`
+    per anchor: at the global tick cap a per-anchor loop would be up to `MAX_RUNS_PER_TICK`
+    sequential round trips inside an activity whose timeout is a minute, and a timeout there lands
+    after the children have already launched. Two kinds of config are stamped with the wall clock
+    instead:
 
     - A cron scout, because `_overdue_seconds` feeds `last_run_at` to croniter as the reference for
       the next slot. Cron slots are already absolute, so that path never had the drift, and moving
@@ -236,8 +247,15 @@ def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun], *, slot_aligned: b
     ):
         anchor = _slot_anchor(str(pk), interval_minutes, now) if enabled and not cron_schedule else now
         pks_by_anchor.setdefault(anchor, []).append(pk)
-    for anchor, pks in pks_by_anchor.items():
-        SignalScoutConfig.all_teams.filter(pk__in=pks).update(last_run_at=anchor)
+    if not pks_by_anchor:
+        return
+    dispatched.update(
+        last_run_at=Case(
+            *(When(pk__in=pks, then=Value(anchor)) for anchor, pks in pks_by_anchor.items()),
+            default=Value(now),
+            output_field=DateTimeField(),
+        )
+    )
 
 
 @dataclass
