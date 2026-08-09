@@ -134,7 +134,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         setAccountMenuOpen(false)
                     },
                     {
-                        currentUsage: currentOrganization?.teams?.length,
+                        currentUsage: currentOrganization?.teams?.filter((team) => !team.is_pending_deletion).length,
                     }
                 )
                 closeProjectSwitcher()
@@ -157,7 +157,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             closeProjectSwitcher,
             guardAvailableFeature,
             showCreateProjectModal,
-            currentOrganization?.teams?.length,
+            currentOrganization?.teams,
             setAccountMenuOpen,
             canCreateProject,
         ]

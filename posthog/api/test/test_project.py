@@ -156,6 +156,20 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
+    def test_pending_deletion_project_not_counted_toward_limit(self):
+        # Free org: no ORGANIZATIONS_PROJECTS feature, so the limit is one non-demo project
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # The only project is now pending deletion, so it must not block a replacement
+        self.team.is_pending_deletion = True
+        self.team.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.post("/api/projects/", {"name": "Replacement Project"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_project_creation_with_limited_feature(self):
         # Set project limit to 2
         self.organization.available_product_features = [
