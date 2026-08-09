@@ -242,27 +242,37 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
-export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
-    (value) => ({
+// Test variant of the replay-vision-model-tier-naming-experiment flag: capability tiers instead of
+// provider model names. Every surface that shows a model must pass the same variant so a user never
+// sees both naming schemes for one scanner.
+const MODEL_TIER_NAMES: Record<ScannerModelEnumApi, string> = {
+    [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
+    [ScannerModelEnumApi.Gemini36Flash]: 'Ultra',
+}
+
+export function getModelOptions(showTierNames: boolean): { value: ScannerModelEnumApi; label: string }[] {
+    return Object.values(ScannerModelEnumApi).map((value) => ({
         value,
-        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
-    })
-)
+        label: `${modelName(value, showTierNames)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+    }))
+}
 
 // Falls back to the raw id for retired models frozen in old observation snapshots.
-export function modelLabel(model: string | null | undefined): string {
+export function modelLabel(model: string | null | undefined, showTierNames: boolean = false): string {
     if (!model) {
         return '—'
     }
-    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
+    return getModelOptions(showTierNames).find((opt) => opt.value === model)?.label ?? model
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined): string {
+export function modelName(model: string | null | undefined, showTierNames: boolean = false): string {
     if (!model) {
         return '—'
     }
-    return MODEL_NAMES[model as ScannerModelEnumApi] ?? model
+    const names = showTierNames ? MODEL_TIER_NAMES : MODEL_NAMES
+    return names[model as ScannerModelEnumApi] ?? model
 }
 
 export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {

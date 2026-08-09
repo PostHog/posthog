@@ -12,6 +12,8 @@ The desktop app runs scripts embedded in HTML artifacts inside an isolated previ
 
 ## Versions and dismissal
 
-Uploading a file under a name the run already has does not add a second file. Every upload stays on the manifest as its own entry, and clients group entries by name into one file with a version history: the newest upload is what the app shows, and the earlier ones sit behind a version picker on the row. That is how an agent revises a deliverable — upload it again under the same name.
+Uploading a file under a name the run already has does not add a second file. Every upload stays on the manifest as its own entry, and clients group entries by name into one file with a version history: the newest upload is what the app shows, and the earlier ones sit behind a version picker on the row. An agent revises a deliverable by reading the current latest version, then uploading its revision under the same name.
+
+Users can edit the latest Markdown, HTML, and plain-text version in the app. Saving appends another `output` entry under the same name. It never overwrites the version the user opened, and a confirmation appears if another version arrived during the edit.
 
 A user can dismiss a file they don't want to see. `POST .../runs/<run_id>/artifacts/dismiss/` takes `artifact_ids` and a `dismissed` boolean, and stamps `dismissed_at` on each named manifest entry. Nothing is deleted from object storage, and clients only hide a file once every version of it is dismissed, so dismissing the current version cannot resurface the one it replaced. Passing `dismissed: false` restores the file.
