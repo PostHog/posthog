@@ -682,6 +682,7 @@ the row lists both.
 | writesonic                       | HTTP                        | requests                                                        | ✅                          |
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| xero                             | HTTP                        | requests                                                        | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | zapier_supported_storage         | HTTP                        | requests                                                        | ✅                          |
@@ -1424,7 +1425,6 @@ doesn't conflict with concurrent PRs.
 - workiz
 - workramp
 - wufoo
-- xero
 - xsolla
 - yahoo_finance
 - yandex_metrica

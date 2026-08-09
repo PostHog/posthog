@@ -39,6 +39,7 @@ import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
+import IconXero from 'public/services/xero.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -81,6 +82,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'aws-s3': IconAwsS3,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
+    xero: IconXero,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark

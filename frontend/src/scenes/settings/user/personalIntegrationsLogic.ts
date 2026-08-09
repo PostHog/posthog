@@ -160,6 +160,7 @@ export interface personalIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
         }[],
         payload?: any
     ) => {
@@ -212,6 +213,7 @@ export interface personalIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
         }[]
         payload?: any
     } // integrationsLogic
