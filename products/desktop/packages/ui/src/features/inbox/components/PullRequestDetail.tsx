@@ -8,6 +8,7 @@ import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
+import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxMetaSeparator } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
@@ -136,12 +137,15 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
           : undefined
       }
       belowSummary={
-        prRef && report.implementation_pr_url ? (
-          <>
-            <PrCommentsSection prUrl={report.implementation_pr_url} />
-            <PrReviewActions prUrl={report.implementation_pr_url} />
-          </>
-        ) : undefined
+        <>
+          {prRef && report.implementation_pr_url && (
+            <>
+              <PrCommentsSection prUrl={report.implementation_pr_url} />
+              <PrReviewActions prUrl={report.implementation_pr_url} />
+            </>
+          )}
+          <ReportFeedbackFooter report={report} />
+        </>
       }
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
       aboveEvidence={
