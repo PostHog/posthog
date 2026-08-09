@@ -250,8 +250,8 @@ class BillingUsageRequestSerializer(serializers.Serializer):
 
 class BillingTimeSeriesPointSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False)
-    label = serializers.CharField(required=False, allow_blank=True)
-    data = serializers.ListField(child=serializers.FloatField(), required=False)
+    label = serializers.CharField(required=False, allow_blank=True)  # type: ignore[assignment]
+    data = serializers.ListField(child=serializers.FloatField(), required=False)  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), required=False)
     breakdown_type = serializers.ChoiceField(choices=["type", "team", "multiple"], allow_null=True, required=False)
     breakdown_value = serializers.JSONField(allow_null=True, required=False)
