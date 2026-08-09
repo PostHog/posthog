@@ -1,5 +1,9 @@
-import { CheckIcon, GitDiffIcon } from "@phosphor-icons/react";
-import { Button, Spinner } from "@posthog/quill";
+import { CheckIcon, GitBranchIcon, GitDiffIcon } from "@phosphor-icons/react";
+import { Button, Spinner, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import {
+  useDiffViewerStore,
+  type ViewMode,
+} from "@posthog/ui/features/code-editor/diffViewerStore";
 import { PatchedFileDiff } from "@posthog/ui/features/code-review/components/PatchedFileDiff";
 import { useDiffOptions } from "@posthog/ui/features/code-review/reviewShellParts";
 import { usePrChangedFiles } from "@posthog/ui/features/git-interaction/useGitQueries";
@@ -11,6 +15,7 @@ import {
   isFileViewed,
   usePrViewedFilesStore,
 } from "./prViewedFilesStore";
+import { usePrInfo } from "./usePrInfo";
 
 interface PrFilesChangedSectionProps {
   prUrl: string;
@@ -34,6 +39,11 @@ export function PrFilesChangedSection({
 }: PrFilesChangedSectionProps) {
   const filesQuery = usePrChangedFiles(prUrl);
   const diffOptions = useDiffOptions();
+  const viewMode = useDiffViewerStore((s) => s.viewMode);
+  const setViewMode = useDiffViewerStore((s) => s.setViewMode);
+  // The branch pill only renders in the tab layout; skip the fetch otherwise.
+  const prInfoQuery = usePrInfo(bare ? prUrl : null);
+  const headRefName = prInfoQuery.data?.headRefName ?? null;
   const viewedByPr = usePrViewedFilesStore((s) => s.viewedByPr);
   const markViewed = usePrViewedFilesStore((s) => s.markViewed);
   const unmarkViewed = usePrViewedFilesStore((s) => s.unmarkViewed);
@@ -183,11 +193,39 @@ export function PrFilesChangedSection({
   if (bare) {
     return (
       <div className="flex min-w-0 flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="cursor-default select-none font-semibold text-[13px] text-gray-12">
-            {files.length} file{files.length === 1 ? "" : "s"} changed
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="cursor-default select-none whitespace-nowrap font-semibold text-[13px] text-gray-12">
+              {files.length} file{files.length === 1 ? "" : "s"} changed
+            </span>
+            {headRefName && (
+              <span
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-(--accent-8) px-2.5 py-1 font-mono text-(--accent-11) text-[11px]"
+                title={headRefName}
+              >
+                <GitBranchIcon size={11} className="shrink-0" />
+                <span className="truncate">{headRefName}</span>
+              </span>
+            )}
           </span>
-          {headerControls}
+          <span className="flex items-center gap-2">
+            <ToggleGroup
+              aria-label="Diff layout"
+              value={[viewMode]}
+              onValueChange={(next: string[]) => {
+                // Pressing the active item would otherwise clear the group —
+                // a layout is always on, so ignore the empty result.
+                const mode = next[0];
+                if (mode === "unified" || mode === "split") {
+                  setViewMode(mode as ViewMode);
+                }
+              }}
+            >
+              <ToggleGroupItem value="unified">Unified</ToggleGroupItem>
+              <ToggleGroupItem value="split">Split</ToggleGroupItem>
+            </ToggleGroup>
+            {headerControls}
+          </span>
         </div>
         {fileList}
       </div>
