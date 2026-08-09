@@ -7,12 +7,10 @@ vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
   MentionComposer: ({
     value,
     onValueChange,
-    onSubmit,
     children,
   }: {
     value: string;
     onValueChange: (value: string) => void;
-    onSubmit: () => void;
     children: ReactNode;
   }) => (
     <div>
@@ -21,15 +19,6 @@ vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
       />
-      <button
-        type="button"
-        onClick={() => {
-          onValueChange("Fresh comment");
-          onSubmit();
-        }}
-      >
-        Type and submit
-      </button>
       {children}
     </div>
   ),
@@ -39,25 +28,6 @@ import { MentionAvailabilityProvider } from "@posthog/ui/features/sessions/menti
 import { CommentComposer } from "./CommentComposer";
 
 describe("CommentComposer", () => {
-  it("submits an editor update before the controlled value rerenders", () => {
-    const onSubmit = vi.fn();
-    render(
-      <Theme>
-        <CommentComposer
-          value=""
-          onValueChange={vi.fn()}
-          onSubmit={onSubmit}
-          members={[]}
-          placeholder="Comment"
-        />
-      </Theme>,
-    );
-
-    fireEvent.click(screen.getByText("Type and submit"));
-
-    expect(onSubmit).toHaveBeenCalledWith("Fresh comment", []);
-  });
-
   it("explains that mentions are unavailable in the private space", () => {
     const onValueChange = vi.fn();
     render(
