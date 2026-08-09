@@ -13,7 +13,7 @@ from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_consent_skip, record_quota_exhausted_skip
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
@@ -99,7 +99,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
 
     # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
     # overshoot by at most the in-flight caps allow, which is accepted.
-    if compute_quota_snapshot(scanner.team.organization_id).would_exceed(observation_credits_for_model(priced_model)):
+    if quota_state(scanner.team.organization_id).would_exceed(observation_credits_for_model(priced_model)):
         record_quota_exhausted_skip(scanner.scanner_type)
         activity.logger.info(
             "Skipping observation: monthly quota exhausted",

@@ -27,7 +27,7 @@ from products.replay_vision.backend.enqueue_claims import (
 from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
@@ -84,7 +84,7 @@ def scan_headroom(*, team: Team, model: str, scanner: ReplayScanner | None) -> S
             MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight - pending_enqueue_claims_for_team(team.id),
         ),
     )
-    snapshot = compute_quota_snapshot(team.organization_id)
+    snapshot = quota_state(team.organization_id)
     cost = observation_credits_for_model(model)
     # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of THIS
     # model's cost fit.

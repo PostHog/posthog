@@ -10330,8 +10330,6 @@ export namespace Schemas {
          * @nullable
          */
       credits_remaining: number | null;
-      /** Projected monthly credit spend from enabled scanners plus active backfills' remaining commitments. */
-      projected_monthly_credits: number;
       /** The window lower bound the estimate covered. */
       window_start: string;
       /** The window upper bound after clamping to now. */

@@ -20,7 +20,7 @@ from products.replay_vision.backend.api.backfills import (
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
-from products.replay_vision.backend.quota import compute_quota_snapshot, sum_active_backfill_remaining_credits
+from products.replay_vision.backend.quota import compute_quota_snapshot, spend_projection
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
     delete_backfill_schedule_activity,
@@ -119,7 +119,7 @@ class TestBackfillQuotaCommitment:
         )
         _make_backfill(cancelled_scanner, status=BackfillStatus.CANCELLED, total_count=100, credits_per_observation=5)
 
-        assert sum_active_backfill_remaining_credits(org_id) == 60 * 5
+        assert spend_projection(org_id).backfills_committed_credits == 60 * 5
         assert compute_quota_snapshot(org_id).projected_monthly_credits == 60 * 5
 
     def test_paused_backfill_still_counts_as_committed(self) -> None:
@@ -127,7 +127,7 @@ class TestBackfillQuotaCommitment:
         _make_backfill(
             scanner, status=BackfillStatus.PAUSED_QUOTA, total_count=10, dispatched_count=4, credits_per_observation=2
         )
-        assert sum_active_backfill_remaining_credits(scanner.team.organization_id) == 12
+        assert spend_projection(scanner.team.organization_id).backfills_committed_credits == 12
 
 
 @pytest.mark.django_db(transaction=True)
@@ -209,7 +209,7 @@ class TestBackfillTickActivities:
         headroom.would_exceed.return_value = False
         headroom.remaining = 7
         with patch(
-            "products.replay_vision.backend.temporal.activities.backfill.compute_quota_snapshot",
+            "products.replay_vision.backend.temporal.activities.backfill.quota_state",
             return_value=headroom,
         ):
             result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
@@ -222,7 +222,7 @@ class TestBackfillTickActivities:
         exhausted = MagicMock()
         exhausted.would_exceed.return_value = True
         with patch(
-            "products.replay_vision.backend.temporal.activities.backfill.compute_quota_snapshot",
+            "products.replay_vision.backend.temporal.activities.backfill.quota_state",
             return_value=exhausted,
         ):
             result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
@@ -280,7 +280,7 @@ class TestBackfillTickActivities:
         backfill.refresh_from_db()
         assert (backfill.dispatched_count, backfill.skipped_count) == (6, 4)
         assert backfill.dispatched_count + backfill.skipped_count == backfill.total_count
-        assert sum_active_backfill_remaining_credits(scanner.team.organization_id) == 0
+        assert spend_projection(scanner.team.organization_id).backfills_committed_credits == 0
 
     def test_advance_updates_cursor_and_short_batch_completes(self) -> None:
         scanner = _make_scanner()

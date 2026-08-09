@@ -38,16 +38,19 @@ USAGE_KEY = "replay_vision_credits"
 
 
 @dataclass(frozen=True)
-class QuotaSnapshot:
-    """All amounts are credits (1 credit = $0.01)."""
+class QuotaState:
+    """What the caps are and what has been spent. All amounts are credits (1 credit = $0.01).
+
+    Everything enforcement needs and nothing it doesn't: deciding whether an observation may start
+    reads only the limit and the spend so far. Projections live in `SpendProjection`, which costs
+    extra queries no enforcement path should pay for.
+    """
 
     # None means billing synced the product with no spend limit set: uncapped.
     credit_limit: int | None
     credits_used: int
     period_start: datetime
     period_end: datetime
-    # Credit-weighted sum of enabled scanners' persisted estimates across the org; uncomputed estimates count 0.
-    projected_monthly_credits: int
     # Display-only: the slice of `credit_limit` that never bills; see FREE_TIER_MONTHLY_CREDITS.
     free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
 
@@ -64,6 +67,27 @@ class QuotaSnapshot:
     def would_exceed(self, credits: int) -> bool:
         """Whether starting an observation costing `credits` would push usage past the limit (uncapped never does)."""
         return self.credit_limit is not None and self.credits_used + credits > self.credit_limit
+
+
+@dataclass(frozen=True)
+class SpendProjection:
+    """What the org has committed for the rest of the period. Display only; nothing enforces on this."""
+
+    # Credit-weighted sum of enabled scanners' persisted estimates; uncomputed estimates count 0. A monthly rate.
+    scanners_monthly_credits: int
+    # Committed-but-unspent credits of active backfills. A one-off charge, not a rate.
+    backfills_committed_credits: int
+
+    @property
+    def total(self) -> int:
+        return self.scanners_monthly_credits + self.backfills_committed_credits
+
+
+@dataclass(frozen=True)
+class QuotaSnapshot(QuotaState):
+    """`QuotaState` plus the projection, for the surfaces that show spend rather than gate on it."""
+
+    projected_monthly_credits: int = 0
 
 
 def next_month_start(now: datetime) -> datetime:
@@ -139,7 +163,7 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
     return totals
 
 
-def sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
+def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
     """Projected monthly credit spend from the org's enabled scanners' cached estimates."""
     scanners = ReplayScanner.objects.filter(team__organization_id=organization_id, enabled=True)
     if exclude_scanner_id is not None:
@@ -149,7 +173,7 @@ def sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner
     return sum(observation_credits_for_model(model) * (estimate or 0) for model, estimate in rows)
 
 
-def sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
+def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
     """Committed-but-unspent credits of the org's active backfills, priced at each backfill's frozen rate.
 
     Projection only: enforcement stays the per-observation creation check, identical for live and
@@ -185,7 +209,19 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
     return False, None
 
 
-def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
+def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> SpendProjection:
+    """The org's rest-of-period commitments, priced.
+
+    `exclude_scanner_id` drops one scanner's stored estimate, for the editor's "others plus this
+    proposal" forecast. Callers never touch the underlying scanner or backfill rows.
+    """
+    return SpendProjection(
+        scanners_monthly_credits=_sum_enabled_scanner_estimated_credits(organization_id, exclude_scanner_id),
+        backfills_committed_credits=_sum_active_backfill_remaining_credits(organization_id),
+    )
+
+
+def quota_state(organization_id: UUID) -> QuotaState:
     # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
     # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
     from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_credits  # noqa: PLC0415
@@ -215,16 +251,28 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
     usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
-    projected = sum_enabled_scanner_estimated_credits(organization_id) + sum_active_backfill_remaining_credits(
-        organization_id
-    )
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA
-    return QuotaSnapshot(
+    return QuotaState(
         credit_limit=credit_limit,
         credits_used=usage,
         period_start=period.start,
         period_end=period.end,
-        projected_monthly_credits=projected,
+    )
+
+
+def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
+    """Enforcement state plus the projection.
+
+    Prefer `quota_state` wherever only the caps matter: this pays for two aggregates no gate reads.
+    """
+    state = quota_state(organization_id)
+    return QuotaSnapshot(
+        credit_limit=state.credit_limit,
+        credits_used=state.credits_used,
+        period_start=state.period_start,
+        period_end=state.period_end,
+        free_monthly_credits=state.free_monthly_credits,
+        projected_monthly_credits=spend_projection(organization_id).total,
     )

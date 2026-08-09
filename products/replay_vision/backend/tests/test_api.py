@@ -1978,7 +1978,7 @@ class TestObserveAction(_VisionAPITestCase):
         mock_async_to_sync.return_value = MagicMock()
 
         exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.observe_url(str(self.scanner.id)), data={"session_id": "sess-quota"}, format="json"
@@ -2314,7 +2314,7 @@ class TestRetryActions(_VisionAPITestCase):
         observation = self._create_failed("sess-quota")
 
         exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())

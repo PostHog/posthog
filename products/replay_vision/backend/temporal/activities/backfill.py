@@ -25,7 +25,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     ReplayScannerBackfill,
 )
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
     count_in_flight_rows,
@@ -89,7 +89,7 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("skipped_scanner_disabled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
 
-    quota = compute_quota_snapshot(backfill.team.organization_id)
+    quota = quota_state(backfill.team.organization_id)
     if quota.would_exceed(backfill.credits_per_observation):
         # Filtered so a concurrent cancel wins over the pause.
         ReplayScannerBackfill.objects.for_team(inputs.team_id).filter(

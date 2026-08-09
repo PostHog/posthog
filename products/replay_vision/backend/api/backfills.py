@@ -32,7 +32,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     ReplayScannerBackfill,
 )
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -84,9 +84,6 @@ class BackfillEstimateResponseSerializer(serializers.Serializer):
     )
     credits_remaining = serializers.IntegerField(
         allow_null=True, help_text="Credits left in the org's monthly quota; null when the org is uncapped."
-    )
-    projected_monthly_credits = serializers.IntegerField(
-        help_text="Projected monthly credit spend from enabled scanners plus active backfills' remaining commitments."
     )
     window_start = serializers.DateTimeField(help_text="The window lower bound the estimate covered.")
     window_end = serializers.DateTimeField(help_text="The window upper bound after clamping to now.")
@@ -261,14 +258,13 @@ class ReplayScannerBackfillViewSet(
         window_start, window_end = self._clamped_window(window.validated_data)
         total = self._unobserved_count(scanner, window_start, window_end)
         price = observation_credits_for_model(scanner.model)
-        quota = compute_quota_snapshot(scanner.team.organization_id)
+        quota = quota_state(scanner.team.organization_id)
         response = BackfillEstimateResponseSerializer(
             {
                 "total_sessions": total,
                 "total_credits": total * price,
                 "credits_per_observation": price,
                 "credits_remaining": quota.remaining,
-                "projected_monthly_credits": quota.projected_monthly_credits,
                 "window_start": window_start,
                 "window_end": window_end,
             }
