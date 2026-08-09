@@ -54,7 +54,7 @@ so read series from `query.source`, falling back to the bare node for unwrapped 
 ```sql
 SELECT DISTINCT JSONExtractString(series, 'event') AS event
 FROM system.insights
-ARRAY JOIN JSONExtractArrayRaw(coalesce(nullIf(JSONExtractRaw(query, 'source'), ''), JSONExtractRaw(query)), 'series') AS series
+ARRAY JOIN JSONExtractArrayRaw(assumeNotNull(coalesce(nullIf(JSONExtractRaw(query, 'source'), ''), JSONExtractRaw(query))), 'series') AS series
 WHERE saved = 1 AND deleted = 0
   AND JSONExtractString(series, 'kind') = 'EventsNode'
   AND event != ''
