@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("replay_vision", "0062_alter_replayobservation_triggered_by_and_more"),
+        ("replay_vision", "0063_alter_replayobservation_triggered_by_and_more"),
     ]
 
     operations = [

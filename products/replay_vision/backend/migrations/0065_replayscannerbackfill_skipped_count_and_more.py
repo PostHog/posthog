@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0063_replayobservation_backfill_index"),
+        ("replay_vision", "0064_replayobservation_backfill_index"),
         ("replay_vision", "0062_replayscanner_experiment_targeting"),
     ]
 
