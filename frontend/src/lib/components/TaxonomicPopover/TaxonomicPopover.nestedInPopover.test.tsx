@@ -23,6 +23,14 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
+// The exact group types DataTable's "Add column left/right" pickers pass.
+const ADD_COLUMN_GROUP_TYPES = [
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.EventFeatureFlags,
+]
+
 describe('TaxonomicPopover nested inside a More dropdown', () => {
     let unmountFeatureFlagLogic: (() => void) | null = null
 
@@ -52,7 +60,7 @@ describe('TaxonomicPopover nested inside a More dropdown', () => {
         cleanup()
     })
 
-    function renderNested(): void {
+    function renderNested(onChange: jest.Mock = jest.fn()): jest.Mock {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD], {
             [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true,
         })
@@ -63,19 +71,17 @@ describe('TaxonomicPopover nested inside a More dropdown', () => {
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value=""
-                            groupTypes={[
-                                TaxonomicFilterGroupType.HogQLExpression,
-                                TaxonomicFilterGroupType.EventProperties,
-                            ]}
+                            groupTypes={ADD_COLUMN_GROUP_TYPES}
                             placeholder="Add column left"
                             type="tertiary"
                             fullWidth
-                            onChange={jest.fn()}
+                            onChange={onChange}
                         />
                     }
                 />
             </Provider>
         )
+        return onChange
     }
 
     /** Open the `More` overlay, then the picker inside it. */
@@ -104,5 +110,28 @@ describe('TaxonomicPopover nested inside a More dropdown', () => {
 
         await waitFor(() => expect(screen.getByTestId('menu-filter-search')).toBeInTheDocument())
         expect(screen.getByTestId('taxonomic-popover-menu-trigger')).toBeInTheDocument()
+    })
+
+    it('commits a picked property so "Add column" actually adds one', async () => {
+        // The OP symptom: with the rebuilt-menu flag on, "Add column left/right"
+        // did nothing. Picking a property portals out of the enclosing More
+        // overlay, so without the fix that click dismissed the overlay and the
+        // selection never reached onChange. Assert the selection commits.
+        const onChange = renderNested()
+        await openPickerInsideOverlay()
+
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-new'))
+        await waitFor(() => expect(screen.getByTestId('menu-filter-search')).toBeInTheDocument())
+        await userEvent.type(screen.getByTestId('menu-filter-search'), 'purchase_value')
+
+        // The name and value cells both render the property, so target the row.
+        const cell = (await screen.findAllByText('purchase_value'))[0]
+        const row = cell.closest('[data-slot="taxonomic-filter-menu-row"]')
+        await userEvent.click(row as HTMLElement)
+
+        await waitFor(() => expect(onChange).toHaveBeenCalled())
+        const [value, groupType] = onChange.mock.calls[onChange.mock.calls.length - 1]
+        expect(value).toBe('purchase_value')
+        expect(groupType).toBe(TaxonomicFilterGroupType.EventProperties)
     })
 })
