@@ -20,6 +20,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
@@ -50,7 +51,6 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const tooltipConfig = STICKINESS_TOOLTIP_CONFIG
 
     const legendConfig = useInsightsLegendConfig({ insightProps })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -58,7 +58,6 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         interval,
         yAxisScaleType,
         getTrendsColor,
-        getTrendsHidden,
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
@@ -90,20 +89,20 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const bucketCount = currentPeriodResult?.labels?.length ?? 0
     const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
 
-    const hasData = (indexedResults ?? []).some((r: IndexedTrendResult) => r.count !== 0)
+    const hasData = hasTrendsChartData(indexedResults)
 
     // `TimeSeriesBarChart` has a single y-axis — `showMultipleYAxes` is intentionally not forwarded.
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
+                // instead of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, getLabel, quillLegendEnabled]
+        [indexedResults, getTrendsColor, getLabel]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useChartConfig(

@@ -1,10 +1,11 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -13,15 +14,21 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
-import { USAGE_TYPES } from './constants'
+import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const isProductVariantPrimary = (productType: string): boolean =>
-    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails'].includes(productType)
+    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails', 'logs'].includes(productType)
 
 export const isProductVariantSecondary = (productType: string): boolean =>
-    ['mobile_replay', 'batch_exports', 'data_warehouse_historical', 'workflows_destinations'].includes(productType)
+    [
+        'mobile_replay',
+        'batch_exports',
+        'data_warehouse_historical',
+        'workflows_destinations',
+        'logs_retention_30d',
+    ].includes(productType)
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
     // If subscribed and has tiers, check if the first tier is free
@@ -482,7 +489,8 @@ export function buildTrackingProperties(
         dateTo: string
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
-    }
+    },
+    usageTypesTotal: number = USAGE_TYPES.length
 ): BillingUsageInteractionProps {
     return {
         action,
@@ -491,13 +499,35 @@ export function buildTrackingProperties(
         date_to: values.dateTo,
         exclude_empty: values.excludeEmptySeries,
         usage_types_count: values.filters.usage_types?.length || 0,
-        usage_types_total: USAGE_TYPES.length,
+        usage_types_total: usageTypesTotal,
         teams_count: values.filters.team_ids?.length || 0,
         teams_total: values.teamOptions.length,
         has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
         interval: values.filters.interval || 'day',
     }
 }
+
+export const buildSpendTrackingProperties = (
+    action: BillingUsageInteractionProps['action'],
+    values: Parameters<typeof buildTrackingProperties>[1],
+    featureFlags: FeatureFlagsSet
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions(featureFlags).length)
+
+// The Replay vision entry stays hidden until the replay-vision flag rolls out with the pricing launch
+export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
+    USAGE_TYPES.filter(
+        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
+    ).map((opt) => ({ key: opt.value, label: opt.label }))
+
+export const getSpendTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
+    SPEND_TYPES.filter(
+        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
+    ).map((opt) => ({ key: opt.value, label: opt.label }))
+
+const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
+
+export const filterSpendUsageTypes = (usageTypes: string[] | undefined): string[] =>
+    usageTypes?.filter((usageType) => SPEND_TYPE_VALUES.has(usageType)) ?? []
 
 export const isAddonVisible = (
     product: BillingProductV2Type,

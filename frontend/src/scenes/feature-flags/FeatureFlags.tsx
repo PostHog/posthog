@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCopy, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -58,13 +58,13 @@ import {
 } from '~/types'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
-import { BulkCopyFlagsModal } from './BulkCopyFlagsModal'
+import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
-import { BULK_COPY_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
+import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
 
@@ -149,7 +149,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
     const { featureFlagsUpdating } = useValues(flagLogic)
-    const { updateFeatureFlag, loadFeatureFlags } = useActions(flagLogic)
+    const { toggleFeatureFlagActive, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
@@ -193,57 +193,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             }}
                             fullWidth
                         >
-                            Copy feature flag key
+                            Copy key
                         </LemonButton>
-
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.FeatureFlag}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={featureFlag.user_access_level}
-                        >
-                            <LemonButton
-                                data-attr={`feature-flag-${featureFlag.key}-switch`}
-                                onClick={() => {
-                                    const newValue = !featureFlag.active
-                                    LemonDialog.open({
-                                        title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                        description: `This flag will be immediately ${
-                                            newValue === true ? 'rolled out to' : 'rolled back from'
-                                        } the users matching the release conditions.`,
-                                        primaryButton: {
-                                            children: 'Confirm',
-                                            type: 'primary',
-                                            onClick: () => {
-                                                featureFlag.id
-                                                    ? updateFeatureFlag({
-                                                          id: featureFlag.id,
-                                                          payload: { active: newValue },
-                                                      })
-                                                    : null
-                                            },
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
-                                id={`feature-flag-${featureFlag.id}-switch`}
-                                fullWidth
-                                loading={isUpdating}
-                                disabledReason={
-                                    isUpdating
-                                        ? 'Updating…'
-                                        : featureFlag.archived
-                                          ? 'Unarchive this flag before enabling it.'
-                                          : undefined
-                                }
-                            >
-                                {featureFlag.active ? 'Disable' : 'Enable'} feature flag
-                            </LemonButton>
-                        </AccessControlAction>
 
                         {featureFlag.id && (
                             <AccessControlAction
@@ -287,6 +238,31 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 
                         <LemonDivider />
 
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.FeatureFlag}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={featureFlag.user_access_level}
+                        >
+                            <LemonButton
+                                data-attr={`feature-flag-${featureFlag.key}-switch`}
+                                onClick={() =>
+                                    featureFlag.id && toggleFeatureFlagActive(featureFlag.id, !featureFlag.active)
+                                }
+                                id={`feature-flag-${featureFlag.id}-switch`}
+                                fullWidth
+                                loading={isUpdating}
+                                disabledReason={
+                                    isUpdating
+                                        ? 'Updating…'
+                                        : featureFlag.archived
+                                          ? 'Unarchive this flag before enabling it.'
+                                          : undefined
+                                }
+                            >
+                                {featureFlag.active ? 'Disable' : 'Enable'}
+                            </LemonButton>
+                        </AccessControlAction>
+
                         {featureFlag.id && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
@@ -298,17 +274,15 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     onClick={() => {
                                         if (featureFlag.archived) {
                                             featureFlag.id &&
-                                                updateFeatureFlag({
-                                                    id: featureFlag.id,
-                                                    payload: { archived: false },
-                                                })
+                                                updateFeatureFlagArchived({ id: featureFlag.id, archived: false })
                                             return
                                         }
                                         openFeatureFlagArchiveDialog(featureFlag, () => {
                                             featureFlag.id &&
-                                                updateFeatureFlag({
+                                                updateFeatureFlagArchived({
                                                     id: featureFlag.id,
-                                                    payload: { archived: true, active: false },
+                                                    archived: true,
+                                                    via: 'archive-dialog',
                                                 })
                                         })
                                     }}
@@ -316,7 +290,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     loading={isUpdating}
                                     disabledReason={isUpdating ? 'Updating…' : undefined}
                                 >
-                                    {featureFlag.archived ? 'Unarchive' : 'Archive'} feature flag
+                                    {featureFlag.archived ? 'Unarchive' : 'Archive'}
                                 </LemonButton>
                             </AccessControlAction>
                         )}
@@ -334,7 +308,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
-                                                callback: loadFeatureFlags,
+                                                callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
                                             })
@@ -347,7 +321,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     }
                                     fullWidth
                                 >
-                                    Delete feature flag
+                                    Delete
                                 </LemonButton>
                             </AccessControlAction>
                         )}
@@ -675,19 +649,15 @@ export function OverviewTab({
                                         Select all {totalMatchingCount} matching flags
                                     </LemonButton>
                                 )}
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconCopy />}
-                                    data-attr="bulk-copy-flags-button"
-                                    disabledReason={
+                                <BulkCopyToProjectsButton
+                                    dataAttr="bulk-copy-flags-button"
+                                    selectedCount={ctx.selectedCount}
+                                    extraDisabledReason={
                                         (currentOrganization?.teams?.length ?? 0) <= 1
                                             ? 'Your organization has only one project'
-                                            : ctx.selectedCount > BULK_COPY_MAX_FLAGS
-                                              ? `Bulk copy supports up to ${BULK_COPY_MAX_FLAGS} flags at once`
-                                              : undefined
+                                            : undefined
                                     }
-                                    onClick={() => {
+                                    onOpen={() => {
                                         if (currentProjectId) {
                                             openBulkCopyModal({
                                                 sourceProjectId: currentProjectId,
@@ -695,9 +665,7 @@ export function OverviewTab({
                                             })
                                         }
                                     }}
-                                >
-                                    Copy to projects
-                                </LemonButton>
+                                />
                                 <BulkUpdateTagsButton
                                     resource="feature_flags"
                                     selectedIds={ctx.selectedKeys}

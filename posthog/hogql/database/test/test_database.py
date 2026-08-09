@@ -9,6 +9,7 @@ from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_po
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -63,8 +64,9 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
+from posthog.constants import AvailableFeature
 from posthog.models.group_type_mapping import invalidate_group_types_cache
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -199,6 +201,15 @@ class TestBuildDatabaseRootNode(TestCase):
 
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
+    allow_dual_schema_snapshots = True
+
+    def assertPrintedSqlMatchesSnapshot(self, printed: str) -> None:
+        normalized_sql = pretty_print_in_tests(printed, self.team.pk)
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in normalized_sql.lower()
+        )
+
+        assert normalized_sql == self._schema_snapshot(use_new_events_schema_snapshot)
 
     def test_create_hogql_database_team_id_and_team_must_be_the_same(self):
         with self.assertRaises(ValueError, msg="team_id and team must be the same"):
@@ -752,8 +763,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
-        # (credentials are decrypted once each here instead of re-decrypted per table/view row)
-        with self.assertNumQueries(6):
+        # (credentials are decrypted once each here instead of re-decrypted per table/view row),
+        # plus the saved-expressions fetch
+        with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -1539,7 +1551,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("select person.some_field.key from events"), context, dialect="clickhouse"
         )
 
-        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
+        self.assertPrintedSqlMatchesSnapshot(printed)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1568,7 +1580,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("select person.some_field.key from events"), context, dialect="clickhouse"
         )
 
-        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
+        self.assertPrintedSqlMatchesSnapshot(printed)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_database_warehouse_joins_persons_poe_v2_source_key_nested_ast_call(self):
@@ -3671,3 +3683,34 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         user_access_control, _denied = captured["result"]
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
+
+    @parameterized.expand(
+        [
+            # Admin/owner cases matter most: they short-circuit RBAC, so an entitlement check placed
+            # only in the per-resource loop would let them keep querying a table the org can't buy.
+            ("cloud_unentitled_admin", True, False, OrganizationMembership.Level.ADMIN, False),
+            ("cloud_unentitled_owner", True, False, OrganizationMembership.Level.OWNER, False),
+            ("cloud_unentitled_member", True, False, OrganizationMembership.Level.MEMBER, False),
+            ("cloud_entitled_admin", True, True, OrganizationMembership.Level.ADMIN, True),
+            ("self_hosted_unentitled_admin", False, False, OrganizationMembership.Level.ADMIN, True),
+        ]
+    )
+    def test_entitlement_gated_system_table_visibility(
+        self,
+        _name: str,
+        cloud: bool,
+        entitled: bool,
+        level: "OrganizationMembership.Level",
+        expected_visible: bool,
+    ):
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.AUDIT_LOGS, "name": AvailableFeature.AUDIT_LOGS}] if entitled else []
+        )
+        self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        with self.is_cloud(cloud):
+            database = Database.create_for(team=self.team, user=self.user)
+
+        assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible

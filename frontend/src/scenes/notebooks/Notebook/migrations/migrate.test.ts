@@ -17,9 +17,15 @@ describe('migrate()', () => {
                 '/api/environments/:team_id/query/upgrade': async ({ request }) => {
                     const data = (await request.json()) as any
                     const kind = data?.query?.source?.kind
-                    // These fixtures have no result customizations, so the trends/stickiness
-                    // migration past v2 is a no-op beyond the version bump the backend applies.
-                    if (kind === 'TrendsQuery' || kind === 'StickinessQuery') {
+                    // These fixtures have no result customizations and fully tagged series, so
+                    // the backend migrations are a no-op beyond the version bump they apply.
+                    if (
+                        kind === 'TrendsQuery' ||
+                        kind === 'StickinessQuery' ||
+                        kind === 'FunnelsQuery' ||
+                        kind === 'LifecycleQuery' ||
+                        kind === 'CalendarHeatmapQuery'
+                    ) {
                         return [
                             200,
                             {
@@ -280,6 +286,7 @@ describe('migrate()', () => {
                                     funnelWindowIntervalUnit: 'day',
                                 },
                                 aggregation_group_type_index: 0,
+                                version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             },
                         },
                         title: 'Organisation signed up -> recording analyzed, last 6 weeks',

@@ -35,9 +35,23 @@ USAGE_TYPES = [
     {"label": "Rows exported", "value": "rows_exported_in_period"},
     {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
     {"label": "Inbox credits", "value": "signals_credits_used_in_period"},
+    {"label": "PostHog Desktop credits", "value": "posthog_code_credits_used_in_period"},
+    {"label": "PostHog Desktop token credits", "value": "posthog_code_token_credits_used_in_period"},
+    {"label": "Sandbox compute credits", "value": "sandbox_compute_credits_used_in_period"},
+    {
+        "label": "Sandbox compute CPU millicore-seconds",
+        "value": "sandbox_compute_cpu_millicore_seconds_in_period",
+    },
+    {
+        "label": "Sandbox compute memory MiB-seconds",
+        "value": "sandbox_compute_memory_mib_seconds_in_period",
+    },
+    {"label": "Replay vision credits", "value": "replay_vision_credits_used_in_period"},
     {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
+    {"label": "Workflow push notifications", "value": "workflow_push_sent_in_period"},
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
+    {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
 ]
 
 

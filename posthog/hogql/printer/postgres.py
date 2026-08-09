@@ -20,7 +20,7 @@ from posthog.hogql.printer.postgres_functions import (
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
@@ -51,7 +51,10 @@ class PostgresPrinter(BasePrinter):
         return f"in {self.DIALECT_LABEL} mode"
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
-        return
+        # DuckDB permits everything the base gate rejects (INTERSECT/EXCEPT ALL, recursive CTEs) and
+        # supports UNION BY NAME natively — except INTERSECT/EXCEPT BY NAME, which it also rejects.
+        if set_operator.endswith(" BY NAME") and not set_operator.startswith("UNION "):
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def _assert_recursive_cte_supported(self) -> None:
         return
@@ -172,17 +175,30 @@ class PostgresPrinter(BasePrinter):
                     f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
                 )
             if node.distinct:
-                # Handlers compose custom SQL from pre-rendered args; injecting DISTINCT into
-                # that blindly risks silently changing what the aggregate counts.
-                raise QueryError(
-                    f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect."
-                )
+                if func_name in self._get_distinct_capable_handlers():
+                    # Fold DISTINCT into the rendered args so the handler emits e.g.
+                    # COUNT(DISTINCT expr) — valid SQL these aggregates support.
+                    args = [f"DISTINCT {', '.join(args)}"]
+                else:
+                    # Other handlers compose custom SQL from pre-rendered args; injecting
+                    # DISTINCT blindly risks silently changing what the aggregate counts.
+                    raise QueryError(
+                        f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect."
+                    )
             return handler(args)
 
         args_str = ", ".join(args)
         if func_name == "count" and not args and not node.distinct:
             # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
             args_str = "*"
+        elif func_name == "concat":
+            # concat(any...) cannot infer psycopg's untyped string parameters without an explicit cast.
+            args_str = ", ".join(
+                f"CAST({rendered_arg} AS TEXT)"
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                else rendered_arg
+                for arg, rendered_arg in zip(node.args, args, strict=True)
+            )
         if node.distinct:
             args_str = f"DISTINCT {args_str}"
 
@@ -210,6 +226,10 @@ class PostgresPrinter(BasePrinter):
     def _get_passthrough_functions(self) -> frozenset[str]:
         """Lowercased function names that are emitted verbatim without renaming."""
         return POSTGRES_PASSTHROUGH_FUNCTIONS
+
+    def _get_distinct_capable_handlers(self) -> frozenset[str]:
+        """Lowercased handler names whose SQL accepts a leading DISTINCT (e.g. COUNT(DISTINCT x))."""
+        return frozenset()
 
     def visit_array_slice(self, node: ast.ArraySlice):
         start = self.visit(node.start_expr) if node.start_expr is not None else ""

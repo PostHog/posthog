@@ -26,8 +26,9 @@ from products.batch_exports.backend.temporal.destinations.azure_blob_batch_expor
     insert_into_azure_blob_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
+from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 
 
@@ -175,7 +176,11 @@ async def assert_clickhouse_records_in_azure_blob(
 
     expected_records = []
     queue = RecordBatchQueue()
-    producer = Producer(model=SessionsRecordBatchModel(team_id)) if model_name == "sessions" else Producer()
+    producer = (
+        ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
+        if model_name == "sessions"
+        else ClickHouseTestProducer()
+    )
 
     producer_task = await producer.start(
         queue=queue,

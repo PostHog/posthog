@@ -59,7 +59,14 @@ const SourceTile = memo(function SourceTile({
                         </LemonButton>
                     </>
                 ) : (
-                    <SourceReleaseTag releaseStatus={item.releaseStatus} />
+                    <div className="flex flex-wrap items-center gap-1">
+                        {item.selfManaged && (
+                            <Tooltip title="Self-managed: your files stay in your own bucket and PostHog queries them there. The managed version copies the data into PostHog on a schedule.">
+                                <LemonTag type="muted">Self-managed</LemonTag>
+                            </Tooltip>
+                        )}
+                        <SourceReleaseTag releaseStatus={item.releaseStatus} />
+                    </div>
                 )}
             </div>
         </>
@@ -114,8 +121,15 @@ function RequestSourceTile({ onRequest }: { onRequest: () => void }): JSX.Elemen
 
 export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Element {
     const logic = sourceCatalogLogic({ allowedSources })
-    const { filteredItems, categoriesWithCounts, search, selectedCategory, sourceRequestModalOpen, sourceRequestText } =
-        useValues(logic)
+    const {
+        filteredItems,
+        categoriesWithCounts,
+        search,
+        selectedCategory,
+        hasCrossCategoryMatches,
+        sourceRequestModalOpen,
+        sourceRequestText,
+    } = useValues(logic)
     const {
         setSearch,
         setSelectedCategory,
@@ -152,20 +166,27 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                 <WarehouseWizardHint />
                 <LemonInput type="search" placeholder="Search sources..." value={search} onChange={setSearch} />
 
-                {filteredItems.length === 0 && (
-                    <div className="text-muted text-sm">
-                        No sources match.{' '}
-                        <Link
-                            onClick={() => {
-                                setSearch('')
-                                setSelectedCategory('all')
-                            }}
-                        >
-                            Clear filters
-                        </Link>{' '}
-                        or request one below.
-                    </div>
-                )}
+                {filteredItems.length === 0 &&
+                    (hasCrossCategoryMatches ? (
+                        <div className="text-muted text-sm">
+                            No sources match "{search.trim()}" in {selectedCategory}.{' '}
+                            <Link onClick={() => setSelectedCategory('all')}>Search all categories</Link> or request one
+                            below.
+                        </div>
+                    ) : (
+                        <div className="text-muted text-sm">
+                            No sources match.{' '}
+                            <Link
+                                onClick={() => {
+                                    setSearch('')
+                                    setSelectedCategory('all')
+                                }}
+                            >
+                                Clear filters
+                            </Link>{' '}
+                            or request one below.
+                        </div>
+                    ))}
 
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
                     {filteredItems.map((item) => (

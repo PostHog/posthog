@@ -206,4 +206,53 @@ describe('relatedFeatureFlagsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
     })
+
+    describe('load errors', () => {
+        beforeEach(() => {
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: [
+                        200,
+                        { results: MOCK_FLAGS, count: MOCK_FLAGS.length },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]: [
+                        503,
+                        { error: 'Feature flag evaluation service is temporarily unavailable. Please try again.' },
+                    ],
+                },
+            })
+            flagsLogic = featureFlagsLogic()
+            flagsLogic.mount()
+            logic = relatedFeatureFlagsLogic({ distinctId: 'test-user' })
+            logic.mount()
+        })
+
+        it('sets loadError on a failed load and clears it once a retry succeeds', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadError).toBe(true)
+            // No pagination controls next to the error state — the flags list count would
+            // otherwise keep the arrows active over an empty table
+            expect(logic.values.pagination).toBeUndefined()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]:
+                        MOCK_EVALUATION_REASONS,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRelatedFeatureFlags()
+            }).toFinishAllListeners()
+            await expectLogic(flagsLogic).toFinishAllListeners()
+
+            expect(logic.values.loadError).toBe(false)
+            // Server-controlled paging over the full flags list must come back after a retry —
+            // this table pages through featureFlagsLogic, not through its own rows
+            expect(logic.values.pagination).toEqual(
+                expect.objectContaining({ controlled: true, entryCount: MOCK_FLAGS.length })
+            )
+        })
+    })
 })

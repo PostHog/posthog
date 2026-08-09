@@ -40,11 +40,13 @@ from posthog.tasks.email import (
     send_new_ticket_notification,
     send_password_reset,
     send_posthog_ai_access_request,
+    send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_wizard_pr_ready_email,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -391,7 +393,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "via" not in mocked_email_messages[0].html_body
 
-    def test_send_wizard_pr_ready_email_uses_customer_io_context(self, MockEmailMessage: MagicMock) -> None:
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_wizard_pr_ready_email_uses_customer_io_context(
+        self, _mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard@posthog.com")
         team = user.team
@@ -432,6 +437,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "task_id": str(task.id),
             "run_id": str(run.id),
             "site_url": settings.SITE_URL,
+            "team_name": team.name,
             "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=wizard_pr_ready",
         }
 
@@ -1683,9 +1689,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 0
 
+    @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")
     def test_login_from_new_device_notification(
-        self, mock_check_device: MagicMock, MockEmailMessage: MagicMock
+        self, mock_check_device: MagicMock, _mock_get_client: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mock_check_device.return_value = True  # Simulate new device
@@ -1708,9 +1715,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Canada" in html_body
         assert "Google OAuth" in html_body
 
+    @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")
     def test_login_from_new_device_notification_email_password(
-        self, mock_check_device: MagicMock, MockEmailMessage: MagicMock
+        self, mock_check_device: MagicMock, _mock_get_client: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mock_check_device.return_value = True  # Simulate new device
@@ -1804,6 +1812,49 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         membership.save()
 
         send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=owner.id)
+
+        assert len(mocked_email_messages) == 0
+
+    def test_send_project_secret_api_key_exposed(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="regular-member@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        key, _ = create_project_secret_api_key(team=self.team, created_by=self.user, label="Production key")
+
+        send_project_secret_api_key_exposed(self.team.id, key.id, "phs_...abcd", "This key was detected by GitHub.")
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.template_name == "project_secret_api_key_exposed"
+        # Only admins are notified since they are the ones who can manage keys
+        recipient_emails = {dest["raw_email"] for dest in message.to}
+        assert recipient_emails == {self.user.email}
+        assert message.properties["label"] == "Production key"
+        assert message.properties["mask_value"] == "phs_...abcd"
+        assert (
+            message.properties["url"]
+            == f"{settings.SITE_URL}/project/{self.team.pk}/settings/environment-secret-api-keys"
+        )
+        assert message.html_body
+
+    def test_send_project_secret_api_key_exposed_respects_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.user.partial_notification_settings = {"project_api_key_exposed": False}
+        self.user.save()
+        key, _ = create_project_secret_api_key(team=self.team, label="Production key")
+
+        send_project_secret_api_key_exposed(self.team.id, key.id, "phs_...abcd", "")
 
         assert len(mocked_email_messages) == 0
 
@@ -2016,7 +2067,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
-                "newly_paused_view_is_included",
+                "unscheduled_failing_view_is_included",
                 {
                     "sync_frequency_interval": None,
                     "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
@@ -2025,7 +2076,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
-                "old_paused_view_is_skipped",
+                "unscheduled_view_with_old_failure_is_skipped",
                 {
                     "sync_frequency_interval": None,
                     "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
@@ -2039,6 +2090,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 [
                     ("FAILED", dt.timedelta(hours=2), "Some error"),
                     ("COMPLETED", dt.timedelta(hours=1), None),
+                ],
+                False,
+            ),
+            (
+                "v2_view_with_stale_error_and_completed_run_is_skipped",
+                {
+                    "sync_frequency_interval": None,
+                    "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
+                },
+                [
+                    ("FAILED", dt.timedelta(days=20), "Query exceeded timeout"),
+                    ("COMPLETED", dt.timedelta(hours=1), None),
+                ],
+                False,
+            ),
+            (
+                "v2_failing_view_null_latest_error",
+                {"sync_frequency_interval": None},
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
+                True,
+            ),
+            (
+                # the broken parent is the one reported; mailing every descendant would bury it
+                "view_blocked_by_a_broken_parent",
+                {"sync_frequency_interval": None},
+                [
+                    ("FAILED", dt.timedelta(hours=3), "Some error"),
+                    ("SKIPPED", dt.timedelta(hours=1), "Skipped because upstream view orders_daily is failing."),
                 ],
                 False,
             ),
@@ -2223,11 +2302,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
-        paused_cases = [
+        unscheduled_cases = [
             ("heavy_joins_with_warehouse", "Query timed out after 900 seconds"),
             ("experimental_feature_funnels", "Query timed out after 900 seconds"),
         ]
-        for name, error in paused_cases:
+        for name, error in unscheduled_cases:
             sq = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=name,
@@ -2247,11 +2326,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         html = mocked_email_messages[0].html_body
-        for name, _ in failed_cases + paused_cases:
+        for name, _ in failed_cases + unscheduled_cases:
             assert name in html
-        assert ">Paused<" in html
-        # Paused views render the check glyph; non-paused render an em-dash.
-        assert "&#10003;" in html
+        # The digest never flags views as paused, so every row renders the em-dash glyph.
+        assert "&#10003;" not in html
         assert "&#8212;" in html
 
     @parameterized.expand(

@@ -8,7 +8,7 @@ from posthog.models import Team
 
 from products.error_tracking.backend.embedding import PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
@@ -80,6 +80,8 @@ class Command(BaseCommand):
         SignalReportArtefact.objects.filter(team=team).delete()
 
         self.stdout.write(f"Deleting {report_count} SignalReports...")
+        # Refunds RESTRICT report deletion; a dev wipe means everything goes.
+        SignalReportRefund.objects.for_team(team.id).delete()
         SignalReport.objects.filter(team=team).delete()
 
         # 3. Terminate Temporal workflows

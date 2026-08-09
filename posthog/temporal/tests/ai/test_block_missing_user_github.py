@@ -30,7 +30,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         self.user = User.objects.create(email="alice@test.com")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_returns_true_and_posts_block_when_user_has_no_personal_github(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -51,15 +51,23 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert button["text"]["text"] == "Connect GitHub"
         assert button["url"].endswith(f"/project/{self.team.id}/settings/user-personal-integrations")
 
-    @patch("posthog.models.integration.SlackIntegration")
-    def test_returns_false_and_posts_nothing_when_user_has_personal_github(self, mock_slack_cls):
+    def _create_personal_github(self, *, usable: bool) -> None:
+        sensitive_config: dict = {"user_access_token": "at", "user_refresh_token": "rt"}
+        config: dict = {}
+        if not usable:
+            # Refresh token expired in the past — the row exists but can't mint a token.
+            config["user_refresh_token_expires_at"] = 1
         UserIntegration.objects.create(
             user=self.user,
             kind="github",
             integration_id="gh-1",
-            config={},
-            sensitive_config={"access_token": "tok"},
+            config=config,
+            sensitive_config=sensitive_config,
         )
+
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
+    def test_returns_false_and_posts_nothing_when_user_has_usable_personal_github(self, mock_slack_cls):
+        self._create_personal_github(usable=True)
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
@@ -70,7 +78,23 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert blocked is False
         mock_slack.client.chat_postMessage.assert_not_called()
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
+    def test_stale_personal_github_blocks_with_reconnect_wording(self, mock_slack_cls):
+        self._create_personal_github(usable=False)
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        blocked = block_posthog_code_task_if_no_personal_github_activity(
+            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id
+        )
+
+        assert blocked is True
+        kwargs = mock_slack.client.chat_postMessage.call_args.kwargs
+        assert "expired" in kwargs["text"]
+        action_block = next(b for b in kwargs["blocks"] if b.get("type") == "actions")
+        assert action_block["elements"][0]["text"]["text"] == "Reconnect GitHub"
+
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_only_github_kind_counts_as_personal_integration(self, mock_slack_cls):
         UserIntegration.objects.create(
             user=self.user,
@@ -97,7 +121,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         ]
     )
     @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled")
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_allow_bot_prs_gates_on_flag_and_team_install(
         self, _name, flag_on, has_team_install, expect_blocked, mock_slack_cls, mock_flag
     ):
@@ -119,7 +143,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert blocked is expect_blocked
         assert mock_slack.client.chat_postMessage.called is expect_blocked
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_another_users_github_integration_does_not_count(self, mock_slack_cls):
         other_user = User.objects.create(email="bob@test.com")
         UserIntegration.objects.create(

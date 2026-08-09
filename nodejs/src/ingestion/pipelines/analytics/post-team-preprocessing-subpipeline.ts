@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
@@ -23,7 +22,6 @@ import {
     createValidateEventSchemaStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
@@ -55,12 +53,17 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     groupsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
     flagCalledPersonlessDefaultTeams: string
-    hogTransformer: HogTransformer
-    cdpHogWatcherSampleRate: number
+    personlessWritesDisabledTeams: string
 }
 
-export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
-    builder: ChunkPipelineBuilder<TInput, TInput, TContext, TContext>,
+export function createPostTeamPreprocessingSubpipeline<
+    TStart,
+    TInput extends PostTeamPreprocessingSubpipelineInput,
+    TContext,
+    R extends string = never,
+    D = unknown,
+>(
+    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R, D>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
@@ -77,25 +80,22 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         groupsPrefetchEnabled,
         groupTypeManager,
         flagCalledPersonlessDefaultTeams,
-        hogTransformer,
-        cdpHogWatcherSampleRate,
+        personlessWritesDisabledTeams,
     } = config
 
     return (
         builder
             // These validation steps are synchronous, so we can process events sequentially.
-            .sequentially((b) => {
-                const validated = b.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
-
-                const schemaChecked = eventSchemaEnforcementEnabled
-                    ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
-                    : validated
-
-                return schemaChecked
+            .sequentially((b) =>
+                b
+                    .pipe(createValidateEventMetadataStep())
+                    .pipe(createValidateEventPropertiesStep())
+                    // Schema enforcement is opt-in; the step passes events through when disabled.
+                    .pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager, eventSchemaEnforcementEnabled))
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createDropOldEventsStep())
                     .pipe(createApplyEventFiltersStep(eventFilterManager))
-            })
+            )
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
             // are captured with $posthog_cookieless distinct ID and rewritten here).
@@ -124,7 +124,11 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
             .pipeChunk(
-                processPersonlessDistinctIdsChunkStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
+                processPersonlessDistinctIdsChunkStep(
+                    personsPrefetchEnabled,
+                    flagCalledPersonlessDefaultTeams,
+                    personlessWritesDisabledTeams
+                ),
                 {
                     retry: {
                         tries: 5,
@@ -133,7 +137,5 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
                     },
                 }
             )
-            // Prefetch hog functions for all teams in the batch
-            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )
 }

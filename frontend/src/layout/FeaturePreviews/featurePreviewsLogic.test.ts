@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { featurePreviewsLogic } from './featurePreviewsLogic'
@@ -26,11 +25,10 @@ describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
+        ;(posthog as any).conversations = {
+            isAvailable: () => true,
+            sendMessage: jest.fn().mockResolvedValue({ ticket_id: '123', ticket_status: 'open', created_at: '' }),
+        }
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -51,6 +49,31 @@ describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback', () => {
     })
 })
 
+describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback failure', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        ;(posthog as any).conversations = {
+            isAvailable: () => true,
+            sendMessage: jest.fn().mockRejectedValue(new Error('network down')),
+        }
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    test('keeps the feedback panel open so the text survives for a retry', async () => {
+        logic.actions.beginEarlyAccessFeatureFeedback('test')
+        await logic.asyncActions.submitEarlyAccessFeatureFeedback('important feedback')
+
+        // The submit failed, so activeFeedbackFlagKey stays set — the panel (and the component's
+        // local draft) survive. On success it would be cleared to null, closing the panel.
+        await expectLogic(logic).toMatchValues({ activeFeedbackFlagKey: 'test', activeFeedbackFlagKeyLoading: false })
+    })
+})
+
 describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment', () => {
     let logic: ReturnType<typeof featurePreviewsLogic.build>
     const mockUpdateEnrollment = jest.fn()
@@ -61,11 +84,6 @@ describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment', () => {
         // Set up the mock implementation for posthog
         ;(posthog as any).updateEarlyAccessFeatureEnrollment = mockUpdateEnrollment
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -102,11 +120,6 @@ describe('featurePreviewsLogic - conceptEnrollments reducer', () => {
         jest.clearAllMocks()
         ;(posthog as any).updateEarlyAccessFeatureEnrollment = jest.fn()
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -132,6 +145,97 @@ describe('featurePreviewsLogic - conceptEnrollments reducer', () => {
     })
 })
 
+describe('featurePreviewsLogic - submitConceptSurvey', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+    const mockCapture = jest.fn()
+    const mockUpdateEnrollment = jest.fn()
+    let originalImpersonatedSession: boolean | undefined
+
+    afterEach(() => {
+        window.IMPERSONATED_SESSION = originalImpersonatedSession
+    })
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        originalImpersonatedSession = window.IMPERSONATED_SESSION
+        ;(posthog as any).capture = mockCapture
+        ;(posthog as any).updateEarlyAccessFeatureEnrollment = mockUpdateEnrollment
+
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    test('captures the survey response, records enrollment, and marks the flag submitted', async () => {
+        logic.actions.loadEarlyAccessFeaturesSuccess([
+            {
+                flagKey: 'concept-flag',
+                stage: 'concept',
+                payload: { survey_id: 'survey-123', survey_question_id: 'question-456' },
+            } as any,
+        ])
+
+        logic.actions.submitConceptSurvey('concept-flag', 'test@example.com')
+
+        expect(mockCapture).toHaveBeenCalledWith('survey sent', {
+            $survey_id: 'survey-123',
+            $survey_response: 'test@example.com',
+            '$survey_response_question-456': 'test@example.com',
+        })
+        expect(mockUpdateEnrollment).toHaveBeenCalledWith('concept-flag', true, 'concept')
+        await expectLogic(logic)
+            .toDispatchActions(['conceptSurveySubmitted'])
+            .toMatchValues({ conceptSurveySubmissions: { 'concept-flag': true } })
+    })
+
+    test('captures without a per-question key when the payload has no question id', () => {
+        logic.actions.loadEarlyAccessFeaturesSuccess([
+            { flagKey: 'concept-flag', stage: 'concept', payload: { survey_id: 'survey-123' } } as any,
+        ])
+
+        logic.actions.submitConceptSurvey('concept-flag', 'test@example.com')
+
+        expect(mockCapture).toHaveBeenCalledWith('survey sent', {
+            $survey_id: 'survey-123',
+            $survey_response: 'test@example.com',
+        })
+    })
+
+    test('shows an error and does not mark submitted when the feature has no linked survey', async () => {
+        logic.actions.loadEarlyAccessFeaturesSuccess([
+            { flagKey: 'concept-flag', stage: 'concept', payload: {} } as any,
+        ])
+
+        logic.actions.submitConceptSurvey('concept-flag', 'test@example.com')
+
+        expect(mockCapture).not.toHaveBeenCalled()
+        expect(mockUpdateEnrollment).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            "This feature isn't accepting sign-ups yet. Please try again later."
+        )
+        await expectLogic(logic).toMatchValues({ conceptSurveySubmissions: {} })
+    })
+
+    test('does not capture anything during an impersonated session', async () => {
+        window.IMPERSONATED_SESSION = true
+        logic.actions.loadEarlyAccessFeaturesSuccess([
+            {
+                flagKey: 'concept-flag',
+                stage: 'concept',
+                payload: { survey_id: 'survey-123' },
+            } as any,
+        ])
+
+        logic.actions.submitConceptSurvey('concept-flag', 'test@example.com')
+
+        expect(mockCapture).not.toHaveBeenCalled()
+        expect(mockUpdateEnrollment).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith('Cannot sign up for a waitlist while impersonating a user')
+        await expectLogic(logic).toMatchValues({ conceptSurveySubmissions: {} })
+    })
+})
+
 describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment (impersonated session)', () => {
     let logic: ReturnType<typeof featurePreviewsLogic.build>
     const mockUpdateEnrollment = jest.fn()
@@ -147,11 +251,6 @@ describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment (impersonate
         // Set up the mock implementation for posthog
         ;(posthog as any).updateEarlyAccessFeatureEnrollment = mockUpdateEnrollment
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()

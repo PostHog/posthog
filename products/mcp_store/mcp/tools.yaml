@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: MCP Store
 feature: mcp_store
-url_prefix: /settings/environment-mcp-servers
+url_prefix: /settings/mcp-servers
 ui_apps: {}
 tools:
     mcp-connection-tools-list:
@@ -74,6 +74,99 @@ tools:
         enabled: false
     mcp-connections-update:
         operation: mcp_server_installations_update
+        enabled: false
+    mcp-gateway-audit-counts-retrieve:
+        operation: mcp_gateway_audit_counts_retrieve
+        enabled: false
+    mcp-gateway-audit-list:
+        operation: mcp_gateway_audit_list
+        enabled: false
+    mcp-gateway-audit-retrieve:
+        operation: mcp_gateway_audit_retrieve
+        enabled: false
+    mcp-gateway-config-apply-preset-create:
+        operation: mcp_gateway_config_apply_preset_create
+        enabled: false
+    mcp-gateway-config-list:
+        operation: mcp_gateway_config_list
+        enabled: false
+    mcp-gateway-config-set-all-servers-enabled-create:
+        operation: mcp_gateway_config_set_all_servers_enabled_create
+        enabled: false
+    mcp-gateway-config-update-settings-create:
+        operation: mcp_gateway_config_update_settings_create
+        enabled: false
+    mcp-gateway-members-list:
+        operation: mcp_gateway_members_list
+        enabled: false
+    mcp-gateway-members-retrieve:
+        operation: mcp_gateway_members_retrieve
+        enabled: false
+    mcp-gateway-members-set-access-create:
+        operation: mcp_gateway_members_set_access_create
+        enabled: false
+    mcp-gateway-rules-create:
+        operation: mcp_gateway_rules_create
+        enabled: false
+    mcp-gateway-rules-destroy:
+        operation: mcp_gateway_rules_destroy
+        enabled: false
+    mcp-gateway-rules-list:
+        operation: mcp_gateway_rules_list
+        enabled: false
+    mcp-gateway-rules-partial-update:
+        operation: mcp_gateway_rules_partial_update
+        enabled: false
+    mcp-gateway-rules-retrieve:
+        operation: mcp_gateway_rules_retrieve
+        enabled: false
+    mcp-gateway-rules-update:
+        operation: mcp_gateway_rules_update
+        enabled: false
+    mcp-gateway-servers-destroy:
+        operation: mcp_gateway_servers_destroy
+        enabled: false
+    mcp-gateway-servers-list:
+        operation: mcp_gateway_servers_list
+        enabled: false
+    mcp-gateway-servers-partial-update:
+        operation: mcp_gateway_servers_partial_update
+        enabled: false
+    mcp-gateway-servers-policies-create:
+        operation: mcp_gateway_servers_policies_create
+        enabled: false
+    mcp-gateway-servers-retrieve:
+        operation: mcp_gateway_servers_retrieve
+        enabled: false
+    mcp-gateway-servers-set-template-enabled-create:
+        operation: mcp_gateway_servers_set_template_enabled_create
+        enabled: false
+    mcp-gateway-servers-tools-retrieve:
+        operation: mcp_gateway_servers_tools_retrieve
+        enabled: false
+    mcp-gateway-servers-update:
+        operation: mcp_gateway_servers_update
+        enabled: false
+    mcp-gateway-service-accounts-access-create:
+        operation: mcp_gateway_service_accounts_access_create
+        enabled: false
+    mcp-gateway-service-accounts-list:
+        operation: mcp_gateway_service_accounts_list
+        enabled: false
+    mcp-gateway-service-accounts-partial-update:
+        operation: mcp_gateway_service_accounts_partial_update
+        enabled: false
+    mcp-gateway-service-accounts-retrieve:
+        operation: mcp_gateway_service_accounts_retrieve
+        enabled: false
+    mcp-gateway-service-accounts-update:
+        operation: mcp_gateway_service_accounts_update
+        enabled: false
+    mcp-server-installations-available-tools-retrieve:
+        operation: mcp_server_installations_available_tools_retrieve
+        enabled: false
+    mcp-server-installations-call-tool-create:
+        operation: mcp_server_installations_call_tool_create
         enabled: false
     mcp-server-installations-share-create:
         operation: mcp_server_installations_share_create

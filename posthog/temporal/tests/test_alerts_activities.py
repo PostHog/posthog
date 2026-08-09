@@ -22,8 +22,9 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
+from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
@@ -441,12 +442,13 @@ class TestEvaluateAlert:
 
     async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
         # Transient CH errors bubble up so Temporal's retry policy handles them.
+        # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=CHQueryErrorTooManySimultaneousQueries("too many"),
+            side_effect=ClickHouseAtCapacity(),
         ):
             env = ActivityEnvironment()
-            with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            with pytest.raises(ClickHouseAtCapacity):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         # No AlertCheck should have been written
@@ -491,6 +493,8 @@ class TestNotifyAlert:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
         with (
+            patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=["alice@posthog.com"],
@@ -516,9 +520,21 @@ class TestNotifyAlert:
         refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed_alert.last_notified_at is not None
 
+        completed = [
+            call
+            for call in mock_slo_analytics.capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+        ]
+        assert len(completed) == 1
+        properties = completed[0].kwargs["properties"]
+        assert properties["operation"] == SloOperation.ALERT_DELIVERY
+        assert properties["outcome"] == SloOutcome.SUCCESS
+        assert properties["region"] == "US"
+        assert properties["alert_check_id"] == str(check.id)
+
     async def test_firing_passes_stable_idempotency_key_to_breach_sender(self, alert_with_user) -> None:
-        # MessagingRecord dedupes retries via campaign_key; notify_alert must pass the
-        # AlertCheck id so a retry reuses the same key and the provider skips re-sending.
+        # MessagingRecord dedupes email retries via campaign_key; notify_alert must pass
+        # the AlertCheck id so a retry reuses the same key.
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
         with patch(
@@ -538,8 +554,7 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         call_kwargs = mock_breaches.call_args.kwargs
         assert call_kwargs.get("idempotency_key") == str(check.id), (
-            "notify_alert must pass alert_check.id as idempotency_key so MessagingRecord "
-            "dedupes Temporal retries at the provider level"
+            "notify_alert must pass alert_check.id as idempotency_key so MessagingRecord dedupes email retries"
         )
 
     async def test_sends_error_notifications_when_errored(self, alert_with_user) -> None:
@@ -611,9 +626,13 @@ class TestNotifyAlert:
     async def test_raises_on_send_failure(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
-        with patch(
-            "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-            side_effect=RuntimeError("SMTP unavailable"),
+        with (
+            patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+                side_effect=RuntimeError("SMTP unavailable"),
+            ),
         ):
             env = ActivityEnvironment()
             with pytest.raises(RuntimeError):
@@ -629,6 +648,14 @@ class TestNotifyAlert:
         # targets_notified stays empty so Temporal retry re-attempts delivery
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {}
+
+        completed = [
+            call
+            for call in mock_slo_analytics.capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+        ]
+        assert len(completed) == 1
+        assert completed[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
 
     async def test_firing_dispatches_realtime_notification(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)

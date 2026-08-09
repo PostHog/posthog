@@ -157,187 +157,41 @@ class BoxNameIsUniquePerAttemptTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
-class ProvisionReapsLeftoversTest(unittest.TestCase):
-    """After the pen is repointed at the new box, best-effort reap every OTHER
-    box whose name equals the pen name (legacy corpses) or starts with the pen
-    name + '-' (this-tool corpses from failed runs) — never the just-created
-    box."""
-
-    def _backend_ready_to_reap(self, client, new_box):
-        backend = _make_backend(client)
-        # Pretend provision() already restored + repointed; drive reaping directly.
-        backend._box = new_box
-        backend._box_id = new_box.id
-        backend._pen = _FakePen(current_box_id=new_box.id)
-        return backend
-
-    def test_reaps_exact_and_prefix_named_boxes(self):
-        new_box = _FakeBox(box_id="box-new")
-        deleted_handles: dict[str, _FakeBox] = {}
-
-        boxes = [
-            _FakeBoxView("box-new", "preview-pr-999-aaaaaa"),  # the just-created box — keep
-            _FakeBoxView("box-legacy", "preview-pr-999"),  # legacy exact-name corpse
-            _FakeBoxView("box-corpse", "preview-pr-999-bbbbbb"),  # failed-run corpse
-            _FakeBoxView("box-other", "preview-pr-1000-cccccc"),  # different pen — keep
-        ]
-
-        def get(box_id):
-            h = _FakeBox(box_id=box_id)
-            deleted_handles[box_id] = h
-            return h
-
-        client = _FakeClient(get=get, boxes=boxes)
-        backend = self._backend_ready_to_reap(client, new_box)
-
-        backend._reap_leftovers()
-
-        deleted = {bid for bid, h in deleted_handles.items() if h.deleted}
-        self.assertEqual(deleted, {"box-legacy", "box-corpse"})
-        self.assertFalse(new_box.deleted)
-
-    def test_never_matches_other_previews_boxes(self):
-        # Nested names must not cross-match: preview-pr-99 owns neither
-        # preview-pr-999's boxes nor anything without the exact 6-hex tag.
-        from hogbox_preview.hogland_backend import HoglandBackend
-
-        backend = HoglandBackend(host="https://example.invalid", name="preview-pr-99", token="test-token")
-        self.assertTrue(backend._name_matches("preview-pr-99"))
-        self.assertTrue(backend._name_matches("preview-pr-99-abc123"))
-        self.assertFalse(backend._name_matches("preview-pr-999-abc123"))  # other preview's box
-        self.assertFalse(backend._name_matches("preview-pr-99-abc123-extra"))  # not our tag shape
-        self.assertFalse(backend._name_matches("preview-pr-99-ABC123"))  # tag is lowercase hex
-
-    def test_reap_failure_does_not_raise(self):
-        from hogland import NotFoundError
-
-        new_box = _FakeBox(box_id="box-new")
-        boxes = [_FakeBoxView("box-corpse", "preview-pr-999-bbbbbb")]
-
-        def get(_box_id):
-            raise NotFoundError("box gone", status_code=404)
-
-        client = _FakeClient(get=get, boxes=boxes)
-        backend = self._backend_ready_to_reap(client, new_box)
-
-        # Must not raise even though the per-box delete path blows up.
-        backend._reap_leftovers()
-
-    def test_list_failure_does_not_raise(self):
-        # The list call itself failing (transient 5xx while enumerating boxes)
-        # must be swallowed too — provision() reaps after the preview is already
-        # working, so a reap hiccup must not fail the run.
-        class _ListBoom(_FakeClient):
-            def iter_boxes(self):
-                raise RuntimeError("hogland API error (HTTP 502)")
-
-        new_box = _FakeBox(box_id="box-new")
-        backend = self._backend_ready_to_reap(_ListBoom(), new_box)
-
-        backend._reap_leftovers()
-
-
-@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
 class DestroyReleasesPenTest(unittest.TestCase):
-    """destroy() must delete the pen's box AND all name-matched boxes, then always
-    reach delete_pen — a box already TTL-reaped counts as 'already gone', it must
-    not abort teardown and leak the pen."""
-
-    def test_pen_released_when_box_lookup_404s(self):
+    def test_explicit_box_is_deleted_when_pen_is_missing(self):
         from hogland import NotFoundError
 
-        def boom(_box_id):
-            raise NotFoundError("box gone", status_code=404)
-
-        client = _FakeClient(get=boom, get_pen=_FakePen(current_box_id="box-reaped"))
+        box = _FakeBox(box_id="box-explicit")
+        client = _FakeClient(get=box)
         backend = _make_backend(client)
-        backend._box_id = "box-reaped"  # forces _resolve_box down the direct get() path
-
-        backend.destroy()
-
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
-
-    def test_pen_released_when_box_delete_404s(self):
-        from hogland import NotFoundError
-
-        box = _FakeBox(delete_raises=NotFoundError("box gone", status_code=404))
-        client = _FakeClient()
-        backend = _make_backend(client)
-        backend._box = box  # _resolve_box short-circuits to the live handle
-
-        backend.destroy()
-
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
-
-    def test_pen_released_when_box_delete_5xxs(self):
-        # Teardown is best-effort all the way: a transient server error deleting
-        # the box must not abort before delete_pen (the box has a TTL, the pen
-        # doesn't).
-        box = _FakeBox(delete_raises=RuntimeError("hogland API error (HTTP 502)"))
-        client = _FakeClient()
-        backend = _make_backend(client)
-        backend._box = box
-
-        backend.destroy()
-
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
-
-    def test_happy_path_deletes_box_then_pen(self):
-        box = _FakeBox()
-        client = _FakeClient()
-        backend = _make_backend(client)
-        backend._box = box
+        backend._box_id = box.id
+        backend._delete_pen_if_current_box = unittest.mock.Mock(side_effect=NotFoundError("no pen", status_code=404))
 
         backend.destroy()
 
         self.assertTrue(box.deleted)
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
+        backend._delete_pen_if_current_box.assert_called_once_with(box.id)
 
-    def test_pen_released_when_leftover_listing_fails(self):
-        # A transient 5xx while listing boxes for the leftover sweep must not
-        # abort teardown before delete_pen — that would leak the pen forever
-        # (teardown only runs on PR close).
-        class _ListBoom(_FakeClient):
-            def iter_boxes(self):
-                raise RuntimeError("hogland API error (HTTP 502)")
+    def test_explicit_box_is_deleted_when_pen_was_replaced(self):
+        from hogland import ConflictError
 
-        box = _FakeBox()
-        backend = _make_backend(_ListBoom())
-        backend._box = box  # _resolve_box short-circuits, only the reap lists
+        box = _FakeBox(box_id="box-explicit")
+        backend = _make_backend(_FakeClient(get=box))
+        backend._box_id = box.id
+        backend._delete_pen_if_current_box = unittest.mock.Mock(side_effect=ConflictError("pen moved", status_code=409))
 
         backend.destroy()
 
         self.assertTrue(box.deleted)
-        self.assertEqual(backend._client.deleted_pens, ["preview-pr-999"])
+        backend._delete_pen_if_current_box.assert_called_once_with(box.id)
 
-    def test_deletes_all_name_matched_boxes(self):
-        # No live handle / pen pointer: destroy() should still sweep every box
-        # whose name exact- or prefix-matches, then delete the pen.
-        from hogland import NotFoundError
-
-        deleted_handles: dict[str, _FakeBox] = {}
-        boxes = [
-            _FakeBoxView("box-a", "preview-pr-999-aaaaaa"),
-            _FakeBoxView("box-legacy", "preview-pr-999"),
-            _FakeBoxView("box-other", "preview-pr-1000-cccccc"),  # different pen — keep
-        ]
-
-        def get_pen(_name):
-            raise NotFoundError("no pen", status_code=404)
-
-        def get(box_id):
-            h = _FakeBox(box_id=box_id)
-            deleted_handles[box_id] = h
-            return h
-
-        client = _FakeClient(get=get, get_pen=get_pen, boxes=boxes)
-        backend = _make_backend(client)
+    def test_name_only_teardown_deletes_empty_pen(self):
+        backend = _make_backend(_FakeClient(get_pen=_FakePen(current_box_id=None)))
+        backend._delete_pen = unittest.mock.Mock()
 
         backend.destroy()
 
-        deleted = {bid for bid, h in deleted_handles.items() if h.deleted}
-        self.assertEqual(deleted, {"box-a", "box-legacy"})
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
+        backend._delete_pen.assert_called_once_with()
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
@@ -461,6 +315,65 @@ class CreateRetriesTransient5xxTest(unittest.TestCase):
                 backend._restore_fresh()
 
         self.assertEqual(attempts["n"], 1)
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class CreateFailsFastOnNoCapacityTest(unittest.TestCase):
+    """A capacity 503 already cost ~4 minutes server-side (auction retry
+    budget) before hogland gave up, so it must raise on the first attempt
+    instead of burning 3x that in runner time. Every other 5xx keeps
+    retrying — see CreateRetriesTransient5xxTest."""
+
+    def _stub_ssh(self):
+        from hogbox_preview import hogland_backend
+
+        return unittest.mock.patch.object(
+            hogland_backend, "_ephemeral_ssh_pubkey", return_value="ssh-ed25519 AAAA fake"
+        )
+
+    def test_capacity_503_raises_immediately(self):
+        from hogbox_preview import hogland_backend
+        from hogland import ServerError
+
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            raise ServerError(
+                "no hogd has capacity: scale-up did not produce a willing hogd within 5m0s",
+                status_code=503,
+            )
+
+        client = _FakeClient(create=create)
+        backend = _make_backend(client)
+
+        with self._stub_ssh(), unittest.mock.patch.object(hogland_backend.time, "sleep") as sleep:
+            with self.assertRaises(ServerError) as ctx:
+                backend._restore_fresh()
+
+        self.assertEqual(attempts["n"], 1)
+        sleep.assert_not_called()
+        self.assertIn("no capacity", str(ctx.exception))
+        self.assertIn("retry", str(ctx.exception))
+
+    def test_generic_5xx_still_retries_three_times(self):
+        from hogbox_preview import hogland_backend
+        from hogland import ServerError
+
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            raise ServerError("placement failed: place: EOF", status_code=500)
+
+        client = _FakeClient(create=create)
+        backend = _make_backend(client)
+
+        with self._stub_ssh(), unittest.mock.patch.object(hogland_backend.time, "sleep"):
+            with self.assertRaises(ServerError):
+                backend._restore_fresh()
+
+        self.assertEqual(attempts["n"], hogland_backend._CREATE_5XX_ATTEMPTS)
 
 
 if __name__ == "__main__":

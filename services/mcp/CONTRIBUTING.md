@@ -27,11 +27,11 @@ services/mcp/
 │   │   ├── hooks/            # Shared React hooks (useToolResult)
 │   │   └── styles/           # Base CSS with CSS variables
 │   └── schema/               # Zod schemas for API types
-├── public/ui-apps/           # Built UI apps for Workers Static Assets (generated, gitignored)
+├── public/ui-apps/           # Built UI app static assets (generated, gitignored)
 ├── dist/                     # npm package output (generated)
 ├── vite.ui-apps.config.ts    # Vite config for UI apps
 ├── tsup.config.ts            # tsup config for npm package
-└── wrangler.jsonc            # Cloudflare Worker config
+└── wrangler.jsonc            # Cloudflare edge-proxy worker config
 ```
 
 ## Local Development
@@ -58,7 +58,7 @@ If you need to run the MCP server standalone:
 cd services/mcp
 
 # Copy env file if needed
-cp .dev.vars.example .dev.vars
+cp .env.example .env
 
 # Install dependencies
 pnpm install
@@ -66,7 +66,7 @@ pnpm install
 # Build UI apps (required before running)
 pnpm run build:ui-apps
 
-# Start the server
+# Start the server (needs a local Redis on port 6379 for session state)
 pnpm run dev
 ```
 
@@ -131,9 +131,9 @@ In phrocs, start both `mcp-ui-apps` and `mcp`:
 
 1. Press `a` to see all processes
 2. Navigate to `mcp-ui-apps` and press `s` to start (builds UI apps and watches for changes)
-3. Navigate to `mcp` and press `s` to start (runs wrangler dev server)
+3. Navigate to `mcp` and press `s` to start (runs the Hono dev server)
 
-The `mcp-ui-apps` process runs vite in watch mode. Changes to `src/ui-apps/` trigger rebuilds, and wrangler automatically reloads when `public/ui-apps/` changes.
+The `mcp-ui-apps` process runs vite in watch mode. Changes to `src/ui-apps/` trigger rebuilds, and the server picks up the new bundles from `public/ui-apps/` on the next request.
 
 **Option 2: Manual terminals**
 
@@ -283,7 +283,10 @@ Convention defaults (derived from the app key and product directory):
 - `item_name_field` → `name`, `entity_label` → `my entity`
 
 Override any field explicitly when the convention doesn't match
-(e.g. `click_prop: onFlagClick`, `detail_args: "{ flagId: item.id }"`).
+(e.g. `click_prop: onEntityClick`, `detail_args: "{ entityId: item.id }"`).
+`detail_args` must match the target tool's actual parameter names —
+mismatching them (e.g. passing `flagId` to a tool that expects `id`) silently
+drops the argument instead of failing.
 
 **Link tools to apps** with `ui_app`:
 
@@ -335,12 +338,12 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
 
 ## Deployment
 
-The MCP server is deployed to Cloudflare Workers. Deployment is handled by CI/CD:
+The MCP server ships as the `posthog-mcp` Docker image to PostHog's US and EU Kubernetes clusters:
 
 - **CI** (`.github/workflows/ci-mcp.yml`): Runs tests on PRs and master
-- **Publish** (`.github/workflows/mcp-publish.yml`): Publishes to npm on version bump
+- **CD** (`.github/workflows/cd-mcp-image.yml`): Builds and pushes the image on master, then dispatches a deploy to the charts repo
 
-To deploy manually to Cloudflare:
+The Cloudflare edge-proxy worker in front of it (`mcp.posthog.com`, see [ARCHITECTURE.md](ARCHITECTURE.md)) is deployed separately:
 
 ```bash
 pnpm run deploy

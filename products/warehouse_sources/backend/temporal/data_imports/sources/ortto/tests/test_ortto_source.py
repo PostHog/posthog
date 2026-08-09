@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OrttoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ortto import OrttoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.ortto import OrttoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.source import OrttoSource

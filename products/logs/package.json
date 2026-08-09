@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ skills/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -33,7 +34,7 @@
         "ansi-colors": "*",
         "clsx": "*",
         "eslint": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "jest": "*",
         "papaparse": "*",
         "react": "*",

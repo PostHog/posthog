@@ -171,14 +171,26 @@ class TestPostSlackUpdate(TestCase):
         # Task is still running (PR opened mid-run) — reaction stays :eyes:, not :hedgehog:.
         mock_update_reaction.assert_called_once_with("eyes")
 
+    @parameterized.expand(
+        [
+            # No resolved actor in run state: fall back to the original mentioner.
+            ("falls_back_to_mentioner", {}, "U_ORIG"),
+            # A run picked up by someone else (e.g. a resume) records the resolved actor
+            # in run state, so the ping tags them rather than the original mentioner.
+            ("prefers_resolved_run_actor", {"slack_actor_slack_user_id": "U_RESUMER"}, "U_RESUMER"),
+        ]
+    )
     @patch("products.slack_app.backend.models.SlackThreadTaskMapping")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "post_or_update_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
-    def test_in_progress_with_pr_posts_notification_once(
+    def test_in_progress_with_pr_tags_actor_then_mentioner(
         self,
+        _name,
+        run_state,
+        expected_target,
         mock_task_run_class,
         mock_handler_init,
         mock_post_pr_opened,
@@ -190,15 +202,10 @@ class TestPostSlackUpdate(TestCase):
             mock_task_run_class.Status.IN_PROGRESS,
             stage="Building",
             output={"pr_url": "https://github.com/org/repo/pull/1"},
-            state={},
+            state=run_state,
         )
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
-        # This milestone ping tags the task starter, not whoever last touched the
-        # thread: latest_actor is a casual joiner here, and this update can fire long
-        # after the PR opened (once the CI follow-up loop settles), so tagging them
-        # would spam the wrong person.
         mock_mapping = MagicMock()
-        mock_mapping.latest_actor_slack_user_id = "U123"
         mock_mapping.mentioning_slack_user_id = "U_ORIG"
         mock_mapping_class.objects.filter.return_value.first.return_value = mock_mapping
 
@@ -215,7 +222,7 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once_with(
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
-            reply_target_slack_user_id="U_ORIG",
+            reply_target_slack_user_id=expected_target,
         )
         mock_update_reaction.assert_called_once_with("eyes")
         mock_post_progress.assert_not_called()
@@ -255,6 +262,80 @@ class TestPostSlackUpdate(TestCase):
         mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_completion.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ({"state": {"timed_out_wall_clock": True}, "error_message": None},),
+            ({"state": {"timed_out_inactivity": True}, "error_message": None},),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_failed_timeout_run_stays_quiet_instead_of_posting_an_error_card(
+        self,
+        run_kwargs,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_delete_progress,
+        mock_post_error,
+    ):
+        # Timeouts can now land as FAILED, but they carry a state marker and no error_message, so
+        # the thread clears its progress marker rather than posting an error card with no reason.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.FAILED,
+            output={},
+            **run_kwargs,
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_delete_progress.assert_called_once()
+        mock_post_error.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("PostHog setup wizard timed out after 30 minutes",),
+            ("Sandbox request timed out",),
+            ("Execution timed out after 600 seconds",),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_failed_run_whose_message_mentions_a_timeout_still_posts_an_error_card(
+        self,
+        error_message,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_delete_progress,
+        mock_post_error,
+    ):
+        # Only the workflow's own state markers make a FAILED run quiet. Several genuine failures
+        # carry "timed out" in their message (wizard deadline, sandbox request, agent command), and
+        # swallowing those would leave the thread silent on a real error.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.FAILED,
+            output={},
+            state={},
+            error_message=error_message,
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_update_reaction.assert_called_once_with("x")
+        mock_post_error.assert_called_once()
+        assert mock_post_error.call_args.args[0] == error_message
+        mock_delete_progress.assert_not_called()
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
@@ -510,7 +591,7 @@ class TestPostSlackUpdate(TestCase):
         mock_post_progress,
         mock_post_completion,
     ):
-        # When the task creator is not a PostHog Code user, every handler call
+        # When the task creator is not a PostHog Desktop user, every handler call
         # (including the progress handler) receives ``task_url=None`` so the
         # web buttons are skipped.
         self._access_patcher.stop()

@@ -7,6 +7,8 @@ class EarlyAccessFeaturesConfig(AppConfig):
     label = "early_access_features"
 
     def ready(self) -> None:
+        # Register the post_save signal that auto-creates a waitlist survey for
+        # concept-stage ("Coming Soon") features.
         from posthog.api.file_system.deletion import (
             register_file_system_type,
             register_post_delete_hook,
@@ -14,6 +16,8 @@ class EarlyAccessFeaturesConfig(AppConfig):
         )
         from posthog.helpers.impersonation import is_impersonated
         from posthog.models.activity_logging.activity_log import Detail, log_activity
+
+        import products.early_access_features.backend.signals  # noqa: F401
 
         def _with_feature_flag(queryset):
             return queryset.select_related("feature_flag")
@@ -34,10 +38,9 @@ class EarlyAccessFeaturesConfig(AppConfig):
                 # Deferred: the api module imports the feature_flag -> dashboard -> error_tracking
                 # query-runner chain (-> scipy) at module scope. This hook only runs on actual
                 # deletion, so importing it here keeps that chain off AppConfig.ready() / startup.
-                from products.early_access_features.backend.api import _set_enrollment_filters  # noqa: PLC0415
+                from products.early_access_features.backend.api import clear_feature_enrollment  # noqa: PLC0415
 
-                feature_flag.filters = _set_enrollment_filters(dict(feature_flag.filters or {}), enrolled=None)
-                feature_flag.save(update_fields=["filters"])
+                clear_feature_enrollment(feature_flag, team=feature_flag.team)
 
         def _post_delete(context, feature):
             organization = context.organization

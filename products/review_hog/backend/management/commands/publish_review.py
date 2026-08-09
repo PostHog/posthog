@@ -7,7 +7,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_URGENCY_THRESHOLD, published_priorities_for
+from products.review_hog.backend.reviewer.constants import DEFAULT_URGENCY_THRESHOLD
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
@@ -88,7 +88,7 @@ class Command(BaseCommand):
                 f"ReviewHog ▶ publishing {repository}#{pr_number} · report {report.id} · head {head_sha[:12]}"
             )
         )
-        # A local-only ops command: always the default threshold (should_fix), not a per-user one —
+        # A local-only ops command: always the default threshold (consider), not a per-user one —
         # keeps the frozen body and the freshly built inline comments consistent without needing to
         # track which threshold the run itself used.
         outcome = publish_persisted_review(
@@ -100,7 +100,7 @@ class Command(BaseCommand):
             repo=repo,
             pr_number=pr_number,
             token=token,
-            published_priorities=published_priorities_for(DEFAULT_URGENCY_THRESHOLD),
+            urgency_threshold=DEFAULT_URGENCY_THRESHOLD,
             installation_id=installation_id,
         )
         if outcome.posted:

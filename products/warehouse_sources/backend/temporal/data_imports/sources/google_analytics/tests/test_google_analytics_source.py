@@ -6,7 +6,10 @@ from google.auth.exceptions import RefreshError
 
 from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
@@ -35,8 +38,8 @@ def test_get_source_config_fields():
     field_names = {field.name for field in cfg.fields}
     assert field_names == {"google_analytics_integration_id", "property_id"}
     assert cfg.label == "Google Analytics"
-    assert cfg.featureFlag == "dwh-google-analytics"
-    assert cfg.releaseStatus == ReleaseStatus.ALPHA
+    assert cfg.featureFlag is None
+    assert cfg.releaseStatus == ReleaseStatus.GA
     assert not cfg.unreleasedSource
 
 
@@ -225,6 +228,20 @@ def test_validate_credentials_handles_session_failure():
     assert "Could not load Google Analytics credentials" in (message or "")
 
 
+def test_validate_credentials_handles_missing_integration():
+    # A deleted/disconnected OAuth row makes `google_analytics_session` raise the typed
+    # `Integration.DoesNotExist`; surface a reconnect message instead of the raw ORM error.
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
+        side_effect=Integration.DoesNotExist(),
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "no longer exists" in (message or "")
+    assert "matching query" not in (message or "")
+
+
 def test_validate_credentials_succeeds_when_metadata_readable():
     with (
         mock.patch(
@@ -246,3 +263,20 @@ def test_non_retryable_errors_cover_auth_failures():
     assert "401 Client Error" in errors
     assert "403 Client Error" in errors
     assert "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in errors
+    assert "invalid_grant" in errors
+
+
+def test_non_retryable_errors_matches_revoked_refresh_token():
+    # `_run_report` refreshes credentials via `session.post()` before any HTTP status is
+    # available, so a revoked/expired refresh token surfaces as a bare `RefreshError` whose
+    # `str()` is the raw (message, response_dict) tuple repr, e.g.:
+    # ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})
+    observed_error = str(RefreshError("invalid_grant: Bad Request", {"error": "invalid_grant"}))
+    non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
+    assert error_message_matches(observed_error, non_retryable_errors)
+
+
+def test_retryable_errors_cover_exhausted_quota_retries():
+    error_msg = "Data API quota for property '123456789' still exhausted after 5 retries (retryable)"
+    patterns = GoogleAnalyticsSource().get_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns)

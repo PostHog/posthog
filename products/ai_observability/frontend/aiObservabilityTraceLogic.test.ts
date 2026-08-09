@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { AIObservabilityTrace: blankScene }
@@ -41,14 +41,28 @@ describe('aiObservabilityTraceLogic', () => {
         expect(logic.values.traceId).toBe(traceIdWithColon)
     })
 
-    it('properly loads trace scene when trace ID contains multiple colons', async () => {
-        const traceIdWithMultipleColons = 'namespace:trace:12345:abcdef:xyz'
-        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceIdWithMultipleColons))
+    it('preserves an opaque trace ID when trace URL state changes', async () => {
+        const traceId = 'trace](id /?#'
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceId))
 
         router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
         await expectLogic(logic).toMatchValues({
-            traceId: traceIdWithMultipleColons,
+            traceId,
         })
+
+        logic.actions.setSearchQuery('needle')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.traceId).toBe(traceId)
+        expect(router.values.searchParams).toMatchObject({ search: 'needle' })
+
+        logic.actions.setViewMode(TraceViewMode.Raw)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.traceId).toBe(traceId)
+        expect(router.values.location.pathname).toBe(
+            addProjectIdIfMissing(urls.aiObservabilityTrace(traceId), MOCK_TEAM_ID)
+        )
     })
 
     it('handles trace ID with event and timestamp parameters', async () => {
@@ -90,6 +104,26 @@ describe('aiObservabilityTraceLogic', () => {
             dateRange: { dateFrom: timestamp, dateTo: null },
             viewMode: 'conversation',
         })
+    })
+
+    it('does not write the search query back to the URL when it originates from the URL', async () => {
+        // Regression: setSearchQuery's listener wrote the query back to the URL, which
+        // re-fired urlToAction, which called setSearchQuery again. For a query that the URL
+        // builder and the browser encode/read differently (e.g. one containing a space, like
+        // "[cite] "), the value-only guard never converged and the two recursed until the
+        // stack overflowed. A URL-sourced query must not trigger a write-back.
+        const replaceSpy = jest.spyOn(router.actions, 'replace')
+        const traceId = 'trace-with-search'
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceId, { search: '[cite] ' }))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.traceId).toBe(traceId)
+        expect(logic.values.searchQuery).toContain('cite')
+        expect(replaceSpy).not.toHaveBeenCalled()
+
+        replaceSpy.mockRestore()
     })
 
     describe('messageShowStates reducer', () => {

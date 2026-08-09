@@ -30,6 +30,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isString } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
 import {
+    getAccountCustomPropertyDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPersonPropertyDefinitionIcon,
@@ -197,8 +198,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
     // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
-    // filters/query/groups JSON the picker never reads). Gated by a flag so the
-    // smaller response shape can be rolled out and rolled back independently.
+    // query/groups/last_error_message/experiment_set fields the picker never reads;
+    // `filters` is kept). Gated by a flag so the smaller response shape can be rolled
+    // out and rolled back independently.
     const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
@@ -528,6 +530,21 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 return `api/environments/${projectId}/revenue_analytics/taxonomy/values?key=${encodeURIComponent(key)}`
             },
             getPopoverHeader: () => 'Revenue analytics properties',
+        },
+        {
+            name: 'Custom properties',
+            searchPlaceholder: 'custom properties',
+            type: TaxonomicFilterGroupType.AccountCustomProperties,
+            // Mirrors the legacy taxonomicFilterLogic group: account custom property definitions
+            // are per-team API data, so the options come from the consumer via `optionsFromProp` —
+            // items carry `{ id, name, description, is_canonical, property_type }` with the
+            // definition id as the value.
+            getIcon: getAccountCustomPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            valuesEndpoint: (key) =>
+                `api/projects/${projectId}/custom_property_definitions/values/?key=${encodeURIComponent(key)}`,
+            getPopoverHeader: () => 'Custom property',
         },
         {
             name: 'Logs',

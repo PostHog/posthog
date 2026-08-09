@@ -35,8 +35,10 @@ pub struct Config {
     #[envconfig(default = "30000")]
     pub flush_interval_ms: u64,
 
-    /// Flush when the buffer reaches this many entries. Sized to produce
-    /// multi-chunk batches that exercise the parallel chunk path.
+    /// Flush when a lane's buffer reaches this many entries. Sized to produce
+    /// multi-chunk batches that exercise the parallel chunk path. Clamped to
+    /// half the per-lane capacity (`buffer_capacity / writer_lanes`) so the
+    /// nonblocking size flush always fires before a lane's hard cap.
     #[envconfig(default = "10000")]
     pub flush_buffer_size: usize,
 
@@ -57,28 +59,17 @@ pub struct Config {
     #[envconfig(default = "16")]
     pub row_fallback_concurrency: usize,
 
-    /// Raw-bytes threshold for the properties field above which a person
-    /// is trimmed preflight (before the batch upsert). Matches the PG
-    /// `check_properties_size` constraint; trimmed persons rejoin the
-    /// main batch so a single oversized row can't torpedo the whole write.
-    #[envconfig(default = "655360")]
-    pub properties_size_threshold: usize,
-
-    /// Target raw-bytes size to trim oversized properties down to. Should
-    /// be comfortably below `properties_size_threshold` so the trim result
-    /// definitely fits the PG constraint even if JSONB encoding inflates
-    /// the stored size relative to the raw JSON we trimmed.
-    #[envconfig(default = "524288")]
-    pub properties_trim_target: usize,
-
-    /// Channel capacity between consumer and writer tasks.
+    /// Channel capacity between the consumer and each writer lane.
     /// Higher values allow more buffered batches but use more memory.
-    #[envconfig(default = "8")]
+    #[envconfig(default = "2")]
     pub flush_channel_capacity: usize,
 
-    // ── Ingestion warnings ────────────────────────────────────────
-    #[envconfig(default = "client_iwarnings_ingestion")]
-    pub kafka_ingestion_warnings_topic: String,
+    /// Number of parallel writer lanes. Partitions map to lanes by
+    /// `partition % writer_lanes`, and each lane flushes and commits its
+    /// own partitions independently, so PG writes overlap across lanes.
+    /// 1 preserves the original single-writer pipeline.
+    #[envconfig(default = "1")]
+    pub writer_lanes: usize,
 
     // ── Service ──────────────────────────────────────────────────
     #[envconfig(default = "9103")]

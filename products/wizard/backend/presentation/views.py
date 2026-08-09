@@ -6,7 +6,7 @@ returns DTO-shaped responses. No model imports.
 """
 
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from django.conf import settings
@@ -18,7 +18,7 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,7 +33,9 @@ from products.wizard.backend.facade.contracts import (
     UpsertWizardSessionInput,
     UpsertWizardSessionRequest,
     WizardSessionDTO,
+    WizardSessionOwnershipError,
 )
+from products.wizard.backend.facade.enums import RunPhase
 from products.wizard.backend.presentation.serializers import (
     UpsertWizardSessionRequestSerializer,
     WizardSessionSerializer,
@@ -127,6 +129,15 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Negative lookahead so a session_id of `stream` or `latest` can't collide
     # with the `@action(url_path=...)` detail-vs-action routes.
     lookup_value_regex = r"(?!(?:stream|latest)$)[^/]+"
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if (
+            self.action == "create"
+            and isinstance(request.data, Mapping)
+            and request.data.get("run_phase") == RunPhase.COMPLETED.value
+        ):
+            return ["wizard_session:write", "event_definition:write"]
+        return None
 
     def check_permissions(self, request: Request) -> None:
         try:
@@ -261,6 +272,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: WizardSessionSerializer,
             201: WizardSessionSerializer,
+            403: OpenApiResponse(description="The session belongs to a different user."),
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -268,19 +280,28 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         req: UpsertWizardSessionRequest = serializer.save()
 
-        dto, created = wizard_facade.upsert(
-            UpsertWizardSessionInput(
-                team_id=self.team_id,
-                session_id=req.session_id,
-                workflow_id=req.workflow_id,
-                skill_id=req.skill_id,
-                started_at=req.started_at,
-                run_phase=req.run_phase,
-                tasks=tuple(req.tasks),
-                event_plan=req.event_plan,
-                error=req.error,
+        user = getattr(request, "user", None)
+        created_by_id = user.id if user is not None and not user.is_anonymous else None
+
+        try:
+            dto, created = wizard_facade.upsert(
+                UpsertWizardSessionInput(
+                    team_id=self.team_id,
+                    session_id=req.session_id,
+                    workflow_id=req.workflow_id,
+                    skill_id=req.skill_id,
+                    started_at=req.started_at,
+                    run_phase=req.run_phase,
+                    tasks=tuple(req.tasks),
+                    event_plan=req.event_plan,
+                    error=req.error,
+                    pending_input=req.pending_input,
+                    handoff_text=req.handoff_text,
+                    created_by_id=created_by_id,
+                )
             )
-        )
+        except WizardSessionOwnershipError:
+            raise PermissionDenied("This wizard session belongs to a different user.")
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(WizardSessionSerializer(dto).data, status=response_status)
 

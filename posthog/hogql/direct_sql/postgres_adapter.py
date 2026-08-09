@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, TypedDict, cast
 import psycopg
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
@@ -16,7 +17,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+        PostgresSourceConfig,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
@@ -300,7 +303,7 @@ class PostgresAdapter:
                             # successful, empty result instead of surfacing a spurious error.
                             description = cursor.description or []
                             results = cursor.fetchall() if description else []
-        except (psycopg.Error, ExposedHogQLError) as error:
+        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

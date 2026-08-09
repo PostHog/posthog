@@ -24,11 +24,15 @@ const TriggerPopover = ({
     const { workflow, variableValues, inputs } = useValues(logic)
     const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
+    const isAccountAudience =
+        workflow?.trigger?.type === 'batch' && workflow.trigger.filters?.audience_type === 'accounts'
+
     const { blastRadius, blastRadiusLoading } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
-            dedupeKey: getAudienceDedupeKey(workflow),
+            // Account audiences carry no person, so email dedup never applies to them.
+            dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
         })
     )
 
@@ -40,7 +44,8 @@ const TriggerPopover = ({
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
-            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} users` : ' for ...'
+            const noun = isAccountAudience ? 'accounts' : 'users'
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} ${noun}` : ' for ...'
         }
         return ''
     }
@@ -109,7 +114,7 @@ const TriggerPopover = ({
                     loading={blastRadiusLoading}
                     disabledReason={
                         blastRadiusExceeded && blastRadius?.limit != null
-                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(blastRadius.limit)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
+                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(blastRadius.limit)} ${isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will be loosened in the future.`
                             : undefined
                     }
                     onClick={() => {

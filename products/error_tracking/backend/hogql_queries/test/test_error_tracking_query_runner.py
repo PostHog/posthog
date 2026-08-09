@@ -32,6 +32,9 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
@@ -122,6 +125,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             if (property_name, "properties") not in materialized_columns:
                 materialize("events", property_name, is_nullable=property_name == "$exception_issue_id")
         super().setUpClass()
+
+    def test_fingerprint_grouping_key_uses_stable_json_expression(self):
+        response = self._calculate()
+
+        self.assertIn("JSONExtractString(e.properties, '$exception_fingerprint')", response["hogql"])
+        self.assertNotIn("mat_$exception_fingerprint", response["hogql"])
 
     def setUp(self):
         super().setUp()
@@ -580,6 +589,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[1]["id"], self.issue_id_two)
         self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
 
+    def test_issue_id_uses_current_fingerprint_state(self):
+        issue_id = "01936e80-f594-7a2e-8545-7bcb491aa61f"
+        fingerprint = "event_without_issue_id"
+        distinct_id = "event_without_issue_id_user"
+        self.create_issue(issue_id, fingerprint)
+        _create_event(
+            distinct_id=distinct_id,
+            event="$exception",
+            team=self.team,
+            properties={"$exception_fingerprint": fingerprint},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT toString(issue_id), toString(issue_id_v2) FROM events WHERE distinct_id = {distinct_id}",
+            team=self.team,
+            placeholders={"distinct_id": ast.Constant(value=distinct_id)},
+        )
+
+        self.assertEqual(response.results, [(issue_id, issue_id)])
+
     @freeze_time("2022-01-10T12:11:00")
     def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
@@ -928,6 +958,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
+
+    @freeze_time("2020-01-12")
+    def test_volume_aggregation_counts_only(self):
+        # Regression test: volumeResolution=0 (counts only) used to build
+        # intDiv(..., 0) bin expressions and fail with an illegal division.
+        results = self._calculate(
+            volumeResolution=0, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11"), withAggregations=True
+        )["results"]
+        self.assertEqual(len(results), 3)
+
+        for result in results:
+            aggregations = result["aggregations"]
+            self.assertIsNone(aggregations["volumeRange"])
+            self.assertEqual(aggregations["volume_buckets"], [])
+            self.assertGreaterEqual(aggregations["occurrences"], 1)
 
     @freeze_time("2025-05-05")
     @snapshot_clickhouse_queries

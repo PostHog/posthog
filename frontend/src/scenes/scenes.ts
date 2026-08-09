@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -238,32 +239,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.GroupsNew]: { projectBased: true },
     [Scene.Groups]: { projectBased: true, name: 'Groups' },
-    [Scene.Heatmaps]: {
-        projectBased: true,
-        name: 'Heatmaps',
-        iconType: 'heatmap',
-        description: 'Heatmaps are a way to visualize user behavior on your website.',
-    },
-    [Scene.Inbox]: {
-        projectBased: true,
-        name: 'Inbox',
-        description: 'Actionable reports automatically generated from user session analysis and other signals.',
-    },
-    [Scene.Heatmap]: {
-        projectBased: true,
-        name: 'Heatmap',
-        iconType: 'heatmap',
-    },
-    [Scene.HeatmapNew]: {
-        projectBased: true,
-        name: 'New heatmap',
-        iconType: 'heatmap',
-    },
-    [Scene.HeatmapRecording]: {
-        projectBased: true,
-        name: 'Heatmap recording',
-        iconType: 'heatmap',
-    },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
@@ -450,11 +425,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DashboardTemplateCopy]: {
         projectBased: true,
         name: 'Copy template to project',
-        layout: 'app-container',
-    },
-    [Scene.RevenueAnalytics]: {
-        projectBased: true,
-        name: 'Revenue analytics',
         layout: 'app-container',
     },
     [Scene.MarketingAnalytics]: {
@@ -662,6 +632,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
+    // ?review= / ?reviews_scope= deep links that PR status comments bake in
+    '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
@@ -696,9 +669,12 @@ export const redirects: Record<
 
     '/events/actions': urls.actions(),
     '/events/properties': urls.propertyDefinitions(),
-    '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/events/properties/:id': ({ id }) => urls.propertyDefinition(tryDecodeURIComponent(id)),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404
+    '/feature-flags': urls.featureFlags(),
+    '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
@@ -726,6 +702,8 @@ export const redirects: Record<
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
     '/project/settings': urls.settings('project'),
+    // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
+    '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
@@ -771,8 +749,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
     [urls.insightSubcriptions(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSubcriptions'],
     [urls.insightSubcription(':shortId' as InsightShortId, ':itemId')]: [Scene.Insight, 'insightSubcription'],
-    [urls.alert(':shortId')]: [Scene.SavedInsights, 'alert'],
-    [urls.alerts()]: [Scene.SavedInsights, 'alerts'],
     [urls.insightAlerts(':shortId' as InsightShortId)]: [Scene.Insight, 'insightAlerts'],
     [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
@@ -783,7 +759,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
@@ -844,6 +819,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
     [urls.featureFlagsStaffTools()]: ['FeatureFlagsStaffTools' as Scene, 'featureFlagsStaffTools'],
+    [urls.cohortsStaffTools()]: ['CohortsStaffTools' as Scene, 'cohortsStaffTools'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
@@ -918,10 +894,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
-    [urls.heatmapNew()]: [Scene.HeatmapNew, 'heatmapNew'],
-    [urls.heatmapRecording()]: [Scene.HeatmapRecording, 'heatmapRecording'],
-    [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
@@ -929,15 +901,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
-    [urls.inbox()]: [Scene.Inbox, 'inbox'],
-    [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
-    // Static memory route, registered before `:skillName` so it isn't read as a scout name.
-    [urls.inboxScratchpad()]: [Scene.Inbox, 'inbox'],
-    // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
-    [urls.inboxScout(':skillName')]: [Scene.Inbox, 'inbox'],
-    // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
-    [urls.inboxScout(':skillName', ':findingId')]: [Scene.Inbox, 'inbox'],
-    [urls.inboxReport(':tab', ':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
     [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],

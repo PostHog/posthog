@@ -76,11 +76,21 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Whether the table is still interactable while `loading` is `true`. Defaults to `true`. **/
     disableTableWhileLoading?: boolean
     pagination?: PaginationAuto | PaginationManual
+    /**
+     * Whether changing the page scrolls the table back into view. Defaults to `true`.
+     * Set to `false` for tables high up on a page where paging shouldn't move the viewport.
+     */
+    scrollToTopOnPageChange?: boolean
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
     /** Whether header titles should be uppercased. The default value is `true`. */
     uppercaseHeader?: boolean
+    /**
+     * Table layout algorithm. Defaults to `auto` (columns size to their content). Use `fixed` to size
+     * columns from the container so wide content truncates within its cell instead of overflowing the table.
+     */
+    tableLayout?: 'auto' | 'fixed'
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -146,9 +156,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     loading,
     disableTableWhileLoading = true,
     pagination,
+    scrollToTopOnPageChange = true,
     expandable,
     showHeader = true,
     uppercaseHeader = true,
+    tableLayout = 'auto',
     noSortingCancellation: disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
@@ -242,11 +254,12 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         columns: baseColumns,
     })
 
-    /** Sorting. */
+    /** Sorting. `useURLForSorting` gates both writing and reading the URL — when off, a stale
+     * `order` param must not resurrect a sort the consumer isn't controlling. */
     const currentSorting =
         sorting ||
         internalSorting ||
-        (searchParams[currentSortingParam]
+        (useURLForSorting && searchParams[currentSortingParam]
             ? searchParams[currentSortingParam].startsWith('-')
                 ? {
                       columnKey: searchParams[currentSortingParam].substr(1),
@@ -367,6 +380,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         }
         previousPageRef.current = paginationState.currentPage
 
+        if (!scrollToTopOnPageChange) {
+            return
+        }
+
         // When the current page changes, scroll back to the top of the table
         if (scrollRef.current) {
             const realTableOffsetTop = scrollRef.current.getBoundingClientRect().top - 320 // Extra breathing room
@@ -380,7 +397,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                 }
             }
         }
-    }, [paginationState.currentPage])
+    }, [paginationState.currentPage, scrollToTopOnPageChange])
 
     if (firstColumnSticky && expandable) {
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
@@ -423,7 +440,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     scrollRef={scrollRef}
                 >
                     <div className="LemonTable__content">
-                        <table ref={tableRef}>
+                        <table ref={tableRef} className={tableLayout === 'fixed' ? 'table-fixed' : undefined}>
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
@@ -460,7 +477,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                         >
                                                             {columnGroup.title}
                                                         </th>
-                                                        <th colSpan={columnGroup.children.length - 1} />
+                                                        {/* The DOM clamps colSpan 0 up to 1, so a single-child
+                                                            group must not render the filler at all: the phantom
+                                                            column shifts every group title after it one column
+                                                            to the right. */}
+                                                        {columnGroup.children.length > 1 && (
+                                                            <th colSpan={columnGroup.children.length - 1} />
+                                                        )}
                                                     </React.Fragment>
                                                 ) : (
                                                     <th

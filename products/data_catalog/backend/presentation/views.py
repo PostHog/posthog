@@ -8,7 +8,8 @@ from typing import cast
 
 from django.db.models import QuerySet
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -25,7 +26,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 
 from ..facade import api
 from ..facade.enums import HOGQL_DEFINITION_KIND, INSIGHT_DEFINITION_KINDS, NODE_DEFINITION_KINDS
-from ..facade.models import Metric, TableCertification
+from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
@@ -33,6 +34,8 @@ from .serializers import (
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
     MetricSerializer,
+    RelationshipProposalSerializer,
+    RelationshipRejectSerializer,
 )
 
 # Kinds that execute a ClickHouse query through the trends/funnels pipeline (node kinds run as a
@@ -112,6 +115,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user=cast(User, request.user),
             name=data["name"],
             description=data["description"],
+            request=request,
             **optional,
         )
         return Response(self.get_serializer(metric).data, status=status.HTTP_201_CREATED)
@@ -125,11 +129,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if "name" in fields and fields["name"] != metric.name:
             raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
         fields.pop("name", None)
-        metric = api.update_metric(metric, team=self.team, user=cast(User, request.user), **fields)
+        metric = api.update_metric(metric, team=self.team, user=cast(User, request.user), request=request, **fields)
         return Response(self.get_serializer(metric).data)
 
     def perform_destroy(self, instance: Metric) -> None:
-        api.soft_delete_metric(instance, cast(User, self.request.user))
+        api.soft_delete_metric(instance, cast(User, self.request.user), request=self.request)
 
     @action(
         detail=True,
@@ -140,7 +144,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def approve(self, request: Request, **kwargs) -> Response:
         """Bless a metric as canonical. Returns 409 while the metric is drifted from its insight."""
-        metric = api.approve_metric(self.get_object(), cast(User, request.user))
+        metric = api.approve_metric(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(metric).data)
 
     @action(
@@ -153,7 +157,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def refresh_from_insight(self, request: Request, **kwargs) -> Response:
         """Re-snapshot the linked insight's current query into the definition."""
-        metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user))
+        metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(metric).data)
 
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
@@ -196,6 +200,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             date_to=overrides.get("date_to"),
             interval=overrides.get("interval"),
             query_id=overrides.get("query_id"),
+            request=request,
         )
         return Response(envelope)
 
@@ -226,11 +231,13 @@ class CertificationViewSet(
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CertificationCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        cert = api.propose_certification(team=self.team, user=cast(User, request.user), **serializer.validated_data)
+        cert = api.propose_certification(
+            team=self.team, user=cast(User, request.user), request=request, **serializer.validated_data
+        )
         return Response(CertificationSerializer(cert).data, status=status.HTTP_201_CREATED)
 
     def perform_destroy(self, instance: TableCertification) -> None:
-        api.revoke_certification(instance, cast(User, self.request.user))
+        api.revoke_certification(instance, cast(User, self.request.user), request=self.request)
 
     @action(
         detail=True,
@@ -241,7 +248,7 @@ class CertificationViewSet(
     )
     def certify(self, request: Request, **kwargs) -> Response:
         """Mark the target as certified (prefer this source)."""
-        cert = api.certify(self.get_object(), cast(User, request.user))
+        cert = api.certify(self.get_object(), cast(User, request.user), request=request)
         return Response(CertificationSerializer(cert).data)
 
     @action(
@@ -253,5 +260,84 @@ class CertificationViewSet(
     )
     def deprecate(self, request: Request, **kwargs) -> Response:
         """Mark the target as deprecated (avoid this source)."""
-        cert = api.deprecate(self.get_object(), cast(User, request.user))
+        cert = api.deprecate(self.get_object(), cast(User, request.user), request=request)
         return Response(CertificationSerializer(cert).data)
+
+
+class RelationshipProposalViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist."""
+
+    scope_object = "data_catalog"
+    serializer_class = RelationshipProposalSerializer
+    queryset = RelationshipProposal.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[RelationshipProposal]) -> QuerySet[RelationshipProposal]:
+        proposals = api.relationships_for_team(self.team)
+        status_filter = self.request.query_params.get("status")
+        return proposals.filter(status=status_filter) if status_filter else proposals
+
+    @extend_schema(
+        parameters=[OpenApiParameter("status", OpenApiTypes.STR, description="Filter by proposed/accepted/rejected.")]
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return super().list(request, *args, **kwargs)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        proposal = api.propose_relationship(
+            team=self.team,
+            user=cast(User, request.user),
+            source_table_name=data["source_table_name"],
+            source_table_key=data["source_table_key"],
+            joining_table_name=data["joining_table_name"],
+            joining_table_key=data["joining_table_key"],
+            field_name=data["field_name"],
+            configuration=data.get("configuration"),
+            confidence=data.get("confidence"),
+            reasoning=data.get("reasoning", ""),
+            evidence=data.get("evidence"),
+            request=request,
+        )
+        return Response(self.get_serializer(proposal).data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        required_scopes=["data_catalog_approval:write", "data_catalog:read", "query:read", "warehouse_view:write"],
+        throttle_classes=[HogQLQueryThrottle],
+        request=None,
+        responses={200: RelationshipProposalSerializer},
+    )
+    def accept(self, request: Request, **kwargs) -> Response:
+        """Promote the proposal to a real warehouse join after re-validating and probing it."""
+        # required_scopes gates tokens, but session users carry no scopes and AccessControlPermission
+        # only checks the data_catalog resource. Enforce the resources this action actually touches
+        # explicitly: query (the ClickHouse acceptance probe) and warehouse_view (the join it creates).
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to accept a relationship proposal.")
+        if not self.user_access_control.check_access_level_for_resource("warehouse_view", "editor"):
+            raise PermissionDenied("You need warehouse view edit access to accept a relationship proposal.")
+        proposal = api.accept_proposal(self.get_object(), cast(User, request.user), request=request)
+        return Response(self.get_serializer(proposal).data)
+
+    @extend_schema(request=RelationshipRejectSerializer, responses={200: RelationshipProposalSerializer})
+    @action(detail=True, methods=["POST"], required_scopes=["data_catalog_approval:write", "data_catalog:read"])
+    def reject(self, request: Request, **kwargs) -> Response:
+        """Reject the proposal. Persists forever so the pair is never re-proposed."""
+        body = RelationshipRejectSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        proposal = api.reject_proposal(
+            self.get_object(),
+            cast(User, request.user),
+            body.validated_data.get("rejection_reason", ""),
+            request=request,
+        )
+        return Response(self.get_serializer(proposal).data)

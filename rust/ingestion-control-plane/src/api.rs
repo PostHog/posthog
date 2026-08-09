@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
+use anyhow::Context;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -12,7 +15,9 @@ use uuid::Uuid;
 use k8s_awareness::DiscoveredPod;
 
 use crate::jobs::{AnalysisRequest, JobView};
-use crate::kafka::lag::{self, GroupLag, GroupLagSummary};
+use crate::kafka::browse::{self, BrowseParams, BrowseStop, MessageFilter, MessageRecord};
+use crate::kafka::client;
+use crate::kafka::lag::{self, ConsumerTarget, GroupLag, LagOverview};
 use crate::proxy;
 use crate::state::AppState;
 use crate::ui;
@@ -65,22 +70,73 @@ impl IntoResponse for ApiError {
     }
 }
 
-async fn get_lag_overview(State(state): State<AppState>) -> Json<Vec<GroupLagSummary>> {
-    Json(lag::scan_all_groups(&state.config).await)
+/// The API only accepts exact group/topic pairs present in the (cached)
+/// discovered targets — prefix checks alone would let a fabricated group
+/// read any prefixed topic, and the tool must not become a generic Kafka
+/// browser. Prefix mismatches fail fast with a clearer message.
+async fn validated_target(
+    state: &AppState,
+    group: &str,
+    topic: &str,
+) -> Result<ConsumerTarget, ApiError> {
+    if !group.starts_with(&state.config.group_prefix) {
+        return Err(ApiError::bad_request(format!(
+            "group '{group}' is outside the '{}' prefix",
+            state.config.group_prefix
+        )));
+    }
+    if !topic.starts_with(&state.config.topic_prefix) {
+        return Err(ApiError::bad_request(format!(
+            "topic '{topic}' is outside the '{}' prefix",
+            state.config.topic_prefix
+        )));
+    }
+
+    let targets = state
+        .discovery
+        .get_or_refresh(|| lag::discover_targets(&state.config))
+        .await
+        .map_err(|e| ApiError::upstream(format!("target discovery failed: {e:#}")))?;
+    let target = ConsumerTarget {
+        group: group.to_string(),
+        topic: topic.to_string(),
+    };
+    if !targets.contains(&target) {
+        return Err(ApiError::bad_request(format!(
+            "'{group}' / '{topic}' is not a discovered consumer target \
+             (discovery refreshes every {}s)",
+            state.config.discovery_cache_ttl_secs
+        )));
+    }
+    Ok(target)
+}
+
+async fn get_lag_overview(State(state): State<AppState>) -> Result<Json<LagOverview>, ApiError> {
+    let overview = state
+        .overview
+        .get_or_refresh(|| async {
+            let targets = state
+                .discovery
+                .get_or_refresh(|| lag::discover_targets(&state.config))
+                .await?;
+            Ok(lag::scan_targets(&state.config, targets.as_ref().clone()).await)
+        })
+        .await
+        .map_err(|e| ApiError::upstream(format!("lag overview failed: {e:#}")))?;
+    Ok(Json(overview.as_ref().clone()))
 }
 
 #[derive(Deserialize)]
 struct LagQuery {
     group: String,
+    topic: String,
 }
 
 async fn get_lag(
     State(state): State<AppState>,
     Query(query): Query<LagQuery>,
 ) -> Result<Json<GroupLag>, ApiError> {
-    let target = state.config.target_for_group(&query.group).ok_or_else(|| {
-        ApiError::bad_request(format!("unknown consumer group '{}'", query.group))
-    })?;
+    let target = validated_target(&state, &query.group, &query.topic).await?;
 
     let group_lag = lag::scan_group_lag(&state.config, &target)
         .await
@@ -93,12 +149,7 @@ async fn create_analysis(
     State(state): State<AppState>,
     Json(request): Json<AnalysisRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let target = state
-        .config
-        .target_for_group(&request.group)
-        .ok_or_else(|| {
-            ApiError::bad_request(format!("unknown consumer group '{}'", request.group))
-        })?;
+    let target = validated_target(&state, &request.group, &request.topic).await?;
     if request.partition < 0 {
         return Err(ApiError::bad_request("partition must be non-negative"));
     }
@@ -149,6 +200,117 @@ async fn cancel_analysis(
     }
 }
 
+#[derive(Deserialize)]
+struct MessagesQuery {
+    group: String,
+    topic: String,
+    partition: i32,
+    /// Cursor; defaults to the group's committed offset (or the low
+    /// watermark when the group never committed).
+    start_offset: Option<i64>,
+    limit: Option<usize>,
+    token: Option<String>,
+    event: Option<String>,
+    distinct_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct MessagesResponse {
+    partition: i32,
+    start_offset: i64,
+    /// Cursor for the next page.
+    next_offset: i64,
+    low_watermark: i64,
+    high_watermark: i64,
+    scanned: u64,
+    stop: BrowseStop,
+    reached_end: bool,
+    duration_ms: u64,
+    messages: Vec<MessageRecord>,
+    /// team_id per distinct token in `messages` (null when unresolvable).
+    token_teams: HashMap<String, Option<i32>>,
+}
+
+/// Synchronous filtered scan of one partition, returning matched message
+/// headers (never payloads) plus a cursor. Bounded per request by the page
+/// limit, a scan budget, a deadline, and a byte budget, whichever hits first.
+async fn get_messages(
+    State(state): State<AppState>,
+    Query(query): Query<MessagesQuery>,
+) -> Result<Json<MessagesResponse>, ApiError> {
+    let target = validated_target(&state, &query.group, &query.topic).await?;
+    if query.partition < 0 {
+        return Err(ApiError::bad_request("partition must be non-negative"));
+    }
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    // An empty query-param value means "not filtered", so it can never pin a
+    // filter to the empty string.
+    let non_empty = |s: Option<String>| s.filter(|s| !s.is_empty());
+    let filter = MessageFilter {
+        token: non_empty(query.token),
+        event: non_empty(query.event),
+        distinct_id: non_empty(query.distinct_id),
+    };
+
+    let Ok(_permit) = Arc::clone(&state.browse_permits).try_acquire_owned() else {
+        return Err(ApiError::too_many_requests(
+            "too many concurrent message scans; wait for one to finish",
+        ));
+    };
+
+    let config = Arc::clone(&state.config);
+    let partition = query.partition;
+    let requested_start = query.start_offset;
+    let (bounds, start_offset, outcome) = tokio::task::spawn_blocking(move || {
+        let timeout = Duration::from_millis(config.kafka_metadata_timeout_ms);
+        let bounds = lag::fetch_partition_bounds_blocking(&config, &target, partition, timeout)?;
+        let start_offset = requested_start
+            .unwrap_or_else(|| bounds.committed_offset.unwrap_or(bounds.low_watermark))
+            .clamp(bounds.low_watermark, bounds.high_watermark);
+        let params = BrowseParams {
+            topic: target.topic.clone(),
+            partition,
+            start_offset,
+            end_offset_exclusive: bounds.high_watermark,
+            limit,
+            scan_limit: config.browse_scan_message_count,
+            deadline: Duration::from_secs(config.browse_deadline_secs),
+            max_bytes: config.browse_max_fetch_bytes,
+            poll_timeout: Duration::from_millis(config.kafka_fetch_poll_timeout_ms),
+        };
+        let consumer = client::fetch_consumer(&config).context("create fetch client")?;
+        let outcome = browse::run_browse(&consumer, &params, &filter)?;
+        anyhow::Ok((bounds, start_offset, outcome))
+    })
+    .await
+    .context("browse task panicked")
+    .and_then(|res| res)
+    .map_err(|e| ApiError::upstream(format!("message scan failed: {e:#}")))?;
+
+    let mut tokens: Vec<String> = outcome
+        .records
+        .iter()
+        .filter_map(|record| record.token.clone())
+        .collect();
+    tokens.sort();
+    tokens.dedup();
+    let token_teams = state.teams.resolve(&tokens).await;
+
+    Ok(Json(MessagesResponse {
+        partition: query.partition,
+        start_offset,
+        next_offset: outcome.next_offset,
+        low_watermark: bounds.low_watermark,
+        high_watermark: bounds.high_watermark,
+        scanned: outcome.scanned,
+        stop: outcome.stop,
+        reached_end: outcome.next_offset >= bounds.high_watermark,
+        duration_ms: outcome.duration_ms,
+        messages: outcome.records,
+        token_teams,
+    }))
+}
+
 #[derive(Serialize)]
 struct PodsResponse {
     pods: Vec<DiscoveredPod>,
@@ -168,6 +330,7 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(ui::index))
         .route("/api/lag", get(get_lag))
         .route("/api/lag/overview", get(get_lag_overview))
+        .route("/api/messages", get(get_messages))
         .route("/api/analyses", get(list_analyses).post(create_analysis))
         .route(
             "/api/analyses/:id",
@@ -175,8 +338,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/pods", get(list_pods))
         // The consumer debug UI is served per pod; its relative `debug/...`
-        // fetches resolve to the proxy route below.
-        .route("/pods/:name/", get(ui::consumer_debug))
-        .route("/pods/:name/debug/*rest", get(proxy::proxy_debug))
+        // fetches resolve to the proxy route below. Pods are addressed by
+        // namespace + name so identical names across lanes cannot collide.
+        .route("/pods/:namespace/:name/", get(ui::consumer_debug))
+        .route(
+            "/pods/:namespace/:name/debug/*rest",
+            get(proxy::proxy_debug),
+        )
         .with_state(state)
 }

@@ -1,0 +1,200 @@
+# Canvas (Website space) — patterns
+
+Conventions for the channel-scoped Website space: channels and canvases. A canvas
+is an agent-authored single-file React app rendered in a sandboxed iframe. Read
+this before changing breadcrumbs, canvas naming, or the canvas generation harness.
+The root `AGENTS.md` architecture rules still apply.
+
+## Components & styling
+
+- **Use `@posthog/quill`, never Radix.** All UI in this space pulls components from
+  `@posthog/quill` (`Button`, `Dialog*`, `AlertDialog*`, `DropdownMenu*`,
+  `ContextMenu*`, `Tooltip*`, `Collapsible*`, …). Adding a `@radix-ui/themes` or
+  `@radix-ui/react-*` import is banned — see [UI Components](../../../../../AGENTS.md#ui-components)
+  in the root `AGENTS.md` for the full mapping. Some older code here still imports
+  `@radix-ui/themes` (`Box`, `Flex`, `Text`, `AlertDialog`) — that's legacy to be
+  migrated, not a pattern to copy. When you touch such code, replace it: layout
+  primitives (`Box`, `Flex`, `Grid`) become `div`s with Tailwind classes
+  (`<Flex align="center" gap="2">` → `<div className="flex items-center gap-2">`),
+  and everything else becomes its Quill equivalent.
+- **Don't restyle Quill internals.** Quill components are already themed —
+  spacing, typography, and especially **color** are baked in. Do not add
+  `text-gray-*` / `text-muted-foreground` / `font-*` or other color/typography
+  classes to elements *inside* a Quill component (menu items, dialog titles,
+  buttons, etc.); you'll fight or override the design system and drift from every
+  other surface. Trust the defaults. Layout-only utilities (`flex`, `gap`,
+  width/`max-w`, `truncate`) on wrappers are fine; reach for `className` overrides
+  on Quill items only when there is a real, deliberate exception — and call it out.
+- **Suffix `…` on anything that opens another step.** A menu item or button whose
+  click opens a follow-up surface — a dialog, a nested menu, a picker, a
+  confirmation — gets a trailing ellipsis (`…`, the character, not three dots) to
+  signal it isn't the final action: `New…`, `Rename space…`, `Delete space…`,
+  `Choose a template…`. A label that performs its action immediately or navigates
+  straight to a destination gets **no** ellipsis (`Edit CONTEXT.md`, `Star
+  space`). When in doubt: does clicking it ask for more input or confirmation
+  before anything happens? If yes, add the `…`.
+
+## Spaces & chrome
+
+- Spaces is a **top-level space** reached through the app rail (`AppNav`),
+  gated behind `project-bluebird` and wired in `routes/__root.tsx`. The rail's
+  spaces are Code (`/code`), Inbox (`/inbox`), and Spaces (`/website`).
+- The Spaces UI has **its own chrome**: rail + a persistent channel-list
+  sidebar (`ChannelsList`, rendered in `__root`) + the `WebsiteLayout` outlet. It
+  does NOT use the code `HeaderRow`/`MainSidebar`, so breadcrumbs render in
+  `WebsiteLayout`'s own top bar (below).
+- Under the channels layout the sidebar is a **master/detail slider**
+  (`ChannelPanes` in `ChannelsSidebar.tsx`): the searchable channel list, and the
+  channel you're in (`ChannelSidebar`, headed by `ChannelBackRow`). Both panes
+  stay mounted — the offscreen one is `inert` — so the slide has something to
+  slide and returning to the list doesn't rebuild every row. A two-finger
+  horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
+  accumulated per gesture and locked until the wheel goes quiet).
+- In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
+  private "me" row leads the Starred section and takes the same inset as the
+  spaces beside it. No row carries a glyph: "me" drops its lock here so every
+  name starts in the same column, and it still marks the space everywhere it is
+  named on its own (the back row, the breadcrumb). The alpha's more deeply
+  indented Channels tree and hash glyphs are unchanged.
+- **The list is a tree.** Each space has a disclosure caret that opens it onto
+  its most recent sessions (`useRecentSpaceTasks` — one task query per open
+  space, polling slower than the channel feed; expansion lives in
+  `spaceTreeStore` and persists). Session rows wear the space's own session
+  vocabulary (`TaskStatusDot` + `TaskBadgeStack`) but are hand-built rather than
+  `ChannelItemRow`: a row has to be an `AutocompleteItem` to stay on the
+  keyboard's path, and that row is a `SidebarItem` button.
+- **An open space offers the sessions it isn't showing.** A "View all" leaf
+  closes the list with what's left over and opens the space.
+  Its number comes from `getTasksPage`, which returns the page's total alongside
+  its rows: a page that came back under the fetch limit is the whole space
+  (exact once archived ones are dropped), a full one falls back to the server's
+  count, which still counts archived tasks.
+  `hasViewAllRow` decides whether that leaf exists, and both the rendered list
+  and the keyboard's flat node list have to call it: a row the keyboard doesn't
+  know about throws the highlight index off from there down.
+- **A session row carries the same card and menu as the space's own list.**
+  Both surfaces render `ChannelItemHoverCard` and `TaskRowContextMenu` from one
+  `TaskRowMenuProps`, so the facts and the actions can't drift.
+  Rename is the one item the tree drops, because it edits in place and there is
+  no inline editor on a row the keyboard is walking.
+  The card also opens on the keyboard's highlight, 350ms after it lands.
+  Rows read that highlight from `spaceTreeStore` as a boolean
+  (`highlightedValue === item.key`) so a keypress re-renders two rows, and the
+  list still writes it to a ref as well, because the arrow handlers read the
+  highlight during the event, before any render.
+  Only a `reason: "keyboard"` highlight is stored: a pointer one is the row's
+  own hover, and `keepHighlight` would otherwise strand a card open after the
+  pointer left the list.
+  The actions behind the menu (`useSpaceTaskActions`) are built once for the
+  whole list and passed through `SpaceTaskActionsProvider`, which keeps one pin
+  and one archive mutation for the tree instead of one per row and keeps them
+  out of the memo comparisons.
+- **A row's own colour utilities outrank quill's highlight styling.** quill
+  brings a highlighted option's contents to `--foreground` with
+  `.quill-autocomplete__item[data-highlighted] *`, but that rule lives in the
+  components layer, so anything carrying a colour utility of its own wins and
+  keeps its resting colour under the keyboard.
+  Row labels therefore state the highlight themselves (`ROW_LABEL_TONE`), and
+  the disclosure caret, which must stay dim while its row is highlighted, needs
+  `!` on a rule aimed at the glyph's descendants, because the `*` reaches the
+  icon's `<path>` where `fill: currentColor` resolves.
+- **The tree's rows are memoized, and have to stay that way.** A space row
+  carries a context menu, two dropdowns, a tooltip and two dialogs, and there
+  are dozens of them; before `ChannelSection`/`PersonalChannelRow`/`SpaceTaskRow`
+  were `memo`ed, expanding one space rebuilt every other row (350-540ms per
+  expand, in 300ms chunks). Keeping that means keeping their props stable: the
+  toggle callback takes a space id instead of closing over one, empty session
+  lists are a shared constant, `useRecentSpaceTasks` caches each space's item
+  list against the query data it was built from, and its `combine` is defined at
+  module scope so `useQueries` can memoize on it. A row's `channel` is compared
+  field by field, because the channel list is polled and hands out new objects.
+- **The tree stays off the host.** Its rows skip the per-task PR lookup
+  (`useChannelTaskStatus(item, { withPrStatus: false })`) — that is a query per
+  row into git, and the tree can show a dozen spaces' worth at once; the PR's
+  existence still shows, because `prUrl` comes from the task itself. Its feed
+  query is its own key with a 20-row page, not the channel feed's 500: sharing
+  the feed's key would hand the space's own list a truncated feed.
+- **Hover prefetch waits for the pointer to rest** (250ms). Arrowing through the
+  tree scrolls rows under a stationary cursor, so prefetching straight from
+  `pointerenter` fired a request for every row the list passed and made each
+  keypress take a second.
+- **Keyboard contract of the list.** The search box holds focus and drives
+  everything: ↑/↓ walk every visible row, → opens the highlighted space (and
+  again steps into it), ← closes the space you're in and puts the highlight back
+  on it. Both arrows defer to the text caret first, so they still edit the
+  query. ⌘⇧S from anywhere opens the sidebar, slides back to the list and takes
+  the keyboard; it is advertised on the search box (until a query replaces it
+  with the clear button) and on the space's back row, which is what it does from
+  inside a space. Autocomplete has no API for setting the highlight, so moving it
+  means synthesizing the arrow keys it listens for — and moving *before*
+  collapsing, while the rows still exist.
+- One `ChannelsFab` serves both panes: given a `channelId` it creates inside
+  that channel (task, canvas), and either way it can create a channel. Off the
+  layout it keeps its original two-item menu. Archived moves out of the sidebar
+  and into the account menu (`ProjectSwitcher`), beside Settings.
+- **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
+  separately from the scoped channel (`currentChannelStore`): "back to channels"
+  browses the list while the route, the main pane and the scoped channel stay
+  put. Every way into a channel — a row click, a deep link, a mention, ⌘1-9 —
+  ends at `showChannelPane()`, directly or through the route effect.
+  The one exception is a session opened from the list's tree: it loads in the
+  main window and leaves the sidebar on the list, because picking a session
+  while browsing across spaces is not a request to go into one. It says so with
+  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
+
+## Breadcrumbs
+
+- **`WebsiteLayout` renders its own top bar.** The Spaces UI has no code
+  `HeaderRow`, so breadcrumbs (and the dashboard controls) are a local bar inside
+  `WebsiteLayout`, not pushed through the header store.
+- **A page does not get its own crumb — its H1 is the title.** A view that
+  renders its own `<h1>` is NOT repeated as a breadcrumb segment for itself. The
+  dashboards grid's h1 is "Dashboards"; a single dashboard's h1 is its name.
+- **A parent index IS a crumb when you're on a child, but not when you're on it.**
+  - On the grid (`/website/$channelId`): trail is `#channel` only — no
+    "Dashboards" crumb (its own h1 covers it, and `#channel` already links here).
+  - On a single dashboard (`/website/$channelId/dashboards/$id`): trail is
+    `#channel / Dashboards`, where `Dashboards` links back to the grid. The
+    dashboard's name is the h1 below, not a crumb.
+- Crumbs reflect navigable parents above the current page; the current page is
+  the H1, never a crumb of itself.
+
+## Canvas naming
+
+- **A canvas's name is its own field on the record**, set at creation
+  (`Untitled canvas` by default; the template picker / `useCreateAndOpenDashboard`
+  drive it). It is independent of any heading the agent renders inside the
+  React app.
+
+## Storage
+
+- Canvases are **first-class PostHog rows** (the `canvases` API), not local
+  files. Each canvas belongs to a backend channel (`channelId`), and its
+  agent-authored source lives in **server-side versions**: every publish
+  appends an immutable source version, guarded by `expected_current_version_id`
+  so concurrent publishes conflict (409) instead of clobbering. The rendered
+  output is the published build's artifact, served from the isolated artifact
+  origin. See `@posthog/core/canvas/dashboardsService.ts` and
+  `dashboardSchemas.ts` for the record/source/version shapes.
+
+## Channel sidebar preloading
+
+- A channel's contents load **lazily on expand**: `ChannelSection`
+  (`components/ChannelsList.tsx`) only passes a real `channelId` to its content
+  queries once `open` is true, so the tree doesn't fire one query per channel on
+  mount.
+- To keep first-open instant, the same caches are **warmed on hover/focus**:
+  `ChannelSection.prefetchContents()` runs from the row's `onMouseEnter` /
+  `onFocus` and prefetches every per-channel query. Each prefetch hook reuses the
+  query's `queryOptions` with the **same `staleTime`** as the live query, so it
+  no-ops when the data is already fresh.
+- **Rule: lazy-loaded content and preloading must stay in lockstep.** When you
+  add a new per-channel item type to the expanded tree (a new query gated on
+  `open`, like dashboards or filed tasks), you MUST also:
+  1. add a `usePrefetch…` hook next to that query (mirror `usePrefetchDashboards`
+     in `hooks/useDashboards.ts` / `usePrefetchChannelTasks` in
+     `hooks/useChannelTasks.ts` — same key, same `staleTime`), and
+  2. call it inside `ChannelSection.prefetchContents()`.
+
+  Otherwise the new content cold-fetches on first expand and reintroduces the
+  open jank the prefetch path exists to prevent.

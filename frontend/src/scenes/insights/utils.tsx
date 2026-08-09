@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -513,6 +513,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.FUNNELS]: urls.insightNew({ type: InsightType.FUNNELS }),
     [InsightType.RETENTION]: urls.insightNew({ type: InsightType.RETENTION }),
     [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
+    [InsightType.JOURNEYS]: urls.insightNew({ type: InsightType.JOURNEYS }),
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),

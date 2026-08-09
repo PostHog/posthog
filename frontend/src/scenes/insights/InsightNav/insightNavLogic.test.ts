@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
@@ -92,7 +94,7 @@ describe('insightNavLogic', () => {
             await expectLogic(builtInsightDataLogic, () => {
                 logic.actions.setActiveView(InsightType.FUNNELS)
             }).toMatchValues({
-                query: {
+                query: setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...nodeKindToDefaultQuery[NodeKind.FunnelsQuery],
@@ -106,7 +108,7 @@ describe('insightNavLogic', () => {
                         ],
                         tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
-                },
+                }),
             })
         })
 
@@ -157,6 +159,71 @@ describe('insightNavLogic', () => {
                     } as QueryBasedInsightModel)
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
+                })
+            })
+        })
+
+        describe('journeys tab visibility', () => {
+            it('hides the journeys tab without the flag', () => {
+                expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.JOURNEYS)
+            })
+
+            it('shows the journeys tab with the flag on, between paths and stickiness', () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2]: true })
+                const tabTypes = logic.values.tabs.map((tab) => tab.type)
+                expect(tabTypes.indexOf(InsightType.JOURNEYS)).toEqual(tabTypes.indexOf(InsightType.PATHS) + 1)
+                expect(tabTypes.indexOf(InsightType.JOURNEYS)).toEqual(tabTypes.indexOf(InsightType.STICKINESS) - 1)
+            })
+
+            it('shows the journeys tab without the flag when viewing a journeys insight, so links never dead-end', () => {
+                const props = {
+                    dashboardItemId: 'insight-v2' as InsightShortId,
+                    cachedInsight: {
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: { kind: NodeKind.PathsV2Query },
+                        } as Node,
+                    },
+                }
+                insightLogic(props).mount()
+                const builtLogic = insightNavLogic(props)
+                builtLogic.mount()
+
+                expect(builtLogic.values.activeView).toEqual(InsightType.JOURNEYS)
+                expect(builtLogic.values.tabs.map((tab) => tab.type)).toContain(InsightType.JOURNEYS)
+            })
+
+            it('keeps the journeys filter when switching away and back', async () => {
+                const journeysQuery: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.PathsV2Query,
+                        pathsV2Filter: {
+                            stepSources: [{ event: '$screen', namingProperty: '$screen_name' }],
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(journeysQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.JOURNEYS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'PathsV2Query',
+                        pathsV2Filter: {
+                            stepSources: [{ event: '$screen', namingProperty: '$screen_name' }],
+                        },
+                    },
                 })
             })
         })
@@ -281,6 +348,7 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.LifecycleQuery],
                             lifecycleFilter: { showValuesOnSeries: true },
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
@@ -484,6 +552,7 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.LifecycleQuery],
                             interval: 'hour',
                             lifecycleFilter: { showValuesOnSeries: true },
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
@@ -517,6 +586,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,
@@ -600,6 +670,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,
@@ -660,6 +731,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },

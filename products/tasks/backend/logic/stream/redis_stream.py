@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 # Keep enough live history for users who open an in-progress run late while
 # still bounding Redis growth to the sandbox lifetime.
-TASK_RUN_STREAM_MAX_LENGTH = 20_000
+TASK_RUN_STREAM_MAX_LENGTH = 5_000
 TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
 TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
@@ -552,6 +552,28 @@ class TaskRunRedisStream:
         except Exception:
             logger.exception("task_run_stream_delete_failed", stream_key=self._stream_key)
             return False
+
+
+def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
+    stream_key = get_task_run_stream_key(run_id)
+    sequence_key = get_task_run_stream_sequence_key(stream_key)
+    completed_key = get_task_run_stream_completed_key(stream_key)
+    agent_active_key = get_task_run_stream_agent_active_key(stream_key)
+    heartbeat_key = get_task_run_stream_heartbeat_key(stream_key)
+    client = get_tasks_stream_redis_sync(use_dedicated)
+
+    try:
+        client.delete(
+            stream_key,
+            sequence_key,
+            completed_key,
+            agent_active_key,
+            heartbeat_key,
+        )
+        return True
+    except Exception:
+        logger.exception("task_run_stream_reset_failed", run_id=run_id)
+        return False
 
 
 def publish_task_run_stream_event(run_id: str, event: dict, use_dedicated: bool = False) -> str | None:

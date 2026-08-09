@@ -1,10 +1,19 @@
-// These params must stay in sync with rust/replay-anonymizer-node/src/blur.rs, or the mirror diverges from the inline anonymizer.
+// These params must stay in sync with rust/replay-anonymizer/src/blur.rs, or the mirror diverges from the inline anonymizer.
 import sharp from 'sharp'
 
 // One libvips thread per op and no cross-request cache, so N concurrent scrubs cost ~N threads (not N x CPU)
 // and no shared cache: bounds sidecar CPU/RSS under the concurrency ceiling.
 sharp.concurrency(1)
 sharp.cache(false)
+
+// The producer decides an image is collectable from the MIME type written in its data URI, but libvips
+// picks a decoder by sniffing magic bytes, so `data:image/png;base64,<anything>` reaches whichever loader
+// the bytes actually match. Narrow that to the formats a browser can inline: no page emits TIFF or the
+// native VIPS format, so anything arriving as one is already anomalous and belongs on the dead-letter
+// topic rather than in a decoder. Blocked loaders make the whole class of libvips decoder CVEs in these
+// two formats unreachable, independent of the pinned version. GIF is deliberately absent: pages do inline
+// GIFs, and blocking it would dead-letter every one of them.
+sharp.block({ operation: ['VipsForeignLoadTiff', 'VipsForeignLoadVips'] })
 
 const DOWNSAMPLE_RATIO = 0.12
 const BLUR_SIGMA = 2.34

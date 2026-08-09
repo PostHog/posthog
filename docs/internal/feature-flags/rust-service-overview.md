@@ -239,13 +239,19 @@ All values come from environment variables via the `envconfig` crate. Defined in
 
 ### Behavioral cohorts
 
-| Variable                               | Default  | Purpose                                                                                                                   |
-| -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, realtime cohort evaluation is disabled |
-| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                   |
-| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                    |
+| Variable                               | Default  | Purpose                                                                                                                                                                           |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, no pool is created and a NoOp provider resolves every realtime cohort lookup to non-membership |
+| `REALTIME_COHORT_EVALUATION_TEAM_IDS`  | `none`   | Rollout gate for realtime cohort evaluation: `none`, `all`, or specific team IDs / ranges (e.g. `1,5,300:400`)                                                                    |
+| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                                                                           |
+| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                                                                            |
+| `REALTIME_COHORT_LOOKUP_TIMEOUT_MS`    | `1000`   | Upper bound on one membership lookup (pool acquire + query), matching the pool's 1s statement timeout; on timeout the lookup degrades to non-membership                           |
 
-The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table. When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is not set, a `NoOpCohortMembershipProvider` is used and all realtime cohort checks return `false` (graceful degradation).
+The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table.
+Realtime cohort evaluation degrades gracefully at every layer, always treating people as non-members rather than failing flag evaluation:
+when `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is not set a `NoOpCohortMembershipProvider` returns `false` for all checks (with a startup warning if `REALTIME_COHORT_EVALUATION_TEAM_IDS` is set at the same time),
+and when the database is unavailable at runtime, query errors and lookups exceeding `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` also resolve to non-membership.
+Cache and query health are observable via the `flags_cohort_membership_cache_*` and `flags_realtime_cohort_*` metrics — see [database-interaction-patterns.md](database-interaction-patterns.md#prometheus-metrics).
 
 ### Redis
 
@@ -261,11 +267,12 @@ The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement t
 
 ### S3 / HyperCache
 
-| Variable                  | Default     | Purpose                          |
-| ------------------------- | ----------- | -------------------------------- |
-| `OBJECT_STORAGE_BUCKET`   | `posthog`   | S3 bucket name                   |
-| `OBJECT_STORAGE_REGION`   | `us-east-1` | AWS region                       |
-| `OBJECT_STORAGE_ENDPOINT` | (empty)     | Custom S3 endpoint for local dev |
+| Variable                             | Default     | Purpose                                                                                                                                                                                    |
+| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                             |
+| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                 |
+| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                           |
+| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair) |
 
 ### Team lookup
 

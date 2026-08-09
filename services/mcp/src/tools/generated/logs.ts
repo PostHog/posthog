@@ -16,6 +16,7 @@ import {
     LogsAlertsPartialUpdateParams,
     LogsAlertsRetrieveParams,
     LogsAlertsSimulateCreateBody,
+    LogsAnomaliesScanCreateBody,
     LogsAttributesRetrieveQueryParams,
     LogsCountCreateBody,
     LogsCountRangesCreateBody,
@@ -99,9 +100,25 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
     },
 })
 
-const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true }).extend(
-    LogsAlertsDestinationsCreateBody.shape
-)
+const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true })
+    .extend(LogsAlertsDestinationsCreateBody.shape)
+    .extend({
+        type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
+            'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+        ),
+        slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
+            'Slack workspace integration ID. Required when type is slack.'
+        ),
+        slack_channel_id: LogsAlertsDestinationsCreateBody.shape['slack_channel_id'].describe(
+            'Slack channel ID. Required when type is slack.'
+        ),
+        slack_channel_name: LogsAlertsDestinationsCreateBody.shape['slack_channel_name'].describe(
+            'Optional Slack channel name used for display.'
+        ),
+        webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
+            'Required when type is webhook or teams.'
+        ),
+    })
 
 const logsAlertsDestinationsCreate = (): ToolBase<
     typeof LogsAlertsDestinationsCreateSchema,
@@ -228,6 +245,7 @@ const logsAlertsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
             query: {
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
             },
@@ -411,6 +429,30 @@ const logsAlertsSimulateCreate = (): ToolBase<
             'threshold_count',
             'threshold_operator',
         ]) as typeof result
+        return filtered
+    },
+})
+
+const LogsAnomaliesScanSchema = LogsAnomaliesScanCreateBody
+
+const logsAnomaliesScan = (): ToolBase<typeof LogsAnomaliesScanSchema, Schemas.LogsAnomalyScanResponse> => ({
+    name: 'logs-anomalies-scan',
+    schema: LogsAnomaliesScanSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsAnomaliesScanSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.serviceName !== undefined) {
+            body['serviceName'] = params.serviceName
+        }
+        if (params.dateRange !== undefined) {
+            body['dateRange'] = params.dateRange
+        }
+        const result = await context.api.request<Schemas.LogsAnomalyScanResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/anomalies/scan/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['series.*.buckets']) as typeof result
         return filtered
     },
 })
@@ -657,6 +699,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-partial-update': logsAlertsPartialUpdate,
     'logs-alerts-retrieve': logsAlertsRetrieve,
     'logs-alerts-simulate-create': logsAlertsSimulateCreate,
+    'logs-anomalies-scan': logsAnomaliesScan,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,

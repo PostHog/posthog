@@ -37,6 +37,7 @@ import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
@@ -65,6 +66,7 @@ import {
     isGroupedBlockquoteNode,
     isPromptComponentNode,
     isTextBlockNode,
+    isTextGroupNode,
     makeEmptyNotebookTitle,
     removeNotebookNodesWithRefCleanup,
     stripNotebookRefMarksFromNodes,
@@ -77,6 +79,7 @@ import {
     textBlocksShareContinuationStyle,
     updateNotebookCodeBlockText,
     withoutLeadingEmptyTitleGroup,
+    withPreservedGroupStart,
     writeSystemClipboardText,
 } from './documentModel'
 import {
@@ -165,6 +168,7 @@ import {
     getInsertMenuOptionDomId,
     getInsertMenuPosition,
     getNextInsertMenuSelectedIndex,
+    omitInsertCommands,
 } from './InsertMenu'
 import {
     deleteListItemSelectionRange,
@@ -244,6 +248,9 @@ export type MarkdownNotebookProps = {
     /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
      * behavior (e.g. opening a picker modal) and labeling stay in the caller, not this component. */
     extraInsertCommands?: (api: MarkdownNotebookInsertMenuApi) => InsertCommand[]
+    /** Built-in insert-menu commands to drop, by key (e.g. `QUERY_SQL_INSERT_COMMAND_KEY`). For a
+     * caller whose registry supplies its own block for the same job and must not offer both. */
+    hiddenInsertCommandKeys?: string[]
     remoteValue?: string
     /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
     remoteVersion?: number
@@ -265,6 +272,9 @@ export type MarkdownNotebookProps = {
     ) => NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null
     focusAIPromptRequest?: number
     aiWritingNodeIndexes?: number[]
+    /** In view mode, keep the filters toggle for definitions with `viewModeFilters` — for
+     * read-only canvases where the filters panel is the only way to configure a node. */
+    allowViewModeFilters?: boolean
     placeholder?: string
     className?: string
     autoFocus?: boolean
@@ -293,6 +303,10 @@ type CommitDocumentOptions = {
     /** Set when the commit applies a remote merge: the notebook version being merged in.
      * Remote caret pings already at this version reflect the change and must not be remapped. */
     remoteMergeVersion?: number
+    /** Structural edits (e.g. a Tab indent) look like text edits to the differ, so they would
+     * otherwise fold into an adjacent typing run and stop being independently undoable. Pass
+     * false to force a discrete undo step. */
+    coalesce?: boolean
 }
 
 type RemoteCaretAnchor = {
@@ -557,6 +571,7 @@ function MarkdownNotebookEditor({
     mode = 'edit',
     registry,
     extraInsertCommands,
+    hiddenInsertCommandKeys,
     remoteValue,
     remoteVersion,
     deferRemoteValue = false,
@@ -568,6 +583,7 @@ function MarkdownNotebookEditor({
     convertExternalDataTransferToNodes,
     focusAIPromptRequest,
     aiWritingNodeIndexes,
+    allowViewModeFilters = false,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
@@ -1098,7 +1114,8 @@ function MarkdownNotebookEditor({
         (
             previousDocument: NotebookDocument,
             nextDocument: NotebookDocument,
-            historyOperations?: NotebookOperation[]
+            historyOperations?: NotebookOperation[],
+            coalesce: boolean = true
         ): void => {
             const inverseOps = historyOperations ?? diffNotebookDocuments(nextDocument, previousDocument)
             if (!inverseOps.length) {
@@ -1107,8 +1124,10 @@ function MarkdownNotebookEditor({
 
             const now = Date.now()
             const onlyOp = inverseOps.length === 1 ? inverseOps[0] : null
+            // A non-coalescing entry stays its own undo step: it never folds into the previous
+            // entry, and a null coalesceNodeId keeps the next typing run from folding into it.
             const coalesceNodeId =
-                onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
+                coalesce && onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
             const lastEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
             if (
                 coalesceNodeId &&
@@ -1153,7 +1172,12 @@ function MarkdownNotebookEditor({
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
             const previousDocument = documentRef.current
             if (options.addToHistory ?? true) {
-                pushHistoryEntry(previousDocument, editableDocument, options.historyOperations)
+                pushHistoryEntry(
+                    previousDocument,
+                    editableDocument,
+                    options.historyOperations,
+                    options.coalesce ?? true
+                )
             }
             // Rendered remote carets ride along with the text they sit in.
             mapRemoteCaretAnchors(previousDocument, editableDocument, options.remoteMergeVersion)
@@ -1646,7 +1670,9 @@ function MarkdownNotebookEditor({
 
         commitDocument({
             ...currentDocument,
-            nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+            nodes: nodes.flatMap((currentNode) =>
+                currentNode.id === node.id ? withPreservedGroupStart(node, replacementNodes) : [currentNode]
+            ),
         })
         return true
     }, [commitDocument, insertMenu?.nodeId])
@@ -1802,12 +1828,17 @@ function MarkdownNotebookEditor({
                 start: offset,
                 end: offset,
             }
-            commitDocument({
-                ...currentDocument,
-                nodes: nodes.map((currentNode) =>
-                    currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
-                ),
-            })
+            commitDocument(
+                {
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                    ),
+                },
+                // A Tab indent must be its own undo step, not folded into the typing run that
+                // preceded it — otherwise Cmd+Z can't undo just the accidental indent.
+                { coalesce: false }
+            )
             return true
         },
         [commitDocument]
@@ -2600,7 +2631,7 @@ function MarkdownNotebookEditor({
 
     const replaceNode = useCallback(
         (nodeId: string, nextNode: NotebookBlockNode): void => {
-            updateNode(nodeId, () => nextNode)
+            updateNode(nodeId, (previousNode) => withPreservedGroupStart(previousNode, [nextNode])[0])
         },
         [updateNode]
     )
@@ -2651,7 +2682,7 @@ function MarkdownNotebookEditor({
                         return [node]
                     }
                     didReplace = true
-                    return replacementNodes
+                    return withPreservedGroupStart(node, replacementNodes)
                 }),
             })
         },
@@ -2828,27 +2859,30 @@ function MarkdownNotebookEditor({
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
     const insertCommands = useMemo(
         () =>
-            buildInsertCommands(
-                mergedRegistry,
-                replaceNodeWithInsertedComponent,
-                replaceNode,
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = {
-                        nodeId,
-                        tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
-                        start: 0,
-                        end: 8,
-                    }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                onAskAI ? openAIPrompt : undefined,
-                false,
-                extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+            omitInsertCommands(
+                buildInsertCommands(
+                    mergedRegistry,
+                    replaceNodeWithInsertedComponent,
+                    replaceNode,
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = {
+                            nodeId,
+                            tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
+                            start: 0,
+                            end: 8,
+                        }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    onAskAI ? openAIPrompt : undefined,
+                    false,
+                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+                ),
+                hiddenInsertCommandKeys
             ),
         [
             mergedRegistry,
@@ -2857,6 +2891,7 @@ function MarkdownNotebookEditor({
             onAskAI,
             openAIPrompt,
             extraInsertCommands,
+            hiddenInsertCommandKeys,
             insertMenuApi,
         ]
     )
@@ -4093,7 +4128,11 @@ function MarkdownNotebookEditor({
             commitDocument(
                 {
                     ...currentDocument,
-                    nodes: currentDocument.nodes.filter((_, index) => index !== nodeIndex),
+                    nodes: currentDocument.nodes
+                        .filter((_, index) => index !== nodeIndex)
+                        .map((node) =>
+                            node.id === menu.rejoinNodeIdOnClose ? { ...node, startsGroup: undefined } : node
+                        ),
                 },
                 { addToHistory: false }
             )
@@ -4174,12 +4213,26 @@ function MarkdownNotebookEditor({
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes
-        const insertedNode = makeEmptyParagraph(`boundary-${String(boundaryIndex)}`)
+        const insertedNode: NotebookBlockNode = {
+            ...makeEmptyParagraph(`boundary-${String(boundaryIndex)}`),
+            startsGroup: true,
+        }
         const clampedBoundaryIndex = Math.max(1, Math.min(boundaryIndex, nodes.length))
+        // The block that followed the boundary starts its own card too, or it would join the
+        // inserted one instead of staying with the text it was grouped with.
+        const followingNode = nodes[clampedBoundaryIndex]
+        const rejoinNodeIdOnClose =
+            followingNode && isTextGroupNode(followingNode) && !followingNode.startsGroup ? followingNode.id : undefined
 
         commitDocument({
             ...currentDocument,
-            nodes: [...nodes.slice(0, clampedBoundaryIndex), insertedNode, ...nodes.slice(clampedBoundaryIndex)],
+            nodes: [
+                ...nodes.slice(0, clampedBoundaryIndex),
+                insertedNode,
+                ...nodes
+                    .slice(clampedBoundaryIndex)
+                    .map((node) => (node.id === rejoinNodeIdOnClose ? { ...node, startsGroup: true } : node)),
+            ],
         })
         restoreSelectionRef.current = { nodeId: insertedNode.id, start: 0, end: 0 }
         onInteractionStateChange?.(true)
@@ -4190,6 +4243,7 @@ function MarkdownNotebookEditor({
             mode: 'tools',
             detached: true,
             removeNodeOnClose: true,
+            rejoinNodeIdOnClose,
         })
     }
 
@@ -5687,14 +5741,23 @@ function MarkdownNotebookEditor({
         const componentDefinition =
             node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
+        // Only edit mode persists panel visibility to the document. Persisting encodes "open" as
+        // the ABSENCE of hide* props, which a canvas fallback of filters-closed would immediately
+        // override — opening filters would round-trip to closed. View-mode toggles stay local.
         const persistComponentPanelVisibility =
-            node.type === 'component' ? shouldPersistComponentPanelProps(node, componentDefinition) : false
+            mode === 'edit' && node.type === 'component'
+                ? shouldPersistComponentPanelProps(node, componentDefinition)
+                : false
+        const fallbackComponentPanels =
+            mode === 'view' && allowViewModeFilters
+                ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nodeComponentPanels =
             node.type === 'component'
                 ? !persistComponentPanelVisibility && componentPanelCacheEntry?.current
                     ? componentPanelCacheEntry.current
-                    : getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                    : getComponentPanelVisibility(node, fallbackComponentPanels)
+                : fallbackComponentPanels
         const shouldShowInlineInsertMenuButton =
             !isTitleRow && (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
         const hasInvalidInsertMenuQuery =
@@ -5782,6 +5845,7 @@ function MarkdownNotebookEditor({
                     componentPanels: nodeComponentPanels,
                     rememberedComponentPanels: componentPanelCacheEntry?.remembered,
                     persistComponentPanelVisibility,
+                    allowViewModeFilters,
                     isSelected: selectedComponentNodeIds.has(node.id),
                     toggleComponentPanel: (panel) => {
                         const nextPanels = {

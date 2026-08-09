@@ -1,0 +1,133 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confirm": {
+            "default": false,
+            "description": "Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.",
+            "type": "boolean"
+        },
+        "operations": {
+            "description": "Ordered list of edits to apply to the current path cleaning rules, in sequence.",
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "Add a new rule at the end of the ordered list (runs last).",
+                        "properties": {
+                            "action": {
+                                "const": "append",
+                                "type": "string"
+                            },
+                            "alias": {
+                                "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported.",
+                                "type": "string"
+                            },
+                            "regex": {
+                                "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it.",
+                                "minLength": 1,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["action", "alias", "regex"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Insert a new rule at a specific position — use when it must run before more general rules.",
+                        "properties": {
+                            "action": {
+                                "const": "insert",
+                                "type": "string"
+                            },
+                            "alias": {
+                                "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported.",
+                                "type": "string"
+                            },
+                            "index": {
+                                "description": "Zero-based position to insert the rule at. Existing rules shift down.",
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                            },
+                            "regex": {
+                                "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it.",
+                                "minLength": 1,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["action", "index", "alias", "regex"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Replace the alias and/or regex of an existing rule, keeping its position.",
+                        "properties": {
+                            "action": {
+                                "const": "replace",
+                                "type": "string"
+                            },
+                            "alias": {
+                                "description": "New alias. Omit to keep the current alias.",
+                                "type": "string"
+                            },
+                            "regex": {
+                                "description": "New regex. Omit to keep the current regex.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "target_alias": {
+                                "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["action", "target_alias"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Remove an existing rule by alias.",
+                        "properties": {
+                            "action": {
+                                "const": "remove",
+                                "type": "string"
+                            },
+                            "target_alias": {
+                                "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["action", "target_alias"],
+                        "type": "object"
+                    },
+                    {
+                        "description": "Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next.",
+                        "properties": {
+                            "action": {
+                                "const": "reorder",
+                                "type": "string"
+                            },
+                            "ordered_aliases": {
+                                "description": "The full set of current aliases in the new desired order (including \"\" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": ["action", "ordered_aliases"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "sample_paths": {
+            "description": "Optional real paths (e.g. \"/users/123/profile\") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.",
+            "items": {
+                "maxLength": 2048,
+                "type": "string"
+            },
+            "maxItems": 25,
+            "type": "array"
+        }
+    },
+    "required": ["operations"],
+    "type": "object"
+}

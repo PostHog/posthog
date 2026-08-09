@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { MouseEvent } from 'react'
@@ -102,6 +102,17 @@ export const mergeIssues = (
 
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
     return value === THIRD_PARTY_SCRIPT_ERROR
+}
+
+// Recordings match on session start time, so pad past first_seen to catch a session that began
+// before the exception fired, and past last_seen so a single-occurrence issue isn't a zero-width window.
+export function getIssueReplayDateRange(firstSeen: string, lastSeen: Dayjs | null): DateRange {
+    const from = dayjs(firstSeen)
+    const to = lastSeen && lastSeen.isAfter(from) ? lastSeen : from
+    return {
+        date_from: from.subtract(1, 'hour').toISOString(),
+        date_to: to.add(1, 'hour').toISOString(),
+    }
 }
 
 const customOptions: Record<string, string> = {

@@ -19,10 +19,6 @@ class NotificationEventSerializer(serializers.Serializer):
     body = serializers.CharField()
     read = serializers.BooleanField()
     read_at = serializers.DateTimeField(allow_null=True)
-    archivable = serializers.BooleanField(
-        help_text="Whether this notification opted in to being archived (dismissed) by the recipient. "
-        "When false, the notification only supports read/unread."
-    )
     target_type = serializers.CharField()
     target_id = serializers.CharField()
     resource_type = serializers.CharField(allow_null=True)

@@ -48,11 +48,45 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
-                    emailAssets: [],
+                    messageAssets: [],
                 } as any,
             ])
 
             await service.flush()
+            expect(outputs.produce).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('recordTerminalFailureDurably', () => {
+        it('produces a failed row with an overridden error_kind and reports success', async () => {
+            const invocation = createExampleInvocation()
+            const ok = await service.recordTerminalFailureDurably(invocation, {
+                error: 'poison pill: stalled and reset 3 times without completing',
+                errorKind: 'janitor_poison_pill',
+            })
+
+            expect(ok).toBe(true)
+            const rows = parseProducedRows(outputs)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].status).toBe('failed')
+            expect(rows[0].error_kind).toBe('janitor_poison_pill')
+            expect(rows[0].error_message).toContain('poison pill')
+            expect(rows[0].invocation_id).toBe(invocation.id)
+        })
+
+        it('returns false (does not throw) when the produce fails — caller must not delete', async () => {
+            outputs.produce.mockRejectedValueOnce(new Error('broker unavailable'))
+            const ok = await service.recordTerminalFailureDurably(createExampleInvocation(), {
+                error: 'boom',
+                errorKind: 'janitor_poison_pill',
+            })
+            expect(ok).toBe(false)
+        })
+
+        it('returns false when recording is disabled', async () => {
+            service = new HogInvocationResultsService(outputs, { HOG_INVOCATION_RESULTS_ENABLED: false })
+            const ok = await service.recordTerminalFailureDurably(createExampleInvocation(), { error: 'boom' })
+            expect(ok).toBe(false)
             expect(outputs.produce).not.toHaveBeenCalled()
         })
     })
@@ -196,7 +230,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
-                    emailAssets: [],
+                    messageAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -218,7 +252,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
-                    emailAssets: [],
+                    messageAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -242,7 +276,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
-                    emailAssets: [],
+                    messageAssets: [],
                 } as any,
             ])
             await service.flush()

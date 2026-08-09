@@ -1,1 +1,1 @@
-0002_delete_insightcachingstate
+0006_insightvariable_values_query_connection_id

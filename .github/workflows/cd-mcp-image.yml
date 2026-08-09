@@ -31,7 +31,7 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-mcp-image')
             )
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
             contents: read
@@ -52,7 +52,10 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog-mcp
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  # Publishes only from the default branch — assume the role and touch ECR only there;
+                  # labeled PRs still build (push=false) without assuming it.
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  push-to-ecr: ${{ github.ref == 'refs/heads/master' }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}

@@ -61,7 +61,7 @@ class TestResolvePostHogCodeAuthorship(TestCase):
         )
 
     @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_personal_github_with_repo_access_proceeds_and_posts_nothing(self, mock_slack_cls, _mock_flag):
         self._add_personal_github(repos=["posthog/target-repo"])
         mock_slack = MagicMock()
@@ -72,14 +72,15 @@ class TestResolvePostHogCodeAuthorship(TestCase):
 
     @parameterized.expand(
         [
-            ("no_repo_access_flag_on", ["posthog/other-repo"], None, True, "awaiting_confirmation"),
-            ("no_repo_access_flag_off", ["posthog/other-repo"], None, False, "blocked"),
-            ("expired_refresh_token_flag_on", ["posthog/target-repo"], 1, True, "awaiting_confirmation"),
+            ("no_repo_access_flag_on", ["posthog/other-repo"], None, True, "awaiting_confirmation", "can't author PRs"),
+            ("no_repo_access_flag_off", ["posthog/other-repo"], None, False, "blocked", "can't author PRs"),
+            ("expired_refresh_token_flag_on", ["posthog/target-repo"], 1, True, "awaiting_confirmation", "expired"),
+            ("expired_refresh_token_flag_off", ["posthog/target-repo"], 1, False, "blocked", "expired"),
         ]
     )
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_unusable_personal_github_never_proceeds(
-        self, _name, repos, refresh_token_expires_at, flag_on, expected_status, mock_slack_cls
+        self, _name, repos, refresh_token_expires_at, flag_on, expected_status, expected_text, mock_slack_cls
     ):
         self._add_personal_github(repos=repos, refresh_token_expires_at=refresh_token_expires_at)
         self._add_team_github()
@@ -90,10 +91,10 @@ class TestResolvePostHogCodeAuthorship(TestCase):
             assert self._call() == expected_status
 
         kwargs = mock_slack.client.chat_postMessage.call_args.kwargs
-        assert "can't author PRs in `posthog/target-repo`" in kwargs["text"]
+        assert expected_text in kwargs["text"]
 
     @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_no_personal_flag_off_blocks_with_single_button(self, mock_slack_cls, _mock_flag):
         self._add_team_github()
         mock_slack = MagicMock()
@@ -109,7 +110,7 @@ class TestResolvePostHogCodeAuthorship(TestCase):
         assert "action_id" not in elements[0]
 
     @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_no_personal_flag_on_with_team_install_awaits_confirmation(self, mock_slack_cls, _mock_flag):
         self._add_team_github()
         mock_slack = MagicMock()
@@ -130,7 +131,7 @@ class TestResolvePostHogCodeAuthorship(TestCase):
         assert kwargs["metadata"]["event_payload"]["workflow_id"] == "wf-123"
 
     @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_no_personal_flag_on_without_team_install_blocks(self, mock_slack_cls, _mock_flag):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -145,7 +146,7 @@ class TestResolvePostHogCodeAuthorship(TestCase):
         ]
     )
     @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_non_github_personal_integration_does_not_count(self, _name, kind, mock_slack_cls, _mock_flag):
         UserIntegration.objects.create(user=self.user, kind=kind, integration_id="x", config={}, sensitive_config={})
         self._add_team_github()

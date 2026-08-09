@@ -1,23 +1,16 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import {
-    API_SCOPES,
-    DEFAULT_OAUTH_SCOPES,
-    MCP_SERVER_OAUTH_SCOPES,
-    getMinimumEquivalentScopes,
-    getScopeDescription,
-} from 'lib/scopes'
+import { API_SCOPES, DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
-
-import type { oauthAuthorizeLogicType } from './oauthAuthorizeLogicType'
 
 export type OAuthAuthorizationFormValues = {
     scoped_organizations: number[]
@@ -117,20 +110,58 @@ const isNativeProtocol = (url: string): boolean => {
 
 type OAuthAuthorizeResult = { redirectTo: string; isNative: boolean }
 
+// `/oauth/authorize/` fails in two shapes, and `ApiError` reads neither usefully: the RFC 6749
+// §4.1.2.1 envelope `{ error, error_description }`, where it surfaces the machine code rather
+// than the prose, and DRF serializer errors `{ "<field>": ["<message>"] }`, where it finds no
+// key at all and falls back to the transport text ("Non-OK response [POST ...] (status 400: )").
+export const describeOAuthError = (data: unknown): string | null => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return null
+    }
+    const body = data as Record<string, unknown>
+
+    if (typeof body.error_description === 'string' && body.error_description) {
+        return body.error_description
+    }
+
+    const sentences: string[] = []
+    for (const [field, value] of Object.entries(body)) {
+        // DRF always reports field errors as a list, which is what tells them apart from the
+        // envelope above — `{ error: 'access_denied' }` is not a parameter named "error".
+        if (!Array.isArray(value)) {
+            continue
+        }
+        const messages = value.filter((message): message is string => typeof message === 'string' && !!message)
+        if (!messages.length) {
+            continue
+        }
+        const text = messages.join(' ')
+        sentences.push(field === 'non_field_errors' ? text : `The parameter "${field}" is not correct: ${text}`)
+    }
+    if (!sentences.length) {
+        return null
+    }
+    return ['The application sent an incorrect authorization request.', ...sentences].join(' ')
+}
+
 const oauthAuthorize = async (
     values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] }
 ): Promise<OAuthAuthorizeResult | null> => {
+    // Not kea-router's `searchParams`: it JSON-parses object-like values and coerces numbers
+    // and booleans, and its own `location.search` is re-encoded from those. RFC 6749 A.5 allows
+    // any printable ASCII in `state`, so a raw-JSON state must reach the API byte-for-byte.
+    const params = new URLSearchParams(window.location.search)
     try {
         const response = await api.create('/oauth/authorize/', {
-            client_id: router.values.searchParams['client_id'],
-            redirect_uri: router.values.searchParams['redirect_uri'],
-            response_type: router.values.searchParams['response_type'],
-            state: router.values.searchParams['state'],
+            client_id: params.get('client_id'),
+            redirect_uri: params.get('redirect_uri'),
+            response_type: params.get('response_type'),
+            state: params.get('state'),
             scope: values.scopes.join(' '),
-            code_challenge: router.values.searchParams['code_challenge'],
-            code_challenge_method: router.values.searchParams['code_challenge_method'],
-            nonce: router.values.searchParams['nonce'],
-            claims: router.values.searchParams['claims'],
+            code_challenge: params.get('code_challenge'),
+            code_challenge_method: params.get('code_challenge_method'),
+            nonce: params.get('nonce'),
+            claims: params.get('claims'),
             scoped_organizations: values.access_type === 'organizations' ? values.scoped_organizations : [],
             scoped_teams: values.access_type === 'teams' ? values.scoped_teams : [],
             access_level:
@@ -146,11 +177,229 @@ const oauthAuthorize = async (
         }
         return null
     } catch (error: any) {
-        const detail = error?.detail || error?.message || 'Something went wrong while authorizing the application'
+        const detail =
+            error?.detail ||
+            describeOAuthError(error?.data) ||
+            error?.message ||
+            'PostHog could not authorize the application.'
         lemonToast.error(detail)
         throw error
     }
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface oauthAuthorizeLogicValues {
+    user: UserType | null // userLogic
+    adjustableScopeRows: OAuthScopeRow[]
+    allOrganizations: OrganizationBasicType[]
+    allScopesRequired: boolean
+    allTeams: TeamBasicType[] | null
+    allTeamsLoading: boolean
+    authorizationComplete: boolean
+    consentResourceScopes: string[]
+    effectiveScopes: string[]
+    filteredTeams: TeamBasicType[] | null
+    identityScopeDescriptions: string[]
+    isCanceling: boolean
+    isMcpResource: boolean
+    isOauthAuthorizationSubmitting: boolean
+    isOauthAuthorizationValid: boolean
+    isRedirecting: boolean
+    newProjectLoading: boolean
+    oauthApplication: OAuthApplicationPublicMetadata | null
+    oauthApplicationLoading: boolean
+    oauthAuthorization: OAuthAuthorizationFormValues
+    oauthAuthorizationAllErrors: Record<string, any>
+    oauthAuthorizationChanged: boolean
+    oauthAuthorizationErrors: DeepPartialMap<OAuthAuthorizationFormValues, ValidationErrorType>
+    oauthAuthorizationHasErrors: boolean
+    oauthAuthorizationManualErrors: Record<string, any>
+    oauthAuthorizationTouched: boolean
+    oauthAuthorizationTouches: Record<string, boolean>
+    oauthAuthorizationValidationErrors: DeepPartialMap<OAuthAuthorizationFormValues, ValidationErrorType>
+    redirectDomain: string
+    redirectUrl: string
+    requiredAccessLevel: 'organization' | 'team' | null
+    requiredScopeLevels: Map<string, RequiredLevel>
+    requiredScopeRows: OAuthScopeRow[]
+    scopeAccessSelections: {
+        bulk: ScopeAccessLevel | null
+        overrides: Record<string, ScopeAccessLevel>
+    }
+    scopeRows: OAuthScopeRow[]
+    scopes: string[]
+    scopesWereDefaulted: boolean
+    selectedOrganization: string | null
+    showCreateProject: boolean
+    showOauthAuthorizationErrors: boolean
+    showReadOnlyBulkAction: boolean
+    sortedTeams: TeamBasicType[] | null
+    teamHint: number | null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface oauthAuthorizeLogicActions {
+    cancel: () => {}
+    createNewProject: (name: string) => {
+        name: string
+    }
+    loadAllTeams: () => any
+    loadAllTeamsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAllTeamsSuccess: (
+        allTeams: TeamBasicType[],
+        payload?: any
+    ) => {
+        allTeams: TeamBasicType[]
+        payload?: any
+    }
+    loadOAuthApplication: () => any
+    loadOAuthApplicationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOAuthApplicationSuccess: (
+        oauthApplication: OAuthApplicationPublicMetadata | null,
+        payload?: any
+    ) => {
+        oauthApplication: OAuthApplicationPublicMetadata | null
+        payload?: any
+    }
+    resetOauthAuthorization: (values?: OAuthAuthorizationFormValues) => {
+        values?: OAuthAuthorizationFormValues
+    }
+    setAllScopeAccess: (level: ScopeAccessLevel) => {
+        level: ScopeAccessLevel
+    }
+    setAuthorizationComplete: (complete: boolean) => {
+        complete: boolean
+    }
+    setCanceling: (canceling: boolean) => {
+        canceling: boolean
+    }
+    setIsMcpResource: (isMcpResource: boolean) => {
+        isMcpResource: boolean
+    }
+    setNewProjectLoading: (loading: boolean) => {
+        loading: boolean
+    }
+    setOauthAuthorizationManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setOauthAuthorizationValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setOauthAuthorizationValues: (values: DeepPartial<OAuthAuthorizationFormValues>) => {
+        values: DeepPartial<OAuthAuthorizationFormValues>
+    }
+    setRedirecting: (redirectUrl: string) => {
+        redirectUrl: string
+    }
+    setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => {
+        requiredAccessLevel: 'organization' | 'team' | null
+    }
+    setScopeAccess: (
+        scopeObject: string,
+        level: ScopeAccessLevel
+    ) => {
+        level: ScopeAccessLevel
+        scopeObject: string
+    }
+    setScopes: (scopes: string[]) => {
+        scopes: string[]
+    }
+    setScopesWereDefaulted: (scopesWereDefaulted: boolean) => {
+        scopesWereDefaulted: boolean
+    }
+    setSelectedOrganization: (
+        organizationId: string,
+        preferredTeamId?: number
+    ) => {
+        organizationId: string
+        preferredTeamId: number | undefined
+    }
+    setShowCreateProject: (show: boolean) => {
+        show: boolean
+    }
+    setTeamHint: (teamId: number | null) => {
+        teamId: number | null
+    }
+    submitOauthAuthorization: () => {
+        value: boolean
+    }
+    submitOauthAuthorizationFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitOauthAuthorizationRequest: (oauthAuthorization: OAuthAuthorizationFormValues) => {
+        oauthAuthorization: OAuthAuthorizationFormValues
+    }
+    submitOauthAuthorizationSuccess: (oauthAuthorization: OAuthAuthorizationFormValues) => {
+        oauthAuthorization: OAuthAuthorizationFormValues
+    }
+    touchOauthAuthorizationField: (key: string) => {
+        key: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface oauthAuthorizeLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        allOrganizations: (user: UserType | null) => OrganizationBasicType[]
+        sortedTeams: (
+            allTeams: TeamBasicType[] | null,
+            allOrganizations: OrganizationBasicType[],
+            user: UserType | null
+        ) => TeamBasicType[] | null
+        filteredTeams: (
+            sortedTeams: TeamBasicType[] | null,
+            selectedOrganization: string | null
+        ) => TeamBasicType[] | null
+        identityScopeDescriptions: (scopes: string[]) => string[]
+        requiredScopeLevels: (oauthApplication: OAuthApplicationPublicMetadata | null) => Map<string, RequiredLevel>
+        consentResourceScopes: (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null) => string[]
+        scopeRows: (
+            consentResourceScopes: string[],
+            scopeAccessSelections: {
+                bulk: ScopeAccessLevel | null
+                overrides: Record<string, ScopeAccessLevel>
+            },
+            requiredScopeLevels: Map<string, RequiredLevel>
+        ) => OAuthScopeRow[]
+        requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
+        adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
+        allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
+        showReadOnlyBulkAction: (adjustableScopeRows: OAuthScopeRow[]) => boolean
+        effectiveScopes: (
+            scopes: string[],
+            scopeRows: OAuthScopeRow[],
+            oauthApplication: OAuthApplicationPublicMetadata | null
+        ) => string[]
+        redirectDomain: (oauthApplication: OAuthApplicationPublicMetadata | null) => string
+    }
+}
+
+export type oauthAuthorizeLogicType = MakeLogicType<
+    oauthAuthorizeLogicValues,
+    oauthAuthorizeLogicActions,
+    Record<string, any>,
+    oauthAuthorizeLogicMeta
+>
 
 export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     path(['oauth', 'authorize']),
@@ -165,8 +414,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setTeamHint: (teamId: number | null) => ({ teamId }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
-        loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
-        setResourceScopesLoading: (loading: boolean) => ({ loading }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
@@ -227,31 +474,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             } finally {
                 actions.setCanceling(false)
             }
-        },
-        loadResourceScopes: async ({ resourceUrl }) => {
-            // Fetch scopes from the OAuth Protected Resource Metadata endpoint
-            // Per RFC 9728, the metadata is at /.well-known/oauth-protected-resource
-            actions.setResourceScopesLoading(true)
-            try {
-                const url = new URL(resourceUrl)
-                const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource`
-                const response = await fetch(metadataUrl)
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch protected resource metadata: ${response.status}`)
-                }
-                const metadata = await response.json()
-                if (metadata.scopes_supported && Array.isArray(metadata.scopes_supported)) {
-                    actions.setScopes(metadata.scopes_supported)
-                    return
-                }
-            } catch (e) {
-                // Fall back to hardcoded scopes on any error
-                console.warn('Failed to fetch resource scopes, using fallback:', e)
-            } finally {
-                actions.setResourceScopesLoading(false)
-            }
-            // Fallback to hardcoded MCP scopes
-            actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
         },
         createNewProject: async ({ name }) => {
             actions.setNewProjectLoading(true)
@@ -319,12 +541,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
-            },
-        ],
-        resourceScopesLoading: [
-            false,
-            {
-                setResourceScopesLoading: (_, { loading }) => loading,
             },
         ],
         isCanceling: [
@@ -550,13 +766,22 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         // object. Both the rows and the grant derive from this one set, so the consent
         // screen always displays exactly what authorizing will grant — required scopes
         // the client didn't request get a visible (locked) row, never a silent grant.
+        // Scopes outside the app's ceiling are dropped first: `/authorize` clamps them
+        // away, so rendering them would promise the user access the token won't carry.
+        // `*` survives because the server resolves it separately (`wildcard_read_scopes`)
+        // rather than matching it against the ceiling.
         consentResourceScopes: [
             (s) => [s.scopes, s.oauthApplication],
             (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null): string[] => {
+                const grantable = oauthApplication?.grantable_scopes
+                const grantableSet = grantable ? new Set(grantable) : null
+                const requested = grantableSet
+                    ? scopes.filter((scope) => scope === '*' || !scope.includes(':') || grantableSet.has(scope))
+                    : scopes
                 const required = (oauthApplication?.required_scopes ?? []).filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
-                return getMinimumEquivalentScopes([...scopes, ...required]).filter(
+                return getMinimumEquivalentScopes([...requested, ...required]).filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
             },
@@ -643,6 +868,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         redirectDomain: [
             (s) => [s.oauthApplication],
             (): string => {
+                // Stays on kea-router: a redirect_uri is always a URL, which `parseValue` leaves
+                // alone, and only the request payload needs verbatim bytes. Reading
+                // `window.location` here would break under Storybook's in-memory history.
                 const redirectUri = router.values.searchParams['redirect_uri'] as string
                 if (!redirectUri) {
                     return ''
@@ -659,21 +887,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     urlToAction(({ actions }) => {
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
-            const resourceParam = searchParams['resource'] as string | undefined
+            const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
 
-            // Check if this is an MCP server request with no scopes specified
-            // Per MCP spec, when clients don't specify scopes, they should use all scopes_supported
-            // from the Protected Resource Metadata. We default to MCP scopes for known MCP resources.
-            let isMcpResource = false
-            if (resourceParam) {
-                try {
-                    const resourceUrl = new URL(resourceParam)
-                    // Strict hostname check to prevent URL manipulation attacks
-                    isMcpResource = resourceUrl.hostname === 'mcp.posthog.com'
-                } catch {
-                    // Invalid URL, not an MCP resource
-                }
-            }
             const scopesWereDefaulted = requestedScopes.length === 0
 
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
@@ -685,19 +900,19 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const teamHint = Number.isInteger(teamIdParam) && teamIdParam > 0 ? teamIdParam : null
 
             actions.setScopesWereDefaulted(scopesWereDefaulted)
-            actions.setIsMcpResource(isMcpResource)
             actions.setTeamHint(teamHint)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
 
-            if (scopesWereDefaulted && isMcpResource && resourceParam) {
-                // Fetch scopes dynamically from the protected resource metadata
-                actions.loadResourceScopes(resourceParam)
+            if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
+                actions.setIsMcpResource(true)
+                actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
             } else if (scopesWereDefaulted) {
-                // Fallback to minimal OIDC scopes for non-MCP clients
+                actions.setIsMcpResource(false)
                 actions.setScopes(DEFAULT_OAUTH_SCOPES)
             } else {
+                actions.setIsMcpResource(false)
                 actions.setScopes(requestedScopes)
             }
         }

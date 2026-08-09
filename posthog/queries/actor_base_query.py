@@ -84,7 +84,10 @@ def _fetch_people_via_personhog(
         team_id, person_ids, limit_per_person=distinct_id_limit
     )
 
-    persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
+    persons = [
+        proto_person_to_model(p, distinct_ids=[d.id for d in distinct_ids_by_person.get(p.id, [])])
+        for p in valid_persons
+    ]
     persons.sort(key=lambda p: (-(p.created_at.timestamp() if p.created_at else 0), str(p.uuid)))
     return persons
 

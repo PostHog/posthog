@@ -5,9 +5,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES, VIEWER_QUERY
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
     LINEAR_API_URL,
@@ -59,6 +59,34 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     return _LINEAR_FALLBACK_WAIT(retry_state)
 
 
+# Linear returns `progress` as a Float in [0, 1], but whole values (0, 1) arrive over JSON
+# without a decimal point. If the batch that first creates the Delta table has only whole
+# values, the column infers as int64 and the first fractional progress (e.g. 0.539474) then
+# fails every later sync with ArrowInvalid, wedging the table. Force these columns to float
+# so the inferred type is stable regardless of which rows land first.
+_FLOAT_FIELDS: dict[str, tuple[str, ...]] = {
+    "cycles": ("progress",),
+    "projects": ("progress",),
+    # `progress`, `sortOrder` and `position` are all GraphQL Floats that routinely hold whole
+    # values, so they hit the same int64-inference trap as `progress` above.
+    "workflow_states": ("position",),
+    "project_milestones": ("progress", "sortOrder"),
+    "initiatives": ("sortOrder",),
+    "team_memberships": ("sortOrder",),
+}
+
+
+def _coerce_float_fields(nodes: list[dict[str, Any]], endpoint_name: str) -> None:
+    field_names = _FLOAT_FIELDS.get(endpoint_name)
+    if not field_names:
+        return
+    for node in nodes:
+        for field_name in field_names:
+            value = node.get(field_name)
+            if value is not None:
+                node[field_name] = float(value)
+
+
 @dataclasses.dataclass
 class LinearResumeConfig:
     cursor: str
@@ -97,10 +125,11 @@ def _make_paginated_request(
     def execute(variables: dict[str, Any]) -> dict:
         try:
             response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables}, timeout=60)
-        except (requests.ConnectionError, requests.Timeout) as e:
+        except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
             # The session's urllib3 Retry only covers idempotent methods, so Linear's POSTs get no
-            # transport-level retry. Route transient network failures (read timeout, connection reset)
-            # through the same backoff path as 5xx/429 instead of failing the whole activity on one blip.
+            # transport-level retry. Route transient network failures (read timeout, connection reset,
+            # a connection broken mid-body which surfaces as ChunkedEncodingError) through the same
+            # backoff path as 5xx/429 instead of failing the whole activity on one blip.
             raise LinearRetryableError(f"Linear: transient network error - {e}")
 
         if response.status_code >= 500:
@@ -135,6 +164,11 @@ def _make_paginated_request(
                 raise LinearRetryableError(f"Linear: rate limited - {joined}")
             if not response.ok:
                 raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {joined})")
+            # Linear's GraphQL layer sometimes wraps a resolver-side blip as a 200 with a generic
+            # "Internal server error" message instead of an HTTP 5xx. Treat it the same as the
+            # status-code case above rather than failing the activity outright.
+            if any("internal server error" in message.lower() for message in error_messages):
+                raise LinearRetryableError(f"Linear: internal server error - {joined}")
             raise Exception(f"Linear GraphQL error: {joined}")
 
         if not response.ok:
@@ -162,6 +196,7 @@ def _make_paginated_request(
             payload = execute(variables)
 
             data = payload["data"][graphql_query_name]["nodes"]
+            _coerce_float_fields(data, endpoint_name)
             yield data
 
             page_info = payload["data"][graphql_query_name]["pageInfo"]
