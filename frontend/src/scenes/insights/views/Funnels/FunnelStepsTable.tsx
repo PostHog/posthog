@@ -9,6 +9,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup, Sorting } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -35,7 +36,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSorting } = useActions(
         funnelDataLogic(insightProps)
     )
-    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { canOpenPersonModal, personModalDisabledReason } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
@@ -232,7 +233,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     {humanFriendlyNumber(stepSeries.count ?? 0)}
                                 </ValueInspectorButton>
                             ) : (
-                                <>{humanFriendlyNumber(stepSeries.count ?? 0)}</>
+                                <Tooltip title={personModalDisabledReason}>
+                                    <span>{humanFriendlyNumber(stepSeries.count ?? 0)}</span>
+                                </Tooltip>
                             ))
                         )
                     },
@@ -266,7 +269,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                                               {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
                                           </ValueInspectorButton>
                                       ) : (
-                                          <>{humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}</>
+                                          <Tooltip title={personModalDisabledReason}>
+                                              <span>{humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}</span>
+                                          </Tooltip>
                                       ))
                                   )
                               },
