@@ -14,6 +14,7 @@ import { InboxMetaSeparator } from "@posthog/ui/features/inbox/components/InboxM
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportRefundAction } from "@posthog/ui/features/inbox/components/ReportRefundAction";
 import { ReportTasksSection } from "@posthog/ui/features/inbox/components/ReportTasksSection";
 import { SuggestedReviewersSection } from "@posthog/ui/features/inbox/components/SuggestedReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
@@ -103,6 +104,7 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
             </Button>
           ) : null}
           <ReportDetailActions report={report} />
+          <ReportRefundAction report={report} />
           <Button
             type="button"
             variant="outline"

@@ -575,6 +575,25 @@ export interface SignalReport {
   implementation_pr_url?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
+  /** The report's PR refund, when one exists (one refund per report, ever). */
+  refund?: SignalReportRefund | null;
+  /** Marks reports that were never billable ("Free"), so there is nothing to refund. */
+  billing_exempt_reason?: string | null;
+  /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+  refund_ineligibility_reason?: string | null;
+}
+
+export type SignalReportRefundReason =
+  | "pr_incorrect"
+  | "pr_not_useful"
+  | "duplicate"
+  | "other";
+
+export interface SignalReportRefund {
+  id: string;
+  reason: SignalReportRefundReason;
+  note?: string | null;
+  created_at?: string;
 }
 
 export interface SignalReportArtefactContent {
