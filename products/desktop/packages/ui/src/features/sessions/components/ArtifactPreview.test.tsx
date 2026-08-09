@@ -250,7 +250,7 @@ describe("ArtifactPreview", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });
 
-  it("scopes cached previews to the authenticated identity", () => {
+  it("scopes cached previews to the identity and artifact name", () => {
     render(
       <ArtifactPreview
         taskId="task-1"
@@ -266,6 +266,7 @@ describe("ArtifactPreview", () => {
           "artifactPreview",
           "auth-1",
           "task-1",
+          "report.html",
           "run-1",
           "artifact-1",
         ],
@@ -273,6 +274,24 @@ describe("ArtifactPreview", () => {
         meta: { authScoped: true },
       }),
     );
+    const queryOptions = useQuery.mock.calls[0]?.[0] as {
+      placeholderData: (
+        previousData: unknown,
+        previousQuery: { queryKey: unknown[] },
+      ) => unknown;
+    };
+    expect(
+      queryOptions.placeholderData("previous preview", {
+        queryKey: [
+          "artifactPreview",
+          "auth-1",
+          "task-1",
+          "other.html",
+          "run-1",
+          "artifact-0",
+        ],
+      }),
+    ).toBeUndefined();
   });
 
   it("starts the manifest and preview URL requests together", async () => {
@@ -1024,26 +1043,50 @@ describe("ArtifactPreview", () => {
         ],
       },
     ];
-    const currentPreview = editablePreview();
+    const currentPreview = editablePreview({
+      storage_path: "runs/1/report-v2.md",
+    });
+    const olderPreview = editablePreview({
+      id: "artifact-0",
+      storage_path: "runs/1/report-v1.md",
+      uploaded_at: "2026-08-06T10:00:00Z",
+    });
+    let olderVersionLoaded = false;
     useQuery.mockImplementation(
       (options: {
         queryKey: unknown[];
-        placeholderData?: (previousData: unknown) => unknown;
+        placeholderData?: (
+          previousData: unknown,
+          previousQuery: { queryKey: unknown[] },
+        ) => unknown;
       }) => {
-        const isLoadingOlderVersion = options.queryKey.includes("artifact-0");
-        const data = isLoadingOlderVersion
-          ? options.placeholderData?.(currentPreview)
-          : currentPreview;
+        const isOlderVersion = options.queryKey.includes("artifact-0");
+        const data =
+          isOlderVersion && !olderVersionLoaded
+            ? options.placeholderData?.(currentPreview, {
+                queryKey: [
+                  "artifactPreview",
+                  "auth-1",
+                  "task-1",
+                  "report.md",
+                  "run-1",
+                  "artifact-1",
+                ],
+              })
+            : isOlderVersion
+              ? olderPreview
+              : currentPreview;
         return {
           data,
           isLoading: data === undefined,
           isError: false,
-          isPlaceholderData: isLoadingOlderVersion && data !== undefined,
+          isPlaceholderData:
+            isOlderVersion && !olderVersionLoaded && data !== undefined,
         };
       },
     );
 
-    render(
+    const { rerender } = render(
       <ArtifactPreview
         taskId="task-1"
         runId="run-1"
@@ -1053,20 +1096,40 @@ describe("ArtifactPreview", () => {
     );
 
     expect(screen.getByText("v2/2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Newer version" }),
     ).toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Older version" }));
 
-    expect(screen.getByText("v1/2")).toBeInTheDocument();
+    expect(screen.getByText("v2/2")).toBeInTheDocument();
     expect(screen.getByText("Report")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(
       screen.getByRole("button", { name: "Older version" }),
     ).toHaveAttribute("aria-disabled", "true");
     expect(
       screen.getByRole("button", { name: "Newer version" }),
     ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Comment…" }),
+    ).toBeInTheDocument();
+
+    olderVersionLoaded = true;
+    rerender(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
     let lastCall = useQuery.mock.calls.at(-1)?.[0] as {
       queryKey: unknown[];
     };

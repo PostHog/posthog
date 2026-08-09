@@ -94,7 +94,14 @@ export function useArtifactPreviewData({
   const { data, isLoading, isError, isPlaceholderData } = useQuery<
     PreviewData | ArtifactPreviewResult
   >({
-    queryKey: ["artifactPreview", authIdentity, taskId, runId, artifactId],
+    queryKey: [
+      "artifactPreview",
+      authIdentity,
+      taskId,
+      name,
+      runId,
+      artifactId,
+    ],
     queryFn: async () => {
       const [artifacts, url] = await Promise.all([
         sessionService.getCloudRunArtifacts(taskId, runId),
@@ -136,7 +143,12 @@ export function useArtifactPreviewData({
     },
     enabled: authIdentity !== null,
     staleTime: Infinity,
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === authIdentity &&
+      previousQuery.queryKey[2] === taskId &&
+      previousQuery.queryKey[3] === name
+        ? previousData
+        : undefined,
     retry: false,
     meta: AUTH_SCOPED_QUERY_META,
   });

@@ -122,19 +122,42 @@ export function ArtifactPreview({
     null,
   );
   const activeArtifactId = selectedVersionId ?? artifactId;
-  const versionIndex = versions.findIndex(
+  const activeVersionIndex = versions.findIndex(
     (version) => version.id === activeArtifactId,
   );
   const activeRunId =
-    versionIndex >= 0 ? (versions[versionIndex]?.runId ?? runId) : runId;
+    activeVersionIndex >= 0
+      ? (versions[activeVersionIndex]?.runId ?? runId)
+      : runId;
   const markdownRootRef = useRef<HTMLDivElement>(null);
   const markdownContainerRef = useRef<HTMLDivElement>(null);
   const [imageError, setImageError] = useState(false);
   const [imageCommenting, setImageCommenting] = useState(false);
   const authIdentity = useAuthStateValue(getAuthIdentity);
+  const {
+    artifactResult,
+    previewData,
+    previewUrl,
+    isLoading,
+    isError,
+    isPlaceholderData,
+  } = useArtifactPreviewData({
+    sessionService,
+    authIdentity,
+    taskId,
+    runId: activeRunId,
+    artifactId: activeArtifactId,
+    name,
+  });
+  const displayedArtifactId = artifactResult?.artifact.id ?? activeArtifactId;
+  const versionIndex = versions.findIndex(
+    (version) => version.id === displayedArtifactId,
+  );
+  const displayedRunId =
+    versionIndex >= 0 ? (versions[versionIndex]?.runId ?? runId) : runId;
   const commentTarget = useMemo<CommentTarget>(
-    () => ({ scope: "task_artifact", itemId: activeArtifactId }),
-    [activeArtifactId],
+    () => ({ scope: "task_artifact", itemId: displayedArtifactId }),
+    [displayedArtifactId],
   );
   const commentsQuery = useCommentsQuery(commentTarget, taskId, {
     enabled: commentsEnabled,
@@ -159,21 +182,6 @@ export function ArtifactPreview({
     }
     setSelectedVersionId(focus.target.itemId);
   }, [activeArtifactId, focus, versions]);
-  const {
-    artifactResult,
-    previewData,
-    previewUrl,
-    isLoading,
-    isError,
-    isPlaceholderData,
-  } = useArtifactPreviewData({
-    sessionService,
-    authIdentity,
-    taskId,
-    runId: activeRunId,
-    artifactId: activeArtifactId,
-    name,
-  });
   const editing = useArtifactEditing({
     sessionService,
     artifactResult,
@@ -182,7 +190,7 @@ export function ArtifactPreview({
     versionsLoading: runsLoading || isPlaceholderData,
     refreshVersions,
     taskId,
-    runId: activeRunId,
+    runId: displayedRunId,
     name,
     authIdentity,
     openArtifactTab,
@@ -322,7 +330,7 @@ export function ArtifactPreview({
       versionNav={versionNav}
       taskId={taskId}
       commentTarget={commentTarget}
-      commentsEnabled={commentsEnabled && !isPlaceholderData}
+      commentsEnabled={commentsEnabled}
       canEdit={editing.canEdit}
       beginEditing={editing.beginEditing}
       previewData={previewData}
