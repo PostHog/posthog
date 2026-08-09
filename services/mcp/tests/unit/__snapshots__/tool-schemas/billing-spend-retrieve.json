@@ -54,7 +54,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Comma-separated team (project) IDs to filter by. Omit for all teams in the org."
+            "description": "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org."
         },
         "usage_types": {
             "anyOf": [
