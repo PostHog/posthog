@@ -16,31 +16,59 @@ export function AttentionChip({
 }) {
   switch (state) {
     case "sla-breached":
-      return <Badge variant="destructive">SLA breached</Badge>;
+      return (
+        <Badge className="shrink-0" variant="destructive">
+          SLA breached
+        </Badge>
+      );
     case "customer-replied":
       return (
-        <Badge variant="info">
+        <Badge className="shrink-0" variant="info">
           Customer replied{" "}
           <RelativeTimestamp timestamp={ticket.last_message_at} />
         </Badge>
       );
     case "agent-handed-back":
-      return <Badge variant="info">Agent handed back</Badge>;
+      return (
+        <Badge className="shrink-0" variant="info">
+          Agent handed back
+        </Badge>
+      );
     case "sla-at-risk":
       return (
-        <Badge variant="warning">
+        <Badge className="shrink-0" variant="warning">
           SLA <RelativeTimestamp timestamp={ticket.sla_due_at} />
         </Badge>
       );
     case "snooze-elapsed":
-      return <Badge variant="warning">Snooze elapsed</Badge>;
+      return (
+        <Badge className="shrink-0" variant="warning">
+          Snooze elapsed
+        </Badge>
+      );
     case "untriaged":
-      return <Badge variant="warning">Needs triage</Badge>;
+      return (
+        <Badge className="shrink-0" variant="warning">
+          Needs triage
+        </Badge>
+      );
     case "in-progress":
-      return <Badge variant="default">In progress</Badge>;
+      return (
+        <Badge className="shrink-0" variant="default">
+          In progress
+        </Badge>
+      );
     case "waiting-on-customer":
-      return <Badge variant="default">Waiting on customer</Badge>;
+      return (
+        <Badge className="shrink-0" variant="default">
+          Waiting on customer
+        </Badge>
+      );
     case "snoozed":
-      return <Badge variant="default">Snoozed</Badge>;
+      return (
+        <Badge className="shrink-0" variant="default">
+          Snoozed
+        </Badge>
+      );
   }
 }
