@@ -63,10 +63,10 @@ export function diffVersions(a: string | SemanticVersion, b: string | SemanticVe
     if (pa.major !== pb.major) {
         return { kind: 'major', diff: pa.major - pb.major }
     }
-    if (pa.minor !== pb.minor) {
+    if ((pa.minor ?? 0) !== (pb.minor ?? 0)) {
         return { kind: 'minor', diff: (pa.minor ?? 0) - (pb.minor ?? 0) }
     }
-    if (pa.patch !== pb.patch) {
+    if ((pa.patch ?? 0) !== (pb.patch ?? 0)) {
         return { kind: 'patch', diff: (pa.patch ?? 0) - (pb.patch ?? 0) }
     }
     if (pa.extra !== pb.extra) {
