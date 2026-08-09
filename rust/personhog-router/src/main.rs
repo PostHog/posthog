@@ -6,8 +6,9 @@ use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use k8s_awareness::K8sAwareness;
 use lifecycle::{ComponentOptions, Manager};
-use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
+use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
@@ -39,6 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Err(e) = config.validate_lease_timescales() {
         panic!("invalid lease configuration: {e}");
     }
+    // Install the process-wide recorder before anything records: metrics
+    // emitted ahead of it land in a no-op recorder and are dropped, and
+    // preregistered series never materialize.
+    let recorder_handle = install_metrics_recorder();
     preregister_metrics();
 
     // Initialize tracing
@@ -187,52 +192,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
-
-        const BUCKETS: &[f64] = &[
-            1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
-        ];
-        const RESPONSE_SIZE_BUCKETS: &[f64] = &[
-            256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 8388608.0,
-            16777216.0, 33554432.0, 67108864.0,
-        ];
-        let recorder_handle = PrometheusBuilder::new()
-            .add_global_label("service", "personhog-router")
-            .set_buckets(BUCKETS)
-            .unwrap()
-            .set_buckets_for_metric(
-                metrics_exporter_prometheus::Matcher::Prefix(
-                    "personhog_router_response_size".into(),
-                ),
-                RESPONSE_SIZE_BUCKETS,
-            )
-            .unwrap()
-            // Handoff phase timings are a stall detector: healthy phases
-            // complete in seconds, and the interesting tail is minutes.
-            // Sub-second buckets at the bottom because the source is
-            // millisecond-precise; the top still reaches far past the
-            // handoff deadline so a stall is never collapsed into +Inf.
-            .set_buckets_for_metric(
-                metrics_exporter_prometheus::Matcher::Full(
-                    "personhog_coordination_handoff_phase_reached_ms".into(),
-                ),
-                &[
-                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
-                    300000.0, 600000.0,
-                ],
-            )
-            .unwrap()
-            .set_buckets_for_metric(
-                metrics_exporter_prometheus::Matcher::Full(
-                    "personhog_coordination_handoff_phase_duration_ms".into(),
-                ),
-                &[
-                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
-                    300000.0, 600000.0,
-                ],
-            )
-            .unwrap()
-            .install_recorder()
-            .expect("Failed to install metrics recorder");
 
         let health_router = Router::new()
             .route(
@@ -451,6 +410,106 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     monitor_guard.wait().await?;
     Ok(())
+}
+
+/// Build and install the process-wide Prometheus recorder. Runs in
+/// `main` before anything records — including `preregister_metrics` —
+/// because everything emitted ahead of the install lands in the default
+/// no-op recorder and is silently dropped.
+fn install_metrics_recorder() -> PrometheusHandle {
+    const BUCKETS: &[f64] = &[
+        1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+    ];
+    const RESPONSE_SIZE_BUCKETS: &[f64] = &[
+        256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 8388608.0,
+        16777216.0, 33554432.0, 67108864.0,
+    ];
+    // Handoff phase timings are a stall detector: healthy phases
+    // complete in seconds, and the interesting tail is minutes.
+    // Sub-second buckets at the bottom because the source is
+    // millisecond-precise; the top still reaches far past the
+    // handoff deadline so a stall is never collapsed into +Inf.
+    // Dense through the seconds range: healthy phases finish in
+    // hundreds of milliseconds to a few seconds, and during deploy
+    // churn the interesting question is where in 1–10s a phase landed —
+    // the old 2s → 5s gap rendered any tail there as an interpolated
+    // "4.7s" regardless of the real value. The top still reaches far
+    // past the handoff deadline so a stall is never collapsed into
+    // +Inf.
+    const HANDOFF_PHASE_BUCKETS: &[f64] = &[
+        50.0, 250.0, 500.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0, 7500.0, 10000.0, 15000.0,
+        30000.0, 60000.0, 120000.0, 300000.0, 600000.0,
+    ];
+    // Stash waits span "drained at activation" (hundreds of ms) to
+    // "parked across chained handoffs" (seconds); the ceiling is
+    // max_stash_wait, so resolution past ~30s buys nothing.
+    const STASH_WAIT_BUCKETS: &[f64] = &[
+        100.0, 250.0, 500.0, 1000.0, 2000.0, 3000.0, 5000.0, 7500.0, 10000.0, 15000.0, 30000.0,
+    ];
+    PrometheusBuilder::new()
+        .add_global_label("service", "personhog-router")
+        .set_buckets(BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Prefix("personhog_router_response_size".into()),
+            RESPONSE_SIZE_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_coordination_handoff_phase_reached_ms".into()),
+            HANDOFF_PHASE_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_coordination_handoff_phase_duration_ms".into()),
+            HANDOFF_PHASE_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_stash_wait_duration_ms".into()),
+            STASH_WAIT_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_stash_drain_duration_ms".into()),
+            STASH_WAIT_BUCKETS,
+        )
+        .unwrap()
+        // Per-request forwarding spans live in single-digit milliseconds;
+        // the default ladder's 10 → 50 ms step blurs them and pins
+        // interpolated quantiles to bucket edges.
+        .set_buckets_for_metric(
+            Matcher::Prefix("personhog_router_channel_".into()),
+            WRITE_PATH_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_backend_duration_ms".into()),
+            WRITE_PATH_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_network_overhead_ms".into()),
+            WRITE_PATH_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_transport_overhead_ms".into()),
+            WRITE_PATH_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_body_collect_ms".into()),
+            WRITE_PATH_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("grpc_server_request_duration_ms".into()),
+            WRITE_PATH_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .install_recorder()
+        .expect("Failed to install metrics recorder")
 }
 
 /// Touch the deploy-burst counters so their series exist with zero

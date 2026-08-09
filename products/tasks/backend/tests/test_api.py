@@ -31,7 +31,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -1437,7 +1437,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
         self.assertEqual(task.create_run().state["repositories"], task.repositories)
-        mock_find_warm_run.assert_not_called()
+        mock_find_warm_run.assert_called_once_with(
+            self.team.id,
+            self.user.id,
+            repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
+            github_integration_id=integration.id,
+            branch="main",
+            runtime_adapter=None,
+            model=None,
+            reasoning_effort=None,
+            sandbox_environment_id=None,
+            custom_image_id=None,
+        )
 
         update = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",
@@ -4693,6 +4705,37 @@ _OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    def _sandbox_oauth_client(
+        self,
+        task_id: uuid.UUID,
+        *,
+        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
+        bound: bool = True,
+        internal_scope: bool = False,
+    ) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task artifact uploader",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id if bound else None,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
@@ -4999,6 +5042,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "sandbox_gone": False,
                 "ai_stage": "research",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
@@ -5015,7 +5059,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # decisions, change Modal resume snapshot metadata, repoint the run at another
         # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
-        # routed to an unbilled gateway product is free spend). Non-protected keys still merge.
+        # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
+        # workflow-owned terminal reason marker, which would make a genuine FAILED run read as a
+        # timeout and skip its Slack error card. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -5045,6 +5091,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "timed_out_inactivity": True,
+                    "timed_out_wall_clock": True,
+                    "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
@@ -5079,6 +5128,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
+        assert "timed_out_wall_clock" not in run.state
+        assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
@@ -5105,6 +5157,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "sandbox_gone",
                     "runtime_adapter",
                     "provider",
                     "model",
@@ -5128,6 +5181,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["sandbox_gone"] is False  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
         # the pin the server chose.
@@ -6584,6 +6638,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         "source": "user_attachment",
                         "storage_path": storage_path,
                         "content_type": "application/pdf",
+                        "uploaded_by": "agent",
+                        "uploaded_by_user_id": 999999,
                     }
                 ]
             },
@@ -6612,6 +6668,94 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["size"], 4096)
         self.assertEqual(artifact["content_type"], "application/pdf")
         self.assertEqual(artifact["storage_path"], storage_path)
+        self.assertEqual(artifact["uploaded_by"], "user")
+        self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
+
+    @parameterized.expand(
+        [
+            ("bound_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, True, False, "agent"),
+            ("legacy_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, False, True, "agent"),
+            ("posthog_ai_sandbox", POSTHOG_AI_APP_CLIENT_ID_DEV, True, False, "agent"),
+            ("interactive_code_oauth", ARRAY_APP_CLIENT_ID_DEV, False, False, "user"),
+            ("third_party_oauth", "artifact-client", False, False, "user"),
+        ]
+    )
+    @patch("posthog.storage.object_storage.head_object")
+    @patch("posthog.storage.object_storage.tag")
+    def test_finalize_artifact_uploads_attributes_oauth_from_server_provenance(
+        self,
+        _name: str,
+        client_id: str,
+        bound: bool,
+        internal_scope: bool,
+        expected_uploader: str,
+        mock_tag,
+        mock_head_object,
+    ) -> None:
+        mock_head_object.return_value = {"ContentLength": 4096, "ContentType": "text/markdown"}
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact_id = uuid.uuid4().hex
+        storage_path = f"{run.get_artifact_s3_prefix()}/{artifact_id[:8]}_report.md"
+        client = self._sandbox_oauth_client(
+            task.id,
+            client_id=client_id,
+            bound=bound,
+            internal_scope=internal_scope,
+        )
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": artifact_id,
+                        "name": "report.md",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": storage_path,
+                        "content_type": "text/markdown",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_head_object.assert_called_once_with(storage_path)
+        mock_tag.assert_called_once()
+        run.refresh_from_db()
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["uploaded_by"], expected_uploader)
+        if expected_uploader == "agent":
+            self.assertNotIn("uploaded_by_user_id", artifact)
+        else:
+            self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
+
+    def test_retrieve_run_accepts_legacy_artifacts_without_upload_attribution(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            artifacts=[
+                {
+                    "id": "legacy-artifact",
+                    "name": "report.md",
+                    "type": "output",
+                    "storage_path": "tasks/artifacts/legacy/report.md",
+                    "uploaded_at": "2026-01-01T00:00:00+00:00",
+                }
+            ],
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        artifact = response.json()["artifacts"][0]
+        self.assertEqual(artifact["id"], "legacy-artifact")
+        self.assertNotIn("uploaded_by", artifact)
+        self.assertNotIn("uploaded_by_user_id", artifact)
 
     @patch("posthog.storage.object_storage.head_object")
     def test_finalize_artifact_uploads_rejects_invalid_storage_path(self, mock_head_object):
