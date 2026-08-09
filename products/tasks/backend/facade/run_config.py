@@ -21,6 +21,7 @@ from products.tasks.backend.constants import (
 # so presentation builds serializer choices without importing the ORM model directly.
 from products.tasks.backend.models import TaskArtifact as _TaskArtifact
 from products.tasks.backend.temporal.process_task.utils import (
+    CONTEXT_WINDOW_CHOICES,
     PUBLIC_REASONING_EFFORTS,
     GitHubCredentialSource,
     LLMProvider,
@@ -33,8 +34,10 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_models_for_runtime_adapter,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_runtime_adapter_for_model,
     get_supported_reasoning_efforts,
     parse_run_state,
+    validate_model_selection,
 )
 
 TaskArtifactType = _TaskArtifact.ArtifactType
@@ -44,6 +47,7 @@ TaskArtifactStatus = _TaskArtifact.Status
 __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",
     "CODEX_INITIAL_PERMISSION_MODE_CHOICES",
+    "CONTEXT_WINDOW_CHOICES",
     "INITIAL_PERMISSION_MODE_CHOICES",
     "InitialPermissionMode",
     "PUBLIC_REASONING_EFFORTS",
@@ -61,6 +65,8 @@ __all__ = [
     "get_models_for_runtime_adapter",
     "get_provider_for_runtime_adapter",
     "get_reasoning_effort_error",
+    "get_runtime_adapter_for_model",
     "get_supported_reasoning_efforts",
     "parse_run_state",
+    "validate_model_selection",
 ]

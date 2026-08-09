@@ -20,13 +20,13 @@ import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { formatCredits } from '../utils/credits'
+import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
-import { ScannerQualityTab } from './components/ScannerQualityTab'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -74,14 +74,14 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {activeTab !== ReplayScannerTab.Quality && (
+                        {activeTab !== ReplayScannerTab.Calibration && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconSparkles />}
-                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Quality tab"
-                                onClick={() => setActiveTab(ReplayScannerTab.Quality)}
-                                data-attr="replay-vision-open-quality-tab"
+                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Calibration tab"
+                                onClick={() => setActiveTab(ReplayScannerTab.Calibration)}
+                                data-attr="replay-vision-open-calibration-tab"
                             >
                                 Improve scanner
                             </LemonButton>
@@ -137,9 +137,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
                     {
-                        key: ReplayScannerTab.Quality,
-                        label: 'Quality',
-                        content: <ScannerQualityTab scannerId={scannerId} />,
+                        key: ReplayScannerTab.Calibration,
+                        label: 'Calibration',
+                        content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
@@ -159,7 +159,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
 // Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
 function QuotaBanner(): JSX.Element | null {
-    const { quota } = useValues(visionQuotaLogic)
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
     const state = quotaBannerState(quota)
     if (!state.kind) {
         return null
@@ -167,8 +167,12 @@ function QuotaBanner(): JSX.Element | null {
     return (
         <LemonBanner type="warning">
             {state.kind === 'exhausted'
-                ? `Monthly spend limit reached (${formatCredits(state.quota.credits_used)} of ${formatCredits(state.quota.credit_limit ?? 0)}). New observations are paused until ${state.resetsOn}.`
-                : `${formatCredits(state.quota.credits_used)} of your ${formatCredits(state.quota.credit_limit ?? 0)} monthly spend limit used. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+                ? `${
+                      onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
+                  }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
+                : onFreePlan
+                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
+                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
         </LemonBanner>
     )
 }

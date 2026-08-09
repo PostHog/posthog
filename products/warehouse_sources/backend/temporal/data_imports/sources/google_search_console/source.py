@@ -12,13 +12,13 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
     IntegrationAccountListingError,
@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -39,10 +40,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     suggest_registered_site,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    PROPERTY_SCHEMAS,
     SEARCH_ANALYTICS_INCREMENTAL_FIELD,
     SEARCH_ANALYTICS_SCHEMAS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Fallback messages for unexpected failures during credential validation. The raw exception can
+# embed OAuth tokens, ids, or an HTML error body, so we capture it for debugging and show generic
+# guidance instead of surfacing `str(e)` to the user.
+_LOAD_CONNECTION_ERROR = (
+    "PostHog couldn't load your Google Search Console connection. Please reconnect your Google account and try again."
+)
+_LIST_SITES_ERROR = (
+    "PostHog couldn't reach Google Search Console to list your properties. Please try again in a few minutes."
+)
 
 
 @SourceRegistry.register
@@ -136,12 +148,31 @@ class GoogleSearchConsoleSource(
             )
             for name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
         ]
+        # Property metadata is a full snapshot each sync: both endpoints return the current
+        # state with no timestamp to filter on, so there is nothing to sync incrementally.
+        schemas += [
+            SourceSchema(
+                name=name,
+                supports_incremental=False,
+                supports_append=False,
+                description=property_schema["description"],
+                should_sync_default=property_schema["should_sync_default"],
+            )
+            for name, property_schema in PROPERTY_SCHEMAS.items()
+        ]
 
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
@@ -182,10 +213,11 @@ class GoogleSearchConsoleSource(
         except Exception as e:
             if "matching query does not exist" in str(e):
                 return False, (
-                    "Your Google Search Console connection is no longer available — it may have been "
+                    "Your Google Search Console connection is no longer available. It may have been "
                     "disconnected. Please reconnect your Google Search Console account."
                 )
-            return False, f"Could not load Google Search Console credentials: {e}"
+            capture_exception(e)
+            return False, _LOAD_CONNECTION_ERROR
 
         try:
             sites = list_sites(session)
@@ -196,7 +228,8 @@ class GoogleSearchConsoleSource(
                     False,
                     "Google Search Console rejected the credentials. Please reconnect your account and ensure it has read access to the property.",
                 )
-            return False, f"Failed to list Google Search Console sites: {e}"
+            capture_exception(e)
+            return False, _LIST_SITES_ERROR
         except RefreshError:
             # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
             # invalid_grant): the stored token is missing the required permissions, or has expired or
@@ -209,7 +242,8 @@ class GoogleSearchConsoleSource(
                 "and grant access to Search Console.",
             )
         except Exception as e:
-            return False, f"Failed to list Google Search Console sites: {e}"
+            capture_exception(e)
+            return False, _LIST_SITES_ERROR
 
         normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
         site_url = normalize_site_url(config.site_url)

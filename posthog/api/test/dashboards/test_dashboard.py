@@ -17,7 +17,7 @@ from rest_framework import status
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User
@@ -1988,11 +1988,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_copies_breakdown_colors(self):
         """Test that breakdown_colors are copied during duplication"""
+        # The shape the frontend persists: a list of BreakdownColorConfig objects
+        breakdown_colors = [
+            {"breakdownValue": "Chrome", "breakdownType": "event", "colorToken": "preset-1", "source": "manual"},
+            {"breakdownValue": "Firefox", "breakdownType": "event", "colorToken": "preset-2", "source": "manual"},
+        ]
         existing_dashboard = Dashboard.objects.create(
             team=self.team,
             name="Dashboard with colors",
             created_by=self.user,
-            breakdown_colors={"event1": "#FF0000", "event2": "#00FF00"},
+            breakdown_colors=breakdown_colors,
         )
 
         # Duplicate the dashboard
@@ -2001,10 +2006,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         # Verify breakdown_colors are copied
-        self.assertEqual(response["breakdown_colors"], {"event1": "#FF0000", "event2": "#00FF00"})
+        self.assertEqual(response["breakdown_colors"], breakdown_colors)
 
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
-        self.assertEqual(duplicated_dashboard.breakdown_colors, {"event1": "#FF0000", "event2": "#00FF00"})
+        self.assertEqual(duplicated_dashboard.breakdown_colors, breakdown_colors)
 
     def test_dashboard_duplication_copies_variables(self):
         """Test that variables are copied during duplication"""
@@ -3383,6 +3388,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(sse_dashboard["persisted_filters"], dashboard_filters)
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
+
+    def test_tile_insights_carry_alerts_on_regular_and_sse_endpoints(self):
+        # Alert threshold lines on dashboards render from the tile insight's inline alerts, and
+        # InsightSerializer.get_alerts silently serializes [] when the loading path forgot the
+        # alerts prefetch — so both dashboard-loading endpoints must emit them.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "dashboards": [dashboard_id],
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            }
+        )
+        threshold = Threshold.objects.create(
+            team=self.team,
+            insight_id=insight_id,
+            created_by=self.user,
+            configuration={"type": "absolute", "bounds": {"upper": 1}},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=insight_id,
+            created_by=self.user,
+            name="tile alert",
+            threshold=threshold,
+            condition={"type": "absolute_value"},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+        )
+
+        regular_response = self.dashboard_api.get_dashboard(dashboard_id)
+        assert [a["id"] for a in regular_response["tiles"][0]["insight"]["alerts"]] == [str(alert.id)]
+
+        sse_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
+        assert sse_response.status_code == status.HTTP_200_OK
+        sse_content = b"".join(sse_response.streaming_content).decode("utf-8")  # type: ignore
+        metadata_line = next(
+            (
+                line[len("data: ") :]
+                for line in sse_content.split("\n")
+                if line.startswith("data: ") and '"type":"metadata"' in line
+            ),
+            None,
+        )
+        assert metadata_line is not None, f"Could not find metadata in SSE response. Content: {repr(sse_content)}"
+        streamed_tiles = json.loads(metadata_line)["dashboard"]["tiles"]
+        assert [a["id"] for a in streamed_tiles[0]["insight"]["alerts"]] == [str(alert.id)]
 
     def test_streamed_tile_error_preserves_insight_metadata_without_exception_detail(self):
         dashboard = Dashboard.objects.create(

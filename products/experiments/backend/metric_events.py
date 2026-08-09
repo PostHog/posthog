@@ -1,16 +1,18 @@
-"""Resolve which events an experiment's metrics count, and scan a session for them.
+"""Resolve which events an experiment's metrics count, and scan sessions for them.
 
 A session recording can contain the events an experiment's metrics count. This module maps an
 experiment's metrics (inline primary + secondary and saved/shared, via the shared
-`metric_resolution` enumerator) to their concrete event/action sources, and scans one session
-for those events. Data-warehouse sources have no session events, so metrics whose every source
-is a data-warehouse node are marked non-linkable and skipped by the scan.
+`metric_resolution` enumerator) to their concrete event/action sources, and scans a batch of
+sessions for those events in one query. Data-warehouse sources have no session events, so
+metrics whose every source is a data-warehouse node are marked non-linkable and skipped by
+the scan.
 
-Consumed by the additive `metrics_in_session` fields on the single-session `session_context`
-endpoint.
+Consumed by the additive `metrics_in_session` fields on the `session_context` /
+`session_contexts` endpoints.
 """
 
 import logging
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -160,7 +162,17 @@ class MetricHit:
     sources: tuple[MetricSourceHit, ...]
 
 
-def _node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
+@dataclass(frozen=True)
+class MetricScanResult:
+    # session_id -> hits sorted by first occurrence; sessions with no matching events are omitted.
+    hits_by_session: dict[str, list[MetricHit]]
+    # Metric uuids refused at MAX_SCANNED_METRICS. Hits for these metrics are silently absent
+    # from every session's list, so callers that cache per-session results need this set to
+    # tell an incomplete result from a genuinely hitless one.
+    dropped_metric_uuids: set[str]
+
+
+def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
     return node.model_dump_json(exclude_none=True)
@@ -187,7 +199,7 @@ def _metric_sources(
     sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode]] = [
         (MetricSourceRole.RETENTION_START, metric.start_event)
     ]
-    if _node_signature(metric.completion_event) != _node_signature(metric.start_event):
+    if node_signature(metric.completion_event) != node_signature(metric.start_event):
         sources.append((MetricSourceRole.RETENTION_COMPLETION, metric.completion_event))
     return sources
 
@@ -258,7 +270,7 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
     return metric_sources
 
 
-def _node_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
+def build_source_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
     """Match expression for one source node, built on `event_or_action_to_filter` — the same
     matcher the experiment analysis uses, so what counts as "this metric's event" cannot
     diverge between the analysis and this surface. `fixedProperties` are ANDed on top: the
@@ -278,23 +290,24 @@ def _node_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
     return condition
 
 
-def scan_session_for_metric_events(
+def scan_sessions_for_metric_events(
     team: Team,
     user: User,
     *,
     metric_sources: list[MetricEventSource],
-    session_id: str,
+    session_ids: list[str],
     window_start: datetime,
     window_end: datetime,
     shared_hogql: SharedHogQLDatabase | None = None,
-) -> list[MetricHit]:
-    """The metrics with >=1 matching event in the session, sorted by first occurrence.
+) -> MetricScanResult:
+    """Per session, the metrics with >=1 matching event, sorted by first occurrence — as
+    MetricScanResult.hits_by_session. Sessions with no matching events are omitted.
 
-    One scan computes every metric via conditional aggregation (countIf/minIf/groupArrayIf):
-    a per-metric UNION ALL re-reads the session's event range once per metric, which dominated
-    the endpoint's ClickHouse time in production once a session overlapped dozens of
-    metric-carrying experiments. Keeping the OR of every metric condition in WHERE preserves
-    the event-name primary-key pruning the per-metric branches had.
+    One scan computes every metric via conditional aggregation (countIf/minIf/groupArrayIf)
+    grouped by session: a per-metric UNION ALL re-reads the sessions' event range once per
+    metric, which dominated the endpoint's ClickHouse time in production once a session
+    overlapped dozens of metric-carrying experiments. Keeping the OR of every metric condition
+    in WHERE preserves the event-name primary-key pruning the per-metric branches had.
 
     Each metric is aggregated twice over: once across all its sources (its own totals, an OR so
     an event matching two sources still counts once) and once per source (the breakdown that
@@ -304,7 +317,9 @@ def scan_session_for_metric_events(
     Metrics with no hits are omitted. Duplicate metric uuids (a saved metric shared by several
     experiments) and metrics with identical source nodes (several experiments measuring the
     same event) are aggregated once, and at most MAX_SCANNED_METRICS metrics are accepted per
-    call (the overflow is logged, not an error). The cap counts metrics, not distinct sources:
+    call (the overflow is not an error: it is logged and returned as dropped_metric_uuids so
+    callers can treat the affected sessions' results as incomplete). The cap counts metrics,
+    not distinct sources:
     source dedupe only narrows the query, it must not let a metric-heavy experiment emit an
     unbounded hit list by piling metrics onto one source. `user` threads through to HogQL for
     property-level access control — metric source nodes can carry property filters.
@@ -322,11 +337,11 @@ def scan_session_for_metric_events(
     # Aggregate groups, keyed by the sorted distinct source nodes they cover: one per metric (all
     # its sources) plus one per individual source. A single-source metric's two keys coincide.
     group_indexes: dict[tuple[str, ...], int] = {}
-    skipped_over_cap = 0
+    dropped_metric_uuids: set[str] = set()
     skipped_breakdown_sources = 0
 
     def node_key(source: MetricSource) -> str:
-        return _node_signature(source.node)
+        return node_signature(source.node)
 
     def metric_group_key(metric_source: MetricEventSource) -> tuple[str, ...]:
         # Distinct nodes only, so a ratio measuring the same event on both sides is one aggregate.
@@ -346,12 +361,12 @@ def scan_session_for_metric_events(
         if not metric_source.session_linkable or metric_source.metric_uuid in seen_uuids:
             continue
         if len(seen_uuids) >= MAX_SCANNED_METRICS:
-            skipped_over_cap += 1
+            dropped_metric_uuids.add(metric_source.metric_uuid)
             continue
         seen_uuids.add(metric_source.metric_uuid)
         accepted.append(metric_source)
         for source in metric_source.sources:
-            conditions_by_node.setdefault(node_key(source), _node_condition(source.node, team))
+            conditions_by_node.setdefault(node_key(source), build_source_condition(source.node, team))
 
     # Every metric's own totals group is registered first and uncapped — it is bounded by
     # MAX_SCANNED_METRICS, so it never competes for the ceiling. Only the per-source breakdown is
@@ -363,23 +378,26 @@ def scan_session_for_metric_events(
             if not register_group((node_key(source),), capped=True):
                 skipped_breakdown_sources += 1
 
-    if skipped_over_cap:
-        logger.warning(
-            "Metric scan for session %s capped at %s metrics; %s metrics not scanned",
-            session_id,
+    if dropped_metric_uuids:
+        # Info, not warning: metric-heavy teams hit this cap in steady state, and the batch
+        # caller already declines to cache the affected sessions, so an on-demand recompute
+        # restores the full set.
+        logger.info(
+            "Metric scan for sessions %s capped at %s metrics; %s metrics not scanned",
+            session_ids,
             MAX_SCANNED_METRICS,
-            skipped_over_cap,
+            len(dropped_metric_uuids),
         )
     if skipped_breakdown_sources:
         logger.warning(
-            "Metric scan for session %s capped at %s aggregate groups; per-source breakdown dropped for %s source(s)",
-            session_id,
+            "Metric scan for sessions %s capped at %s aggregate groups; per-source breakdown dropped for %s source(s)",
+            session_ids,
             MAX_AGGREGATE_GROUPS,
             skipped_breakdown_sources,
         )
 
     if not group_indexes:
-        return []
+        return MetricScanResult(hits_by_session={}, dropped_metric_uuids=dropped_metric_uuids)
 
     # Condition asts are deep-copied per use site (three aggregates + the WHERE): the HogQL
     # resolver annotates nodes in place, so sharing one instance across positions is unsafe.
@@ -387,7 +405,8 @@ def scan_session_for_metric_events(
         conditions = [deepcopy(conditions_by_node[node]) for node in key]
         return ast.Or(exprs=conditions) if len(conditions) > 1 else conditions[0]
 
-    select: list[ast.Expr] = []
+    # Column 0 is the session_id the row aggregates over; each group's three aggregates follow.
+    select: list[ast.Expr] = [ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))]
     for key, index in group_indexes.items():
         select.append(ast.Alias(alias=f"count_{index}", expr=ast.Call(name="countIf", args=[group_condition(key)])))
         select.append(
@@ -422,12 +441,13 @@ def scan_session_for_metric_events(
     query = ast.SelectQuery(
         select=select,
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        group_by=[ast.Field(chain=["session_id"])],
         where=ast.And(
             exprs=[
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
+                    op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["$session_id"]),
-                    right=ast.Constant(value=session_id),
+                    right=ast.Constant(value=session_ids),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -451,52 +471,78 @@ def scan_session_for_metric_events(
         extra_kwargs["modifiers"] = shared_hogql.modifiers
     response = execute_hogql_query(query, team=team, user=user, **extra_kwargs)
 
-    # Aggregation without GROUP BY always yields exactly one row; a metric with no matching
-    # events shows count 0 there (and an epoch minIf), so the count guards the timestamps.
-    row = response.results[0] if response.results else None
-    if row is None:
-        return []
-
-    def read_group(key: tuple[str, ...]) -> Optional[tuple[int, datetime, tuple[datetime, ...]]]:
+    # Grouped by session, so a session with no matching events yields no row at all; within a
+    # row a metric with no matches shows count 0 (and an epoch minIf), so the count guards the
+    # timestamps. Column 0 is the session_id, so a group at `index` starts at 1 + index * 3.
+    def read_group(row: list, key: tuple[str, ...]) -> Optional[tuple[int, datetime, tuple[datetime, ...]]]:
         index = group_indexes.get(key)
         if index is None:
             return None
-        event_count = row[index * 3]
+        event_count = row[index * 3 + 1]
         if not event_count:
             return None
-        return int(event_count), row[index * 3 + 1], tuple(row[index * 3 + 2])
+        return int(event_count), row[index * 3 + 2], tuple(row[index * 3 + 3])
 
-    hits: list[MetricHit] = []
-    for metric_source in accepted:
-        totals = read_group(metric_group_key(metric_source))
-        if totals is None:
-            continue
-        event_count, first_timestamp, timestamps = totals
-        source_hits: list[MetricSourceHit] = []
-        for source in metric_source.sources:
-            source_totals = read_group((node_key(source),))
-            if source_totals is None:
+    hits_by_session: dict[str, list[MetricHit]] = {}
+    for row in response.results or []:
+        hits: list[MetricHit] = []
+        for metric_source in accepted:
+            totals = read_group(row, metric_group_key(metric_source))
+            if totals is None:
                 continue
-            source_hits.append(
-                MetricSourceHit(
-                    role=source.role,
-                    name=source.name,
-                    index=source.index,
-                    total=source.total,
-                    event_count=source_totals[0],
-                    first_timestamp=source_totals[1],
-                    timestamps=source_totals[2],
+            event_count, first_timestamp, timestamps = totals
+            # A funnel can list the same event as several steps (an "N-th occurrence" funnel: the same
+            # activation event repeated N times). Those steps share one aggregate group, so reading the
+            # group per step would echo the same events under every step, and a single occurrence would
+            # read as a completed N-step funnel. Assign the group's occurrences positionally instead:
+            # the k-th such step maps to the k-th occurrence, so it fires only once the event has fired
+            # k+1 times. Only funnel steps are positional — a ratio reusing one event on both sides
+            # still legitimately counts it on each side, so its identical sources keep echoing.
+            repeated_step_nodes = Counter(
+                node_key(source) for source in metric_source.sources if source.role == MetricSourceRole.STEP
+            )
+            step_rank: dict[str, int] = {}
+            source_hits: list[MetricSourceHit] = []
+            for source in metric_source.sources:
+                source_totals = read_group(row, (node_key(source),))
+                if source_totals is None:
+                    continue
+                source_count, source_first, source_timestamps = source_totals
+                node_sig = node_key(source)
+                if repeated_step_nodes[node_sig] > 1:
+                    rank = step_rank.get(node_sig, 0)
+                    step_rank[node_sig] = rank + 1
+                    # A step is reached once the event has fired more times than its rank; drop only the
+                    # steps the event never reached (gauge that on the true count, not the seek-point
+                    # tuple). Seek points are capped at MAX_METRIC_EVENT_TIMESTAMPS, so a step reached
+                    # past the cap (a >cap-step funnel of one event) keeps its place and points at the
+                    # last available seek point rather than vanishing.
+                    if rank >= source_count:
+                        continue
+                    occurrence = source_timestamps[min(rank, len(source_timestamps) - 1)]
+                    source_count, source_first, source_timestamps = 1, occurrence, (occurrence,)
+                source_hits.append(
+                    MetricSourceHit(
+                        role=source.role,
+                        name=source.name,
+                        index=source.index,
+                        total=source.total,
+                        event_count=source_count,
+                        first_timestamp=source_first,
+                        timestamps=source_timestamps,
+                    )
+                )
+            hits.append(
+                MetricHit(
+                    metric_uuid=metric_source.metric_uuid,
+                    metric_name=metric_source.metric_name,
+                    event_count=event_count,
+                    first_timestamp=first_timestamp,
+                    timestamps=timestamps,
+                    sources=tuple(source_hits),
                 )
             )
-        hits.append(
-            MetricHit(
-                metric_uuid=metric_source.metric_uuid,
-                metric_name=metric_source.metric_name,
-                event_count=event_count,
-                first_timestamp=first_timestamp,
-                timestamps=timestamps,
-                sources=tuple(source_hits),
-            )
-        )
-    hits.sort(key=lambda hit: hit.first_timestamp)
-    return hits
+        if hits:
+            hits.sort(key=lambda hit: hit.first_timestamp)
+            hits_by_session[str(row[0])] = hits
+    return MetricScanResult(hits_by_session=hits_by_session, dropped_metric_uuids=dropped_metric_uuids)

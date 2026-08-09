@@ -51,7 +51,10 @@ class PostgresPrinter(BasePrinter):
         return f"in {self.DIALECT_LABEL} mode"
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
-        return
+        # DuckDB permits everything the base gate rejects (INTERSECT/EXCEPT ALL, recursive CTEs) and
+        # supports UNION BY NAME natively — except INTERSECT/EXCEPT BY NAME, which it also rejects.
+        if set_operator.endswith(" BY NAME") and not set_operator.startswith("UNION "):
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def _assert_recursive_cte_supported(self) -> None:
         return
@@ -188,6 +191,14 @@ class PostgresPrinter(BasePrinter):
         if func_name == "count" and not args and not node.distinct:
             # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
             args_str = "*"
+        elif func_name == "concat":
+            # concat(any...) cannot infer psycopg's untyped string parameters without an explicit cast.
+            args_str = ", ".join(
+                f"CAST({rendered_arg} AS TEXT)"
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                else rendered_arg
+                for arg, rendered_arg in zip(node.args, args, strict=True)
+            )
         if node.distinct:
             args_str = f"DISTINCT {args_str}"
 

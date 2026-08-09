@@ -30,12 +30,17 @@ import {
 import { filterToMetricConfig } from './metricQueryUtils'
 import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
+    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
+    NOT_A_FUNNEL_REASON,
     applySessionLinkability,
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     getBaselineVariantKey,
     getEventCountQuery,
+    getExposureFallbackFilter,
+    getFunnelDropoffReason,
     getOrderedMetricsWithResults,
     getSessionLinkabilityEventNames,
     getViewRecordingFilters,
@@ -46,6 +51,7 @@ import {
     isLegacyExperimentQuery,
     metricResults,
     percentageDistribution,
+    toConcurrencyPayload,
     toExperimentWritePayload,
 } from './utils'
 
@@ -490,6 +496,52 @@ describe('getViewRecordingFiltersForVariant', () => {
             },
         ])
     })
+
+    describe('getExposureFallbackFilter', () => {
+        it.each([
+            {
+                desc: 'default exposure, specific variant: property filter on the flag value',
+                experiment: experimentBase,
+                variantKey: 'variantA',
+                expected: {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+            },
+            {
+                desc: 'default exposure, all variants: matches the flag value against every variant',
+                experiment: experimentBase,
+                variantKey: undefined,
+                expected: {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: ['control', 'test'],
+                    operator: PropertyOperator.Exact,
+                },
+            },
+            {
+                desc: 'default exposure, unknown flag variants: falls back to the flag value being set',
+                experiment: { ...experimentBase, feature_flag: undefined },
+                variantKey: undefined,
+                expected: {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: PropertyOperator.IsSet,
+                    operator: PropertyOperator.IsSet,
+                },
+            },
+            {
+                desc: 'custom exposure: no fallback, a flag-value filter cannot stand in for custom criteria',
+                experiment: { ...experimentBase, ...customExposure },
+                variantKey: 'variantA',
+                expected: null,
+            },
+        ])('$desc', ({ experiment, variantKey, expected }) => {
+            expect(getExposureFallbackFilter(experiment, variantKey)).toEqual(expected)
+        })
+    })
 })
 
 describe('getSessionLinkabilityEventNames', () => {
@@ -599,48 +651,141 @@ describe('applySessionLinkability', () => {
         properties: [],
     }
     const purchaseActionFilter: UniversalFiltersGroupValue = { id: 123, name: 'purchase', type: 'actions' }
+    const fallbackFilter: UniversalFiltersGroupValue = {
+        key: '$feature/my-flag',
+        type: PropertyFilterType.Event,
+        value: ['test'],
+        operator: PropertyOperator.Exact,
+    }
 
     it.each([
         {
             case: 'keeps everything when nothing is unlinkable',
             filters: [exposureFilter, purchaseEventFilter],
             unlinkable: new Set<string>(),
+            fallback: null,
             expected: {
                 filters: [exposureFilter, purchaseEventFilter],
                 droppedMetricEventCount: 0,
                 exposureUnlinkable: false,
+                usedExposureFallback: false,
             },
         },
         {
             case: 'drops unlinkable metric event steps but keeps the rest',
             filters: [exposureFilter, purchaseEventFilter, checkoutEventFilter],
             unlinkable: new Set(['purchase']),
+            fallback: null,
             expected: {
                 filters: [exposureFilter, checkoutEventFilter],
                 droppedMetricEventCount: 1,
                 exposureUnlinkable: false,
+                usedExposureFallback: false,
             },
         },
         {
             case: 'lets action steps pass through unchecked even when their name matches',
             filters: [exposureFilter, purchaseActionFilter],
             unlinkable: new Set(['purchase']),
+            fallback: null,
             expected: {
                 filters: [exposureFilter, purchaseActionFilter],
                 droppedMetricEventCount: 0,
                 exposureUnlinkable: false,
+                usedExposureFallback: false,
             },
         },
         {
-            case: 'empties the filters when the exposure event itself is unlinkable',
+            case: 'empties the filters when the exposure event is unlinkable and there is no fallback',
             filters: [exposureFilter, purchaseEventFilter],
             unlinkable: new Set(['$feature_flag_called']),
-            expected: { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true },
+            fallback: null,
+            expected: {
+                filters: [],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: true,
+                usedExposureFallback: false,
+            },
         },
-    ])('$case', ({ filters, unlinkable, expected }) => {
+        {
+            case: 'substitutes the fallback for an unlinkable exposure event, still dropping unlinkable metric steps',
+            filters: [exposureFilter, purchaseEventFilter, checkoutEventFilter],
+            unlinkable: new Set(['$feature_flag_called', 'purchase']),
+            fallback: fallbackFilter,
+            expected: {
+                filters: [fallbackFilter, checkoutEventFilter],
+                droppedMetricEventCount: 1,
+                exposureUnlinkable: false,
+                usedExposureFallback: true,
+            },
+        },
+        {
+            case: 'keeps the exposure event over the fallback when it is linkable',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set<string>(),
+            fallback: fallbackFilter,
+            expected: {
+                filters: [exposureFilter, purchaseEventFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+                usedExposureFallback: false,
+            },
+        },
+    ])('$case', ({ filters, unlinkable, fallback, expected }) => {
         const input = [...filters]
-        expect(applySessionLinkability(filters, unlinkable)).toEqual(expected)
+        expect(applySessionLinkability(filters, unlinkable, fallback)).toEqual(expected)
         expect(filters).toEqual(input) // does not mutate its input
+    })
+})
+
+describe('getFunnelDropoffReason', () => {
+    const unlinkable = new Set(['server_side_step'])
+    const clientStep = { kind: NodeKind.EventsNode, event: 'client_step' }
+    const serverSideStep = { kind: NodeKind.EventsNode, event: 'server_side_step' }
+    const warehouseStep = { kind: NodeKind.ExperimentDataWarehouseNode, table_name: 'stripe_charges' }
+    const funnelMetric = (series: unknown[]): ExperimentMetric =>
+        ({
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series,
+        }) as unknown as ExperimentMetric
+
+    // The exposure event is an experiment funnel's implicit first step, so only the last series
+    // step has to be matchable to recordings.
+    it.each([
+        { case: 'allows a single-step funnel', metric: funnelMetric([clientStep]), expected: null },
+        {
+            case: 'allows a funnel whose first series step is server-side',
+            metric: funnelMetric([serverSideStep, clientStep]),
+            expected: null,
+        },
+        {
+            case: 'allows a funnel whose first series step is in the data warehouse',
+            metric: funnelMetric([warehouseStep, clientStep]),
+            expected: null,
+        },
+        {
+            case: 'refuses a single-step funnel whose only step is server-side',
+            metric: funnelMetric([serverSideStep]),
+            expected: FUNNEL_SERVER_SIDE_COMPLETION_REASON,
+        },
+        {
+            case: 'refuses a funnel whose last step is in the data warehouse',
+            metric: funnelMetric([clientStep, warehouseStep]),
+            expected: FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+        },
+        { case: 'refuses a funnel with no steps', metric: funnelMetric([]), expected: NOT_A_FUNNEL_REASON },
+        {
+            case: 'refuses a non-funnel metric',
+            metric: {
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: clientStep,
+            } as unknown as ExperimentMetric,
+            expected: NOT_A_FUNNEL_REASON,
+        },
+    ])('$case', ({ metric, expected }) => {
+        expect(getFunnelDropoffReason(metric, unlinkable)).toBe(expected)
     })
 })
 
@@ -1921,5 +2066,64 @@ describe('toExperimentWritePayload', () => {
         expect(toExperimentWritePayload({ parameters: { variant_notes: {} } } as unknown as Experiment)).toEqual({
             parameters: { variant_notes: {} },
         })
+    })
+})
+
+describe('toConcurrencyPayload', () => {
+    const unmodified = {
+        id: 7,
+        version: 4,
+        metrics: [{ uuid: 'm1' }],
+        metrics_secondary: [],
+        saved_metrics: [{ saved_metric: 11, metadata: { type: 'secondary' } }],
+        start_date: '2026-07-02T23:10:00Z',
+        end_date: null,
+        name: 'Checkout test',
+        description: 'Original description',
+        exposure_criteria: { filterTestAccounts: true },
+        stats_config: { method: 'bayesian' },
+        running_time_calculation: { recommended_running_time: 12 },
+        holdout_id: 5,
+        conclusion: null,
+        conclusion_comment: null,
+        parameters: {},
+        excluded_variants: [],
+        only_count_matured_users: false,
+    } as unknown as Experiment
+
+    it('sends the version plus metric collections and scalar bases for server-side three-way merge', () => {
+        const payload = toConcurrencyPayload(unmodified)
+
+        expect(payload.version).toEqual(4)
+        expect(payload.original_experiment).toEqual(
+            expect.objectContaining({
+                metrics: unmodified.metrics,
+                metrics_secondary: [],
+                saved_metrics_ids: [{ id: 11, metadata: { type: 'secondary' } }],
+                name: 'Checkout test',
+                description: 'Original description',
+                start_date: '2026-07-02T23:10:00Z',
+                end_date: null,
+                exposure_criteria: { filterTestAccounts: true },
+                stats_config: { method: 'bayesian' },
+                running_time_calculation: { recommended_running_time: 12 },
+                holdout_id: 5,
+            })
+        )
+    })
+
+    it('sends explicit nulls for absent scalar bases so the server can tell "empty" from "unknown"', () => {
+        // An undefined base is dropped by JSON serialization; the server then falls back to
+        // rejecting any change to that field, which is exactly the over-rejection being fixed.
+        const payload = toConcurrencyPayload({
+            ...unmodified,
+            start_date: undefined,
+            holdout_id: undefined,
+            exposure_criteria: undefined,
+        } as unknown as Experiment)
+
+        expect(payload.original_experiment?.start_date).toBeNull()
+        expect(payload.original_experiment?.holdout_id).toBeNull()
+        expect(payload.original_experiment?.exposure_criteria).toBeNull()
     })
 })

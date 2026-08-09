@@ -11,12 +11,15 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActionsNode,
     CachedExperimentQueryResponse,
+    EventsNode,
     ExperimentActorsQuery,
     ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
@@ -33,6 +36,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.constants import EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -48,17 +52,25 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
-from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    conversion_window_to_seconds,
+    experiment_window,
+    experiment_window_end,
+    is_session_property_metric,
+)
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
+    resolve_exposure_config_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
+    has_activation_config,
 )
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
@@ -96,6 +108,12 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # chunks. Completed chunks persist, so a wide backfill converges across runs
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
+
+# Upper bound on how far past the experiment end a metric-events build may scan.
+# retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
+# window would stretch the precompute horizon into thousands of daily jobs before the
+# executor's timeout check. Past the cap the metric falls back to the direct scan.
+METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
 def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
@@ -349,12 +367,12 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
-        Ensures lazy-computed funnel metric event data exists for this experiment.
+        Ensures lazy-computed metric event data exists for this experiment.
 
-        Stores one row per matching event with step indicators in the
-        experiment_metric_events_preaggregated table.
+        Stores one row per matching event in the experiment_metric_events_preaggregated
+        table: funnel metrics store step indicators, mean metrics the per-event value.
         """
-        query_string, placeholders = builder.get_funnel_metric_events_query_for_precomputation()
+        query_string, placeholders = builder.get_metric_events_query_for_precomputation()
 
         if not self.experiment.start_date:
             raise ValidationError("Experiment must have a start date for lazy computation")
@@ -362,10 +380,13 @@ class ExperimentQueryRunner(QueryRunner):
         date_from = self.experiment.start_date
         date_to = experiment_window_end(self.experiment, self.as_of)
 
-        # Extend time range by conversion window — funnel step events can occur after experiment end
-        conversion_window_seconds = builder._get_conversion_window_seconds()
-        if conversion_window_seconds > 0:
-            date_to = date_to + timedelta(seconds=conversion_window_seconds)
+        # Extend time range past experiment end — metric events can occur after it: within
+        # the conversion window, plus for retention the retention window (a completion can
+        # land up to retention_window_end after a start event that itself lands up to
+        # conversion_window after the last exposure).
+        extension_seconds = builder.get_metric_events_window_extension_seconds()
+        if extension_seconds > 0:
+            date_to = date_to + timedelta(seconds=extension_seconds)
 
         return ensure_precomputed(
             team=self.team,
@@ -399,6 +420,11 @@ class ExperimentQueryRunner(QueryRunner):
         ):
             return False
 
+        # Activation-mode exposures can't be cached per day: the flag→activation ordering
+        # crosses bucket boundaries.
+        if has_activation_config(self.experiment.exposure_criteria):
+            return False
+
         return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
     def _precompute_skip_reason(self) -> Optional[str]:
@@ -414,6 +440,8 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             return "min_runtime"
+        if has_activation_config(self.experiment.exposure_criteria):
+            return "activation_config"
         if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
             return "cohort_not_calculated"
         if self.is_data_warehouse_query:
@@ -422,15 +450,61 @@ class ExperimentQueryRunner(QueryRunner):
             return "group_aggregation"
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
-    def _metric_events_precompute_applicable(self) -> bool:
-        """Metric-events precompute only supports ordered funnels without breakdowns, CUPED, or data warehouse."""
-        return (
-            isinstance(self.metric, ExperimentFunnelMetric)
-            and (self.metric.funnel_order_type or "ordered") == "ordered"
-            and not self._get_breakdowns_for_builder()
-            and not self.cuped_config.enabled
-            and not self.is_data_warehouse_query
+    def _retention_metric_events_precomputation_enabled(self) -> bool:
+        """Kill switch for retention metric-events pre-aggregation, independent of funnel/mean.
+
+        Default-off and fail-safe: returns False unless the flag is explicitly enabled, so a
+        flag-eval failure (or the flag not existing yet) leaves retention metric events on the
+        direct-scan path while funnel/mean metric events and exposures keep using their
+        precomputed tables.
+        """
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
+                str(self.team.uuid),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id), "uuid": str(self.team.uuid)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
         )
+
+    def _metric_events_precompute_applicable(self) -> bool:
+        """
+        Metric-events precompute supports ordered funnels, count/sum-style mean
+        metrics, and retention metrics, in all cases without breakdowns, CUPED,
+        or data warehouse sources.
+        """
+        if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
+            return False
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            return (self.metric.funnel_order_type or "ordered") == "ordered"
+        if isinstance(self.metric, ExperimentMeanMetric):
+            source = self.metric.source
+            if not isinstance(source, (EventsNode, ActionsNode)):
+                return False
+            # Session-property means aggregate via a per-session dedup CTE that the
+            # precomputed table can't feed; ID-valued math (unique session/DAU/group)
+            # and HogQL expressions don't fit the Float64 numeric_value column.
+            if is_session_property_metric(source):
+                return False
+            math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
+            return math_type in (ExperimentMetricMathType.TOTAL, ExperimentMetricMathType.SUM)
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
+                self.metric.completion_event, (EventsNode, ActionsNode)
+            ):
+                return False
+            extension_seconds = get_conversion_window_seconds(self.metric) + conversion_window_to_seconds(
+                self.metric.retention_window_end, self.metric.retention_window_unit
+            )
+            if extension_seconds > METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
+                return False
+            return self._retention_metric_events_precomputation_enabled()
+        return False
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -442,18 +516,16 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         # Get the "missing" (not directly accessible) parameters required for the builder
-        (
-            exposure_config,
-            multiple_variant_handling,
-            filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+        exposure_params = get_exposure_config_params_for_builder(
+            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=self.entity_key,
@@ -461,6 +533,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
+            activation_config=exposure_params.activation_config,
         )
 
         should_precompute = self._should_precompute()
@@ -495,10 +568,11 @@ class ExperimentQueryRunner(QueryRunner):
                     },
                 )
 
-            # Precompute metric events for ordered funnel metrics. CUPED extends the
-            # funnel scan back by `lookback_days` to source the pre-exposure covariate;
-            # the precomputed metric_events table only covers the experiment window, so
-            # skip precomputation here and let the builder issue a fresh scan.
+            # Precompute metric events for eligible metrics (ordered funnels, count/sum
+            # means). CUPED extends the metric scan back by `lookback_days` to source the
+            # pre-exposure covariate; the precomputed metric_events table only covers the
+            # experiment window, so skip precomputation here and let the builder issue a
+            # fresh scan.
             if self._metric_events_precompute_applicable():
                 try:
                     with tags_context(
@@ -730,20 +804,18 @@ class ExperimentQueryRunner(QueryRunner):
         """
         variants_seen = [v.key for _, v in variants]
 
-        has_breakdown = (
-            self.metric.breakdownFilter is not None
-            and self.metric.breakdownFilter.breakdowns
-            and len(self.metric.breakdownFilter.breakdowns) > 0
-        )
+        # Fan out over the breakdown combinations actually present in the results, not over the
+        # metric's breakdown config: a metric can declare breakdowns and still come back with no
+        # rows at all (no data yet), and there is then nothing to fan out over — fall back to the
+        # single breakdown-less zero row so the baseline variant still exists.
+        breakdown_tuples = {bv for bv, _ in variants if bv is not None}
 
         # Type annotation required for empty list so mypy knows the expected element type:
         # list of tuples containing (breakdown_values, stats) where breakdown_values can be None
         variants_missing: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
         for key in self.variants:
             if key not in variants_seen:
-                if has_breakdown:
-                    # Extract all breakdown value combinations that exist in the results
-                    breakdown_tuples = {bv for bv, _ in variants if bv is not None}
+                if breakdown_tuples:
                     # Use extend to add MULTIPLE tuples - one for each breakdown combination
                     # Each missing variant needs to appear across ALL breakdown values to maintain consistency
                     variants_missing.extend(
@@ -794,52 +866,21 @@ class ExperimentQueryRunner(QueryRunner):
 
         num_metric_steps = len(self.metric.series)
 
-        # Validate step range (same validation as before)
-        if funnel_step == -1:
-            # -1 would mean "dropped before first metric step" which is invalid
-            # because we only query exposed users who are already past the exposure checkpoint
-            # Build event names string (handle EventsNode, ActionsNode, and ExperimentDataWarehouseNode)
-            from posthog.schema import ActionsNode, EventsNode
-
-            event_names: list[str] = []
-            for step in self.metric.series[:2]:
-                if isinstance(step, EventsNode):
-                    event_names.append(step.event or "All events")
-                elif isinstance(step, ActionsNode):
-                    event_names.append(f"Action {step.id}")
-                else:  # ExperimentDataWarehouseNode
-                    event_names.append(f"DW table {step.table_name}")
-
-            metric_events_str = " → ".join(event_names)
-            if len(self.metric.series) > 2:
-                metric_events_str += " → ..."
-
-            raise ValidationError(
-                f"Cannot query drop-offs before the first metric step in experiment funnels. "
-                f"Experiment funnel structure: [Exposure → {metric_events_str}]. "
-                f"Drop-offs at funnelStep=-1 would mean 'exposed but never entered the funnel', "
-                f"which cannot be queried through the actors API. "
-                f"Valid drop-off steps: -2 (dropped after first metric step) to -{num_metric_steps + 1}."
-            )
-
-        if funnel_step == 0:
-            raise ValidationError(
-                "Funnel steps are 1-indexed. Step 0 does not exist. "
-                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
-            )
-
-        if funnel_step < -1:
+        # funnelStep=-1 is a valid drop-off: "exposed but never reached the first metric step".
+        # step_reached is 0-indexed with exposure as step 0, so the WHERE clause resolves it to
+        # step_reached == 0 — the exposed users who did not validly enter the funnel.
+        if funnel_step < 0:
             max_drop_off = -(num_metric_steps + 1)
             if funnel_step < max_drop_off:
                 raise ValidationError(
                     f"Invalid drop-off step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                    f"Valid drop-off steps: -2 (dropped after first metric step) to {max_drop_off}."
+                    f"Valid drop-off steps: -1 (exposed, did not reach first metric step) to {max_drop_off}."
                 )
 
         if funnel_step > num_metric_steps:
             raise ValidationError(
                 f"Invalid conversion step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+                f"Valid conversion steps: 0 (exposure step) to {num_metric_steps}."
             )
 
         # Extract exposure configuration from actors query
@@ -847,22 +888,20 @@ class ExperimentQueryRunner(QueryRunner):
         from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
+        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
         if self.actors_query.exposureConfig is not None:
-            exposure_config = self.actors_query.exposureConfig
-        elif self.experiment.exposure_criteria and self.experiment.exposure_criteria.get("exposure_config"):
-            from products.experiments.backend.hogql_queries.experiment_query_builder import (
-                normalize_to_exposure_criteria,
+            # An explicit override replaces the whole exposure definition, including any
+            # stored activation event.
+            exposure_config = resolve_exposure_config_for_builder(
+                self.actors_query.exposureConfig, self.team, self.experiment.start_date
             )
-
-            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
-            if criteria and criteria.exposure_config:
-                exposure_config = criteria.exposure_config
-            else:
-                # Default to $feature_flag_called
-                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
         else:
-            # Default to $feature_flag_called
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            # Same resolution as the main experiment query, so the actor list matches the counts.
+            exposure_params = get_exposure_config_params_for_builder(
+                self.experiment.exposure_criteria, self.team, self.experiment.start_date
+            )
+            exposure_config = exposure_params.exposure_config
+            activation_config = exposure_params.activation_config
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:
@@ -926,7 +965,13 @@ class ExperimentQueryRunner(QueryRunner):
             funnel_step=funnel_step,
             funnel_step_breakdown=funnel_step_breakdown,
             include_recordings=self.actors_query.includeRecordings or False,
+            activation_config=activation_config,
         )
+
+        # Step 0 is the exposure step: return everyone exposed to the variant,
+        # without funnel evaluation.
+        if funnel_step == 0:
+            return builder.build_exposure_actors_query()
 
         return builder.build_actors_query()
 

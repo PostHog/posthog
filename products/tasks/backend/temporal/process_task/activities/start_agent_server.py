@@ -19,7 +19,12 @@ from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionE
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms, record_boot_total_ms
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    record_agent_server_session_init_ms,
+    record_boot_total_ms,
+    sandbox_runtime_label,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -109,26 +114,26 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
     repeated 5-minute attempts surfacing as a misleading "Failed to start agent server". Check
     the directory upfront and fail non-retryably with the actual reason instead.
     """
-    if not ctx.repository:
+    if not ctx.repositories:
         return
-    repo_path = sandbox_repo_path(ctx.repository)
-    result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
-    if result.exit_code == 0:
-        return
-    raise SandboxMissingRepositoryError(
-        f"Repository {ctx.repository} is not present in the sandbox at {repo_path} — it was never "
-        "cloned (no snapshot restored and no usable GitHub credentials for this task)",
-        {
-            "task_id": ctx.task_id,
-            "run_id": ctx.run_id,
-            "sandbox_id": sandbox.id,
-            "repository": ctx.repository,
-            "repo_path": repo_path,
-            "github_integration_id": ctx.github_integration_id,
-            "github_user_integration_id": ctx.github_user_integration_id,
-        },
-        cause=RuntimeError(f"missing repository directory {repo_path}"),
-    )
+    for repository in ctx.repositories:
+        repo_path = sandbox_repo_path(repository)
+        result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+        if result.exit_code != 0:
+            raise SandboxMissingRepositoryError(
+                f"Repository {repository} is not present in the sandbox at {repo_path} — it was never "
+                "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+                {
+                    "task_id": ctx.task_id,
+                    "run_id": ctx.run_id,
+                    "sandbox_id": sandbox.id,
+                    "repository": repository,
+                    "repo_path": repo_path,
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
+                cause=RuntimeError(f"missing repository directory {repo_path}"),
+            )
 
 
 @dataclass
@@ -146,6 +151,7 @@ class StartAgentServerInput:
     # Workflow start time (ISO 8601); when set, the activity that completes boot records
     # the wall-clock workflow-start → agent-ready total.
     workflow_start_at: str | None = None
+    boot_excluded_ms: int = 0
 
 
 @dataclass
@@ -174,6 +180,7 @@ class _LaunchParams:
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
     event_ingest_token: str | None
+    task_run_session_token: str | None
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
@@ -187,13 +194,14 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
-    resolved member's personal creds — they get shared team connections only.
+    resolved member's personal creds. Agent-specific grant filtering happens
+    in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
     return not task.internal
 
 
-def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
+def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
     try:
         task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
         actor_user = get_task_run_credential_user(task, ctx.state)
@@ -221,15 +229,20 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
             cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
         )
-    if event_stream_ingest_enabled:
+    task_run_session_token: str | None = None
+    if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            event_ingest_token = create_sandbox_event_ingest_token(task_run)
+            run_token = create_sandbox_event_ingest_token(task_run, sandbox_id=sandbox_id)
         except Exception as e:
             raise SandboxExecutionError(
-                "Failed to create sandbox event ingest token",
+                "Failed to create sandbox task run token",
                 {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
                 cause=e,
             )
+        if event_stream_ingest_enabled:
+            event_ingest_token = run_token
+        if task.runtime == Task.Runtime.PI:
+            task_run_session_token = run_token
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -246,6 +259,8 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+        origin_product=task.origin_product,
+        task_agent_key=task.mcp_builtin_agent_key,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
@@ -307,6 +322,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         agentsh_domains=agentsh_domains,
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
+        task_run_session_token=task_run_session_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
@@ -322,7 +338,7 @@ def _invoke_start_agent_server(
 ) -> None:
     try:
         sandbox.start_agent_server(
-            repository=ctx.repository,
+            repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
             run_id=ctx.run_id,
             mode=ctx.mode,
@@ -330,15 +346,19 @@ def _invoke_start_agent_server(
             auto_publish=ctx.auto_publish,
             interaction_origin=ctx.interaction_origin,
             branch=params.protected_base_branch,
+            agent_runtime=ctx.task_runtime,
             runtime_adapter=ctx.runtime_adapter,
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            context_window=ctx.context_window,
+            fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
             relayed_mcp_servers=params.relayed_mcp_servers or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
+            task_run_session_token=params.task_run_session_token,
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
@@ -404,7 +424,7 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
         # letting the aware-naive subtraction raise. Metrics must never fail the boot.
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
-        boot_total_ms = max(0, int((datetime.now(UTC) - started_at).total_seconds() * 1000))
+        boot_total_ms = max(0, int((datetime.now(UTC) - started_at).total_seconds() * 1000) - input.boot_excluded_ms)
     except (TypeError, ValueError):
         logger.warning("boot_total_unparseable_start_time", workflow_start_at=input.workflow_start_at)
         return None
@@ -414,6 +434,7 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
         used_snapshot=input.used_snapshot,
         has_repo=input.context.repository is not None,
         origin_product=input.context.origin_product,
+        runtime=sandbox_runtime_label(input.context.use_modal_vm_sandbox),
     )
     return boot_total_ms
 
@@ -440,9 +461,12 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
         _ensure_repository_on_disk(ctx, sandbox)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes)
+        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
-        with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
+        runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        with StepTimer(
+            "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
@@ -450,7 +474,9 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         session_init_ms = sandbox.read_agent_server_session_init_ms()
         if session_init_ms is not None:
-            record_agent_server_session_init_ms(session_init_ms, boot_path=input.boot_path)
+            record_agent_server_session_init_ms(
+                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            )
 
         boot_total_ms = _record_boot_total(input)
 
@@ -478,10 +504,13 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes)
+        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
-        with StepTimer("agent_server_launch", boot_path=input.boot_path) as launch_timer:
+        runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        with StepTimer(
+            "agent_server_launch", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as launch_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
 
         activity.logger.info(f"Agent server process launched for task {ctx.task_id}")
@@ -514,7 +543,10 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         agentsh_domains = _agentsh_domains_for(ctx)
 
         try:
-            with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
+            runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+            with StepTimer(
+                "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as ready_timer:
                 sandbox.wait_for_agent_server_ready(agentsh_domains)
         except Exception:
             if agentsh_domains is not None:
@@ -527,7 +559,9 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
 
         session_init_ms = sandbox.read_agent_server_session_init_ms()
         if session_init_ms is not None:
-            record_agent_server_session_init_ms(session_init_ms, boot_path=input.boot_path)
+            record_agent_server_session_init_ms(
+                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            )
 
         boot_total_ms = _record_boot_total(input)
 

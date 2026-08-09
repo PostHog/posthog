@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.models.integration import GitHubIntegrationError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -14,7 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.nam
     resolve_schema_repo_endpoint,
     split_schema_name,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
+    ENDPOINT_REQUIRED_PERMISSION,
+    ENDPOINTS,
+    GITHUB_ENDPOINTS,
+    GRANT_NAMES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -114,6 +120,64 @@ class TestGithubSource:
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 
+    @pytest.mark.parametrize(
+        "raised_message,expected_key",
+        [
+            (
+                'GitHub can\'t read this table: Resource not accessible by integration. Grant "Deployments: read" on a fine-grained token or app installation, or repo_deployment on a classic token, then sync again.',
+                "Resource not accessible by integration",
+            ),
+            # GitHub phrases some denials per endpoint, so no enumerated key can match them; the
+            # message prefix has to, or the job retries the denial forever instead of disabling
+            # the schema.
+            (
+                "GitHub can't read this table: Must have push access to view repository collaborators. Add the missing permission to your GitHub connection, or connect with a personal access token from an account that has the access GitHub names, then sync again.",
+                "GitHub can't read this table",
+            ),
+            (
+                "GitHub denied access: Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization. (url=https://api.github.com/repos/o/r/issues)",
+                "SAML enforcement",
+            ),
+            (
+                "GitHub can't read this table: Must have admin rights to Repository.",
+                "Must have admin rights",
+            ),
+            (
+                "GitHub can't read this table: Must have push access to repository.",
+                "Must have push access to repository",
+            ),
+            ("GitHub repository is not accessible: owner/repo", "GitHub repository is not accessible"),
+        ],
+    )
+    def test_sync_failures_pick_the_specific_friendly_error(self, raised_message, expected_key):
+        # The job picks the first matching key, so a specific cause must be declared ahead of the
+        # generic fallback or every denial reads as the vague one.
+        errors = self.source.get_non_retryable_errors()
+        matched = next(key for key in errors if error_message_matches(raised_message, [key]))
+        assert matched == expected_key
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "Resource not accessible by integration",
+            "Resource not accessible by personal access token",
+            "GitHub can't read this table",
+        ],
+    )
+    def test_grant_denials_keep_the_message_that_names_the_grant(self, key):
+        # latest_error is the only error field the schema serializer exposes, and the job overwrites
+        # it with the curated copy whenever that copy is not None. Curated copy here would replace
+        # the one sentence that names the grant to add with a vaguer one, which is the whole point
+        # of naming it.
+        assert self.source.get_non_retryable_errors()[key] is None
+
+    def test_required_permissions_reference_real_endpoints_and_grants(self):
+        # ENDPOINT_REQUIRED_PERMISSION sits ~700 lines from the endpoint definitions it keys on, so
+        # a typo or a renamed endpoint would silently drop the grant from the failure message and
+        # from the picker, with nothing else failing.
+        assert set(ENDPOINT_REQUIRED_PERMISSION) <= set(GITHUB_ENDPOINTS)
+        assert set(ENDPOINT_REQUIRED_PERMISSION.values()) <= set(GRANT_NAMES)
+
     def test_suspended_installation_token_refresh_is_non_retryable(self):
         # The raw GitHubIntegrationError raised by refresh_access_token on a suspended installation.
         error_message = (
@@ -166,6 +230,70 @@ class TestGithubSource:
         assert result["teams"] == "No GitHub account is connected. Please reconnect your GitHub account."
         assert result["team_members"] == result["teams"]
 
+    @pytest.mark.parametrize(
+        "endpoint,is_blocked",
+        [
+            # An installation can only hold permissions the App requests, so a table whose grant is
+            # absent from the held set can never sync on this connection. Offering it just defers
+            # the failure to the first sync.
+            ("traffic_views", True),
+            ("runners", True),
+            ("deployments", True),
+            ("code_scanning_alerts", True),
+            # The org tables short-circuit on the held set too, with their existing org reason.
+            ("teams", True),
+            ("issues", False),
+            # No required grant beyond the baseline every connection is validated for.
+            ("tags", False),
+        ],
+    )
+    def test_tables_the_installation_cannot_read_are_marked_unavailable(self, endpoint, is_blocked):
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=7, selection="oauth", personal_access_token=""),
+            repository="acme/widgets",
+        )
+        integration = mock.Mock()
+        integration.config = {"permissions": {"metadata": "read", "contents": "read", "issues": "read"}}
+
+        with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
+            result = self.source.get_endpoint_permissions(config, self.team_id, [endpoint])
+
+        reason = result[endpoint]
+        if is_blocked:
+            assert reason is not None
+            assert "personal access token" in reason
+        else:
+            assert reason is None
+
+    def test_pat_connections_are_not_blocked_by_permission_data(self):
+        # Token grants aren't introspectable, so a token connection must fail open here: a denial
+        # surfaces at sync time instead, where the error names the grant.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+
+        result = self.source.get_endpoint_permissions(config, self.team_id, ["traffic_views", "deployments"])
+
+        assert result == {"traffic_views": None, "deployments": None}
+
+    def test_unknown_permissions_fail_open(self):
+        # Rows connected before permissions were persisted have no stored set until the hourly
+        # token-refresh sweep backfills it. Blocking every gated table on missing data would hide
+        # tables the installation can actually read, so the picker shows them and sync-time errors
+        # carry the grant.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=7, selection="oauth", personal_access_token=""),
+            repository="acme/widgets",
+        )
+        integration = mock.Mock()
+        integration.config = {}
+
+        with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
+            result = self.source.get_endpoint_permissions(config, self.team_id, ["deployments"])
+
+        assert result == {"deployments": None}
+
     @pytest.mark.parametrize("endpoint", ["teams", "team_members"])
     def test_org_schemas_are_full_refresh_only_and_off_by_default(self, endpoint):
         # teams / team_members expose no timestamps, so they must never advertise incremental,
@@ -196,7 +324,22 @@ class TestGithubSource:
 
         assert schemas["workflow_runs"].supports_webhooks is True
         assert schemas["workflow_jobs"].supports_webhooks is True
-        assert all(s.should_sync_default for s in schemas.values() if s.name not in ("teams", "team_members"))
+        # The originally shipped repo-scoped tables must stay selected by default. Tables added
+        # since may legitimately default off (they need grants beyond the repo scope validated at
+        # source-create, or they fan out per commit).
+        assert all(
+            schemas[endpoint].should_sync_default
+            for endpoint in (
+                "issues",
+                "pull_requests",
+                "reviews",
+                "commits",
+                "stargazers",
+                "releases",
+                "workflow_runs",
+                "workflow_jobs",
+            )
+        )
 
     def test_reviews_schema_is_webhook_only_and_default_on(self):
         # reviews does no poll backfill (zero lookback floor), so it must be offered webhook-only;
@@ -217,6 +360,23 @@ class TestGithubSource:
         assert reviews.supports_append is False
         assert reviews.should_sync_default is True
         assert [f["field"] for f in reviews.incremental_fields] == ["submitted_at"]
+
+    @pytest.mark.parametrize("endpoint", ["deployments", "deployment_statuses"])
+    def test_deployment_schemas_are_webhook_only_and_default_on(self, endpoint):
+        # Both deploy endpoints do no poll backfill (zero lookback floor), so they must be offered
+        # webhook-only and stay selected by default (they need only the repo grant). If the webhook
+        # map entry or the zero floor regressed, the picker would offer a poll mode that syncs an
+        # empty table forever.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is True
+        assert schema.supports_incremental is False
+        assert schema.should_sync_default is True
 
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
@@ -256,6 +416,24 @@ class TestGithubSource:
                 self.source._get_access_token(config, self.team_id)
 
         assert "GitHub access token not found" in self.source.get_non_retryable_errors()
+
+    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
+        # Webhook cleanup runs on source deletion, after the OAuth integration may already be gone;
+        # get_oauth_integration then raises "Integration not found". delete_webhook must report the
+        # skip rather than let it escape and be captured as error-tracking noise, and its message
+        # must not echo the integration id back to the caller (it surfaces in the API response).
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
+            repository="owner/repo",
+        )
+
+        with mock.patch.object(
+            self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
+        ):
+            result = self.source.delete_webhook(config, "https://ph.example/webhook", self.team_id)
+
+        assert result.success is False
+        assert "42" not in (result.error or "")
 
     @pytest.mark.parametrize(
         "selection,expected_message",
@@ -319,6 +497,10 @@ class TestGithubSource:
             # Repo names can contain dots — a naive rpartition('.') would split `next.js` wrong.
             ("posthog/next.js.issues", ("posthog/next.js", "issues")),
             ("posthog/next.js.pull_requests", ("posthog/next.js", "pull_requests")),
+            # deployment_statuses must win over deployments (longest suffix first) — a plain
+            # endswith('deployments') would strip 'deployment_statuses' to '_statuses' and misroute.
+            ("posthog/posthog.deployments", ("posthog/posthog", "deployments")),
+            ("posthog/posthog.deployment_statuses", ("posthog/posthog", "deployment_statuses")),
             # Unrecognized suffixes stay whole so unknown rows don't get misrouted.
             ("posthog/posthog.not_an_endpoint", (None, "posthog/posthog.not_an_endpoint")),
         ],
@@ -374,6 +556,8 @@ class TestGithubSource:
             ("workflow_runs", "workflow_run"),
             ("workflow_jobs", "workflow_job"),
             ("reviews", "pull_request_review"),
+            ("deployments", "deployment"),
+            ("deployment_statuses", "deployment_status"),
             # Qualified rows get repo-qualified keys — two repos' workflow_runs would otherwise
             # collide on one "workflow_run" key and route all events to a single schema.
             ("acme/Widgets.workflow_runs", "acme/widgets.workflow_run"),

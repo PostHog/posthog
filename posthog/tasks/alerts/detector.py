@@ -101,12 +101,19 @@ def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
     # Use the configured window, falling back to the default
     window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOW
 
-    # Account for preprocessing that consumes usable data points
+    # Statistical detectors exclude training_offset_n trailing points from the fit (default 1);
+    # a caller-configured larger offset needs the same headroom here as detect()/detect_batch()
+    # apply, or every check silently falls short of _validate_data's minimum and never fires.
+    offset = max(detector_config.get("training_offset_n") or 1, 1)
+
+    # Account for preprocessing that consumes usable data points. diffs_n only ever runs a single
+    # first-difference pass regardless of its configured magnitude (preprocess_data treats it as a
+    # boolean), so only one synthetic leading point is ever introduced.
     preprocessing = detector_config.get("preprocessing") or {}
     lags_n = preprocessing.get("lags_n") or 0
-    diffs_n = preprocessing.get("diffs_n") or 0
+    diffs_n = 1 if preprocessing.get("diffs_n") else 0
 
-    samples_needed = window + 1 + lags_n + diffs_n
+    samples_needed = window + offset + lags_n + diffs_n
 
     # Never go below the per-detector minimum guard
     return max(samples_needed, guard)

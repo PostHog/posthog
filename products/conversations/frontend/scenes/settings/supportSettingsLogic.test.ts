@@ -98,6 +98,24 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('slackNeedsReconnect selector', () => {
+        it.each([
+            ['slack not connected', { slack_enabled: false }, false],
+            ['install predates scope tracking', { slack_enabled: true }, true],
+            ['install missing files:write', { slack_enabled: true, slack_scopes: ['chat:write', 'files:read'] }, true],
+            [
+                'install has both file scopes',
+                { slack_enabled: true, slack_scopes: ['chat:write', 'files:read', 'files:write'] },
+                false,
+            ],
+        ])('%s', async (_label, settings, expected) => {
+            initKeaTests(true, { conversations_settings: settings } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ slackNeedsReconnect: expected })
+        })
+    })
+
     describe('aiSuggestionsEnabled selector', () => {
         it.each([
             ['conversations_settings is undefined', undefined, false],

@@ -87,6 +87,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        outputs_completeness_check_enabled: true,
         capture_analytics_ai_events_topic: None,
         capture_analytics_ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
@@ -162,6 +163,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_secondary_kafka_client_id: String::new(),
     capture_analytics_ai_events_mode: capture::config::AiSinkMode::Primary,
     capture_analytics_ai_events_allowlist_tokens: None,
+    capture_analytics_ai_events_percentage: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -178,6 +180,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_ingestion_warnings_enabled: false,
     capture_ingestion_warnings_kafka_queue_mib: 16,
     capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
+    capture_ingestion_warnings_kafka_topic: String::new(),
+    capture_ingestion_warnings_kafka_hosts: String::new(),
+    capture_ingestion_warnings_kafka_tls: false,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every
@@ -224,10 +229,47 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+    /// Like `for_topics`, with the synthetic ingestion warnings emitter enabled
+    /// and pointed at its own topic via the emitter's dedicated config, so
+    /// legacy-path warning envelopes are readable independently of the events
+    /// that triggered them.
+    pub async fn for_topics_with_warnings(
+        main: &EphemeralTopic,
+        historical: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.kafka.kafka_historical_topic = historical.topic_name().to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
     pub async fn for_recordings(main: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.kafka.kafka_topic = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
+        Self::for_config(config).await
+    }
+
+    /// Like `for_recordings`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so replay warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_recordings_with_warnings(
+        main: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         Self::for_config(config).await
     }
 
@@ -239,6 +281,26 @@ impl ServerHandle {
     pub async fn for_v1_topic(topic: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
+        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
+        Self::for_config_with_sink_env(config, sink_env).await
+    }
+
+    /// Like `for_v1_topic`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_v1_topic_with_warnings(
+        topic: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.capture_v1_sinks = "msk".to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        // The emitter reads only its own dedicated config now (no v0 KAFKA_*
+        // fallback), so point it at the same ephemeral broker as the main sink.
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }

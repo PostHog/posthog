@@ -400,6 +400,108 @@ return result`,
                 }),
             })
         })
+
+        it('seeds a fixed window settle config when switching target to trace', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 30 * 60,
+            })
+        })
+
+        it('seeds inactivity defaults when switching settle strategy', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'inactivity',
+                quiet_period_seconds: 5 * 60,
+                max_age_seconds: 2 * 60 * 60,
+            })
+        })
+
+        it('patches a single settle field without clobbering the rest', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.patchTargetConfig({ quiet_period_seconds: 60 })
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'inactivity',
+                quiet_period_seconds: 60,
+                max_age_seconds: 2 * 60 * 60,
+            })
+        })
+
+        it('reseeds the fixed window when switching strategy back', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.setSettleStrategy('fixed_window')
+
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 30 * 60,
+            })
+        })
+
+        it('reseeding fixed window over an inactivity bag leaves no inactivity keys', () => {
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.setSettleStrategy('fixed_window')
+            logic.actions.patchTargetConfig({ window_seconds: 900 })
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 900,
+            })
+        })
+
+        it('seeds inactivity defaults when switching to the session target', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target: 'session',
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('reseeds with session defaults, not trace defaults, when switching strategy', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setSettleStrategy('fixed_window')
+                logic.actions.setSettleStrategy('inactivity')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('clears the settle bag when switching back to generation', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setEvaluationTarget('generation')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({ target: 'generation', target_config: {} }),
+            })
+        })
     })
 
     describe('selectors', () => {
@@ -971,6 +1073,25 @@ return result`,
                 })
             })
 
+            // An evaluation that disallows N/A emits result=false alongside skipped=true, so a
+            // session that was never graded would otherwise be counted and listed as a failure.
+            it('excludes skipped runs from the fail bucket', async () => {
+                const skippedRun: EvaluationRun = {
+                    ...mockRuns[1],
+                    id: 'run-skipped',
+                    generation_id: 'gen-skipped',
+                    result: false,
+                    skipped: true,
+                }
+                logic.actions.loadEvaluationRunsSuccess([...mockRuns, skippedRun])
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2' })],
+                    runsToSummarizeCount: 1,
+                })
+            })
+
             it('excludes non-completed runs when filter is not all', async () => {
                 const runsWithFailed: EvaluationRun[] = [
                     ...mockRuns,
@@ -1313,7 +1434,7 @@ return result`,
 
             logic.actions.setEvaluationType('hog')
             logic.actions.setEvaluationTarget('trace')
-            logic.actions.setTraceWindowSeconds(120)
+            logic.actions.patchTargetConfig({ window_seconds: 120 })
             logic.actions.testHogOnSample()
 
             await expectLogic(logic)
@@ -1326,7 +1447,7 @@ return result`,
                 target_config: { window_seconds: 120 },
             })
 
-            logic.actions.setTraceWindowSeconds(240)
+            logic.actions.patchTargetConfig({ window_seconds: 240 })
             await expectLogic(logic).toMatchValues({ hogTestResults: null })
         })
 

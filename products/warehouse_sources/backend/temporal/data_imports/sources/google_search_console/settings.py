@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -8,6 +8,17 @@ class SearchAnalyticsSchema(TypedDict):
     primary_key: list[str]
     should_sync_default: bool
     description: str | None
+    # `dataState` sent with the query. Defaults to final (complete) data.
+    data_state: NotRequired[str]
+    # How far back the first sync reaches, when the endpoint retains less than the
+    # 16 months Search Analytics keeps for daily data.
+    history_days: NotRequired[int]
+    # How many days behind today the window ends, covering Google's publishing lag.
+    end_lag_days: NotRequired[int]
+    # Refetch the whole retention window every sync instead of resuming at the
+    # watermark. Only sane for tables whose window is a handful of days and whose
+    # rows Google keeps restating.
+    ignore_incremental_watermark: NotRequired[bool]
 
 
 # Each schema maps to a single Search Analytics query with a fixed dimension set.
@@ -56,6 +67,33 @@ SEARCH_ANALYTICS_SCHEMAS: dict[str, SearchAnalyticsSchema] = {
         "should_sync_default": False,
         "description": "Daily performance broken out by device (DESKTOP, MOBILE, TABLET).",
     },
+    "search_analytics_by_country_device": {
+        "dimensions": ["date", "country", "device"],
+        "primary_key": ["date", "country", "device"],
+        "should_sync_default": False,
+        "description": (
+            "Daily performance broken out by country and device together. Low cardinality "
+            "(countries x three device types), so it stays well under the row sampling cap."
+        ),
+    },
+    # `hour` is the only dimension Google serves outside the 16-month daily window: it
+    # retains 10 days and requires `dataState: hourly_all`, which mixes complete and
+    # partial rows. Because Google keeps restating those rows for a few days, every sync
+    # refetches the whole 10-day window rather than resuming at the watermark.
+    "search_analytics_by_hour": {
+        "dimensions": ["hour"],
+        "primary_key": ["date", "hour"],
+        "should_sync_default": False,
+        "description": (
+            "Hourly totals for clicks, impressions, CTR, and average position. Google only "
+            "keeps 10 days of hourly data, and the most recent hours are partial until they "
+            "settle, so recent rows can change between syncs."
+        ),
+        "data_state": "hourly_all",
+        "history_days": 10,
+        "end_lag_days": 0,
+        "ignore_incremental_watermark": True,
+    },
     "search_analytics_by_query_page": {
         "dimensions": ["date", "query", "page"],
         "primary_key": ["date", "query", "page"],
@@ -80,6 +118,43 @@ SEARCH_ANALYTICS_SCHEMAS: dict[str, SearchAnalyticsSchema] = {
             "Daily performance broken out by Google search result presentation type "
             "(e.g. RICH_RESULT, REVIEW_SNIPPET, FAQ_RICH_RESULT, VIDEO, AMP_BLUE_LINK). "
             "Useful for measuring the impact of structured data and rich result eligibility."
+        ),
+    },
+}
+
+
+class PropertySchema(TypedDict):
+    primary_key: list[str]
+    should_sync_default: bool
+    description: str | None
+
+
+# Property-level metadata, sourced from `sites.list` and `sitemaps.list`. Both are single
+# unpaginated GETs returning tens of rows, with no timestamp filter to sync incrementally
+# on, so they are full-refresh snapshots of the current state.
+PROPERTY_SCHEMAS: dict[str, PropertySchema] = {
+    "sites": {
+        "primary_key": ["siteUrl"],
+        "should_sync_default": True,
+        "description": (
+            "Every Search Console property the connected Google account can see, with the "
+            "account's permission level on each one."
+        ),
+    },
+    "sitemaps": {
+        "primary_key": ["path"],
+        "should_sync_default": True,
+        "description": (
+            "Sitemaps submitted for this property, with when Google last downloaded each one "
+            "and how many errors and warnings it found."
+        ),
+    },
+    "sitemap_contents": {
+        "primary_key": ["path", "type"],
+        "should_sync_default": True,
+        "description": (
+            "URL counts per content type (web, image, video, news) for each submitted sitemap. "
+            "One row per sitemap and content type."
         ),
     },
 }

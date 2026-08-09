@@ -3,6 +3,7 @@ import pytest
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
@@ -43,6 +44,15 @@ def test_payment_required_is_non_retryable():
     )
 
 
+def test_graphql_unauthorized_is_non_retryable():
+    error_message = _http_error_message(401, "Unauthorized")
+    assert SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH in error_message
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"401 Unauthorized error '{error_message}' should match a non-retryable pattern"
+    )
+
+
 @pytest.mark.parametrize(
     "error_message",
     [
@@ -72,4 +82,23 @@ def test_transient_http_errors_stay_retryable(status_code, reason):
     patterns = ShopifySource().get_non_retryable_errors()
     assert not any(pattern in error_message for pattern in patterns), (
         f"transient error '{error_message}' should remain retryable"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Shopify: rate limit exceeded...",
+        "Shopify: internal error from request 500 Internal Server Error",
+        'Shopify: internal errors in payload [{"message": "internal error", "extensions": {"code": "internal_server_error"}}]',
+        "Shopify: connection broken while reading response: Connection broken: IncompleteRead(0 bytes read)",
+    ],
+)
+def test_exhausted_internal_retries_are_classified_as_retryable(error_message):
+    # These messages only reach `_handle_import_error` after `_make_paginated_shopify_request`'s
+    # own tenacity retries (5 attempts) are exhausted, so they should be logged as a warning
+    # and left for Temporal's activity retry rather than reported to error tracking as noise.
+    patterns = ShopifySource().get_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"exhausted-retry error '{error_message}' should be classified as retryable"
     )

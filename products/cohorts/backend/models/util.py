@@ -24,6 +24,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -316,7 +317,11 @@ def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
     # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id subquery.
-    cohort_query, cohort_context = hogql_cohort_subquery_sql(cohort, team=cohort.team)
+    # SECURITY-SENSITIVE: executes a saved, team-owned cohort definition with no acting user in
+    # scope - warehouse access is enforced when the definition is saved (CohortSerializer).
+    cohort_query, cohort_context = hogql_cohort_subquery_sql(
+        cohort, team=cohort.team, bypass_warehouse_access_control=True
+    )
     return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
 
 
@@ -349,6 +354,64 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
     return query_dict
 
 
+def _select_list_positions_are_known(select_list: list[ast.Expr]) -> bool:
+    """Whether ordinal N reliably maps to `select_list[N - 1]`.
+
+    `*`, `table.*` and `COLUMNS(...)` are each a single node here and only fan out into one node per
+    real column later, in the resolver. ClickHouse numbers positional arguments against that expanded
+    list, so mapping an ordinal onto the unexpanded list would point at the wrong expression and
+    silently change who ends up in the cohort. Leave those queries alone so they keep failing loudly
+    instead.
+    """
+    for expr in select_list:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if isinstance(expr, ast.ColumnsExpr):
+            return False
+        if isinstance(expr, ast.Field) and expr.chain and str(expr.chain[-1]) == "*":
+            return False
+    return True
+
+
+def _inline_positional_references(select_query: ast.SelectQuery) -> None:
+    """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
+
+    In ClickHouse a bare integer in GROUP BY/ORDER BY/LIMIT BY (`GROUP BY 2`) is a 1-based reference
+    into the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
+    any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
+    SELECT list up front keeps the grouping/ordering semantics intact once the list shrinks.
+
+    Ordinals nested inside GROUP BY GROUPING SETS are not resolved, because those entries are tuples
+    of expressions rather than bare ordinals. Such a query keeps failing the way it does today.
+    """
+    if not _select_list_positions_are_known(select_query.select):
+        return
+
+    select_list = select_query.select
+
+    def resolve(expr: ast.Expr) -> ast.Expr:
+        if (
+            isinstance(expr, ast.Constant)
+            and isinstance(expr.value, int)
+            and not isinstance(expr.value, bool)
+            and 1 <= expr.value <= len(select_list)
+        ):
+            target = select_list[expr.value - 1]
+            return clone_expr(target.expr if isinstance(target, ast.Alias) else target)
+        return expr
+
+    if select_query.group_by:
+        select_query.group_by = [resolve(expr) for expr in select_query.group_by]
+
+    if select_query.order_by:
+        for order_expr in select_query.order_by:
+            order_expr.expr = resolve(order_expr.expr)
+
+    # Only the LIMIT BY expressions are positional; `n` is the per-group row count, not an ordinal.
+    if select_query.limit_by:
+        select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -364,6 +427,13 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     for select_query in extract_select_queries(query):
+        # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
+        # expression. We're about to collapse the SELECT list down to a single actor column,
+        # which leaves those ordinals pointing past the end of the new one-column list, so
+        # ClickHouse rejects the query with an out-of-bounds positional argument error. Inline
+        # the referenced expression now so the reference survives the collapse.
+        _inline_positional_references(select_query)
+
         # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
         # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
         # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only
@@ -636,6 +706,9 @@ def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple
         modifiers=_cohort_calculation_modifiers(),
         team=team,
         limit_context=LimitContext.COHORT_CALCULATION,
+        # SECURITY-SENSITIVE: executes a saved, team-owned cohort definition with no acting user
+        # in scope - warehouse access is enforced when the definition is saved (CohortSerializer).
+        bypass_warehouse_access_control=True,
         settings=HogQLGlobalSettings(),
     ).generate_clickhouse_sql()
     sql = _trim_trailing_settings(sql)
@@ -788,10 +861,18 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         raise
 
 
-def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+def hogql_cohort_subquery_sql(
+    cohort: Cohort,
+    *,
+    team: Team,
+    bypass_warehouse_access_control: bool = False,
+) -> tuple[str, HogQLContext]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+    executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(
+        bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
+    sql, hogql_context = executor.generate_clickhouse_sql()
 
     return _trim_trailing_settings(sql), hogql_context
 
@@ -810,7 +891,11 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
-        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+        # SECURITY-SENSITIVE: recalculation always executes without warehouse access control.
+        # It is internal maintenance of a team-owned definition with no acting user - access is
+        # enforced when the filters are saved (CohortSerializer), and failing here would only
+        # silently freeze the cohort's membership.
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
         cohort_params = hogql_context.values
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
@@ -1167,7 +1252,9 @@ def insert_actors_into_cohort_by_query(
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    # SECURITY-SENSITIVE: background population from the cohort's saved source query, with no
+    # acting user - the query was run by its author when they created the cohort from it.
+    context = HogQLContext(enable_select_queries=True, team_id=team.id, bypass_warehouse_access_control=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 
@@ -1176,7 +1263,9 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
     # it's being populated for the first time, so we evaluate the criteria rather than reading the
     # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
-    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+    # SECURITY-SENSITIVE: background population of a saved, team-owned definition with no acting
+    # user - warehouse access is enforced when the definition is saved (CohortSerializer).
+    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
 
     # Params live on hogql_context.values, which the consumer already spreads — pass {} to avoid spreading twice.
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context

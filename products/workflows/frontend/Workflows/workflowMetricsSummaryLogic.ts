@@ -46,6 +46,7 @@ export type EmailMetric =
     | 'email_bounce_prevented'
     | 'email_blocked'
     | 'email_spam'
+    | 'email_untracked'
 
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
 
@@ -67,12 +68,21 @@ export type EmailMetricRow = {
     bounced: number
     bouncePrevented: number
     blocked: number
+    // Sends without open/click tracking (step toggle off or no recipient consent). These can never
+    // record opens/clicks, so engagement reads against trackedSends rather than sent.
+    untracked: number
+    // Tracked sends, not tracked deliveries. `email_untracked` and `email_sent` are pushed together on
+    // the same keys at send time, so the subtraction is exact and can never go negative, whereas
+    // `delivered - untracked` mixes send-time and webhook-time counts and goes non-positive once an
+    // untracked audience starts bouncing. A true tracked-deliveries denominator would need an untracked
+    // counter emitted at delivery time in the SES webhook, keyed off `mail.tags['ses:configuration-set']`.
+    trackedSends: number
 }
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
 // display name so the same label reads the same color everywhere — in the summary tiles and in the
-// trends chart below them. Pass this to `AppMetricsTrends` as `seriesColors` and to `AppMetricSummary`
-// so tiles and charts never drift apart.
+// trends chart below them. The trends charts take this as `AppMetricsTrends` `seriesColors`; each
+// summary tile (`WorkflowMetricCard`) reads a single color for its metric by name, so they never drift.
 //
 // Only `success`/`blue`/`purple`/`warning`/`danger` exist as themed color vars; the rest (`orange`,
 // `indigo`, `red`, `primary`) resolve to white in dark mode. The whole-workflow summary mostly uses
@@ -99,6 +109,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Bounce prevented': getColorVar('data-color-7'),
     Blocked: getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
+    Untracked: getColorVar('data-color-10'),
     Skipped: getColorVar('data-color-2'),
     // Workflow run + batch-job metrics
     Success: getColorVar('success'),
@@ -176,13 +187,15 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     },
     email_opened: {
         name: 'Opened',
-        description: 'Total number of emails opened',
+        description:
+            'Total number of emails opened. Untracked sends can never record an open, so compare opens against sent minus untracked.',
         color: METRIC_COLORS['Opened'],
         metricNames: ['email_opened'],
     },
     email_link_clicked: {
         name: 'Link clicked',
-        description: 'Total number of times links in emails were clicked',
+        description:
+            'Total number of times links in emails were clicked. Untracked sends can never record a click, so compare clicks against sent minus untracked.',
         color: METRIC_COLORS['Link clicked'],
         metricNames: ['email_link_clicked'],
     },
@@ -210,6 +223,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         description: 'Total number of emails that were marked as spam by recipient server or recipient email client',
         color: METRIC_COLORS['Marked as spam'],
         metricNames: ['email_spam'],
+    },
+    email_untracked: {
+        name: 'Untracked',
+        description:
+            'Total number of emails sent without open/click tracking, because tracking was turned off on the step or the recipient has not consented. These sends can never record opens or clicks, so subtract them from sent when judging engagement.',
+        color: METRIC_COLORS['Untracked'],
+        metricNames: ['email_untracked'],
     },
 }
 
@@ -293,6 +313,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_bounce_prevented',
     'email_blocked',
     'email_spam',
+    'email_untracked',
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed']
@@ -342,6 +363,7 @@ export interface workflowMetricsSummaryLogicValues {
             message_category_type?: 'marketing' | 'transactional' | undefined
             template_id: 'template-email'
             template_uuid?: string | undefined
+            tracking_enabled?: boolean | undefined
         }
         created_at?: number | undefined
         description: string
@@ -549,6 +571,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 message_category_type?: 'marketing' | 'transactional' | undefined
                 template_id: 'template-email'
                 template_uuid?: string | undefined
+                tracking_enabled?: boolean | undefined
             }
             created_at?: number | undefined
             description: string
@@ -647,7 +670,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            }, // appMetricsLogic
+            },
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -657,7 +680,7 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            ) => AppMetricsTimeSeriesResponse | null,
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
@@ -681,6 +704,7 @@ export interface workflowMetricsSummaryLogicMeta {
                     message_category_type?: 'marketing' | 'transactional' | undefined
                     template_id: 'template-email'
                     template_uuid?: string | undefined
+                    tracking_enabled?: boolean | undefined
                 }
                 created_at?: number | undefined
                 description: string
@@ -1309,6 +1333,7 @@ export function buildEmailMetricRows(
         const sent = totals.email_sent ?? 0
         const bounced = totals.email_bounced ?? 0
         const blocked = totals.email_blocked ?? 0
+        const untracked = totals.email_untracked ?? 0
         return {
             id: action.id,
             email: action.name,
@@ -1320,6 +1345,8 @@ export function buildEmailMetricRows(
             bounced,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
             blocked,
+            untracked,
+            trackedSends: Math.max(0, sent - untracked),
         }
     })
 }
