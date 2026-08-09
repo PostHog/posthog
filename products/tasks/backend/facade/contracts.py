@@ -140,6 +140,16 @@ class SlackThreadReferenceDTO:
 
 
 @dataclass(frozen=True)
+class TaskSlackUnfurlDTO:
+    """The task metadata needed to build a Slack unfurl."""
+
+    id: UUID
+    title: str
+    created_by_id: int | None
+    latest_run_status: str | None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 

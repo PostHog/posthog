@@ -203,13 +203,16 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert "Review Slack task links" in text
         assert "Sensitive prompt" not in text
         task.refresh_from_db()
-        assert task.state["slack_thread_references"] == [
+        state = task.state or {}
+        references = state.get("slack_thread_references")
+        assert isinstance(references, list)
+        assert references == [
             {
                 "slack_workspace_id": self.integration.integration_id,
                 "channel": "C_PUBLIC",
                 "thread_ts": "120.000",
                 "shared_by_slack_user_id": "U_SHARER",
-                "created_at": task.state["slack_thread_references"][0]["created_at"],
+                "created_at": references[0]["created_at"],
             }
         ]
 
@@ -244,7 +247,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_called_once()
         task.refresh_from_db()
-        assert "slack_thread_references" not in task.state
+        assert "slack_thread_references" not in (task.state or {})
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

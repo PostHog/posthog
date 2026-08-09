@@ -7,8 +7,6 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.utils import timezone
 
 import structlog
 
@@ -21,8 +19,8 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
-from products.tasks.backend.models import Task
-from products.tasks.backend.visibility import task_visibility_q
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -279,7 +277,9 @@ def _is_normal_public_channel(slack: SlackIntegration, channel: str) -> bool:
     )
 
 
-def _task_owner_can_view_public_slack_channel(slack: SlackIntegration, integration: Integration, task: Task) -> bool:
+def _task_owner_can_view_public_slack_channel(
+    slack: SlackIntegration, integration: Integration, task: TaskSlackUnfurlDTO
+) -> bool:
     if task.created_by_id is None:
         return False
     owner_link = (
@@ -305,7 +305,7 @@ def _attach_public_slack_thread_reference(
     *,
     slack: SlackIntegration,
     integration: Integration,
-    task: Task,
+    task: TaskSlackUnfurlDTO,
     event: dict,
     shared_by_slack_user_id: str,
 ) -> None:
@@ -320,30 +320,17 @@ def _attach_public_slack_thread_reference(
     if not _task_owner_can_view_public_slack_channel(slack, integration, task):
         return
 
-    thread_ts = event.get("thread_ts") if isinstance(event.get("thread_ts"), str) else message_ts
-    reference = {
-        "slack_workspace_id": integration.integration_id,
-        "channel": channel,
-        "thread_ts": thread_ts,
-        "shared_by_slack_user_id": shared_by_slack_user_id,
-        "created_at": timezone.now().isoformat(),
-    }
-    with transaction.atomic():
-        locked_task = Task.objects.select_for_update().get(id=task.id, team_id=integration.team_id)
-        state = dict(locked_task.state or {})
-        references = list(state.get("slack_thread_references") or [])
-        if any(
-            item.get("slack_workspace_id") == integration.integration_id
-            and item.get("channel") == channel
-            and item.get("thread_ts") == thread_ts
-            for item in references
-            if isinstance(item, dict)
-        ):
-            return
-        references.append(reference)
-        state["slack_thread_references"] = references
-        locked_task.state = state
-        locked_task.save(update_fields=["state", "updated_at"])
+    thread_ts = event.get("thread_ts")
+    if not isinstance(thread_ts, str):
+        thread_ts = message_ts
+    tasks_facade.attach_slack_thread_reference(
+        task_id=task.id,
+        team_id=integration.team_id,
+        slack_workspace_id=integration.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+        shared_by_slack_user_id=shared_by_slack_user_id,
+    )
 
 
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
@@ -449,15 +436,10 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             url_team_id = _url_team_id(raw_url)
             if url_team_id is not None and url_team_id != team.pk:
                 continue
-            task = (
-                Task.objects.filter(task_visibility_q(user.id), id=ref, team_id=team.pk, deleted=False, internal=False)
-                .select_related("created_by")
-                .first()
-            )
+            task = tasks_facade.get_task_for_slack_unfurl(ref, team.pk, user.id)
             if task is None:
                 continue
-            latest_run = task.runs.order_by("-created_at").only("status").first()
-            label = "Task" if latest_run is None else f"Task · {latest_run.get_status_display()}"
+            label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
             unfurls[raw_url] = _unfurl_payload(resource_label=label, title=task.title, description=None)
             try:
                 _attach_public_slack_thread_reference(

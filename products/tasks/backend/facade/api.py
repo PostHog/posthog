@@ -425,6 +425,58 @@ def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadRefer
     return references
 
 
+def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -> contracts.TaskSlackUnfurlDTO | None:
+    task = (
+        _visible_task_qs(team_id, user_id)
+        .filter(id=task_id, internal=False)
+        .only("id", "title", "created_by_id")
+        .first()
+    )
+    if task is None:
+        return None
+    latest_run = task.runs.order_by("-created_at").only("status").first()
+    return contracts.TaskSlackUnfurlDTO(
+        id=task.id,
+        title=task.title,
+        created_by_id=task.created_by_id,
+        latest_run_status=latest_run.get_status_display() if latest_run else None,
+    )
+
+
+def attach_slack_thread_reference(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    slack_workspace_id: str,
+    channel: str,
+    thread_ts: str,
+    shared_by_slack_user_id: str,
+) -> None:
+    reference = {
+        "slack_workspace_id": slack_workspace_id,
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "shared_by_slack_user_id": shared_by_slack_user_id,
+        "created_at": django_timezone.now().isoformat(),
+    }
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
+        state = dict(task.state or {})
+        references = list(state.get("slack_thread_references") or [])
+        if any(
+            item.get("slack_workspace_id") == slack_workspace_id
+            and item.get("channel") == channel
+            and item.get("thread_ts") == thread_ts
+            for item in references
+            if isinstance(item, dict)
+        ):
+            return
+        references.append(reference)
+        state["slack_thread_references"] = references
+        task.state = state
+        task.save(update_fields=["state", "updated_at"])
+
+
 def _task_detail_to_dto(
     task: Task,
     *,
