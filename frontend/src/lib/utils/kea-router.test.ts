@@ -1,9 +1,4 @@
-import {
-    addProjectIdIfMissing,
-    ensureRoutablePathname,
-    realignProjectIdToTeam,
-    stripTrailingSlash,
-} from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, ensureRoutablePathname, stripTrailingSlash } from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -74,22 +69,6 @@ describe('router-utils', () => {
         })
         it('leaves the empty string unchanged', () => {
             expect(stripTrailingSlash('')).toEqual('')
-        })
-    })
-
-    describe('realignProjectIdToTeam', () => {
-        // Guards the frontend reconciliation: a client-side path carrying a foreign numeric
-        // project id must be pulled back to the loaded team, without touching token paths or
-        // matching ids.
-        it.each([
-            ['/project/222/insights/abc', 123, '/project/123/insights/abc'], // foreign id realigned
-            ['/project/123/insights/abc', 123, '/project/123/insights/abc'], // matching id untouched
-            ['/project/222', 123, '/project/123'], // bare project root realigned
-            ['/project/phc_abc/replay', 123, '/project/phc_abc/replay'], // token path untouched
-            ['/account/two_factor', 123, '/account/two_factor'], // no project id, untouched
-            ['/project/222/insights/abc', undefined, '/project/222/insights/abc'], // no team loaded, untouched
-        ])('realigns %s (team %s) to %s', (input, teamId, expected) => {
-            expect(realignProjectIdToTeam(input, teamId)).toEqual(expected)
         })
     })
 
