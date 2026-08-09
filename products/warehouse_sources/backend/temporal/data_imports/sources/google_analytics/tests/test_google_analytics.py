@@ -376,12 +376,12 @@ def test_run_report_retries_quota_errors_then_succeeds(monkeypatch):
     assert session.post.call_count == 3
 
 
-def test_run_report_raises_after_exhausting_quota_retries(monkeypatch):
+def test_run_report_hands_quota_wait_to_temporal_after_inline_retries(monkeypatch):
     monkeypatch.setattr(ga.time, "sleep", lambda _: None)
     session = mock.MagicMock()
     session.post.return_value = _fake_response(429)
 
-    with pytest.raises(GoogleAnalyticsQuotaExceededError):
+    with pytest.raises(GoogleAnalyticsQuotaExceededError) as exc_info:
         _run_report(
             session=session,
             property_id="123",
@@ -392,7 +392,42 @@ def test_run_report_raises_after_exhausting_quota_retries(monkeypatch):
             offset=0,
         )
 
-    assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
+    # A sustained 429 stops spinning after the short inline retries and hands a refill-sized delay
+    # back to Temporal, rather than burning the full 5xx retry budget in-activity.
+    assert session.post.call_count == ga.RUNREPORT_QUOTA_INLINE_RETRIES + 1
+    assert exc_info.value.retry_after is not None
+    assert exc_info.value.retry_after.total_seconds() >= ga.QUOTA_RETRY_MIN_SECONDS
+    assert exc_info.value.user_message is not None
+
+
+@pytest.mark.parametrize(
+    "now,headers,expected",
+    [
+        # No Retry-After: wait to just past the next hourly boundary, where token quota refills.
+        (dt.datetime(2026, 4, 30, 14, 20, tzinfo=dt.UTC), None, 40 * 60 + ga.QUOTA_RETRY_MARGIN_SECONDS),
+        # Near the top of the hour: still steps just past the boundary rather than retrying into it.
+        (dt.datetime(2026, 4, 30, 14, 59, 40, tzinfo=dt.UTC), None, 20 + ga.QUOTA_RETRY_MARGIN_SECONDS),
+        # A small Retry-After is floored to the minimum; a large one is honored.
+        (dt.datetime(2026, 4, 30, 14, 20, tzinfo=dt.UTC), {"Retry-After": "5"}, ga.QUOTA_RETRY_MIN_SECONDS),
+        (dt.datetime(2026, 4, 30, 14, 20, tzinfo=dt.UTC), {"Retry-After": "5000"}, 5000.0),
+    ],
+)
+def test_seconds_until_quota_refill(now, headers, expected):
+    assert ga._seconds_until_quota_refill(now, _fake_response(429, headers=headers)) == expected
+
+
+def test_request_pacer_spaces_requests(monkeypatch):
+    clock = {"now": 100.0}
+    slept: list[float] = []
+    monkeypatch.setattr(ga.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(ga.time, "sleep", lambda seconds: slept.append(seconds))
+
+    pacer = ga._RequestPacer(min_interval_seconds=1.0)
+    pacer.wait()  # first request never waits
+    clock["now"] = 100.2  # only 0.2s elapsed since the last request
+    pacer.wait()
+
+    assert slept == [pytest.approx(0.8)]
 
 
 @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
@@ -487,7 +522,9 @@ def test_source_yields_rows_and_advances_chunks(monkeypatch):
 
     requests_made: list[tuple[str, str, int]] = []
 
-    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+    def fake_run_report(
+        session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000, pacer=None
+    ):
         requests_made.append((start_date, end_date, offset))
         if start_date == "2026-04-23":
             return _report_payload(["20260423", "20260424"], [10, 20])
@@ -534,7 +571,9 @@ def test_source_paginates_within_chunk_and_saves_offsets(monkeypatch):
         2: _report_payload(["20260425"], [3], row_count=3),
     }
 
-    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+    def fake_run_report(
+        session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000, pacer=None
+    ):
         return pages[offset]
 
     monkeypatch.setattr(ga, "_run_report", fake_run_report)
@@ -568,7 +607,9 @@ def test_source_resumes_from_saved_state(monkeypatch):
 
     requests_made: list[tuple[str, int]] = []
 
-    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+    def fake_run_report(
+        session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000, pacer=None
+    ):
         requests_made.append((start_date, offset))
         return _report_payload([], [])
 

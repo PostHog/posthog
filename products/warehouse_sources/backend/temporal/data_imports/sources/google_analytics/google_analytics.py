@@ -13,6 +13,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.models.integration import Integration
+from posthog.temporal.common.errors import RetryableSourceError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
@@ -45,25 +46,54 @@ LOOKBACK_DAYS = 2
 CHUNK_DAYS = 30
 PAGE_LIMIT = 50000  # runReport allows up to 250k rows/request; keep payloads modest
 
-# Shared runReport retry policy for transient failures: 429 RESOURCE_EXHAUSTED
-# quota exhaustion (property tokens, concurrent requests) and 5xx server errors.
-# Both are transient — back off and retry inline, then fall back to a Temporal
-# activity retry via the resumable state.
+# runReport retry policy for transient 5xx server errors — back off and retry inline,
+# then fall back to a Temporal activity retry via the resumable state.
 RUNREPORT_MAX_RETRIES = 5
 RUNREPORT_BACKOFF_BASE_SECONDS = 5.0
+
+# A first backfill fires ~250 runReport calls per property across chunks and schemas, which is
+# what drains the Data API token quota. Space calls within a run so one schema's backfill is a
+# steady trickle rather than a burst; the hourly token quota is handled by the quota-aware retry.
+MIN_SECONDS_BETWEEN_REQUESTS = 1.0
+
+# A 429 can be a short-window limit (per-minute / concurrent requests) that clears in seconds, or a
+# sustained property token-quota exhaustion that will not clear until the hourly refill. Retry a
+# 429 inline a couple of times to ride out the short-window case; past that, stop spinning and hand
+# the wait to Temporal so the worker slot is freed until the quota refills.
+RUNREPORT_QUOTA_INLINE_RETRIES = 2
+
+# GA4 per-property token quotas refill on the hourly boundary. Floor for an explicit Retry-After so
+# a tiny value doesn't retry straight back into the exhausted window; margin past the boundary so
+# the refilled window is in effect when Temporal retries.
+QUOTA_RETRY_MIN_SECONDS = 60.0
+QUOTA_RETRY_MARGIN_SECONDS = 60.0
 
 _INTEGER_METRIC_TYPES = frozenset({"TYPE_INTEGER"})
 
 
-class GoogleAnalyticsQuotaExceededError(Exception):
-    """Raised when Data API quota stays exhausted after in-line retries.
+class GoogleAnalyticsQuotaExceededError(RetryableSourceError):
+    """Raised when Data API quota stays exhausted after the short inline 429 retries.
 
-    Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
-    the activity later (the resumable source picks up from the last saved
-    chunk), which is the right recovery for hourly/daily property token quotas.
-    Tagged `(retryable)` so `GoogleAnalyticsSource.get_retryable_errors` can
-    keep this self-recovering failure out of error tracking.
+    Carries a ``retry_after`` matched to the hourly token-quota refill, so `_handle_import_error`
+    hands that delay to Temporal (the resumable source then picks up from the last saved chunk)
+    instead of the worker sleeping through the wait, and a ``user_message`` so the schema shows a
+    quota-blocked state with an expected retry time rather than a sync that looks stuck.
+
+    Subclasses `RetryableSourceError` (a `NonReportableError`), which keeps this self-recovering
+    failure out of error tracking.
     """
+
+    def __init__(self, property_id: str, retry_after: dt.timedelta, retry_at: dt.datetime) -> None:
+        retry_after_seconds = int(retry_after.total_seconds())
+        super().__init__(
+            f"Data API quota for property '{property_id}' is exhausted; "
+            f"retrying in ~{retry_after_seconds}s (retryable)",
+            retry_after=retry_after,
+            user_message=(
+                "Google Analytics limited how much data PostHog can read from this property. "
+                f"The sync pauses and continues automatically at about {retry_at:%H:%M} UTC."
+            ),
+        )
 
 
 @dataclasses.dataclass
@@ -165,6 +195,38 @@ def _runreport_backoff_seconds(response: requests.Response, attempt: int) -> flo
     return RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
 
 
+def _seconds_until_quota_refill(now: dt.datetime, response: requests.Response) -> float:
+    """How long to wait before Temporal retries a sustained quota 429.
+
+    Honor an explicit `Retry-After` if Google sends one (floored so a tiny value doesn't retry
+    straight back into the exhausted window); otherwise step just past the next hourly boundary,
+    where GA4 per-property token quotas refill."""
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return max(float(retry_after), QUOTA_RETRY_MIN_SECONDS)
+        except ValueError:
+            pass
+    next_hour = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+    return (next_hour - now).total_seconds() + QUOTA_RETRY_MARGIN_SECONDS
+
+
+class _RequestPacer:
+    """Enforce a minimum interval between requests within one source run, so a schema's backfill
+    trickles rather than firing every chunk back-to-back and draining the token quota at once."""
+
+    def __init__(self, min_interval_seconds: float) -> None:
+        self._min_interval_seconds = min_interval_seconds
+        self._last_request_at: float | None = None
+
+    def wait(self) -> None:
+        if self._last_request_at is not None:
+            remaining = self._min_interval_seconds - (time.monotonic() - self._last_request_at)
+            if remaining > 0:
+                time.sleep(remaining)
+        self._last_request_at = time.monotonic()
+
+
 def _run_report(
     session: AuthorizedSession,
     property_id: str,
@@ -174,6 +236,7 @@ def _run_report(
     metrics: list[str],
     offset: int,
     limit: int = PAGE_LIMIT,
+    pacer: "_RequestPacer | None" = None,
 ) -> dict[str, Any]:
     pid = normalize_property_id(property_id)
     body = {
@@ -188,6 +251,8 @@ def _run_report(
     url = f"{GA4_API_BASE}/properties/{pid}:runReport"
 
     for attempt in range(RUNREPORT_MAX_RETRIES + 1):
+        if pacer is not None:
+            pacer.wait()
         response = session.post(url, json=body)
         if response.ok:
             return response.json()
@@ -206,12 +271,22 @@ def _run_report(
             # `get_non_retryable_errors` can match "403 Client Error" / "401 Client Error".
             response.raise_for_status()
 
-        if attempt == RUNREPORT_MAX_RETRIES:
-            if is_quota:
-                raise GoogleAnalyticsQuotaExceededError(
-                    f"Data API quota for property '{pid}' still exhausted after "
-                    f"{RUNREPORT_MAX_RETRIES} retries (retryable)"
+        if is_quota:
+            if attempt < RUNREPORT_QUOTA_INLINE_RETRIES:
+                # Ride out a short-window 429 (per-minute / concurrent limit) with a quick backoff.
+                wait = _runreport_backoff_seconds(response, attempt)
+                logger.warning(
+                    "GA4 runReport hit quota, backing off", property_id=pid, attempt=attempt, wait_seconds=wait
                 )
+                time.sleep(wait)
+                continue
+            # Sustained token-quota exhaustion: don't spin — hand the wait to Temporal, sized to
+            # the hourly refill, and let the resumable source pick up from the last saved chunk.
+            now = dt.datetime.now(dt.UTC)
+            retry_after = dt.timedelta(seconds=_seconds_until_quota_refill(now, response))
+            raise GoogleAnalyticsQuotaExceededError(pid, retry_after, now + retry_after)
+
+        if attempt == RUNREPORT_MAX_RETRIES:
             # A transient 5xx that never cleared — surface the HTTPError so Temporal retries the activity.
             response.raise_for_status()
 
@@ -329,6 +404,7 @@ def google_analytics_source(
                 start_date = max(start_date, dt.date.fromisoformat(resume_chunk_start))
 
         session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        pacer = _RequestPacer(MIN_SECONDS_BETWEEN_REQUESTS)
 
         for chunk_start, chunk_end in _iter_chunks(start_date, end_date):
             chunk_start_iso = chunk_start.isoformat()
@@ -344,6 +420,7 @@ def google_analytics_source(
                     dimensions=dimensions,
                     metrics=metrics,
                     offset=offset,
+                    pacer=pacer,
                 )
                 rows = _rows_to_dicts(payload)
                 if not rows:

@@ -441,7 +441,7 @@ function ManagedSchemaTable({
                                 {schema.status}
                             </LemonTag>
                         )
-                        return schema.latest_error && schema.status === 'Failed' ? (
+                        return schema.latest_error ? (
                             <Tooltip title={schema.latest_error} interactive>
                                 {tagContent}
                             </Tooltip>

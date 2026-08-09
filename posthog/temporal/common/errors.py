@@ -1,3 +1,4 @@
+import datetime as dt
 import traceback
 
 from temporalio.exceptions import ApplicationError, FailureError
@@ -9,6 +10,27 @@ class NonReportableError(Exception):
     the same way it skips cancellations and egress backpressure. Subclass it for a failure that is
     always caused by the customer's config or the upstream API (never a PostHog defect) and that
     retrying can't resolve, so a tracked exception would only be noise."""
+
+
+# `type` stamped on the `ApplicationError` raised for a source-computed retry delay. Allow-listed in
+# the activity interceptor (EXPECTED_CONTROL_FLOW_ERROR_TYPES) so the retry stays out of error tracking.
+SOURCE_RETRY_AFTER_ERROR_TYPE = "SourceRetryAfter"
+
+
+class RetryableSourceError(NonReportableError):
+    """A source-classified transient failure that also knows when the upstream will recover.
+
+    Sources raise this when the upstream fails on a schedule they can predict — e.g. an hourly
+    API quota window. ``retry_after`` hands Temporal the delay for the next activity attempt, so
+    the worker slot is freed instead of sleeping through the wait, and ``user_message`` is a plain
+    line written to the schema so a customer sees the wait and its expected end, not silence."""
+
+    def __init__(
+        self, message: str, *, retry_after: dt.timedelta | None = None, user_message: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+        self.user_message = user_message
 
 
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)

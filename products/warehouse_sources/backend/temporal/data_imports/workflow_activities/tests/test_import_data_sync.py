@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -12,8 +12,9 @@ from django.db import InterfaceError, OperationalError
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError
+from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import SOURCE_RETRY_AFTER_ERROR_TYPE, NonReportableError, RetryableSourceError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -221,6 +222,43 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
 
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retryable_source_error_hands_delay_to_temporal_and_surfaces_message():
+    # A source that knows the upstream recovers on a schedule (an hourly quota window) raises
+    # RetryableSourceError with a delay and a customer message. The handler must write that message
+    # to the schema so the wait isn't silent, and re-raise as an ApplicationError whose
+    # next_retry_delay equals the source's delay, so Temporal waits the refill instead of the retry
+    # policy's short exponential curve. Its type stays out of error tracking via the interceptor.
+    retry_after = timedelta(minutes=42)
+    error = RetryableSourceError(
+        "quota exhausted (retryable)", retry_after=retry_after, user_message="waiting until 15:45 UTC"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    job_inputs = mock.MagicMock()
+    job_inputs.schema_id = uuid.uuid4()
+    job_inputs.team_id = 7
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "_write_schema_latest_error", new=mock.AsyncMock()) as write_mock,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await module._handle_import_error(job_inputs, logger, error)
+
+    assert exc_info.value.type == SOURCE_RETRY_AFTER_ERROR_TYPE
+    assert exc_info.value.next_retry_delay == retry_after
+    assert exc_info.value.__cause__ is error
+    write_mock.assert_awaited_once()
+    assert write_mock.await_args.args[2] == "waiting until 15:45 UTC"
     logger.aexception.assert_not_awaited()
 
 

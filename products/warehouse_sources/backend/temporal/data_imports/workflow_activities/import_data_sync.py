@@ -13,12 +13,13 @@ from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import SOURCE_RETRY_AFTER_ERROR_TYPE, NonReportableError, RetryableSourceError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -359,6 +360,16 @@ def _get_models(
     return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
+@database_sync_to_async_pool
+def _write_schema_latest_error(schema_id: str, team_id: int, message: str) -> None:
+    # Scoped update, not save(), so it touches only latest_error and can't clobber a concurrent
+    # write to another field. The next run start clears it (create_job_model) and finalization
+    # overwrites it, so it only ever reflects the current run.
+    ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(
+        latest_error=message, updated_at=dt.datetime.now(dt.UTC)
+    )
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
@@ -454,6 +465,26 @@ async def _handle_import_error(
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
+
+    # A source that knows the upstream recovers on a schedule (e.g. an hourly API quota window)
+    # raises RetryableSourceError. Show the customer a reason and expected retry time on the schema
+    # instead of a sync that looks stuck, then hand the wait to Temporal: raising an ApplicationError
+    # with `next_retry_delay` fires the next attempt after the source's delay rather than the retry
+    # policy's short exponential curve, freeing the worker slot meanwhile. Its type is allow-listed
+    # in the activity interceptor so this self-recovering wait stays out of error tracking.
+    if isinstance(error, RetryableSourceError):
+        await logger.awarning(error_msg)
+        if error.user_message is not None:
+            # Best-effort: a failed status write must never turn a self-recovering wait into a hard failure.
+            try:
+                await _write_schema_latest_error(str(job_inputs.schema_id), job_inputs.team_id, error.user_message)
+            except Exception:
+                await logger.awarning("Failed to write quota-blocked message to schema")
+        if error.retry_after is not None:
+            raise ApplicationError(
+                error_msg, type=SOURCE_RETRY_AFTER_ERROR_TYPE, next_retry_delay=error.retry_after
+            ) from error
+        raise NonReportableError(error_msg) from error
 
     # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS
     # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the

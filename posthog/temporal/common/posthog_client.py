@@ -16,7 +16,7 @@ from temporalio.worker import (
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import SOURCE_RETRY_AFTER_ERROR_TYPE, NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
@@ -26,7 +26,9 @@ logger = get_write_only_logger()
 # ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
 # probes, retryable transient-infra re-raises), not defects — same reasoning as the
 # EgressBudgetExhausted exemption below.
-EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled", "TransientRepartitionError"})
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
+    {"trace_not_settled", "TransientRepartitionError", SOURCE_RETRY_AFTER_ERROR_TYPE}
+)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:

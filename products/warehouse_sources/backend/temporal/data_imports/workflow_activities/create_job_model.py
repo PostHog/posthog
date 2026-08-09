@@ -203,6 +203,9 @@ def create_external_data_job_model_activity(
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
         schema.status = ExternalDataSchema.Status.RUNNING
+        # Clear the prior run's error so latest_error only ever reflects the current run — the
+        # SchemasTab shows it whenever present, including mid-run quota-blocked waits.
+        schema.latest_error = None
         schema.save()
 
         source: ExternalDataSource = schema.source

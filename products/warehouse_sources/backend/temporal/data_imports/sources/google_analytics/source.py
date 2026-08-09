@@ -74,10 +74,10 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_run_report` already retries Data API quota exhaustion in-line with backoff; if it's
-        # still exhausted once those retries run out, the property's token quota refills over
-        # time and the resumable source picks up from the last saved chunk, so let Temporal
-        # retry the activity without paging it as a bug.
+        # A sustained Data API quota 429 is handled by type: `_run_report` raises
+        # `GoogleAnalyticsQuotaExceededError` (a `RetryableSourceError`), which `_handle_import_error`
+        # keeps out of error tracking and retries via Temporal with a quota-aware delay. This string
+        # marker stays as a fallback for any quota error that reaches finalization as plain text.
         return {"(retryable)"}
 
     def get_schemas(
