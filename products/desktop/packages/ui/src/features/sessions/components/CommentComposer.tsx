@@ -3,6 +3,7 @@ import { InputGroupAddon, InputGroupButton } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionComposer";
 import { useMentionsDisabledReason } from "@posthog/ui/features/sessions/mentionAvailability";
+import { useRef } from "react";
 import { mentionIdsFromContent } from "./commentMentions";
 
 export function CommentComposer({
@@ -32,8 +33,14 @@ export function CommentComposer({
   const mentionsDisabledReason = useMentionsDisabledReason();
   const mentionMembers = mentionsDisabledReason ? [] : members;
   const showMentionsDisabled = !!mentionsDisabledReason && value.includes("@");
+  const currentValue = useRef(value);
+  currentValue.current = value;
+  const handleValueChange = (nextValue: string) => {
+    currentValue.current = nextValue;
+    onValueChange(nextValue);
+  };
   const submit = () => {
-    const content = value.trim();
+    const content = currentValue.current.trim();
     if (!content || disabled) return;
     void Promise.resolve(
       onSubmit(content, mentionIdsFromContent(content, mentionMembers)),
@@ -43,7 +50,7 @@ export function CommentComposer({
   return (
     <MentionComposer
       value={value}
-      onValueChange={onValueChange}
+      onValueChange={handleValueChange}
       onSubmit={submit}
       members={mentionMembers}
       autoFocus={autoFocus}

@@ -167,7 +167,7 @@ export function AnnotatedArtifactHtml({
         onResolutionsChange(resolutions);
         return;
       }
-      if (data.type !== "selection" || !isFrameRect(data.triggerRect)) return;
+      if (data.type !== "selection" || !isFrameRect(data.rect)) return;
       const parsed = commentAnchorSchema.safeParse(data.anchor);
       if (!parsed.success || parsed.data.kind !== "text") return;
       setPendingAnchor(parsed.data);
@@ -176,9 +176,9 @@ export function AnnotatedArtifactHtml({
         fromLine: parsed.data.start + 1,
         toLine: parsed.data.end + 1,
         anchor: {
-          top: frameBox.top + data.triggerRect.top,
-          endX: frameBox.left + data.triggerRect.left,
-          bottom: frameBox.top + data.triggerRect.bottom,
+          top: frameBox.top + data.rect.top,
+          endX: frameBox.left + data.rect.right,
+          bottom: frameBox.top + data.rect.bottom,
         },
       });
     },

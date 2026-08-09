@@ -35,13 +35,14 @@ function loadBridgeDocument(
   return dom;
 }
 
-function selectParagraph(dom: JSDOM): void {
+function selectParagraph(dom: JSDOM): Range {
   const selection = dom.window.getSelection();
   const paragraph = dom.window.document.querySelector("p");
   if (!selection || !paragraph) throw new Error("test document needs a <p>");
   const range = dom.window.document.createRange();
   range.selectNodeContents(paragraph);
   selection.addRange(range);
+  return range;
 }
 
 function pressOn(dom: JSDOM, selector: string): void {
@@ -157,19 +158,19 @@ describe("artifactHtmlCommentBridge", () => {
     }) as typeof dom.window.postMessage;
 
     pressOn(dom, "p");
-    selectParagraph(dom);
+    const range = selectParagraph(dom);
+    range.getClientRects = () =>
+      [
+        {
+          top: 50,
+          left: 70,
+          right: 110,
+          bottom: 60,
+          width: 40,
+          height: 10,
+        },
+      ] as unknown as DOMRectList;
     releaseOn(dom, "p");
-    const button = actionButton(dom);
-    if (!button) throw new Error("missing comment action");
-    button.getBoundingClientRect = () =>
-      ({
-        top: 32,
-        left: 118,
-        right: 222,
-        bottom: 60,
-        width: 104,
-        height: 28,
-      }) as DOMRect;
 
     activateAction(dom);
 
@@ -185,20 +186,12 @@ describe("artifactHtmlCommentBridge", () => {
         end: 25,
       },
       rect: {
-        top: 40,
-        left: 10,
+        top: 50,
+        left: 70,
         right: 110,
         bottom: 60,
-        width: 100,
-        height: 20,
-      },
-      triggerRect: {
-        top: 32,
-        left: 118,
-        right: 222,
-        bottom: 60,
-        width: 104,
-        height: 28,
+        width: 40,
+        height: 10,
       },
     });
     expect(actionButton(dom)?.style.display).toBe("none");
