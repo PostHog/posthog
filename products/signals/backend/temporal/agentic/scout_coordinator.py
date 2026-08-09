@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import asyncio
+import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
+from uuid import UUID
 
 from django.db.models import Q
 from django.utils import timezone
@@ -36,6 +38,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_max_runs_per_tick,
+    _resolve_slot_aligned_dispatch,
     _resolve_withheld_skills,
     _runs_today_by_team,
     _team_configs,
@@ -57,6 +60,8 @@ COORDINATOR_INTERVAL_MINUTES = 30
 # Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
 # else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
 DUE_GRACE_SECONDS = 60
+
+TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
 
 
 @dataclass
@@ -143,19 +148,96 @@ async def stamp_dispatched_signals_scout_runs_activity(
     — far less harmful than a day of suppression, and bounded by the activity retry policy.
     """
     async with Heartbeater():
-        await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(stamp_input.dispatched_runs)
+        # Same off-the-DB-pool read as planning: the SDK call can block on a cold cache, and
+        # `database_sync_to_async`'s pool is sized for DB-bound work.
+        payload = await asyncio.to_thread(_read_flag_payload)
+        slot_aligned = _resolve_slot_aligned_dispatch(payload)
+        await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
+            stamp_input.dispatched_runs, slot_aligned=slot_aligned
+        )
 
 
-def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun]) -> None:
+def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
+    """The config's stable slot within its interval, as a count of coordinator ticks.
+
+    Derived from a digest of the config's primary key so it never moves: the same scout keeps the
+    same slot across restarts, redeploys, and re-enrolments, and the fleet's slots are spread by
+    the digest's uniformity rather than by whenever each scout happened to be enabled.
+    """
+    ticks_per_interval = _ticks_per_interval(run_interval_minutes)
+    digest = hashlib.sha256(str(config_pk).encode("utf-8"), usedforsecurity=False).digest()
+    return int.from_bytes(digest[:8], "big") % ticks_per_interval
+
+
+def _ticks_per_interval(run_interval_minutes: int) -> int:
+    """How many coordinator ticks fit in one run interval, floored at 1.
+
+    An interval shorter than a tick (or one that isn't a whole number of ticks) collapses to a
+    single slot, which makes the anchor the plain tick start: dispatch is quantized to the tick
+    grid either way, so there is nothing finer to spread such a scout across.
+    """
+    return max(1, run_interval_minutes // COORDINATOR_INTERVAL_MINUTES)
+
+
+def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datetime) -> datetime:
+    """The schedule anchor to stamp: the config's own slot, at or before this tick.
+
+    Stamping `timezone.now()` here instead made `last_run_at` absorb the tick's planning and
+    fan-out latency, so the next due time crept later every run. Once that creep passed
+    `DUE_GRACE_SECONDS` a scout missed its usual tick and re-anchored on the next one, merging its
+    cohort into that tick's cohort. The bigger merged wave then took longer to fan out, which made
+    the next slip more likely, so waves only ever grew.
+
+    Snapping back to the config's own slot removes both halves of that. Latency never accumulates,
+    because the anchor is a grid point rather than a measured time. A run deferred past its slot by
+    a per-team cap or a missed tick anchors on the slot it was meant to have, so cohorts drift back
+    together on the grid instead of ratcheting forward off it.
+
+    The snapped anchor always lands in `(this tick - interval, this tick]`, which puts the next due
+    time in `(this tick, this tick + interval]`. So no scout can come due again immediately, and
+    none waits more than one extra interval, including on the first stamp after this rolled out.
+    """
+    ticks_per_interval = _ticks_per_interval(run_interval_minutes)
+    slot = _dispatch_slot(config_pk, run_interval_minutes)
+    tick_index = int(dispatched_at.timestamp()) // TICK_SECONDS
+    snapped_index = tick_index - ((tick_index - slot) % ticks_per_interval)
+    return datetime.fromtimestamp(snapped_index * TICK_SECONDS, tz=UTC)
+
+
+def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun], *, slot_aligned: bool = True) -> None:
     """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
-    activity log."""
+    activity log.
+
+    Rolling-interval scouts are stamped with their slot anchor (see `_slot_anchor`), which means
+    one `.update()` per distinct anchor rather than one for the whole tick. Two kinds of config are
+    stamped with the wall clock instead:
+
+    - A cron scout, because `_overdue_seconds` feeds `last_run_at` to croniter as the reference for
+      the next slot. Cron slots are already absolute, so that path never had the drift, and moving
+      the reference backwards could re-select the slot this dispatch just fulfilled.
+    - A disabled config, which here is a lane the failure breaker paused and the coordinator is
+      probing. Its `last_run_at` is the probe cooldown clock rather than a schedule anchor, so
+      backdating it would shorten the cooldown the breaker is counting.
+    """
     if not dispatched_runs:
         return
     now = timezone.now()
     predicate = Q()
     for run in dispatched_runs:
         predicate |= Q(team_id=run.team_id, skill_name=run.skill_name)
-    SignalScoutConfig.all_teams.filter(predicate).update(last_run_at=now)
+    dispatched = SignalScoutConfig.all_teams.filter(predicate)
+    if not slot_aligned:
+        dispatched.update(last_run_at=now)
+        return
+
+    pks_by_anchor: dict[datetime, list[UUID]] = {}
+    for pk, enabled, cron_schedule, interval_minutes in dispatched.values_list(
+        "pk", "enabled", "run_cron_schedule", "run_interval_minutes"
+    ):
+        anchor = _slot_anchor(str(pk), interval_minutes, now) if enabled and not cron_schedule else now
+        pks_by_anchor.setdefault(anchor, []).append(pk)
+    for anchor, pks in pks_by_anchor.items():
+        SignalScoutConfig.all_teams.filter(pk__in=pks).update(last_run_at=anchor)
 
 
 @dataclass
