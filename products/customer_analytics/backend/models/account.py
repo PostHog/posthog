@@ -12,19 +12,21 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
 
-
-class AccountAssignment(BaseModel):
-    id: int
-    email: str
+# Role assignments moved to the relationship tables. Stored rows may carry these keys until
+# `backfill_account_relationships` has run in the environment (see COMPROMISES.md).
+RETIRED_ROLE_KEYS = ("csm", "account_executive", "account_owner")
 
 
 class AccountProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Key roles
-    csm: AccountAssignment | None = None
-    account_executive: AccountAssignment | None = None
-    account_owner: AccountAssignment | None = None
+    # Email domains owned by this account's company, used to match inbound
+    # touchpoints (calendar attendees, email senders) that don't resolve to a
+    # known person. Personal/free domains don't belong here.
+    email_domains: list[str] = []
+    # Individual addresses pinned to this account, checked before the domain
+    # fallback. For contacts on personal/free domains a domain rule can't cover.
+    known_emails: list[str] = []
 
     # External connections
     stripe_customer_id: str | None = None
@@ -34,6 +36,7 @@ class AccountProperties(BaseModel):
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
     @classmethod
     def from_input(cls, data: "dict | AccountProperties") -> "AccountProperties":
@@ -62,7 +65,8 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
 
     @property
     def properties(self) -> AccountProperties:
-        return AccountProperties.model_validate(self._properties or {})
+        stored = self._properties or {}
+        return AccountProperties.model_validate({k: v for k, v in stored.items() if k not in RETIRED_ROLE_KEYS})
 
     @properties.setter
     def properties(self, value: "dict | AccountProperties") -> None:

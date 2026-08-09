@@ -691,7 +691,7 @@ def _tool_args_preview(raw_input: Any) -> str | None:
 
 
 def _extract_agent_message_text(event_data: dict) -> str | None:
-    """Text delta from an agent message event, else None."""
+    """Text from an agent message event, else None."""
     pi_event = _pi_conversation_event(event_data)
     if pi_event is not None and pi_event.get("type") == "assistant_message_chunk":
         content = pi_event.get("content")
@@ -705,7 +705,7 @@ def _extract_agent_message_text(event_data: dict) -> str | None:
         return None
     params = notification.get("params") or {}
     update = params.get("update") or {}
-    if update.get("sessionUpdate") != "agent_message_chunk":
+    if update.get("sessionUpdate") not in {"agent_message", "agent_message_chunk"}:
         return None
     content = update.get("content")
     if not isinstance(content, dict):

@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.10.0 — 2026-08-03
+
+### Minor changes
+
+- [2c588c9673](https://github.com/PostHog/posthog/commit/2c588c967361ba1e0ca39fee67687b5336cbc64b) Add `--no-release-bind` to `dsym upload`: the release is still created, but uploaded symbol sets stay release-independent. — Thanks @ablaszkiewicz!
+
 ## 0.9.4 — 2026-07-30
 
 ### Patch changes

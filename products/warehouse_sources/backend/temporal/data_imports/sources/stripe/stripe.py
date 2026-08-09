@@ -383,6 +383,20 @@ def _credit_grant_customer_params(credit_grant: dict[str, Any]) -> dict[str, Any
     return {"customer": credit_grant.get("customer")}
 
 
+def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_transactions` requires a `customer` filter — like credit balance
+    summary, it has no unscoped list. Scope it to a single credit grant (also filtering on
+    `credit_grant` so a customer with several grants doesn't return the same transaction once per
+    grant) so each row is a transaction against a grant we already sync."""
+
+    def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        return client.billing.credit_balance_transactions.list(
+            params=cast(Any, {**params, "credit_grant": credit_grant})
+        )
+
+    return _list
+
+
 def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
     """Credit grants issued to an Account rather than a Customer carry `customer_account` instead of
     `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
@@ -531,8 +545,14 @@ def _build_resources(
         EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
         BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
         BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
-        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(
-            method=client.billing.credit_balance_transactions.list
+        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_transaction_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
         ),
         ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
         INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),
@@ -867,11 +887,24 @@ class StripeAuthenticationError(Exception):
         super().__init__(stripe_message)
 
 
+class StripeTransientError(Exception):
+    """Raised when a credential probe fails because Stripe itself was unavailable (a 5xx APIError,
+    a connection failure, or a rate limit) rather than because the credentials are wrong. The key
+    may be perfectly valid, so callers surface a retry hint instead of Stripe's internal error text
+    (e.g. "Error while communicating with one of our backends")."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
 class StripeValidationError(Exception):
-    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
-    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
-    decide whether to surface the verbose underlying message — permission errors are
-    self-explanatory from the resource name, but unknown errors need the raw detail."""
+    """Raised when one or more resources failed with a non-403, non-transient exception (e.g. an
+    unexpected response or schema error) during credential validation. Transient Stripe-side
+    failures (5xx, connection, rate limit) raise StripeTransientError instead. Distinct from
+    StripePermissionError so callers can decide whether to surface the verbose underlying message —
+    permission errors are self-explanatory from the resource name, but unknown errors need the raw
+    detail."""
 
     def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
         self.errors = errors
@@ -907,6 +940,11 @@ def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
     except stripe_lib.PermissionError as e:
         raw = getattr(e, "user_message", None) or str(e)
         return _clean_stripe_error_message(raw), None
+    except (stripe_lib.APIError, stripe_lib.APIConnectionError, stripe_lib.RateLimitError) as e:
+        # Stripe was unreachable or returned a 5xx/rate-limit — transient and unrelated to the
+        # credentials. Fail fast with a distinct error so the caller can tell the user to retry
+        # rather than reporting Stripe's internal text as a validation failure.
+        raise StripeTransientError(_clean_stripe_error_message(str(e))) from e
     except Exception as e:
         return None, _clean_stripe_error_message(str(e))
 
@@ -995,7 +1033,13 @@ def check_endpoint_permissions(
             continue
 
         _, probe_resource = _resolve_to_flat(name, all_resources)
-        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        try:
+            permission_msg, error_msg = _probe_endpoint(probe_resource)
+        except StripeTransientError as e:
+            # A transient Stripe outage isn't a per-endpoint verdict, but this function must return
+            # the full picture rather than raise (401 aside), so record it as this endpoint's reason.
+            results[name] = e.stripe_message
+            continue
         results[name] = permission_msg or error_msg
 
     return results
@@ -1031,7 +1075,12 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     filtered_events = _all_known_webhook_events()
@@ -1086,6 +1135,11 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            if auth_method == "oauth":
+                return WebhookCreationResult(
+                    success=False,
+                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                )
             return WebhookCreationResult(
                 success=False,
                 error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",

@@ -33,7 +33,7 @@ class CDPProducer:
     schema_id: str
     job_id: str
     logger: FilteringBoundLogger
-    _should_produce_cache: bool | None
+    _should_run_cache: bool | None
     _table_name_cache: str | None
 
     def __init__(self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> None:
@@ -41,7 +41,7 @@ class CDPProducer:
         self.schema_id = schema_id
         self.job_id = job_id
         self.logger = logger
-        self._should_produce_cache = None
+        self._should_run_cache = None
         self._table_name_cache = None
 
     def _get_fs(self) -> pa_fs.S3FileSystem:
@@ -110,9 +110,9 @@ class CDPProducer:
         row_hash = hashlib.sha256(self._serialize_json(row, sort_keys=True)).hexdigest()
         return str(uuid.uuid5(uuid.NAMESPACE_OID, f"{self.job_id}:{row_hash}"))
 
-    async def should_produce_table(self) -> bool:
-        if self._should_produce_cache is not None:
-            return self._should_produce_cache
+    async def should_run(self) -> bool:
+        if self._should_run_cache is not None:
+            return self._should_run_cache
 
         dot_notated_table_name = await self.get_dot_notated_table_name()
 
@@ -154,10 +154,10 @@ class CDPProducer:
                     "Failed to check hog function/workflow triggers in PostHog's database"
                 ) from e
 
-        self._should_produce_cache = await _check()
-        return self._should_produce_cache
+        self._should_run_cache = await _check()
+        return self._should_run_cache
 
-    async def clear_s3_chunks(self):
+    async def clear(self):
         async with aget_s3_client() as s3_client:
             await self.logger.adebug(f"Clearing S3 chunks at path prefix {self._get_path_prefix()}")
 
@@ -167,7 +167,7 @@ class CDPProducer:
                 except FileNotFoundError:
                     pass
 
-    async def write_chunk_for_cdp_producer(self, chunk: int, table: pa.Table) -> None:
+    async def stage_chunk(self, chunk: int, table: pa.Table) -> None:
         await self.logger.adebug(f"Writing chunk {chunk} for CDP producer to S3 path prefix {self._get_path_prefix()}")
 
         # Write operations in pyarrow are CPU-bound, so run in thread pool

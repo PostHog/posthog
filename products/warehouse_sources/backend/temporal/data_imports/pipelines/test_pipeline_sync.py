@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     resolve_table_and_folder_names,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    _refresh_cumulative_row_count,
     merge_columns,
     update_last_synced_at,
 )
@@ -58,15 +59,15 @@ class TestResolveTableAndFolderNames:
     def test_resolve(
         self, _name: str, schema_name: str, resolved_folder: str | None, exp_table: str, exp_folder: str
     ) -> None:
-        table_storage_name, folder_name = resolve_table_and_folder_names(schema_name, resolved_folder)
-        assert table_storage_name == exp_table
-        assert folder_name == exp_folder
+        names = resolve_table_and_folder_names(schema_name, resolved_folder)
+        assert names.table_storage_name == exp_table
+        assert names.folder_name == exp_folder
 
     def test_table_name_unchanged_for_camelcase_source(self) -> None:
         # The regression guard: a populated (snake_cased) folder must NOT rename the HogQL table.
         source = ExternalDataSource(source_type="Stripe", prefix="")
-        table_storage_name, _ = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
-        assert build_table_name(source, table_storage_name) == "stripe_balancetransaction"
+        names = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
+        assert build_table_name(source, names.table_storage_name) == "stripe_balancetransaction"
 
     @parameterized.expand(
         [
@@ -83,8 +84,33 @@ class TestResolveTableAndFolderNames:
         self, _name: str, source_type: str, schema_name: str, expected: str
     ) -> None:
         source = ExternalDataSource(source_type=source_type, prefix="")
-        table_storage_name, _ = resolve_table_and_folder_names(schema_name, None)
-        assert build_table_name(source, table_storage_name) == expected
+        names = resolve_table_and_folder_names(schema_name, None)
+        assert build_table_name(source, names.table_storage_name) == expected
+
+
+class TestRefreshCumulativeRowCount:
+    def test_updates_row_count_on_success(self) -> None:
+        table = MagicMock(row_count=1)
+        table.get_count.return_value = 42
+
+        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)")
+
+        assert table.row_count == 42
+
+    def test_keeps_previous_row_count_when_get_count_fails(self) -> None:
+        # get_count() raises when both the chdb and ClickHouse-cluster reads of the S3 dataset
+        # time out on a large table. That's a display stat, not the synced data — it must not
+        # propagate and fail the whole table registration for an otherwise-successful sync.
+        table = MagicMock(row_count=7)
+        table.get_count.side_effect = Exception(
+            "Reading the files from your storage bucket took too long and the query was cancelled."
+        )
+        logger = MagicMock()
+
+        _refresh_cumulative_row_count(table, logger, "orders (schema-1)")
+
+        assert table.row_count == 7
+        logger.warning.assert_called_once()
 
 
 def _register_companion_sync(

@@ -103,10 +103,17 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
     LogsSamplingDetail: () =>
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
+    LogsRetentionNew: () => import('../../products/logs/frontend/scenes/LogsRetentionNewScene/LogsRetentionNewScene'),
+    LogsRetentionDetail: () =>
+        import('../../products/logs/frontend/scenes/LogsRetentionDetailScene/LogsRetentionDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
+    McpGateway: () => import('../../products/mcp_store/frontend/gateway/McpGatewayScene'),
+    McpGatewayServer: () => import('../../products/mcp_store/frontend/gateway/GatewayServerScene'),
+    McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
+    McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
@@ -120,6 +127,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
+    Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
@@ -142,6 +150,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
     VisualReviewSnapshotOverview: () =>
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
+    Heatmaps: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmaps/HeatmapsScene'),
+    Heatmap: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapScene'),
+    HeatmapNew: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene'),
+    HeatmapRecording: () =>
+        import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapRecordingScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),

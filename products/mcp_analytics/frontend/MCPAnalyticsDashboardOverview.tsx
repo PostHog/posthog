@@ -31,6 +31,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         dailyActivity,
         activityRowsLoading,
         activityIncompleteTail,
+        kpiIncompleteTail,
         toolDailySeries,
         toolDailyRowsLoading,
         toolRows,
@@ -90,6 +91,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     kpisLoading={kpisLoading}
                     usersLoading={usersLoading}
                     theme={theme}
+                    incompleteTail={kpiIncompleteTail}
                 />
             </section>
             <section data-quill>

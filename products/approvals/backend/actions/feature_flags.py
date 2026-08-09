@@ -63,12 +63,16 @@ def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
 
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
     """Check staleness by comparing stored version precondition against current instance version."""
-    instance = context.get("instance") if context else None
-    if not instance:
-        return True
-
     preconditions = intent_data.get("preconditions", {})
     stored_version = preconditions.get("version")
+
+    instance = context.get("instance") if context else None
+    if not instance:
+        # A create-type request has no flag row yet (stored_version is None) — that's expected,
+        # not staleness. An update/enable/disable request whose flag can no longer be resolved
+        # (e.g. deleted) genuinely is stale.
+        return stored_version is not None
+
     if stored_version is not None and instance.version != stored_version:
         return True
 
@@ -85,14 +89,17 @@ def _resolve_existing_flag(change_request) -> Optional[FeatureFlag]:
     flag_id = change_request.intent.get("flag_id") or change_request.resource_id
     if flag_id:
         try:
-            return FeatureFlag.objects.get(id=flag_id, team_id=change_request.team_id)
+            # nosemgrep: idor-lookup-without-team (project_id from the approved change request's own team)
+            return FeatureFlag.objects.get(id=flag_id, team__project_id=change_request.team.project_id)
         except FeatureFlag.DoesNotExist:
             return None
 
     key = change_request.intent.get("full_request_data", {}).get("key")
     if key:
-        # nosemgrep: idor-lookup-without-team (team_id from the approved change request)
-        return FeatureFlag.objects.filter(team_id=change_request.team_id, key=key, deleted=False).first()
+        # nosemgrep: idor-lookup-without-team (project_id from the approved change request's own team)
+        return FeatureFlag.objects.filter(
+            team__project_id=change_request.team.project_id, key=key, deleted=False
+        ).first()
 
     return None
 

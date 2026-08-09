@@ -11,8 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SendGridSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import SendGridResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import SENDGRID_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source import SendGridSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source"
+_TRANSPORT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid"
 
 ALL_ENDPOINTS = {
     "bounces",
@@ -104,13 +108,40 @@ class TestSendGridSource:
     def test_validate_credentials(
         self, status: int | None, schema_name: str | None, expected_ok: bool, expected_has_msg: bool
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source.get_status_code",
-            return_value=status,
+        # A named schema probes its own endpoint; source-create probes `/scopes`.
+        with (
+            patch(f"{_SOURCE_MODULE}.get_status_code", return_value=status),
+            patch(f"{_SOURCE_MODULE}.get_endpoint_status_code", return_value=status),
         ):
             ok, msg = SendGridSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
         assert (msg is not None) is expected_has_msg
+
+    def test_per_schema_403_names_the_missing_scope(self) -> None:
+        with patch(f"{_SOURCE_MODULE}.get_endpoint_status_code", return_value=403):
+            _ok, msg = SendGridSource().validate_credentials(_config(), team_id=1, schema_name="marketing_lists")
+        assert msg is not None
+        assert "marketing.read" in msg
+
+    def test_get_endpoint_permissions_flags_only_the_unreadable_table(self) -> None:
+        # The bug this guards: with no per-table probe every table looked reachable, so a key without
+        # `marketing.read` still got marketing_lists enabled, and the first sync hard-failed.
+        def status_for(_api_key: str, config: Any) -> int:
+            return 403 if config.name == "marketing_lists" else 200
+
+        with patch(f"{_TRANSPORT_MODULE}.get_endpoint_status_code", side_effect=status_for):
+            permissions = SendGridSource().get_endpoint_permissions(_config(), team_id=1, endpoints=list(ALL_ENDPOINTS))
+
+        assert permissions["marketing_lists"] is not None
+        assert "marketing.read" in permissions["marketing_lists"]
+        assert {name: reason for name, reason in permissions.items() if reason is not None} == {
+            "marketing_lists": permissions["marketing_lists"]
+        }
+
+    @pytest.mark.parametrize("name", sorted(ALL_ENDPOINTS))
+    def test_every_endpoint_declares_a_scope_to_name(self, name: str) -> None:
+        # An endpoint added without one would render "missing the `` scope" at users.
+        assert SENDGRID_ENDPOINTS[name].required_scope
 
     def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
         manager = SendGridSource().get_resumable_source_manager(_source_inputs())
