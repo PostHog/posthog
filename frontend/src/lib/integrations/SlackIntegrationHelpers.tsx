@@ -106,6 +106,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
         slackIntegrationInactiveMessage,
+        slackChannelsError,
     } = useValues(logic)
     const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
     // Reconnecting overwrites the existing integration, which the API reserves for project admins
@@ -270,6 +271,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                             </Link>
                         )}
                     </div>
+                </LemonBanner>
+            ) : null}
+
+            {slackChannelsError && !slackIntegrationInactiveMessage ? (
+                <LemonBanner type="warning" className="mt-1">
+                    {slackChannelsError}
                 </LemonBanner>
             ) : null}
 

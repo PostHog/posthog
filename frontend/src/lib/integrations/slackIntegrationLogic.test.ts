@@ -351,6 +351,36 @@ describe('slackIntegrationLogic — inactive Slack integration', () => {
     })
 })
 
+describe('slackIntegrationLogic — generic channel-load failure', () => {
+    let logic: ReturnType<typeof slackIntegrationLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': () => [500, { type: 'server_error' }],
+            },
+        })
+        initKeaTests()
+        logic = slackIntegrationLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('surfaces the error inline without a failure toast so it cannot stack against a success toast', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        })
+            .toDispatchActions(['setSlackChannelsError', 'loadAllSlackChannelsSuccess'])
+            .toNotHaveDispatchedActions(['loadAllSlackChannelsFailure'])
+
+        expect(logic.values.slackChannelsError).not.toBeNull()
+        expect(logic.values.slackIntegrationInactiveMessage).toBeNull()
+    })
+})
+
 describe('slackIntegrationLogic — slackChannelsForPicker', () => {
     let logic: ReturnType<typeof slackIntegrationLogic.build>
     const allChannels = [

@@ -339,3 +339,33 @@ describe('SlackChannelPicker — inactive integration banner', () => {
         expect(screen.queryByText(/Ask a project admin/)).toEqual(expectsLink ? null : expect.anything())
     })
 })
+
+describe('SlackChannelPicker — generic channel-load failure banner', () => {
+    // A non-inactive load failure must show inline guidance in the picker, not throw into the
+    // generic loader toast — a red toast beside the wizard's success toast is the reported bug.
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': () => [500, { type: 'server_error' }],
+            },
+        })
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('renders the inline error banner without offering a reconnect link', async () => {
+        render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText(/Couldn't load Slack channels/)).toBeInTheDocument()
+        })
+        expect(screen.queryByText('Reconnect Slack')).toBeNull()
+    })
+})

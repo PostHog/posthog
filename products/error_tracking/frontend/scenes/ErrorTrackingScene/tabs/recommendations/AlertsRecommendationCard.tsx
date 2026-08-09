@@ -30,7 +30,7 @@ export function AlertsRecommendationCard({
     recommendation: AlertsRecommendation
     dismissed?: boolean
 }): JSX.Element | null {
-    const { refreshRecommendation, setOpenAlertTriggerKey } = useActions(recommendationsTabLogic)
+    const { refreshRecommendation, setOpenAlertTriggerKey, markAlertConfigured } = useActions(recommendationsTabLogic)
     const { openAlertTriggerKey } = useValues(recommendationsTabLogic)
     const alerts = recommendation.meta.alerts ?? []
 
@@ -97,6 +97,11 @@ export function AlertsRecommendationCard({
                         setOpenAlertTriggerKey(null)
                         refreshRecommendation(recommendation.id)
                     }}
+                    onAlertCreated={() => {
+                        markAlertConfigured(recommendation.id, openAlertTriggerKey)
+                        setOpenAlertTriggerKey(null)
+                        refreshRecommendation(recommendation.id)
+                    }}
                 />
             )}
         </>
@@ -106,9 +111,11 @@ export function AlertsRecommendationCard({
 function AlertsRecommendationWizardModal({
     triggerKey,
     onClose,
+    onAlertCreated,
 }: {
     triggerKey: HogFunctionSubTemplateIdType
     onClose: () => void
+    onAlertCreated: () => void
 }): JSX.Element {
     const wizardProps: AlertWizardLogicProps = {
         logicKey: `error-tracking-recommendation-${triggerKey}`,
@@ -118,7 +125,7 @@ function AlertsRecommendationWizardModal({
         disableUrlSync: true,
         presetTriggerKey: triggerKey,
         contextId: 'error-tracking',
-        onAlertCreated: onClose,
+        onAlertCreated,
     }
 
     return (

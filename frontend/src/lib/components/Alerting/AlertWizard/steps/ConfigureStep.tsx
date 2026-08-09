@@ -4,6 +4,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegrationField'
+import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
@@ -14,7 +15,7 @@ import { alertWizardLogic } from '../alertWizardLogic'
 export function ConfigureStep(): JSX.Element {
     const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
         useValues(alertWizardLogic)
-    const { setInputValue, submitConfiguration, testConfiguration } = useActions(alertWizardLogic)
+    const { setInputValue, testConfiguration } = useActions(alertWizardLogic)
 
     if (selectedTemplateLoading) {
         return (
@@ -51,11 +52,85 @@ export function ConfigureStep(): JSX.Element {
                 <LemonButton type="secondary" onClick={testConfiguration} loading={testing} disabled={submitting}>
                     Test
                 </LemonButton>
-                <LemonButton type="primary" onClick={submitConfiguration} loading={submitting} disabled={testing}>
-                    Create alert
-                </LemonButton>
+                <CreateAlertButton />
             </div>
         </div>
+    )
+}
+
+// Finds the Slack channel field on the current template (if any) and the integration it points at,
+// so the create button can gate on channel selection and app membership.
+function findSlackChannelTarget(configuration: {
+    inputs_schema: CyclotronJobInputSchemaType[]
+    inputs: Record<string, any> | null
+}): { integrationId: number; channelValue: string | undefined } | null {
+    const channelSchema = configuration.inputs_schema.find(
+        (s) => s.type === 'integration_field' && s.integration_field === 'slack_channel'
+    )
+    if (!channelSchema?.integration_key) {
+        return null
+    }
+    const integrationId = configuration.inputs?.[channelSchema.integration_key]?.value
+    if (typeof integrationId !== 'number') {
+        return null
+    }
+    return { integrationId, channelValue: configuration.inputs?.[channelSchema.key]?.value }
+}
+
+function CreateAlertButton(): JSX.Element {
+    const { configuration, submitting, testing } = useValues(alertWizardLogic)
+    const { submitConfiguration } = useActions(alertWizardLogic)
+
+    const slackTarget = findSlackChannelTarget(configuration)
+    if (slackTarget) {
+        return (
+            <SlackChannelAwareCreateButton
+                integrationId={slackTarget.integrationId}
+                channelValue={slackTarget.channelValue}
+                submitting={submitting}
+                testing={testing}
+                onSubmit={submitConfiguration}
+            />
+        )
+    }
+
+    return (
+        <LemonButton type="primary" onClick={submitConfiguration} loading={submitting} disabled={testing}>
+            Create alert
+        </LemonButton>
+    )
+}
+
+// Blocks the submit while the Slack channel is unresolved or the PostHog app is not in it — the
+// same `isMemberOfSlackChannel` signal that drives the picker's warning. Without this the user can
+// create an alert that never delivers, then start over when nothing arrives.
+function SlackChannelAwareCreateButton({
+    integrationId,
+    channelValue,
+    submitting,
+    testing,
+    onSubmit,
+}: {
+    integrationId: number
+    channelValue: string | undefined
+    submitting: boolean
+    testing: boolean
+    onSubmit: () => void
+}): JSX.Element {
+    const { isMemberOfSlackChannel } = useValues(slackIntegrationLogic({ id: integrationId }))
+
+    const disabledReason = testing
+        ? 'Wait for the test to finish'
+        : !channelValue
+          ? 'Select a Slack channel to continue'
+          : isMemberOfSlackChannel(channelValue) === false
+            ? 'Add the PostHog Slack app to this channel, then check again'
+            : undefined
+
+    return (
+        <LemonButton type="primary" onClick={onSubmit} loading={submitting} disabledReason={disabledReason}>
+            Create alert
+        </LemonButton>
     )
 }
 

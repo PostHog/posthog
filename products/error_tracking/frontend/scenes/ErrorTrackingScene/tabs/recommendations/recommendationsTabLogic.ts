@@ -9,6 +9,7 @@ import { HogFunctionSubTemplateIdType } from '~/types'
 
 import type {
     AlertsRecommendation,
+    AlertsRecommendationMeta,
     ErrorTrackingRecommendation,
     LongRunningIssuesRecommendation,
     RateLimitsRecommendation,
@@ -65,6 +66,13 @@ export interface recommendationsTabLogicActions {
     }
     markRecommendationComputing: (id: string) => {
         id: string
+    }
+    markAlertConfigured: (
+        id: string,
+        triggerKey: HogFunctionSubTemplateIdType
+    ) => {
+        id: string
+        triggerKey: HogFunctionSubTemplateIdType
     }
     pollRecommendations: () => {
         value: true
@@ -141,6 +149,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         setRecommendations: (recommendations: ErrorTrackingRecommendation[]) => ({ recommendations }),
         upsertRecommendation: (recommendation: ErrorTrackingRecommendation) => ({ recommendation }),
         markRecommendationComputing: (id: string) => ({ id }),
+        markAlertConfigured: (id: string, triggerKey: HogFunctionSubTemplateIdType) => ({ id, triggerKey }),
         setRecommendationsLoading: (loading: boolean) => ({ loading }),
 
         ensurePollingScheduled: true,
@@ -160,6 +169,24 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                     state.map((r) => (r.id === recommendation.id ? recommendation : r)),
                 markRecommendationComputing: (state, { id }) =>
                     state.map((r) => (r.id === id ? { ...r, status: 'computing' as const } : r)),
+                // Flip the just-created alert to enabled right away, so the card shows it as
+                // configured the moment the modal closes rather than waiting for the server recompute.
+                markAlertConfigured: (state, { id, triggerKey }) =>
+                    state.map((r) => {
+                        if (r.id !== id || r.type !== 'alerts') {
+                            return r
+                        }
+                        const meta = r.meta as AlertsRecommendationMeta
+                        return {
+                            ...r,
+                            meta: {
+                                ...meta,
+                                alerts: (meta.alerts ?? []).map((a) =>
+                                    a.key === triggerKey ? { ...a, enabled: true } : a
+                                ),
+                            },
+                        }
+                    }),
             },
         ],
         recommendationsLoading: [
