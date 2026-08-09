@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
-from products.replay_vision.backend.quota import quota_state, spend_projection
+from products.replay_vision.backend.quota import compute_quota_snapshot
 
 
 # `many=False` stops drf-spectacular wrapping the response as `VisionQuotaApi[]` for the `list` action.
@@ -80,22 +80,5 @@ class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(operation_id="environment_vision_quota_retrieve", responses={200: VisionQuotaSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
-        organization_id = UUID(self.organization_id)
-        state = quota_state(organization_id)
-        projection = spend_projection(organization_id)
-        return Response(
-            VisionQuotaSerializer(
-                {
-                    "credit_limit": state.credit_limit,
-                    "credits_used": state.credits_used,
-                    "remaining": state.remaining,
-                    "exhausted": state.exhausted,
-                    "period_start": state.period_start,
-                    "period_end": state.period_end,
-                    "free_monthly_credits": state.free_monthly_credits,
-                    "projected_monthly_credits": projection.total,
-                    "scanners_monthly_credits": projection.scanners_monthly_credits,
-                    "backfills_committed_credits": projection.backfills_committed_credits,
-                }
-            ).data
-        )
+        snapshot = compute_quota_snapshot(organization_id=UUID(self.organization_id))
+        return Response(VisionQuotaSerializer(instance=snapshot).data)

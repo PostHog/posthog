@@ -3,6 +3,8 @@ import './QuotaMeterBar.scss'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
+import type { QuotaMeterModel } from '../../utils/quotaContributions'
+
 export interface QuotaMeterSegment {
     /** Width as a percentage of the cap; may exceed it — the bar rescales to the total instead of truncating. */
     pct: number
@@ -14,14 +16,6 @@ export interface QuotaMeterSegment {
 
 /** Shading for the non-billable slice of spend, so free credits don't read as money spent. */
 export const QUOTA_METER_FREE_CLASS = 'QuotaMeterBar__free'
-
-/**
- * Backfill commitments, wherever they appear.
- *
- * Deliberately a hue no quota status uses: the projection segments take the status color, so a warning-band
- * forecast next to a warning-colored backfill was two adjacent yellows separated only by stripes.
- */
-export const QUOTA_METER_BACKFILL_CLASS = 'bg-brand-blue'
 
 interface QuotaMeterBarProps {
     /** Solid segment: actual usage as a percentage of the cap. */
@@ -184,5 +178,59 @@ export function QuotaMeterLegendItem({
             />
             {children}
         </div>
+    )
+}
+
+/**
+ * Bar and legend for a `QuotaMeterModel`, together.
+ *
+ * The pairing is the point: widths are computed once and drive both, so a legend chip cannot label a
+ * segment the bar didn't draw. Assembling them per card meant three copies and two width computations.
+ */
+export function QuotaMeter({
+    model,
+    label,
+    size,
+    className,
+}: {
+    model: QuotaMeterModel
+    label: string
+    size?: 'small' | 'medium'
+    className?: string
+}): JSX.Element {
+    const { projection, segments, periodEndPct } = model
+    const [freeWidth, billedWidth, ...segmentWidths] = quotaMeterWidths(
+        projection.usedPct,
+        projection.usedFreePct,
+        segments.map((segment) => segment.pct)
+    )
+    return (
+        <>
+            <QuotaMeterBar
+                className={className}
+                size={size}
+                usedPct={projection.usedPct}
+                usedFreePct={projection.usedFreePct}
+                projected={segments}
+                valueNow={periodEndPct}
+                label={label}
+            />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
+                    Free
+                </QuotaMeterLegendItem>
+                <QuotaMeterLegendItem width={billedWidth}>{freeWidth > 0 ? 'Billed' : 'Spent'}</QuotaMeterLegendItem>
+                {segments.map((segment, index) => (
+                    <QuotaMeterLegendItem
+                        key={segment.key}
+                        barClass={segment.barClass}
+                        striped={segment.striped}
+                        width={segmentWidths[index]}
+                    >
+                        {segment.label}
+                    </QuotaMeterLegendItem>
+                ))}
+            </div>
+        </>
     )
 }

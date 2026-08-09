@@ -9,16 +9,15 @@ import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { QuotaImminentBanner } from '../../components/QuotaImminentBanner'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { buildQuotaMeter } from '../../utils/quotaContributions'
+import {
+    QUOTA_BACKFILL_CLASS,
+    QUOTA_OTHER_SCANNERS_CLASS,
+    QUOTA_STATUS_CLASS,
+    buildQuotaMeter,
+} from '../../utils/quotaContributions'
 import { QUOTA_STATUS_STYLES, type QuotaStatus, daysUntilCapReached } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import {
-    QUOTA_METER_BACKFILL_CLASS,
-    QUOTA_METER_FREE_CLASS,
-    QuotaMeterBar,
-    QuotaMeterLegendItem,
-    quotaMeterWidths,
-} from './QuotaMeterBar'
+import { QuotaMeter } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
 interface Props {
@@ -56,53 +55,41 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
     // The proposed scanner replaces its own stored estimate, so this lists the fleet explicitly rather than
     // adjusting the org total. Backfills stay a one-off; only the two scanner figures are rates.
-    const {
-        projection,
-        segments: rawSegments,
-        periodEndPct,
-        hasCap,
-    } = buildQuotaMeter(quota, [
+    const model = buildQuotaMeter(quota, [
         {
             key: 'backfills',
             label: 'Backfills',
             credits: backfillCredits,
             kind: 'one-off',
-            barClass: QUOTA_METER_BACKFILL_CLASS,
+            barClass: QUOTA_BACKFILL_CLASS,
         },
         {
             key: 'others',
             label: 'Projected (other scanners)',
             credits: othersMonthly,
             kind: 'monthly-rate',
-            barClass: 'bg-accent',
+            barClass: QUOTA_OTHER_SCANNERS_CLASS,
         },
         {
             key: 'this-scanner',
             label: 'Projected (this scanner)',
             credits: projectedCredits ?? 0,
             kind: 'monthly-rate',
-            barClass: '',
+            // The model resolves this to the card's status colour, which depends on the projection it is part of.
+            barClass: QUOTA_STATUS_CLASS,
             striped: true,
         },
     ])
-    const { status, resetsOn, usedPct, usedFreePct } = projection
+    const { projection, periodEndPct, hasCap } = model
+    const { resetsOn } = projection
     const newFleetMonthly = othersMonthly + (projectedCredits ?? 0)
 
-    const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
+    // Nothing proposed yet, so the forecast isn't a verdict on this scanner.
+    const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : model.status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
-    // The proposed scanner carries the card's status colour, which depends on the projection it is part of.
-    const segments = rawSegments.map((segment) =>
-        segment.key === 'this-scanner' ? { ...segment, barClass: styles.bar } : segment
-    )
 
     // No estimate means the projection isn't about the scanner being edited.
     const imminentDays = projectedCredits !== null ? daysUntilCapReached(projection) : null
-
-    const [freeWidth, billedWidth, ...segmentWidths] = quotaMeterWidths(
-        usedPct,
-        usedFreePct,
-        segments.map((segment) => segment.pct)
-    )
 
     const breakdown = (
         <div className="text-xs space-y-0.5">
@@ -196,34 +183,15 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             {hasCap && projectedCredits !== null && (
                 <>
                     <Tooltip title={breakdown}>
-                        <QuotaMeterBar
-                            usedPct={usedPct}
-                            usedFreePct={usedFreePct}
-                            projected={segments}
-                            valueNow={periodEndPct}
-                            label={`Projected ${periodEndPct}% of the monthly spend limit by ${
-                                resetsOn ?? 'period end'
-                            }`}
-                        />
+                        <div>
+                            <QuotaMeter
+                                model={model}
+                                label={`Projected ${periodEndPct}% of the monthly spend limit by ${
+                                    resetsOn ?? 'period end'
+                                }`}
+                            />
+                        </div>
                     </Tooltip>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
-                            Free
-                        </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem width={billedWidth}>
-                            {freeWidth > 0 ? 'Billed' : 'Spent'}
-                        </QuotaMeterLegendItem>
-                        {segments.map((segment, index) => (
-                            <QuotaMeterLegendItem
-                                key={segment.key}
-                                barClass={segment.barClass}
-                                striped={segment.striped}
-                                width={segmentWidths[index]}
-                            >
-                                {segment.label}
-                            </QuotaMeterLegendItem>
-                        ))}
-                    </div>
                 </>
             )}
 

@@ -68,6 +68,17 @@ class QuotaState:
         """Whether starting an observation costing `credits` would push usage past the limit (uncapped never does)."""
         return self.credit_limit is not None and self.credits_used + credits > self.credit_limit
 
+    def affordable_count(self, credits_each: int) -> int | None:
+        """How many observations at `credits_each` the remaining quota covers; None when nothing binds.
+
+        Free models cost nothing, so they are never quota-bound; callers dividing by the price themselves
+        have to remember that, and one of them did not.
+        """
+        remaining = self.remaining
+        if remaining is None or credits_each <= 0:
+            return None
+        return remaining // credits_each
+
 
 @dataclass(frozen=True)
 class SpendProjection:
@@ -88,6 +99,8 @@ class QuotaSnapshot(QuotaState):
     """`QuotaState` plus the projection, for the surfaces that show spend rather than gate on it."""
 
     projected_monthly_credits: int = 0
+    scanners_monthly_credits: int = 0
+    backfills_committed_credits: int = 0
 
 
 def next_month_start(now: datetime) -> datetime:
@@ -268,11 +281,14 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     Prefer `quota_state` wherever only the caps matter: this pays for two aggregates no gate reads.
     """
     state = quota_state(organization_id)
+    projection = spend_projection(organization_id)
     return QuotaSnapshot(
         credit_limit=state.credit_limit,
         credits_used=state.credits_used,
         period_start=state.period_start,
         period_end=state.period_end,
         free_monthly_credits=state.free_monthly_credits,
-        projected_monthly_credits=spend_projection(organization_id).total,
+        projected_monthly_credits=projection.total,
+        scanners_monthly_credits=projection.scanners_monthly_credits,
+        backfills_committed_credits=projection.backfills_committed_credits,
     )

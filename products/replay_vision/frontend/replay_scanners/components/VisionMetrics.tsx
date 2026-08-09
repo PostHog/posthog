@@ -15,17 +15,11 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { buildQuotaMeter, fleetContributions } from '../../utils/quotaContributions'
-import { QUOTA_STATUS_STYLES, projectQuota } from '../../utils/quotaProjection'
+import { QUOTA_STATUS_STYLES } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
-import {
-    QUOTA_METER_BACKFILL_CLASS,
-    QUOTA_METER_FREE_CLASS,
-    QuotaMeterBar,
-    QuotaMeterLegendItem,
-    quotaMeterWidths,
-} from './QuotaMeterBar'
+import { QuotaMeter } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -47,19 +41,11 @@ export function VisionMetrics(): JSX.Element {
         showStartupCapLine,
     } = useValues(visionQuotaLogic)
 
-    const status = projectQuota(quota).status
-    const styles = QUOTA_STATUS_STYLES[status]
     // Backfills are charged once, so they can't ride in the pro-rated projection; the model keeps them apart.
-    const { projection, segments, periodEndPct, hasCap } = buildQuotaMeter(
-        quota,
-        fleetContributions(quota, { scanners: styles.bar, backfills: QUOTA_METER_BACKFILL_CLASS })
-    )
-    const { resetsOn, usedPct, usedFreePct } = projection
-    const [freeWidth, billedWidth, ...segmentWidths] = quotaMeterWidths(
-        usedPct,
-        usedFreePct,
-        segments.map((segment) => segment.pct)
-    )
+    const model = buildQuotaMeter(quota, fleetContributions(quota))
+    const { projection, periodEndPct, hasCap, status } = model
+    const styles = QUOTA_STATUS_STYLES[status]
+    const { resetsOn } = projection
 
     // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
@@ -192,39 +178,18 @@ export function VisionMetrics(): JSX.Element {
                                             </div>
                                         }
                                     >
-                                        <QuotaMeterBar
+                                        <QuotaMeter
+                                            model={model}
                                             className="mt-2"
-                                            usedPct={usedPct}
-                                            usedFreePct={usedFreePct}
-                                            projected={segments}
-                                            valueNow={periodEndPct}
                                             label={`Projected ${periodEndPct}% of the monthly spend limit`}
                                         />
                                     </Tooltip>
-                                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted mt-1.5">
-                                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
-                                            Free
-                                        </QuotaMeterLegendItem>
-                                        <QuotaMeterLegendItem width={billedWidth}>
-                                            {freeWidth > 0 ? 'Billed' : 'Spent'}
-                                        </QuotaMeterLegendItem>
-                                        {segments.map((segment, index) => (
-                                            <QuotaMeterLegendItem
-                                                key={segment.key}
-                                                barClass={segment.barClass}
-                                                striped={segment.striped}
-                                                width={segmentWidths[index]}
-                                            >
-                                                {segment.label}
-                                            </QuotaMeterLegendItem>
-                                        ))}
-                                        {/* The exhausted note below carries this status, so don't say it twice. */}
-                                        {!projection.exhausted && (
-                                            <span className="ml-auto">
-                                                <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
-                                            </span>
-                                        )}
-                                    </div>
+                                    {/* The exhausted note below carries this status, so don't say it twice. */}
+                                    {!projection.exhausted && (
+                                        <div className="text-xs text-muted mt-1.5">
+                                            <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
+                                        </div>
+                                    )}
                                     {projection.exhausted && (
                                         <div className="mt-1.5">
                                             <QuotaExhaustedNote onFreePlan={onFreePlan} />

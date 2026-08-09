@@ -100,11 +100,12 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
 
     in_flight = count_in_flight(inputs.team_id, backfill.scanner_id, backfill_id=backfill.id)
     budget = backfill_dispatch_budget(in_flight["scanner"], in_flight["team"], in_flight["backfill"])
-    if quota.remaining is not None:
-        # Never dispatch more children than the quota can pay for: a child declined at create still
-        # advances the cursor past its session. Concurrent spenders can still shrink headroom between
-        # this check and creation; that residual loss is bounded by one batch and accepted.
-        budget = min(budget, quota.remaining // backfill.credits_per_observation)
+    # Never dispatch more children than the quota can pay for: a child declined at create still advances
+    # the cursor past its session. Concurrent spenders can still shrink headroom between this check and
+    # creation; that residual loss is bounded by one batch and accepted.
+    affordable = quota.affordable_count(backfill.credits_per_observation)
+    if affordable is not None:
+        budget = min(budget, affordable)
     if budget <= 0:
         record_backfill_tick_outcome("throttled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)

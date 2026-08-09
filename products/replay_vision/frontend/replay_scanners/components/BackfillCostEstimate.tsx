@@ -7,15 +7,9 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import type { BackfillEstimateResponseApi } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { buildQuotaMeter, fleetContributions } from '../../utils/quotaContributions'
-import { QUOTA_STATUS_STYLES, QUOTA_WARN_THRESHOLD, type QuotaStatus } from '../../utils/quotaProjection'
-import {
-    QUOTA_METER_BACKFILL_CLASS,
-    QUOTA_METER_FREE_CLASS,
-    QuotaMeterBar,
-    QuotaMeterLegendItem,
-    quotaMeterWidths,
-} from './QuotaMeterBar'
+import { QUOTA_BACKFILL_CLASS, buildQuotaMeter, fleetContributions } from '../../utils/quotaContributions'
+import { QUOTA_STATUS_STYLES } from '../../utils/quotaProjection'
+import { QuotaMeter } from './QuotaMeterBar'
 
 interface Props {
     estimate: BackfillEstimateResponseApi | null
@@ -40,7 +34,7 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
 
     // This backfill leads the org's own commitments: segments absorb overflow left to right, so the charge being
     // decided on keeps its width and the rest-of-period forecast is what gets truncated.
-    const { projection, segments, periodEndPct, hasCap } = buildQuotaMeter(quota, [
+    const model = buildQuotaMeter(quota, [
         ...(estimate
             ? [
                   {
@@ -48,23 +42,16 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                       label: 'This backfill',
                       credits: backfillCredits,
                       kind: 'one-off' as const,
-                      barClass: QUOTA_METER_BACKFILL_CLASS,
+                      barClass: QUOTA_BACKFILL_CLASS,
                       // Striped marks the charge still being decided; the org's committed backfills are solid.
                       striped: true,
                   },
               ]
             : []),
-        ...fleetContributions(quota, { scanners: 'bg-danger', backfills: QUOTA_METER_BACKFILL_CLASS }),
+        ...fleetContributions(quota),
     ])
-    const status: QuotaStatus =
-        periodEndPct >= 100 ? 'danger' : periodEndPct >= QUOTA_WARN_THRESHOLD * 100 ? 'warning' : 'safe'
-    const styles = QUOTA_STATUS_STYLES[status]
-
-    const [freeWidth, billedWidth, ...segmentWidths] = quotaMeterWidths(
-        projection.usedPct,
-        projection.usedFreePct,
-        segments.map((segment) => segment.pct)
-    )
+    const styles = QUOTA_STATUS_STYLES[model.status]
+    const { projection, periodEndPct, hasCap } = model
 
     const breakdown = (
         <div className="text-xs space-y-0.5">
@@ -132,32 +119,13 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
             {hasCap && (
                 <>
                     <Tooltip title={breakdown}>
-                        <QuotaMeterBar
-                            usedPct={projection.usedPct}
-                            usedFreePct={projection.usedFreePct}
-                            projected={segments}
-                            valueNow={periodEndPct}
-                            label={`This backfill would take the period to ${periodEndPct}% of the monthly spend limit`}
-                        />
+                        <div>
+                            <QuotaMeter
+                                model={model}
+                                label={`This backfill would take the period to ${periodEndPct}% of the monthly spend limit`}
+                            />
+                        </div>
                     </Tooltip>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
-                            Free
-                        </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem width={billedWidth}>
-                            {freeWidth > 0 ? 'Billed' : 'Spent'}
-                        </QuotaMeterLegendItem>
-                        {segments.map((segment, index) => (
-                            <QuotaMeterLegendItem
-                                key={segment.key}
-                                barClass={segment.barClass}
-                                striped={segment.striped}
-                                width={segmentWidths[index]}
-                            >
-                                {segment.label}
-                            </QuotaMeterLegendItem>
-                        ))}
-                    </div>
                 </>
             )}
 

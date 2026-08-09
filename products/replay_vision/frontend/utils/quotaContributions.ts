@@ -1,5 +1,19 @@
 import type { VisionQuotaApi } from '../generated/api.schemas'
-import { type QuotaProjection, projectQuota } from './quotaProjection'
+import {
+    QUOTA_STATUS_STYLES,
+    QUOTA_WARN_THRESHOLD,
+    type QuotaProjection,
+    type QuotaStatus,
+    hasCreditLimit,
+    projectQuota,
+} from './quotaProjection'
+
+/** Backfill commitments, wherever they appear: a hue no status can take, so the two never collide. */
+export const QUOTA_BACKFILL_CLASS = 'bg-brand-blue'
+/** The rest of the fleet's scanners, when a surface is singling one scanner out. */
+export const QUOTA_OTHER_SCANNERS_CLASS = 'bg-accent'
+/** Marks the contribution that should carry the card's status colour. */
+export const QUOTA_STATUS_CLASS = 'status'
 
 /**
  * Something a surface adds to the spend meter on top of what the period has already spent.
@@ -27,6 +41,8 @@ export interface QuotaMeterSegmentModel {
 
 export interface QuotaMeterModel {
     projection: QuotaProjection
+    /** One verdict for the whole card, counting every contribution the bar draws. */
+    status: QuotaStatus
     /** Bar segments in render order, already as percentages of the limit. */
     segments: QuotaMeterSegmentModel[]
     /** Where the period lands counting every contribution; exceeds 100 on overshoot. */
@@ -35,24 +51,21 @@ export interface QuotaMeterModel {
 }
 
 /** The org's own commitments, correctly typed: scanners are a rate, backfills are not. */
-export function fleetContributions(
-    quota: VisionQuotaApi | null,
-    classes: { scanners: string; backfills: string }
-): QuotaContribution[] {
+export function fleetContributions(quota: VisionQuotaApi | null): QuotaContribution[] {
     return [
         {
             key: 'backfills',
             label: 'Backfills',
             credits: quota?.backfills_committed_credits ?? 0,
             kind: 'one-off',
-            barClass: classes.backfills,
+            barClass: QUOTA_BACKFILL_CLASS,
         },
         {
             key: 'scanners',
             label: 'Projected (scanners)',
             credits: quota?.scanners_monthly_credits ?? 0,
             kind: 'monthly-rate',
-            barClass: classes.scanners,
+            barClass: QUOTA_STATUS_CLASS,
             striped: true,
         },
     ]
@@ -66,8 +79,8 @@ export function fleetContributions(
  * produced a one-off pro-rated into invisibility and a headline that disagreed with its own bar.
  */
 export function buildQuotaMeter(quota: VisionQuotaApi | null, contributions: QuotaContribution[]): QuotaMeterModel {
-    const cap = quota?.credit_limit ?? 0
-    const hasCap = !!quota && quota.credit_limit !== null
+    const hasCap = hasCreditLimit(quota)
+    const cap = hasCap ? quota.credit_limit : 0
     const rates = contributions.filter((c) => c.kind === 'monthly-rate')
     const rateTotal = rates.reduce((sum, c) => sum + c.credits, 0)
     // The contributions are the whole projection, so move `projectQuota` off the stored fleet rate onto them.
@@ -89,10 +102,26 @@ export function buildQuotaMeter(quota: VisionQuotaApi | null, contributions: Quo
                   : 0,
     }))
 
+    const periodEndPct = Math.round(projection.usedPct + segments.reduce((sum, s) => sum + s.pct, 0))
+    // One verdict, from the same total the bar draws. Deriving it per card produced a headline that
+    // could read green beside a bar sitting past the limit marker.
+    const status: QuotaStatus =
+        projection.status === 'danger' || periodEndPct >= 100
+            ? 'danger'
+            : periodEndPct >= QUOTA_WARN_THRESHOLD * 100
+              ? 'warning'
+              : 'safe'
+
     return {
         projection,
-        segments,
-        periodEndPct: Math.round(projection.usedPct + segments.reduce((sum, s) => sum + s.pct, 0)),
+        status,
+        // The status colour is resolved here so no caller patches a segment after the fact.
+        segments: segments.map((segment) =>
+            segment.barClass === QUOTA_STATUS_CLASS
+                ? { ...segment, barClass: QUOTA_STATUS_STYLES[status].bar }
+                : segment
+        ),
+        periodEndPct,
         hasCap,
     }
 }

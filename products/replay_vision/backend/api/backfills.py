@@ -212,7 +212,7 @@ class ReplayScannerBackfillViewSet(
     ) -> int:
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
         return BackfillCandidateQuery(
-            team=scanner.team,
+            team=self.team,
             query=scanner.recordings_query(),
             window_start=window_start,
             window_end=window_end,
@@ -258,7 +258,7 @@ class ReplayScannerBackfillViewSet(
         window_start, window_end = self._clamped_window(window.validated_data)
         total = self._unobserved_count(scanner, window_start, window_end)
         price = observation_credits_for_model(scanner.model)
-        quota = quota_state(scanner.team.organization_id)
+        quota = quota_state(self.team.organization_id)
         response = BackfillEstimateResponseSerializer(
             {
                 "total_sessions": total,
@@ -291,7 +291,7 @@ class ReplayScannerBackfillViewSet(
         try:
             backfill = ReplayScannerBackfill.objects.create(
                 scanner=scanner,
-                team=scanner.team,
+                team=self.team,
                 window_start=window_start,
                 window_end=window_end,
                 scanner_snapshot=snapshot.model_dump(mode="json"),

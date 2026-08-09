@@ -85,10 +85,9 @@ def scan_headroom(*, team: Team, model: str, scanner: ReplayScanner | None) -> S
         ),
     )
     snapshot = quota_state(team.organization_id)
-    cost = observation_credits_for_model(model)
-    # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of THIS
-    # model's cost fit.
-    quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
+    # None means nothing binds: uncapped org, or a free model that spends nothing.
+    affordable = snapshot.affordable_count(observation_credits_for_model(model))
+    quota_limit = in_flight_limit if affordable is None else affordable
     # Report quota as the reason only when it's the strictly tighter limit.
     if quota_limit < in_flight_limit:
         return ScanHeadroom(
