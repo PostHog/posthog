@@ -216,6 +216,46 @@ test('the generated frontend product artifacts claim only the frontend lanes', (
 
 // A workflow decides which suites run, so the suite it defines is the radius.
 // ci-frontend.yml was the single most common reason a PR widened.
+// Configuration files at the repository root are the other half of the same
+// story the workflows tell: a tool's own settings can only fail the code that
+// tool reads, so they no longer serialize a PR against the whole repo.
+test('single-language root configuration claims that language', () => {
+    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    for (const file of ['postcss.config.js', '.stylelintrc.js', '.stylelintignore', '.kearc', 'posthog.json']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), javascript, file)
+    }
+    const python = computeTargets(['mypy.ini'], CONTEXT)
+    for (const file of ['manage.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml', 'unit.json.tpl']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), python, file)
+    }
+})
+
+// Root files whose reader is the stack, the image, or the ownership data every
+// suite runs on. The narrowing above stops here: these keep the full set, but
+// by decision rather than for want of a rule.
+test('stack and image configuration at the root stays universal', () => {
+    for (const file of [
+        '.env.development',
+        '.env.services',
+        '.envrc',
+        '.dockerignore',
+        'depot.json',
+        'owners.yaml',
+        'otel-collector-config.dev.yaml',
+    ]) {
+        assert.equal(tripwireDomain(file), UNIVERSAL, file)
+        assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
+    }
+    // A product's own ownership file is not the root one and keeps its lane.
+    assert.notDeepEqual(computeTargets(['products/alpha/owners.yaml'], CONTEXT), EVERYTHING)
+})
+
+// cargo-dist packages the CLI, which ci-cli.yml builds from services/mcp
+// sources, so the manifest belongs in the same lane as both.
+test('the cargo-dist manifest shares the cli lane', () => {
+    assert.deepEqual(computeTargets(['dist-workspace.toml'], CONTEXT), computeTargets(['cli/src/main.rs'], CONTEXT))
+})
+
 test('a single-language workflow claims that language rather than everything', () => {
     assert.deepEqual(
         computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
@@ -319,9 +359,20 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         'tools/pr-approval-agent/policy.py',
         'common/hogvm/x.py',
         'common/storybook/x.ts',
+        'common/__init__.py',
+        'common/fixtures/ai-multimodal/screenshot.png',
         'rust/shared/src/lib.rs',
+        'rust/Dockerfile',
+        'rust/persons_migrations/x.sql',
+        'rust/cyclotron-node-migrations/x.sql',
+        'rust/bin/migrate-persons',
         'products/alpha/backend/api.py',
         'products/beta/frontend/Scene.tsx',
+        'products/db_routing.yaml',
+        'dist-workspace.toml',
+        'LICENSE',
+        'manage.py',
+        'posthog.json',
         'README.md',
         '.oxlintrc.json',
         'mypy.ini',
@@ -405,7 +456,22 @@ test('stamphog policy files claim the suite that validates them', () => {
 // these PRs are rare, and the alternative is a lane per tree for files that
 // cannot change any test's outcome.
 test('editor and agent configuration shares one lane', () => {
-    for (const file of ['.vscode/launch.json', '.zed/debug.json', '.husky/pre-commit', '.claude/settings.json']) {
+    for (const file of [
+        '.vscode/launch.json',
+        '.zed/debug.json',
+        '.husky/pre-commit',
+        '.claude/settings.json',
+        // The same class of file, one per root path rather than one per tree.
+        '.cursorignore',
+        '.editorconfig',
+        '.gitattributes',
+        '.gitignore',
+        '.mcp.json',
+        '.watchmanconfig',
+        '.worktreeinclude',
+        'LICENSE',
+        'greptile.json',
+    ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['repo-config'], file)
     }
     // Markdown in those trees is still prose, so a PR that only reorganizes an
@@ -437,6 +503,60 @@ test('an unresolvable rust crate graph reports every crate instead of narrowing'
 
 test('a rust path outside every known crate widens', () => {
     assert.deepEqual(computeTargets(['rust/not-a-crate/file.rs'], CONTEXT), EVERYTHING)
+})
+
+// The crate lanes are the ceiling for anything configuring the workspace as a
+// whole, and a file sitting at rust/ is that by construction: the Dockerfiles
+// its images build from, the compose stack, the dotfiles, the license.
+test('workspace-level rust files claim the crates rather than everything', () => {
+    const crates = ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated']
+    for (const file of [
+        'rust/Dockerfile',
+        'rust/docker-compose.yml',
+        'rust/depot.json',
+        'rust/owners.yaml',
+        'rust/LICENSE',
+        'rust/.env',
+        'rust/.cargo/config.toml',
+        'rust/.config/nextest.toml',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), crates, file)
+    }
+})
+
+// The migration sets under rust/ define schemas that suites outside Rust run
+// against, so holding them to the crate lanes would put a schema change in a
+// parallel lane with the code reading it.
+test('rust migration sets claim the suites that read their schema', () => {
+    // posthog/conftest.py replays these to build the persons database every
+    // backend test runs against.
+    const persons = computeTargets(['rust/persons_migrations/20260206000001_add_last_seen_at.sql'], CONTEXT)
+    assert.equal(persons.includes('py:core'), true)
+    assert.equal(persons.includes('py:product:alpha'), true)
+    assert.equal(persons.includes('rust:crate:shared'), true)
+    assert.equal(persons.includes('fe:core'), false)
+    assert.notDeepEqual(persons, EVERYTHING)
+
+    // The cyclotron tables the nodejs CDP consumers read and write, and nothing
+    // in the frontend, so the nodejs lane rides along on its own.
+    const cyclotron = computeTargets(['rust/cyclotron-node-migrations/20260303000001_initial.sql'], CONTEXT)
+    assert.equal(cyclotron.includes('node:ingestion'), true)
+    assert.equal(cyclotron.includes('rust:crate:shared'), true)
+    assert.equal(cyclotron.includes('fe:core'), false)
+    assert.equal(cyclotron.includes('py:core'), false)
+
+    // The migrate entrypoints apply every set, so they take the union.
+    const entrypoint = computeTargets(['rust/bin/migrate-persons'], CONTEXT)
+    assert.equal(entrypoint.includes('py:core'), true)
+    assert.equal(entrypoint.includes('node:ingestion'), true)
+    assert.equal(entrypoint.includes('rust:crate:shared'), true)
+
+    // A set nothing outside Rust reads stays inside the crate lanes.
+    assert.deepEqual(computeTargets(['rust/behavioral_cohorts_migrations/x.sql'], CONTEXT), [
+        'rust:crate:consumer',
+        'rust:crate:shared',
+        'rust:crate:unrelated',
+    ])
 })
 
 test('reverseClosure walks transitively and excludes unrelated nodes', () => {
@@ -722,6 +842,37 @@ test('tool caches beside the products are not products', () => {
     for (const name of ['surveys', 'error_tracking', 'desktop']) {
         assert.equal(isProductDirectory(name), true, name)
     }
+})
+
+// A file at the root of products/ or common/ belongs to no single product or
+// subtree, which used to send it to the full set. Both language families
+// together are the honest ceiling: nothing under rust/, nodejs/, or services/
+// reads any of them.
+test('shared files at the root of products and common claim both language families', () => {
+    const bothFamilies = [
+        'py:core',
+        'py:product:alpha',
+        'py:product:beta',
+        'py:product:gamma',
+        'fe:core',
+        'fe:product:alpha',
+        'fe:product:beta',
+        'fe:product:gamma',
+    ].sort()
+    for (const file of [
+        'products/__init__.py',
+        'products/conftest.py',
+        'products/db_routing.yaml',
+        'products/ruff.toml',
+        'common/__init__.py',
+        // Fixture data a product's Playwright spec loads and a Python recorder
+        // beside it writes.
+        'common/fixtures/ai-multimodal/generation-event.json',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), bothFamilies, file)
+    }
+    // An unrecognized subtree of common/ is still unclassified.
+    assert.deepEqual(computeTargets(['common/unrecognized/x.ts'], CONTEXT), EVERYTHING)
 })
 
 test('a product file that is neither backend nor frontend claims both domains', () => {

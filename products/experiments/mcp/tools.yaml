@@ -762,6 +762,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        ui_app: experiment-results
         response:
             exclude:
                 - results.*.result.hogql
@@ -1138,7 +1139,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-        ui_app: experiment-results
         response:
             exclude:
                 - timeseries.*.hogql
@@ -1355,6 +1355,9 @@ tools:
         enabled: false
     experiments-session-contexts-create:
         operation: experiments_session_contexts_create
+        enabled: false
+    experiments-session-event-deltas-create:
+        operation: experiments_session_event_deltas_create
         enabled: false
     experiments-update:
         operation: experiments_update

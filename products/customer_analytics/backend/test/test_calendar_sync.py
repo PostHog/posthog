@@ -45,9 +45,11 @@ class TestCalendarSync(BaseTest):
             sensitive_config={"access_token": "ACCESS", "refresh_token": "REFRESH"},
         )
 
-    def _sync(self, responses: list[MagicMock]) -> calendar_sync.CalendarSyncCounts:
+    def _sync(
+        self, responses: list[MagicMock], person_uuids: dict[str, str] | None = None
+    ) -> calendar_sync.CalendarSyncCounts:
         with (
-            patch.object(calendar_sync, "_group_keys_via_persons", return_value={}),
+            patch.object(calendar_sync, "_person_uuids_by_email", return_value=person_uuids or {}),
             patch.object(calendar_sync.requests, "get", side_effect=responses),
         ):
             return calendar_sync.sync_calendar_integration(self.integration.id, self.team.id)
@@ -147,6 +149,48 @@ class TestCalendarSync(BaseTest):
         )
         self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
+
+    def test_matches_account_via_person_group(self) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save()
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Acme", external_id="acme")
+        person_uuid = "0198b6f3-0000-0000-0000-000000000001"
+        person = MagicMock(uuid=person_uuid, distinct_ids=["person-distinct-id"])
+        group_query_response = MagicMock(results=[["person-distinct-id", "acme"]])
+
+        with (
+            patch.object(calendar_sync, "get_persons_by_uuids", return_value=[person]),
+            patch("posthog.hogql.query.execute_hogql_query", return_value=group_query_response),
+        ):
+            counts = self._sync(
+                [_pages_response([_event()])],
+                person_uuids={"jane@acme.com": person_uuid},
+            )
+
+        assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
+        assert counts.matched == 1
+
+    def test_removed_attendee_is_deleted_on_resync(self):
+        self._sync([_pages_response([_event()])])
+        assert MeetingParticipant.objects.for_team(self.team.id).count() == 2
+
+        only_organizer = _event(
+            attendees=[
+                {"email": "csm@posthog.com", "responseStatus": "accepted"},
+                {"email": "other@acme.com", "responseStatus": "accepted"},
+            ]
+        )
+        self._sync([_pages_response([only_organizer])])
+        emails = set(MeetingParticipant.objects.for_team(self.team.id).values_list("email", flat=True))
+        assert emails == {"csm@posthog.com", "other@acme.com"}
+
+    def test_resolved_person_uuid_is_stored_on_participants(self):
+        person_uuid = "0198b6f3-0000-0000-0000-000000000001"
+        self._sync([_pages_response([_event()])], person_uuids={"jane@acme.com": person_uuid})
+
+        participants = {p.email: p for p in MeetingParticipant.objects.for_team(self.team.id)}
+        assert str(participants["jane@acme.com"].person_id) == person_uuid
+        assert participants["csm@posthog.com"].person_id is None
 
     def test_ambiguous_email_domain_matches_nothing(self):
         for name in ("Acme US", "Acme EU"):
