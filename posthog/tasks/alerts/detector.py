@@ -28,6 +28,13 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
 # (e.g. alerts saved before this field was introduced).
 DETECTOR_DEFAULT_WINDOW = 30
 
+# The live anomaly check re-examines this many of the most recent complete intervals each run, not
+# only the trailing one. Ingestion completeness lag and gaps between checks can leave a spike an
+# interval or two behind the trailing point; scoring this recent tail catches it and names the
+# interval it actually landed in. Older intervals stay in the training window and never fire, so a
+# single spike fires for at most this many consecutive checks before it ages out of the tail.
+LIVE_DETECTION_TAIL = 3
+
 # Maximum number of breakdown values to evaluate with a detector.
 # Matches the default breakdown_limit in the query layer (25).
 MAX_DETECTOR_BREAKDOWN_VALUES = 25

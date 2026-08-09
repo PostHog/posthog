@@ -9,7 +9,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
-from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+from posthog.tasks.alerts.detector import LIVE_DETECTION_TAIL, _compute_min_samples_for_detector
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -249,11 +249,12 @@ def extract_hogql_detector_series(
     if len(values) < min_samples:
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
-    # Score only the most recent window the detector needs (current stays last). A SQL query can
-    # return a large result, and detectors like KNN/LOF/OCSVM train on every point handed in — so
-    # without this bound a big result set would make alert workers train on tens of thousands of
+    # Score the training window the detector needs plus the recent tail the live check re-scores, so a
+    # spike an interval or two behind the current row is scorable rather than buried in training. A SQL
+    # query can return a large result, and detectors like KNN/LOF/OCSVM train on every point handed in —
+    # so without this bound a big result set would make alert workers train on tens of thousands of
     # points each check. The trends path bounds the same way via its date-range fetch.
-    values = values[-min_samples:]
+    values = values[-(min_samples + LIVE_DETECTION_TAIL - 1) :]
 
     # Label the evaluated (current) row by its label column — same as the threshold path — so an
     # anomaly breach names e.g. "Burn rate 24h" rather than the bare value-column name. The current

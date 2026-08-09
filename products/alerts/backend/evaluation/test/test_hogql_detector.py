@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import HogQLAlertConfig
 
 from posthog.api.services.query import ExecutionMode
-from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+from posthog.tasks.alerts.detector import LIVE_DETECTION_TAIL, _compute_min_samples_for_detector
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
@@ -15,12 +15,14 @@ from products.alerts.backend.evaluation.hogql import (
 )
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
-ZSCORE = {"type": "zscore", "threshold": 0.9, "window": 5}
+# An even window keeps a two-value baseline balanced: every window holds equal counts of each value,
+# so their z-scores tie and detect_batch scores the stable history flat, leaving only a real spike.
+ZSCORE = {"type": "zscore", "threshold": 0.9, "window": 6}
 EXEC_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
-# zscore floors min-samples at 31, so STABLE_HISTORY is exactly the detector minimum. Non-zero
-# variance gives the detector a baseline to flag a spike against.
-STABLE_HISTORY = [round(1.0 + (i % 3) * 0.1, 2) for i in range(31)]
+# zscore floors min-samples at 31, so STABLE_HISTORY is exactly the detector minimum. A two-value
+# baseline gives the detector variance to flag a spike against without any point reading as anomalous.
+STABLE_HISTORY = [round(1.0 + (i % 2) * 0.1, 2) for i in range(31)]
 _LATEST = len(STABLE_HISTORY)  # index of the appended (evaluated) row in [*STABLE_HISTORY, latest]
 
 
@@ -55,11 +57,21 @@ def test_scores_the_latest_value(latest, expect_anomaly):
         assert evaluation.breaches and "Anomaly detected" in evaluation.breaches[0]
 
 
+def test_reports_a_spike_that_is_not_the_trailing_interval():
+    # A spike two intervals back from the current row, with the last two rows back at baseline. The
+    # live check must catch it and report the spike's own value — not data[-1] (an unremarkable
+    # baseline value), which is what scoring only the trailing interval would report.
+    result = _extract([*STABLE_HISTORY, 100.0, 1.0, 1.1])
+    evaluation = evaluate_with_detector(result, ZSCORE)
+    assert evaluation.value == 100.0  # the spike, not the trailing 1.1
+    assert evaluation.breaches and "value 100.00" in evaluation.breaches[0]
+
+
 def test_large_result_is_bounded_to_the_detector_window():
-    # A big SQL result must not train the detector on every point — only the most recent window
-    # it needs (the latest point is preserved as "current"), so workers can't be made to score
-    # tens of thousands of points each check.
-    expected = _compute_min_samples_for_detector(ZSCORE)
+    # A big SQL result must not train the detector on every point — only the most recent window it
+    # needs plus the tail the live check re-scores (the latest point is preserved as "current"), so
+    # workers can't be made to score tens of thousands of points each check.
+    expected = _compute_min_samples_for_detector(ZSCORE) + LIVE_DETECTION_TAIL - 1
     row_count = 501
     assert expected < row_count  # guard: the fixture must exceed the window or this test is moot
     result = _extract([float(i % 5) for i in range(row_count - 1)] + [999.0])
@@ -149,5 +161,6 @@ def test_extract_hogql_detector_series_is_alert_less():
         result = extract_hogql_detector_series(
             MagicMock(), MagicMock(), config, ZSCORE, user=None, execution_mode=EXEC_MODE
         )
-    assert len(result.series[0].points) == _compute_min_samples_for_detector(ZSCORE)  # bounded to the minimum
+    # Bounded to the detector minimum plus the live tail (32 rows here is under that cap, so all kept).
+    assert len(result.series[0].points) <= _compute_min_samples_for_detector(ZSCORE) + LIVE_DETECTION_TAIL - 1
     assert evaluate_with_detector(result, ZSCORE).value == 100.0

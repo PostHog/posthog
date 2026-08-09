@@ -14,6 +14,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 # Low-level scoring/extraction primitives still live in the legacy detector module.
 from posthog.tasks.alerts.detector import (
+    LIVE_DETECTION_TAIL,
     MAX_DETECTOR_BREAKDOWN_VALUES,
     _compute_min_samples_for_detector,
     _date_range_override_for_detector,
@@ -21,6 +22,7 @@ from posthog.tasks.alerts.detector import (
     _prepare_series,
 )
 from posthog.tasks.alerts.detectors import get_detector
+from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.trends import (
     TrendResult,
     _has_breakdown,
@@ -61,7 +63,9 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
+    # Fetch the training window plus the recent tail the live check re-scores (one interval per tail
+    # slot), so a spike an interval or two behind the trailing point is a scorable point, not training.
+    min_samples = _compute_min_samples_for_detector(detector_config) + LIVE_DETECTION_TAIL
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
@@ -125,19 +129,54 @@ def _anomaly_breach(
     )
 
 
-def _format_sub_detector(sub_result: dict[str, Any]) -> str:
-    """Render one ensemble sub-detector's score for the breach message suffix."""
-    score = sub_result.get("score")
+def _format_sub_detector(sub_result: dict[str, Any], index: int) -> str:
+    """Render one ensemble sub-detector's score at the reported point for the breach message suffix."""
+    scores = sub_result.get("all_scores") or []
+    score = scores[index] if index < len(scores) and scores[index] is not None else None
     score_pct = f"{score:.0%}" if score is not None else "n/a"
-    fired = " [fired]" if sub_result.get("is_anomaly", False) else ""
+    fired = " [fired]" if index in (sub_result.get("triggered_indices") or []) else ""
     return f"{sub_result.get('type', 'unknown')}: {score_pct}{fired}"
+
+
+def _fireable_indices(detection: DetectionResult, series_length: int) -> list[int]:
+    """Triggered points within the recent tail the live check re-examines.
+
+    ``detect_batch`` scores every point in the scorable region, which for a guard-floored window
+    reaches deep into the training history. Only the last ``LIVE_DETECTION_TAIL`` complete intervals
+    are recent enough to fire on, so an old anomaly still sitting in the fetched window can't keep the
+    alert firing indefinitely.
+    """
+    cutoff = series_length - LIVE_DETECTION_TAIL
+    return [i for i in detection.triggered_indices if i >= cutoff]
+
+
+def _representative_index(fireable: list[int], detection: DetectionResult) -> int:
+    """Index of the fireable point to report: highest score, most recent on ties.
+
+    Reporting the strongest recent point names the hour the spike actually landed in, rather than the
+    trailing interval that ``detect`` alone would score. Only call this when ``fireable`` is non-empty.
+    """
+    scores = detection.all_scores or []
+
+    def sort_key(i: int) -> tuple[float, int]:
+        score = scores[i] if i < len(scores) else None
+        return (score if score is not None else 0.0, i)
+
+    return max(fireable, key=sort_key)
+
+
+def _score_at(detection: DetectionResult, index: int) -> float | None:
+    scores = detection.all_scores or []
+    return scores[index] if index < len(scores) else detection.score
 
 
 def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, Any]) -> AlertEvaluationResult:
     """Score an extracted trends series with an anomaly detector (the non-threshold alert path).
 
-    Breakdown alerts fire on the first anomalous breakdown value; non-breakdown alerts score the
-    single selected series.
+    Scores the whole series with ``detect_batch`` and fires on the strongest anomaly in the recent
+    tail, reporting that point's own value and date — so a spike an interval or two behind the trailing
+    point is caught and attributed to the right hour, not scored away as ``data[-1]``. Breakdown alerts
+    fire on the first anomalous breakdown value; non-breakdown alerts score the single selected series.
     """
     detector_type_str = detector_config.get("type", "zscore")
     interval_value = result.interval_type.value if result.interval_type else None
@@ -150,15 +189,17 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
     if result.is_breakdown:
         for bd_index, s in enumerate(result.series):
             data = np.array([p.value for p in s.points])
-            detection = get_detector(detector_config).detect(data)
-            if detection.is_anomaly:
-                current_value = float(data[-1])
+            detection = get_detector(detector_config).detect_batch(data)
+            fireable = _fireable_indices(detection, len(s.points))
+            if fireable:
+                rep = _representative_index(fireable, detection)
+                current_value = float(data[rep])
                 return AlertEvaluationResult(
                     value=current_value,
-                    breaches=[_anomaly_breach(s.label, current_value, detection.score, detector_type_str)],
+                    breaches=[_anomaly_breach(s.label, current_value, _score_at(detection, rep), detector_type_str)],
                     anomaly_scores=detection.all_scores or None,
-                    triggered_points=detection.triggered_indices or None,
-                    triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
+                    triggered_points=fireable,
+                    triggered_dates=_triggered_dates(s, fireable) or None,
                     interval=interval_value,
                     triggered_metadata={"series_index": bd_index},
                 )
@@ -166,25 +207,28 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
 
     s = result.series[0]
     data = np.array([p.value for p in s.points])
-    detection = get_detector(detector_config).detect(data)
+    detection = get_detector(detector_config).detect_batch(data)
+    fireable = _fireable_indices(detection, len(s.points))
 
     breaches: list[str] = []
-    if detection.is_anomaly:
-        current_value = float(data[-1])
+    reported_value: float | None = float(data[-1]) if len(data) > 0 else None
+    if fireable:
+        rep = _representative_index(fireable, detection)
+        reported_value = float(data[rep])
         suffix = ""
         if detector_type_str == "ensemble" and detection.metadata:
             sub_results = detection.metadata.get("sub_results", [])
             if sub_results:
-                parts = [_format_sub_detector(sr) for sr in sub_results]
+                parts = [_format_sub_detector(sr, rep) for sr in sub_results]
                 suffix = f" | sub-detectors: {', '.join(parts)}"
-        breaches.append(_anomaly_breach(s.label, current_value, detection.score, detector_type_str, suffix))
+        breaches.append(_anomaly_breach(s.label, reported_value, _score_at(detection, rep), detector_type_str, suffix))
 
     return AlertEvaluationResult(
-        value=float(data[-1]) if len(data) > 0 else None,
+        value=reported_value,
         breaches=breaches,
         anomaly_scores=detection.all_scores or None,
-        triggered_points=detection.triggered_indices or None,
-        triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
+        triggered_points=fireable or None,
+        triggered_dates=_triggered_dates(s, fireable) or None,
         interval=interval_value,
     )
 
