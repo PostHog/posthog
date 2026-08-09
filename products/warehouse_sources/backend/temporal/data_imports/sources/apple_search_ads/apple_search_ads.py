@@ -11,7 +11,7 @@ import structlog
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
     APPLE_SEARCH_ADS_ENDPOINTS,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
