@@ -185,11 +185,13 @@ jobs:
               # docker-compose db service that every other schema cache consumer runs.
               if: ${{ github.event_name == 'pull_request' }}
               env:
+                  PGHOST: localhost
+                  PGUSER: posthog
                   PGPASSWORD: posthog
               run: |
                   prime() {
                       gunzip -c schema.sql.gz \
-                          | psql -q -v ON_ERROR_STOP=1 --single-transaction -h localhost -U posthog test_posthog || return 1
+                          | psql -q -v ON_ERROR_STOP=1 --single-transaction test_posthog || return 1
                       # The dump is schema-only, so rows written by data migrations are absent.
                       python manage.py ensure_migration_defaults || return 1
                       # ci-backend.yml dumps with TEST=1, which routes the apps in
@@ -204,19 +206,18 @@ jobs:
                   print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
                   EOF
                       ) || return 1
-                      [ -z "$APPS" ] || psql -h localhost -U posthog test_posthog \
-                          -c "DELETE FROM django_migrations WHERE app IN ($APPS);" || return 1
+                      if [ -n "$APPS" ]; then
+                          psql test_posthog -c "DELETE FROM django_migrations WHERE app IN ($APPS);" || return 1
+                      fi
                   }
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::schema cache miss, so migrate runs from scratch"
                       exit 0
                   fi
                   if ! prime; then
-                      # A half-primed database would let migrate skip work it still needs to do,
-                      # so hand the migrate step an empty one instead.
+                      # A half-primed database would let migrate skip work it still needs to do.
                       echo "::warning::schema restore failed (stale or incompatible dump?), so migrate runs from scratch"
-                      psql -h localhost -U posthog postgres \
-                          -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
+                      psql postgres -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
                   fi
 
             - name: Set up test database schema
