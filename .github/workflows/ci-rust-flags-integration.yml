@@ -37,7 +37,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    # Cache-bust knob. Keep in sync with ci-backend.yml, which saves these caches.
     SCHEMA_CACHE_EPOCH: v2
     # Django SECRET_KEY for cryptographic signing (sessions, CSRF, etc.) - test-only, not used in production
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461b81b72'
@@ -144,8 +144,7 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
                       exit 0
                   fi
-                  # Routing decides which app labels reach the dump, so a PR that edits it
-                  # matches no master dump: drop both keys and migrate from scratch.
+                  # Routing decides which app labels reach the dump, so an edited routing config matches no master dump.
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
@@ -155,7 +154,7 @@ jobs:
                       exit 0
                   fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -180,9 +179,7 @@ jobs:
                       ${{ steps.schema-key.outputs.key }}
 
             - name: Prime test_posthog from cached schema
-              # Postgres here is a service container, so this restores over the connection
-              # instead of using hogli db:restore-test-db, which shells into the
-              # docker-compose db service that every other schema cache consumer runs.
+              # hogli db:restore-test-db is unusable here: it shells into the docker compose db service.
               if: ${{ github.event_name == 'pull_request' }}
               env:
                   PGHOST: localhost
@@ -194,11 +191,8 @@ jobs:
                           | psql -q -v ON_ERROR_STOP=1 --single-transaction test_posthog || return 1
                       # The dump is schema-only, so rows written by data migrations are absent.
                       python manage.py ensure_migration_defaults || return 1
-                      # ci-backend.yml dumps with TEST=1, which routes the apps in
-                      # products/db_routing.yaml to separate databases: their tables are absent
-                      # from the dump, but django_migrations still records them as applied. This
-                      # job configures no product DBs, so drop those records and let migrate
-                      # replay them from 0001 against the default DB.
+                      # The dump omits tables for the apps routed in products/db_routing.yaml but still
+                      # marks them applied, so drop those records to make migrate create them here.
                       APPS=$(python - <<'EOF'
                   import yaml
                   with open("products/db_routing.yaml") as f:
