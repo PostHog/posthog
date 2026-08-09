@@ -187,34 +187,36 @@ jobs:
               env:
                   PGPASSWORD: posthog
               run: |
-                  if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::schema cache miss, so migrate runs from scratch"
-                      exit 0
-                  fi
-                  # --single-transaction rolls the database back to empty on any error,
-                  # which leaves the migrate step below a clean slate to work from.
-                  if ! gunzip -c schema.sql.gz \
-                      | psql -q -v ON_ERROR_STOP=1 --single-transaction -h localhost -U posthog test_posthog; then
-                      echo "::warning::schema restore failed (stale or incompatible dump?), so migrate runs from scratch"
-                      exit 0
-                  fi
-                  # The dump is schema-only, so rows written by data migrations are absent.
-                  python manage.py ensure_migration_defaults
-                  # ci-backend.yml dumps with TEST=1, which routes the apps in
-                  # products/db_routing.yaml to separate databases: their tables are absent
-                  # from the dump, but django_migrations still records them as applied. This
-                  # job configures no product DBs, so drop those records and let migrate
-                  # replay them from 0001 against the default DB.
-                  APPS=$(python - <<'EOF'
+                  prime() {
+                      gunzip -c schema.sql.gz \
+                          | psql -q -v ON_ERROR_STOP=1 --single-transaction -h localhost -U posthog test_posthog || return 1
+                      # The dump is schema-only, so rows written by data migrations are absent.
+                      python manage.py ensure_migration_defaults || return 1
+                      # ci-backend.yml dumps with TEST=1, which routes the apps in
+                      # products/db_routing.yaml to separate databases: their tables are absent
+                      # from the dump, but django_migrations still records them as applied. This
+                      # job configures no product DBs, so drop those records and let migrate
+                      # replay them from 0001 against the default DB.
+                      APPS=$(python - <<'EOF'
                   import yaml
                   with open("products/db_routing.yaml") as f:
                       routes = yaml.safe_load(f)["routes"]
                   print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
                   EOF
-                  )
-                  if [ -n "$APPS" ]; then
-                      psql -h localhost -U posthog test_posthog \
-                        -c "DELETE FROM django_migrations WHERE app IN ($APPS);"
+                      ) || return 1
+                      [ -z "$APPS" ] || psql -h localhost -U posthog test_posthog \
+                          -c "DELETE FROM django_migrations WHERE app IN ($APPS);" || return 1
+                  }
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::schema cache miss, so migrate runs from scratch"
+                      exit 0
+                  fi
+                  if ! prime; then
+                      # A half-primed database would let migrate skip work it still needs to do,
+                      # so hand the migrate step an empty one instead.
+                      echo "::warning::schema restore failed (stale or incompatible dump?), so migrate runs from scratch"
+                      psql -h localhost -U posthog postgres \
+                          -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
                   fi
 
             - name: Set up test database schema
