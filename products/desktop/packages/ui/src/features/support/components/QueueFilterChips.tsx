@@ -1,21 +1,25 @@
 import { XIcon } from "@phosphor-icons/react";
+import type { TicketView } from "@posthog/api-client/posthog-client";
 import { type QueueFilters, queueFilterChips } from "../ticketPresentation";
 
 /**
- * Applied filters as individually removable chips. Filter state stays on
- * screen rather than hiding behind the Filters menu, so it's obvious when the
- * queue you're looking at isn't the whole queue.
+ * Everything narrowing the queue right now — the applied saved view and each
+ * filter — as individually removable chips. Showing them as peers is what
+ * makes it readable that filters refine a view rather than replace it.
  */
 export function QueueFilterChips({
   filters,
+  views,
   onChange,
   onClearAll,
 }: {
   filters: QueueFilters;
+  /** Supplies the applied view's display name; the chip renders either way. */
+  views: TicketView[] | undefined;
   onChange: (next: QueueFilters) => void;
   onClearAll: () => void;
 }) {
-  const chips = queueFilterChips(filters);
+  const chips = queueFilterChips(filters, views);
   if (chips.length === 0) return null;
 
   return (

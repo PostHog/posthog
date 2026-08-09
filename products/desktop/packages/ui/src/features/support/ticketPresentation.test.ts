@@ -1,4 +1,9 @@
-import type { Ticket, TicketMessage } from "@posthog/api-client/posthog-client";
+import { ApiRequestError } from "@posthog/api-client/fetcher";
+import type {
+  Ticket,
+  TicketMessage,
+  TicketView,
+} from "@posthog/api-client/posthog-client";
 import {
   type ClassifiedTicket,
   SLA_AT_RISK_WINDOW_MS,
@@ -11,6 +16,7 @@ import {
   customerTicketHistory,
   EMPTY_QUEUE_FILTERS,
   hasPriority,
+  isUnknownSavedViewError,
   priorityLabel,
   type QueueFilters,
   type QueueSortField,
@@ -346,7 +352,12 @@ describe("applyQueueSort", () => {
 });
 
 describe("queueFilterChips", () => {
+  const views = [
+    { short_id: "v1", name: "Escalations" },
+  ] as unknown as TicketView[];
+
   const filters: QueueFilters = {
+    view: "v1",
     status: "open",
     priority: "high",
     channel: "slack",
@@ -355,8 +366,9 @@ describe("queueFilterChips", () => {
     search: "  billing  ",
   };
 
-  it("labels every applied filter", () => {
-    expect(queueFilterChips(filters).map((chip) => chip.label)).toEqual([
+  it("labels the applied view alongside every applied filter", () => {
+    expect(queueFilterChips(filters, views).map((chip) => chip.label)).toEqual([
+      "View: Escalations",
       "Status: Open",
       "Priority: High",
       "Channel: Slack",
@@ -367,19 +379,37 @@ describe("queueFilterChips", () => {
   });
 
   // Removing one chip must clear exactly that filter — the bug this catches is
-  // a chip that resets the whole filter set (or the wrong key).
-  it.each(["status", "priority", "channel", "sla", "assignee", "search"])(
-    "removing the %s chip clears only that filter",
-    (id) => {
-      const chip = queueFilterChips(filters).find((c) => c.id === id);
-      const next = chip?.next as QueueFilters;
-      expect(queueFilterChips(next).map((c) => c.id)).toEqual(
-        queueFilterChips(filters)
-          .map((c) => c.id)
-          .filter((other) => other !== id),
-      );
-    },
-  );
+  // a chip that resets the whole filter set (or the wrong key). The view is in
+  // the matrix because it shares the mechanism but is not a filter param.
+  it.each([
+    "view",
+    "status",
+    "priority",
+    "channel",
+    "sla",
+    "assignee",
+    "search",
+  ])("removing the %s chip clears only that filter", (id) => {
+    const chip = queueFilterChips(filters, views).find((c) => c.id === id);
+    const next = chip?.next as QueueFilters;
+    expect(queueFilterChips(next, views).map((c) => c.id)).toEqual(
+      queueFilterChips(filters, views)
+        .map((c) => c.id)
+        .filter((other) => other !== id),
+    );
+  });
+
+  // A view whose name hasn't loaded — or that was deleted elsewhere — must
+  // still get a chip. Hiding it would leave the queue silently scoped with no
+  // on-screen way back to all tickets.
+  it("still chips an applied view whose name is unresolved", () => {
+    const chips = queueFilterChips(
+      { ...EMPTY_QUEUE_FILTERS, view: "gone" },
+      [],
+    );
+    expect(chips.map((chip) => chip.label)).toEqual(["View: gone"]);
+    expect(chips[0].next.view).toBeNull();
+  });
 
   it("ignores a whitespace-only search", () => {
     expect(queueFilterChips({ ...EMPTY_QUEUE_FILTERS, search: "   " })).toEqual(
@@ -398,6 +428,7 @@ describe("queueListOptions", () => {
   it("maps every chip onto its endpoint parameter", () => {
     expect(
       queueListOptions({
+        view: "v1",
         status: "pending",
         priority: "medium",
         channel: "email",
@@ -407,6 +438,9 @@ describe("queueListOptions", () => {
       }),
     ).toEqual({
       orderBy: "-updated_at",
+      // Sent alongside the filters, not instead of them: the server expands the
+      // view and then merges these over it, so ad-hoc filters refine a view.
+      view: "v1",
       status: "pending",
       priority: "medium",
       channelSource: "email",
@@ -415,6 +449,32 @@ describe("queueListOptions", () => {
       search: "refund",
     });
   });
+});
+
+describe("isUnknownSavedViewError", () => {
+  // Too wide and a genuinely broken request silently clears the view and hides
+  // the real error; too narrow and a deleted view wedges the queue on an error
+  // the user can't clear.
+  it.each([
+    [
+      "a 400 naming the view field",
+      400,
+      { view: "No saved ticket view…" },
+      true,
+    ],
+    ["a 400 about something else", 400, { status: "Invalid status." }, false],
+    ["a 500 mentioning view", 500, { view: "boom" }, false],
+  ] as const)("is %s → %s", (_case, status, body, expected) => {
+    const error = new ApiRequestError(status, JSON.stringify(body), body);
+    expect(isUnknownSavedViewError(error)).toBe(expected);
+  });
+
+  it.each([[new Error("network down")], [null], ["nope"]])(
+    "is false for a non-API error (%s)",
+    (error) => {
+      expect(isUnknownSavedViewError(error)).toBe(false);
+    },
+  );
 });
 
 describe("ticketActivityEntries", () => {

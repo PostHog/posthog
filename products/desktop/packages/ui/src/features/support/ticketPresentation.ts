@@ -1,8 +1,10 @@
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import type {
   ListTicketsOptions,
   Ticket,
   TicketAssignment,
   TicketMessage,
+  TicketView,
 } from "@posthog/api-client/posthog-client";
 import {
   type ClassifiedTicket,
@@ -470,6 +472,14 @@ function compareTickets(
 }
 
 export interface QueueFilters {
+  /**
+   * `short_id` of an applied saved view. It sits with the filters because the
+   * server treats it the same way — it scopes the fetch, and the explicit
+   * filters below merge over it — but it is never expanded client-side: the
+   * stored blob carries criteria this set can't express (tag match modes,
+   * exclusions, date ranges), and reconstructing it would silently drop them.
+   */
+  view: string | null;
   status: string | null;
   priority: "low" | "medium" | "high" | null;
   channel: NonNullable<ListTicketsOptions["channelSource"]> | null;
@@ -479,6 +489,7 @@ export interface QueueFilters {
 }
 
 export const EMPTY_QUEUE_FILTERS: QueueFilters = {
+  view: null,
   status: null,
   priority: null,
   channel: null,
@@ -508,9 +519,26 @@ export interface QueueFilterChip {
 /**
  * Every applied filter as an individually removable chip, so the filter state
  * is readable at a glance instead of hidden behind the Filters menu.
+ *
+ * The applied view leads the list and is removable like any other chip: it
+ * narrows the fetch the same way a filter does, and showing it as a peer is
+ * what makes it obvious that filters *refine* a view rather than replace it.
+ * `views` only supplies the display name — an unresolved id (still loading, or
+ * deleted elsewhere) still gets a chip, so it can always be cleared.
  */
-export function queueFilterChips(filters: QueueFilters): QueueFilterChip[] {
+export function queueFilterChips(
+  filters: QueueFilters,
+  views: readonly TicketView[] = [],
+): QueueFilterChip[] {
   const chips: QueueFilterChip[] = [];
+  if (filters.view) {
+    const name = views.find((view) => view.short_id === filters.view)?.name;
+    chips.push({
+      id: "view",
+      label: `View: ${name ?? filters.view}`,
+      next: { ...filters, view: null },
+    });
+  }
   if (filters.status) {
     chips.push({
       id: "status",
@@ -564,6 +592,7 @@ export function queueFilterChips(filters: QueueFilters): QueueFilterChip[] {
  */
 export function queueListOptions(filters: QueueFilters): ListTicketsOptions {
   const options: ListTicketsOptions = { orderBy: "-updated_at" };
+  if (filters.view) options.view = filters.view;
   if (filters.status) options.status = filters.status;
   if (filters.priority) options.priority = filters.priority;
   if (filters.channel) options.channelSource = filters.channel;
@@ -572,6 +601,19 @@ export function queueListOptions(filters: QueueFilters): ListTicketsOptions {
   const search = filters.search.trim();
   if (search) options.search = search;
   return options;
+}
+
+/**
+ * Did this request fail *because* the saved view is gone? The server answers a
+ * short_id it can't resolve with `400 {"view": "..."}`, which a deleted or
+ * renamed view produces on the very next poll. The queue clears the view and
+ * carries on rather than parking on an error the user can't act on — so this
+ * has to be narrow: any other 400 is a real failure and must stay visible.
+ */
+export function isUnknownSavedViewError(error: unknown): boolean {
+  if (!(error instanceof ApiRequestError) || error.status !== 400) return false;
+  const body = error.body;
+  return typeof body === "object" && body !== null && "view" in body;
 }
 
 export interface TicketActivityEntry {

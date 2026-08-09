@@ -23,8 +23,17 @@ Every attention state has its verb on the ticket detail: `TicketActions` (status
 - `QUEUE_COLUMNS` in `ticketPresentation.ts` is the column inventory — id, label, default visibility, the width/alignment classes the header cell and the row cell *both* apply, and the sort field the header toggles. `TicketRow` renders a cell per visible column by id; adding a column is one entry plus one `switch` case.
 - `customer` is the one column with no toggle (`ALWAYS_VISIBLE_COLUMN_ID`), because it carries the `AttentionChip`. Hiding it would hide the reason a row ranks where it does, which is the surface's whole point.
 - Each row leads with a 4px **SLA stripe** (`slaTone` → `SLA_STRIPE_CLASS`) so urgency reads down the list without parsing text. Tickets with no SLA get a transparent stripe rather than no stripe, so rows stay aligned. `slaTone`'s at-risk band is `SLA_AT_RISK_WINDOW_MS` from core — the same threshold the ranking uses, so the colour and the tier can never disagree.
-- Toolbar: `QueueFilterMenu` (status / priority / channel / SLA / assignee, each a single-select the tickets endpoint actually supports), `QueueDisplayMenu` (order + column visibility), and a debounced search box. Applied filters become removable chips (`QueueFilterChips`), each chip's remove button carrying the whole filter set it produces so removal stays pure.
+- Toolbar: `QueueViewPicker` (saved views), `QueueFilterMenu` (status / priority / channel / SLA / assignee, each a single-select the tickets endpoint actually supports), `QueueDisplayMenu` (order + column visibility), and a debounced search box. Everything narrowing the queue becomes a removable chip (`QueueFilterChips`), each chip's remove button carrying the whole filter set it produces so removal stays pure.
 - **Column sorting is an override, never the default.** `applyQueueSort(ranked, null)` is the attention ranking; a `QueueSort` re-sorts that already-ranked array, so rows tying on the sorted column keep their attention order. The override is session-only (`supportQueueStore` persists columns, not sort) and the queue shows a one-click way back to attention order while it's active.
+
+### Saved views
+
+Views are read-only here: created and edited in PostHog, listed by `useSupportTicketViews`, applied by `short_id`.
+
+- **Never expand a view's `filters` blob client-side.** The queue sends `view=<short_id>` and lets the server resolve it. The stored filters carry criteria `QueueFilters` can't express — tag match-any/all, exclusions, date ranges — so reconstructing them would silently drop scope and show the wrong queue confidently. `QueueFilters.view` therefore holds the id and nothing else.
+- **A view and the filters coexist.** The server loads the view's filters first and merges the explicit query params over the top, so ad-hoc filters *refine* a view. That's why the applied view renders as the first chip next to the filter chips rather than as a separate mode: peers on one line is what makes "these stack" readable. It's also why "Clear all" drops the view too — it clears everything narrowing the queue.
+- **A stale view must not wedge the queue.** A view deleted or renamed elsewhere answers the next poll with `400 {"view": …}`. `isUnknownSavedViewError` recognises exactly that shape; the queue drops the view, toasts once, and the retry lands on all tickets. Keep the predicate narrow — every other 400 is a real failure the user needs to see.
+- Selection is session-only, held in the view's own `filters` state and deliberately not in `supportQueueStore`. Same reasoning as the sort override: a view silently scoping today's queue after a relaunch, with the reason off-screen, is the failure mode being avoided. A view narrows *which* tickets are fetched and never touches how they rank.
 
 **The detail** (`TicketDetailView`) is header + thread + right column:
 
@@ -70,11 +79,12 @@ Base UI note: `DropdownMenuLabel` is `Menu.GroupLabel` and throws at render outs
 
 All under the Conversations product (`products/conversations/backend` in posthog):
 
-- `GET /api/projects/{project_id}/conversations/tickets/` — paginated list; filters: `status`, `assignee`, `priority`, `sla`, `channel_source`, `search`, `order_by`.
+- `GET /api/projects/{project_id}/conversations/tickets/` — paginated list; filters: `status`, `assignee`, `priority`, `sla`, `channel_source`, `search`, `order_by`, `view`.
+  - `view` takes a saved view's **`short_id`**, not its UUID `id` — the UUID 400s. The viewset resolves the view into its stored filters, then merges the explicit query params over them, so a caller can refine a view without parsing its filters. An unresolvable short_id returns `400 {"view": "No saved ticket view matches this short_id."}`. **Not in the generated OpenAPI client** — `view` is hand-added to `ListTicketsOptions` in `posthog-client.ts` and passed straight through as the `view` query key (the method builds an untyped query record, so no generated type needed patching).
 - `GET /api/projects/{project_id}/conversations/tickets/{id}/` — single ticket.
 - `GET /api/projects/{project_id}/conversations/tickets/{id}/messages/` — thread, oldest first, paginated. **Not in the generated OpenAPI client** — hand-typed as `TicketMessage` in `posthog-client.ts`; update both if the serializer changes.
 - `GET /api/projects/{project_id}/conversations/tickets/unread_count/` — returns `{ count }`. The generated spec mis-annotates this as a full `Ticket`; the client method corrects it.
-- `GET /api/environments/{project_id}/conversations/views/` — saved ticket views (note: `environments`, not `projects`).
+- `GET /api/environments/{project_id}/conversations/views/` — saved ticket views (note: `environments`, not `projects`). `TicketView` is `{ id, short_id, name, filters, created_at, created_by }`; the queue reads only `short_id` and `name`.
 - `PATCH /api/projects/{project_id}/conversations/tickets/{id}/` — triage writes; the surface only sends `status`, `priority` (nullable), `snoozed_until` (nullable). `assignee` is read-only on this serializer — assignment needs its own endpoint work.
 - `POST /api/projects/{project_id}/conversations/tickets/{id}/reply/` — `{ message, is_private }`; `is_private=false` delivers to the customer over the ticket's channel, `true` stores a team-only note. Markdown, max 5000 chars, throttled server-side. **Not in the generated spec** — hand-typed in `posthog-client.ts`.
 
@@ -84,4 +94,5 @@ Generated types (`Ticket`, `TicketView`, `TicketAssignment`, …) come from `pac
 
 - `ticketPresentation.test.ts` covers status/priority/assignee/SLA/requester rules (`it.each`), including the null-priority and role-vs-user cases.
 - It also covers the layout logic worth breaking: the at-risk boundary against `SLA_AT_RISK_WINDOW_MS`, column resolution (customer always in, canonical order), the sort override (attention preserved when unset, untriaged above low, absent SLA/assignee last in *both* directions), chip removal clearing exactly one filter, and the history merge that keeps the open ticket present.
+- Saved views: `view` reaching the endpoint *alongside* the filters (not instead of them), a chip rendering even when the view's name hasn't resolved, and `isUnknownSavedViewError` matching only a 400 that names the view field.
 - Rendering integration is covered by typecheck plus the running app. Typecheck does not catch Base UI composition errors (see the `DropdownMenuGroup` note above) — open new menus once in the app.
