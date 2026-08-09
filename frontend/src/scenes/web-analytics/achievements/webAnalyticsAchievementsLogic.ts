@@ -382,7 +382,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 return
             }
             actions.openModal()
-            if (values.definitions.some((track) => track.key === trackKey)) {
+            if (!values.expandedTracks.includes(trackKey)) {
                 actions.toggleTrackExpanded(trackKey)
             }
             const nextSearchParams = { ...searchParams }
