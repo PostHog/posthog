@@ -1356,11 +1356,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         .join(' / ')
                     lemonToast.success(`Schemas refreshed: ${counts}`)
                 } catch (e: any) {
-                    if (e.message) {
-                        lemonToast.error(e.message)
-                    } else {
-                        lemonToast.error("Can't refresh schemas at this time")
-                    }
+                    posthog.captureException(e)
+                    lemonToast.error("Can't refresh schemas at this time")
                 } finally {
                     actions.setRefreshingSchemas(false)
                 }
@@ -1397,7 +1394,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     lemonToast.success('Sync started')
                     posthog.capture('sync now triggered', { sourceType: values.source?.source_type })
                 } catch (e: any) {
-                    lemonToast.error(e.message || "Can't start sync at this time")
+                    posthog.captureException(e)
+                    lemonToast.error("Can't start sync at this time")
                 } finally {
                     actions.setSyncingNow(false)
                 }
@@ -1416,11 +1414,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
                     posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
                 } catch (e: any) {
-                    if (e.message) {
-                        lemonToast.error(e.message)
-                    } else {
-                        lemonToast.error('Cant reload schema at this time')
-                    }
+                    posthog.captureException(e)
+                    lemonToast.error("Can't reload schema at this time")
                 }
             },
             resyncSchema: async ({ schema }) => {
