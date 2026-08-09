@@ -143,6 +143,7 @@ impl FingerprintVersion {
                     strip_query_strings: true,
                     strip_hashed_chunks: true,
                     basename_only: true,
+                    mask_uuids: true,
                 },
                 message_normalize: MessageNormalization {
                     mask_quoted: true,
@@ -188,13 +189,26 @@ pub struct Normalization {
     pub strip_hashed_chunks: bool,
     // "/var/mobile/.../<device-uuid>/bundle.js" -> "bundle.js"
     pub basename_only: bool,
+    // "/persons/363f5d55-1c5e-713f-9e8d-c6e3bd4a25c1" -> "/persons/*" — masks UUID path segments.
+    // A URL-only frame (an exception with no real stack, only the page URL) hashes the URL, so a
+    // per-record id in the path mints a fresh issue per page.
+    pub mask_uuids: bool,
 }
 
+// Shared by source-path masking (`UUID_TOKEN`) and message masking (`HEX_ID_TOKEN`) so the two
+// can't drift — a divergence would silently regroup issues.
+const UUID_PATTERN: &str =
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
+static UUID_TOKEN: OnceLock<Regex> = OnceLock::new();
 
 impl Normalization {
     fn is_noop(&self) -> bool {
-        !(self.strip_query_strings || self.strip_hashed_chunks || self.basename_only)
+        !(self.strip_query_strings
+            || self.strip_hashed_chunks
+            || self.basename_only
+            || self.mask_uuids)
     }
 
     fn apply_source<'a>(&self, value: &'a str) -> Cow<'a, str> {
@@ -206,6 +220,13 @@ impl Normalization {
             if let Some(idx) = out.find('?') {
                 out.truncate(idx);
             }
+        }
+        if self.mask_uuids {
+            // Runs before basename_only so a UUID anywhere in the path is masked, not only a
+            // trailing one. Before strip_hashed_chunks too, so the whole UUID collapses to one
+            // "*" rather than the chunk regex mangling its hex groups piecemeal.
+            let re = UUID_TOKEN.get_or_init(|| Regex::new(UUID_PATTERN).expect("valid regex"));
+            out = re.replace_all(&out, "*").into_owned();
         }
         if self.basename_only {
             if let Some(idx) = out.rfind(['/', '\\']) {
@@ -289,9 +310,9 @@ impl MessageNormalization {
         if self.mask_hex_ids {
             // UUIDs before bare numbers: they contain both hyphens and digits.
             let re = HEX_ID_TOKEN.get_or_init(|| {
-                Regex::new(
-                    r"0x[0-9a-fA-F]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}",
-                )
+                Regex::new(&format!(
+                    r"0x[0-9a-fA-F]+|{UUID_PATTERN}|[0-9a-fA-F]{{16,}}"
+                ))
                 .expect("valid regex")
             });
             out = re.replace_all(&out, "*").into_owned();
@@ -719,6 +740,11 @@ mod test {
             (
                 "/data/app/8CC63366-D88D/bundle.js",
                 "/data/app/A4CD3A3C-8BE6/bundle.js",
+            ),
+            // URL-only frame: the page URL is the whole source and its trailing id is a UUID.
+            (
+                "https://us.posthog.com/project/1/persons/363f5d55-1c5e-713f-9e8d-c6e3bd4a25c1",
+                "https://us.posthog.com/project/1/persons/a4cd3a3c-8be6-4f3f-93af-7e94d24e78bb",
             ),
         ];
         for (source_a, source_b) in cases {

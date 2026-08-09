@@ -343,13 +343,28 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                         if (!ref.current) {
                             return () => {}
                         }
+                        // Defer the measurement to the next frame so the resulting re-render lands
+                        // outside the observation cycle. Writing state straight from the callback
+                        // is the documented trigger for the browser's "ResizeObserver loop" warning.
+                        let rafId: number | null = null
                         const observer = new ResizeObserver(() => {
-                            if (ref?.current) {
-                                actions.setMainContentRect(ref.current.getBoundingClientRect())
+                            if (rafId !== null) {
+                                return
                             }
+                            rafId = requestAnimationFrame(() => {
+                                rafId = null
+                                if (ref?.current) {
+                                    actions.setMainContentRect(ref.current.getBoundingClientRect())
+                                }
+                            })
                         })
                         observer.observe(ref.current)
-                        return () => observer.disconnect()
+                        return () => {
+                            if (rafId !== null) {
+                                cancelAnimationFrame(rafId)
+                            }
+                            observer.disconnect()
+                        }
                     }, 'resizeObserver')
                 }
             }

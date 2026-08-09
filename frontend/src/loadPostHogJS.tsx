@@ -1,4 +1,4 @@
-import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, CaptureResult, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,6 +9,25 @@ import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
+
+// "ResizeObserver loop ..." is a benign browser warning: the browser could not deliver every
+// resize notification in one frame, so it defers the rest to the next one. It carries no stack,
+// so error tracking splits it into one issue per URL. Drop it before it leaves the browser.
+const RESIZE_OBSERVER_LOOP_MESSAGE = 'ResizeObserver loop'
+
+export const dropResizeObserverLoopErrors = (event: CaptureResult | null): CaptureResult | null => {
+    if (event?.event !== '$exception') {
+        return event
+    }
+    const exceptionList = event.properties?.$exception_list
+    if (
+        Array.isArray(exceptionList) &&
+        exceptionList.some((exception) => exception?.value?.startsWith(RESIZE_OBSERVER_LOOP_MESSAGE))
+    ) {
+        return null
+    }
+    return event
+}
 
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
@@ -57,7 +76,10 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: [
+                dropResizeObserverLoopErrors,
+                ...[options.beforeSend].flat().filter((fn): fn is BeforeSendFn => !!fn),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
