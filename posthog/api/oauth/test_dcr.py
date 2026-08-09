@@ -239,6 +239,41 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertFalse(data["client_secret"].startswith("pbkdf2_sha256$"))
         self.assertTrue(check_password(data["client_secret"], app.client_secret))
 
+    def _register(self, **overrides):
+        body = {"client_name": "Cursor", "redirect_uris": ["https://example.com/callback"]}
+        body.update(overrides)
+        return self.client.post("/oauth/register/", body, format="json")
+
+    def test_public_client_reregistration_is_idempotent(self):
+        # Agents re-register on every run; a matching public client must reuse the same
+        # client_id instead of minting a stranger that loses the user's prior consent.
+        first = self._register()
+        second = self._register()
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(first.json()["client_id"], second.json()["client_id"])
+        self.assertEqual(OAuthApplication.objects.filter(name="Cursor").count(), 1)
+
+    @parameterized.expand(
+        [
+            ("different_name", {"client_name": "Codex"}),
+            ("different_redirect_uris", {"redirect_uris": ["https://example.com/other"]}),
+            ("different_scope", {"scope": "dashboard:read"}),
+        ]
+    )
+    def test_reregistration_with_different_metadata_creates_new_client(self, _name, overrides):
+        first = self._register()
+        second = self._register(**overrides)
+        self.assertNotEqual(first.json()["client_id"], second.json()["client_id"])
+
+    def test_confidential_reregistration_creates_new_client(self):
+        # Confidential clients can't be deduped: the response must carry a one-time plaintext
+        # secret only a fresh registration can mint.
+        first = self._register(token_endpoint_auth_method="client_secret_post")
+        second = self._register(token_endpoint_auth_method="client_secret_post")
+        self.assertNotEqual(first.json()["client_id"], second.json()["client_id"])
+        self.assertIn("client_secret", second.json())
+
     def test_unsupported_auth_method_rejected(self):
         response = self.client.post(
             "/oauth/register/",

@@ -2960,6 +2960,24 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_render.assert_called_once()
 
+    @freeze_time("2025-01-01 00:00:00")
+    def test_auto_approval_reached_when_request_omits_approval_prompt(self):
+        # `approval_prompt` defaults to "auto" (REQUEST_APPROVAL_PROMPT), so a returning client
+        # that omits the param and already holds a token covering the scopes skips consent and
+        # is redirected with a code, instead of being sent back to the approval screen.
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="at_auto_approval_default",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid",
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        response = self.client.get(f"{self.base_authorization_url}&scope=openid")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("code=", response["Location"])
+
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])
         with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:

@@ -10,6 +10,7 @@ Public clients rely on PKCE for security. Confidential clients (e.g. claude.ai)
 can securely store a client_secret server-side.
 """
 
+from datetime import datetime
 from typing import Any
 
 from django.core.exceptions import ValidationError
@@ -158,10 +159,44 @@ class DynamicClientRegistrationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        redirect_uris_str = " ".join(data["redirect_uris"])
+
+        # Registration is idempotent for public clients. Agents (Cursor, Codex, Claude Code, ...)
+        # re-register on every run, and a fresh client_id each time is a stranger that carries none
+        # of the user's prior consent, so the approval screen shows again. Return the existing
+        # registration when name, redirect URIs, and scope ceiling all match, so a stable client
+        # keeps one identity across runs. Confidential clients are excluded: their response must
+        # carry the one-time plaintext secret, which only a fresh create() can mint.
+        if not is_confidential:
+            existing_app = (
+                OAuthApplication.objects.filter(
+                    is_dcr_client=True,
+                    client_type=AbstractApplication.CLIENT_PUBLIC,
+                    name=client_name,
+                    redirect_uris=redirect_uris_str,
+                    scopes=app_scopes,
+                )
+                .order_by("-dcr_client_id_issued_at")
+                .first()
+            )
+            if existing_app is not None:
+                posthoganalytics.capture(
+                    distinct_id=str(existing_app.client_id),
+                    event="dcr_application_reused",
+                    properties={
+                        "client_name": client_name,
+                        "app_id": str(existing_app.pk),
+                        "redirect_uris_count": len(data["redirect_uris"]),
+                    },
+                )
+                return self._registration_response(
+                    existing_app, data, existing_app.dcr_client_id_issued_at or now, secret=None
+                )
+
         try:
             app = OAuthApplication.objects.create(
                 name=client_name,
-                redirect_uris=" ".join(data["redirect_uris"]),
+                redirect_uris=redirect_uris_str,
                 client_type=client_type,
                 client_secret=plaintext_secret,
                 authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
@@ -217,29 +252,34 @@ class DynamicClientRegistrationView(APIView):
             },
         )
 
-        # Read back off the created app so the response can't disagree with what was stored.
-        auth_method = app.token_endpoint_auth_method.value
+        return self._registration_response(app, data, now, secret=plaintext_secret if is_confidential else None)
 
-        # Build response per RFC 7591 Section 3.2
+    @staticmethod
+    def _registration_response(
+        app: OAuthApplication, data: dict[str, Any], issued_at: datetime, *, secret: str | None
+    ) -> Response:
+        """Build the RFC 7591 Section 3.2 registration response, reading identity back off the
+        stored app so the response can't disagree with what was stored. `secret` is the plaintext
+        client secret for confidential clients, or None for public clients (and reused apps)."""
         response_data: dict[str, Any] = {
             "client_id": str(app.client_id),
             "redirect_uris": data["redirect_uris"],
             "grant_types": data.get("grant_types", ["authorization_code"]),
             "response_types": data.get("response_types", ["code"]),
-            "token_endpoint_auth_method": auth_method,
-            "client_id_issued_at": int(now.timestamp()),
+            "token_endpoint_auth_method": app.token_endpoint_auth_method.value,
+            "client_id_issued_at": int(issued_at.timestamp()),
         }
 
-        if is_confidential:
-            response_data["client_secret"] = plaintext_secret
+        if secret is not None:
+            response_data["client_secret"] = secret
             response_data["client_secret_expires_at"] = 0  # 0 = never expires per RFC 7591
 
         if data.get("client_name"):
-            response_data["client_name"] = client_name
+            response_data["client_name"] = app.name
 
         # RFC 7591 Section 3.2.1: when the server modifies requested scopes, it
         # returns the registered `scope` so the client sees the privileged-strip.
-        if app_scopes:
-            response_data["scope"] = " ".join(app_scopes)
+        if app.scopes:
+            response_data["scope"] = " ".join(app.scopes)
 
         return Response(response_data, status=status.HTTP_201_CREATED)

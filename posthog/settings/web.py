@@ -1169,6 +1169,10 @@ OAUTH2_PROVIDER = {
     ],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     # client has 5 minutes to complete the OAuth flow before the authorization code expires
+    # Reach the auto-approval path in OAuthAuthorizationView when a request omits `approval_prompt`.
+    # Auto-approval still only skips consent when the user already holds a valid token whose scopes
+    # cover the request, so this stops re-prompting a returning client, not first-time consent.
+    "REQUEST_APPROVAL_PROMPT": "auto",
     "DEFAULT_SCOPES": ["openid"],
     "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
     "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
