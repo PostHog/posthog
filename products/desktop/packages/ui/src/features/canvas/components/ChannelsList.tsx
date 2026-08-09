@@ -560,7 +560,7 @@ function ViewAllRow({
         <ArrowRightIcon
           aria-hidden
           size={10}
-          className="relative top-[-0.5px] left-[-3px] shrink-0 text-border"
+          className="relative top-[-0.5px] left-[-3px] shrink-0 text-foreground/20"
         />
         <span className="truncate">view all</span>
       </span>
@@ -584,7 +584,7 @@ function SpaceTreeGuide() {
   return (
     <span
       aria-hidden
-      className="pointer-events-none absolute inset-y-0 left-[14.5px] w-px bg-border"
+      className="pointer-events-none absolute inset-y-0 left-[14.5px] w-px bg-foreground/20"
     />
   );
 }
@@ -603,7 +603,7 @@ function SpaceTreeGuideEnd() {
   return (
     <span
       aria-hidden
-      className="-top-px pointer-events-none absolute left-[14.5px] h-[calc(50%+1px)] w-4.5 rounded-bl-md border-border border-b border-l"
+      className="-top-px pointer-events-none absolute left-[14.5px] h-[calc(50%+1px)] w-[16.5px] rounded-bl-md border-foreground/20 border-b border-l"
     />
   );
 }

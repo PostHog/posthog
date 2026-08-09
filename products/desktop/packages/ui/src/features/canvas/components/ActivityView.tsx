@@ -25,6 +25,7 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
+import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
@@ -184,7 +185,14 @@ export function ActivityRow({
   // The one row here that is blocked on you, and the sidebar's session rows
   // already say that in blue. Yellow is everything else the feed carries:
   // something happened that you haven't read.
-  const awaitsReply = item.activityKind === "awaiting_input";
+  //
+  // Read against the live sessions rather than the row's kind alone, so this is
+  // the same fact the sidebar's blue dot is drawn from. The row records that the
+  // agent asked at a moment in time; whether it is still waiting is a question
+  // only the session can answer, and answering the prompt has to clear the dot.
+  const blockedTaskIds = useBlockedTaskIds();
+  const awaitsReply =
+    item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
   const openTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "open_task",
@@ -237,7 +245,10 @@ export function ActivityRow({
           ) : (
             <UserAvatar user={item.author ?? currentUser} size="xs" />
           )}
-          {item.isUnread && (
+          {/* Unread is a fact about the feed: you haven't looked at this yet.
+              Waiting on you is a fact about the session, and reading the row
+              doesn't answer the prompt — so it keeps its dot until you do. */}
+          {(item.isUnread || awaitsReply) && (
             <span
               className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full"
               // Off the table the status dots read, so a row that says the agent

@@ -55,7 +55,7 @@ export const DOT_TONE_VAR: Record<DotTone, string> = {
   yellow: "var(--primary)",
   red: "var(--red-9)",
   blue: "var(--blue-9)",
-  gray: "var(--gray-8)",
+  gray: "var(--muted-foreground)",
 };
 
 /**

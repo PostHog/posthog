@@ -2,6 +2,7 @@ import { countSessionsByChannel } from "@posthog/core/canvas/channelUnread";
 import { isTaskUnread } from "@posthog/core/sidebar/buildSidebarData";
 import { readPrUrls } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -62,12 +63,18 @@ export function useUnreadSessionCount(): (
 ) => number {
   const { data: tasks } = useTasks();
   const { timestamps } = useTaskViewed();
+  const archivedTaskIds = useArchivedTaskIds();
   const counts = useMemo(
     () =>
-      countSessionsByChannel(tasks ?? [], (task) =>
-        wantsAttention(task, timestamps),
+      countSessionsByChannel(
+        tasks ?? [],
+        // Archived sessions are dropped from every list a space can show, so
+        // counting them marks a space with a dot that nothing behind it
+        // explains: open the space and the row it stands for isn't there.
+        (task) =>
+          !archivedTaskIds.has(task.id) && wantsAttention(task, timestamps),
       ),
-    [tasks, timestamps],
+    [tasks, timestamps, archivedTaskIds],
   );
   return useMemo(
     () => (channelId) => (channelId ? (counts.get(channelId) ?? 0) : 0),

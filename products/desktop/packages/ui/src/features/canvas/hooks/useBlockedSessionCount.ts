@@ -1,4 +1,5 @@
 import { countSessionsByChannel } from "@posthog/core/canvas/channelUnread";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useMemo } from "react";
@@ -44,10 +45,16 @@ export function useBlockedSessionCount(): (
 ) => number {
   const { data: tasks } = useTasks();
   const blocked = useBlockedTaskIds();
+  const archivedTaskIds = useArchivedTaskIds();
   const counts = useMemo(() => {
     if (blocked.size === 0) return new Map<string, number>();
-    return countSessionsByChannel(tasks ?? [], (task) => blocked.has(task.id));
-  }, [blocked, tasks]);
+    // Archived alongside the yellow count, for the same reason: a space's
+    // lists drop them, so a dot for one points at a row you cannot reach.
+    return countSessionsByChannel(
+      tasks ?? [],
+      (task) => blocked.has(task.id) && !archivedTaskIds.has(task.id),
+    );
+  }, [blocked, tasks, archivedTaskIds]);
   return useMemo(
     () => (channelId) => (channelId ? (counts.get(channelId) ?? 0) : 0),
     [counts],
