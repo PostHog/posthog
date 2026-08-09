@@ -574,7 +574,15 @@ function ColumnSelect({ options, value, onChange, allowHogQL }: ColumnSelectProp
                     <span className="text-muted-foreground">Select a value</span>
                 )}
             </Button>
-            <ComboboxContent anchor={triggerRef} className="min-w-(--anchor-width)" align="start" sideOffset={8}>
+            <ComboboxContent
+                anchor={triggerRef}
+                // `CLICK_OUTSIDE_BLOCK_CLASS`: portaled separately from the
+                // dialog it opens from, so it needs its own exemption —
+                // otherwise picking a column dismisses the parent popover.
+                className={cn('min-w-(--anchor-width)', CLICK_OUTSIDE_BLOCK_CLASS)}
+                align="start"
+                sideOffset={8}
+            >
                 <ComboboxInput placeholder="Search columns" showTrigger={false} />
                 <ComboboxEmpty>No columns found</ComboboxEmpty>
                 <ComboboxList>

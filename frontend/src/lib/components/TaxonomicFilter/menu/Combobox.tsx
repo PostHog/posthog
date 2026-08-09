@@ -36,6 +36,7 @@ import {
 } from '@posthog/quill'
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -932,7 +933,14 @@ export function MenuFilterCombobox({
                 <SelectContent
                     align="end"
                     alignItemWithTrigger={false}
-                    className="w-max min-w-(--anchor-width) max-w-(--available-width)"
+                    // `CLICK_OUTSIDE_BLOCK_CLASS`: portaled separately from
+                    // the menu panel that renders this trigger, so it needs
+                    // its own exemption — otherwise picking a category
+                    // dismisses the enclosing popover.
+                    className={cn(
+                        'w-max min-w-(--anchor-width) max-w-(--available-width)',
+                        CLICK_OUTSIDE_BLOCK_CLASS
+                    )}
                 >
                     <SelectGroup>
                         {categoryOptions.map((o) => (
