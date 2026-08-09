@@ -33,13 +33,14 @@ function isStaffOnlyTabKey(tab: InboxTabKey): boolean {
 function FlatTabCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element {
     const logic = reportListLogic({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
     useMountedLogic(logic)
-    const { count, countLoading } = useValues(logic)
-    // Skeleton only while the request is genuinely in flight; on failure `count` stays null,
-    // so fall back to the number (0) rather than a permanent skeleton.
-    if (count === null && countLoading) {
+    const { badgeCount, countLoading } = useValues(logic)
+    // Skeleton only while the request is genuinely in flight; on failure `badgeCount` stays null,
+    // so fall back to the number (0) rather than a permanent skeleton. Once the tab's list has
+    // loaded, `badgeCount` follows the loaded total, so the badge matches the body.
+    if (badgeCount === null && countLoading) {
         return <LemonSkeleton className="h-3 w-3 rounded" />
     }
-    return <span className="text-xs text-muted tabular-nums">{count ?? 0}</span>
+    return <span className="text-xs text-muted tabular-nums">{badgeCount ?? 0}</span>
 }
 
 /** Synthetic key for the onboarding "Welcome" tab – presentational only, never routed to. */

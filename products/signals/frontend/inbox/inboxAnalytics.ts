@@ -189,12 +189,15 @@ export function captureInboxViewed(params: {
     sourceProductFilter: string[]
     priorityFilter: string[]
     scope: string
+    /** True when the list failed to load, so the user saw the retry state instead of the reports. */
+    loadFailed?: boolean
 }): void {
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
         tab: params.tab,
         report_count: params.reports.length,
         total_count: params.totalCount,
         is_empty: params.totalCount === 0,
+        load_failed: params.loadFailed ?? false,
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
         priority_filter: params.priorityFilter,

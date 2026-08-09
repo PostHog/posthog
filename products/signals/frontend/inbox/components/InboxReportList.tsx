@@ -1,6 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ComponentType, JSX, useEffect, useRef } from 'react'
 
+import { IconWarning } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
@@ -42,8 +45,18 @@ export function InboxReportList(props: InboxReportListProps): JSX.Element {
 }
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
-    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic)
+    const {
+        reports,
+        count,
+        totalCount,
+        badgeCount,
+        hasMore,
+        reportsResponseLoading,
+        isLoaded,
+        reportsLoadFailed,
+        loadedQueryKey,
+        loadedContext,
+    } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
@@ -52,23 +65,39 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen } = useValues(inboxSceneLogic)
     const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
     const sentinelRef = useRef<HTMLDivElement>(null)
+    // The first page load failed and no retry is in flight (a retry resets `reportsLoadFailed`).
+    const failedFirstLoad = reportsLoadFailed && !isLoaded
 
-    // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
+    // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible. A failed
+    // first load counts as a settle too, so the event fires on the retry state instead of going silent
+    // on the branch a user is most likely to abandon on.
     const viewedFiredRef = useRef(false)
     useEffect(() => {
-        if (listVisible && isLoaded && count !== null && !viewedFiredRef.current) {
+        if (listVisible && (isLoaded || failedFirstLoad) && !viewedFiredRef.current) {
             viewedFiredRef.current = true
             captureInboxViewed({
                 tab: tabKey,
                 reports,
-                totalCount: count,
+                totalCount: badgeCount ?? 0,
+                loadFailed: failedFirstLoad,
                 hasActiveFilters,
                 sourceProductFilter,
                 priorityFilter,
                 scope,
             })
         }
-    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+    }, [
+        listVisible,
+        isLoaded,
+        failedFirstLoad,
+        badgeCount,
+        reports,
+        tabKey,
+        hasActiveFilters,
+        sourceProductFilter,
+        priorityFilter,
+        scope,
+    ])
 
     // Impression log for ranking-model training: record each report the first time it appears in
     // the visible list (initial page, pagination, refresh), with its rank at that moment. Deduped
@@ -138,7 +167,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         return () => observer.disconnect()
     }, [loadMore])
 
-    // Skeleton while a tab we know is non-empty loads its first page.
+    // Skeleton while a tab we know is non-empty loads its first page. Failed load is checked before
+    // it, so a failed load with a non-zero badge count does not sit on a skeleton forever.
     const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
 
     return (
@@ -146,17 +176,28 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
             <InboxBulkSelectionBar />
 
-            {showSkeleton ? (
+            {failedFirstLoad ? (
+                <InboxListPlaceholder
+                    icon={<IconWarning className="text-2xl" />}
+                    iconClassName="text-warning"
+                    title="Couldn't load this tab"
+                    description="Try again, and if it keeps happening contact support."
+                >
+                    <LemonButton type="secondary" onClick={() => refresh()} loading={reportsResponseLoading}>
+                        Try again
+                    </LemonButton>
+                </InboxListPlaceholder>
+            ) : showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
             ) : reports.length === 0 ? (
-                <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
-                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
-                        {emptyState.icon}
-                    </div>
-                    <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
-                    <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
+                <InboxListPlaceholder
+                    icon={emptyState.icon}
+                    iconClassName="text-secondary"
+                    title={emptyState.title}
+                    description={emptyState.description}
+                >
                     {emptyState.extra}
-                </div>
+                </InboxListPlaceholder>
             ) : (
                 <>
                     {/* Each report is its own freestanding card, separated by a small gap. */}
@@ -178,6 +219,34 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                     {hasMore && <div ref={sentinelRef} className="h-1" aria-hidden />}
                 </>
             )}
+        </div>
+    )
+}
+
+/** Centered icon + title + description for the list's empty and failed-load states, with optional action content. */
+function InboxListPlaceholder({
+    icon,
+    iconClassName,
+    title,
+    description,
+    children,
+}: {
+    icon: JSX.Element
+    iconClassName: string
+    title: string
+    description: string
+    children?: JSX.Element
+}): JSX.Element {
+    return (
+        <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
+            <div
+                className={`flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary mb-1 ${iconClassName}`}
+            >
+                {icon}
+            </div>
+            <h3 className="text-base font-semibold m-0">{title}</h3>
+            <p className="text-sm text-tertiary m-0">{description}</p>
+            {children}
         </div>
     )
 }

@@ -115,8 +115,10 @@ export interface reportListLogicValues {
     user: UserType | null // userLogic
     count: number | null
     countLoading: boolean
+    badgeCount: number | null
     hasMore: boolean
     isLoaded: boolean
+    reportsLoadFailed: boolean
     listApiParams: any
     loadedContext: {
         hasActiveFilters: boolean
@@ -258,6 +260,7 @@ export interface reportListLogicMeta {
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
+        badgeCount: (totalCount: number | null, count: number | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         loadedContext: (reportsResponse: ReportListResponse | null) => {
             hasActiveFilters: boolean
@@ -386,6 +389,16 @@ export const reportListLogic = kea<reportListLogicType>([
         count: {
             removeReport: (state) => (state != null ? Math.max(0, state - 1) : state),
         },
+        // Whether the first-page load failed. Distinguishes a failed load from a genuinely empty
+        // tab, so the body can show a retry instead of the empty state. Resets when a load starts.
+        reportsLoadFailed: [
+            false,
+            {
+                loadReports: () => false,
+                loadReportsSuccess: () => false,
+                loadReportsFailure: () => true,
+            },
+        ],
     }),
 
     selectors({
@@ -445,6 +458,14 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): number | null => reportsResponse?.count ?? null,
         ],
+        // The number for the tab badge. Once the list has loaded, `totalCount` comes off the same
+        // response as the rows, so it can't disagree with them; before that, fall back to the
+        // separately-loaded `count`. Preferring `totalCount` stops the badge and the body from
+        // showing different numbers after a filter or scope change.
+        badgeCount: [
+            (s) => [s.totalCount, s.count],
+            (totalCount: number | null, count: number | null): number | null => totalCount ?? count,
+        ],
         // Stable key for the query that produced the loaded response. Unlike `listApiParams`, this
         // only changes when a response fetched with the new params actually lands, so consumers
         // never associate the new query with rows from the previous one.
@@ -493,7 +514,10 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         refresh: () => {
             actions.loadCount()
-            if (values.isLoaded) {
+            // Reload the list when it is already loaded, and also when a first load failed, so a
+            // filter or scope change retries a tab that never loaded rather than only moving the
+            // badge. A tab whose list was never requested (not yet opened) still stays lazy.
+            if (values.isLoaded || values.reportsLoadFailed) {
                 actions.loadReports()
             }
         },

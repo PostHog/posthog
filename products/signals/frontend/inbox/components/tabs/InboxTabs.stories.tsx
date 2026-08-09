@@ -52,6 +52,15 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
     })
 }
 
+// Fails the reports list endpoint so the flat tabs render the failed-load state with its retry.
+function reportsListErrorDecorator(): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:id/signals/reports': () => [500, { detail: 'Internal server error' }],
+        },
+    })
+}
+
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Tabs',
     parameters: {
@@ -94,6 +103,15 @@ export const PullRequests: Story = {
 
 export const PullRequestsEmpty: Story = {
     decorators: [reportsListDecorator([])],
+    render: () => (
+        <div className="bg-primary min-h-screen">
+            <PullRequestsTab />
+        </div>
+    ),
+}
+
+export const PullRequestsFailed: Story = {
+    decorators: [reportsListErrorDecorator()],
     render: () => (
         <div className="bg-primary min-h-screen">
             <PullRequestsTab />
