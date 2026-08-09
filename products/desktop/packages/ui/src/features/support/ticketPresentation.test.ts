@@ -15,6 +15,7 @@ import {
   channelLabel,
   customerTicketHistory,
   EMPTY_QUEUE_FILTERS,
+  groupSavedViews,
   hasPriority,
   isUnknownSavedViewError,
   priorityLabel,
@@ -23,6 +24,7 @@ import {
   queueFilterChips,
   queueListOptions,
   requesterLabel,
+  SAVED_VIEW_SEARCH_THRESHOLD,
   slaCountdownLabel,
   slaTone,
   snoozePresets,
@@ -448,6 +450,50 @@ describe("queueListOptions", () => {
       assignee: "me",
       search: "refund",
     });
+  });
+});
+
+describe("groupSavedViews", () => {
+  const view = (name: string, is_favorited = false) =>
+    ({ short_id: name.toLowerCase(), name, is_favorited }) as TicketView;
+
+  // The bug this catches: filtering the whole list before partitioning, so
+  // typing in the rail's search box makes your favorites disappear — exactly
+  // the views you favorited to keep within reach.
+  it("keeps favorited views out of the search filter", () => {
+    const groups = groupSavedViews(
+      [view("Escalations", true), view("Billing"), view("Onboarding")],
+      "bill",
+    );
+    expect(groups.favorited.map((v) => v.name)).toEqual(["Escalations"]);
+    expect(groups.other.map((v) => v.name)).toEqual(["Billing"]);
+  });
+
+  it.each([
+    ["exact", "Billing", true],
+    ["case-insensitive", "bILLing", true],
+    ["padded", "  billing  ", true],
+    ["substring", "ill", true],
+    ["unmatched", "refunds", false],
+  ])("handles a %s query (%s)", (_case, search, matches) => {
+    const groups = groupSavedViews([view("Billing")], search);
+    expect(groups.other).toHaveLength(matches ? 1 : 0);
+    expect(groups.noMatches).toBe(!matches);
+  });
+
+  // Off-by-one here is the difference between a search box over four views
+  // (pure chrome) and no search box over a rail you have to scroll.
+  it.each([
+    [SAVED_VIEW_SEARCH_THRESHOLD - 1, false],
+    [SAVED_VIEW_SEARCH_THRESHOLD, false],
+    [SAVED_VIEW_SEARCH_THRESHOLD + 1, true],
+  ])("shows the search box for %s views: %s", (count, expected) => {
+    const views = Array.from({ length: count }, (_, i) => view(`View ${i}`));
+    expect(groupSavedViews(views, "").showSearch).toBe(expected);
+  });
+
+  it("reports no matches only once something has been typed", () => {
+    expect(groupSavedViews([], "").noMatches).toBe(false);
   });
 });
 
