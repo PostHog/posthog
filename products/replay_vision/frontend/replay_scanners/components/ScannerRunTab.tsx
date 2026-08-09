@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -83,9 +83,16 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
 }
 
 function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
-    const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
-        useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
+    const {
+        filters,
+        totalFiltersCount,
+        sessionRecordings,
+        sessionRecordingsResponseLoading,
+        sessionRecordingsAPIErrored,
+        hasNext,
+    } = useValues(sessionRecordingsPlaylistLogic)
+    const { setFilters, resetFilters, maybeLoadSessionRecordings, loadSessionRecordings } =
+        useActions(sessionRecordingsPlaylistLogic)
     const { observationBySession, pendingId, refreshingObservations, bulkScanning } = useValues(
         scannerRunTabLogic({ scannerId })
     )
@@ -213,7 +220,21 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 dataSource={sessionRecordings}
                 loading={sessionRecordingsResponseLoading || refreshingObservations}
                 rowKey="id"
-                emptyState="No recordings match these filters."
+                emptyState={
+                    sessionRecordingsAPIErrored ? (
+                        <LemonBanner
+                            type="error"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => loadSessionRecordings(),
+                            }}
+                        >
+                            Could not load recordings.
+                        </LemonBanner>
+                    ) : (
+                        'No recordings match these filters.'
+                    )
+                }
                 data-attr="vision-run-recordings-table"
                 bulkSelection={{
                     noun: ['recording', 'recordings'],
