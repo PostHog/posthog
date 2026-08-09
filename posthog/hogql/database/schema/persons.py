@@ -152,6 +152,9 @@ def select_from_persons_table(
             )
             return select
 
+    # Deferred: posthog.hogql.property imports database schema modules, so a top-level import here is circular.
+    from posthog.hogql.property import has_aggregation  # noqa: PLC0415
+
     if version == PersonsArgMaxVersion.V2:
         select = cast(
             ast.SelectQuery,
@@ -174,6 +177,9 @@ def select_from_persons_table(
         # Push ORDER BY + LIMIT into the inner deduplication subquery so ClickHouse can stop early.
         # Skip when there's an outer WHERE -- a premature inner LIMIT would exclude valid rows
         # before the filter runs (e.g. cohort members dropped because LIMIT grabbed other rows first).
+        # Skip a flat aggregate (aggregate call with no GROUP BY) too: it reads every deduplicated
+        # person, so a pushed-down inner LIMIT makes it count only LIMIT+1 rows and return a wrong
+        # number silently. HAVING implies aggregation over the full set, so it disables the pushdown as well.
         can_push_to_inner = (
             node.select_from
             and node.select_from.type
@@ -184,6 +190,8 @@ def select_from_persons_table(
             and node.limit
             and not node.where
             and not node.prewhere
+            and not node.having
+            and not any(has_aggregation(expr) for expr in node.select)
         )
         if can_push_to_inner:
             compare = cast(ast.CompareOperation, select.where)

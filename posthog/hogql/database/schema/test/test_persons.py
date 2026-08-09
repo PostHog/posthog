@@ -244,6 +244,32 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0][1] == "cohort_member@example.com"
 
+    @parameterized.expand(
+        [
+            ("count", "SELECT count() FROM persons"),
+            ("count_distinct_id", "SELECT count(DISTINCT id) FROM persons"),
+            ("count_if", "SELECT countIf(coalesce(properties.$some_prop, '') != '') FROM persons"),
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_v2_flat_aggregate_does_not_push_limit_down(self, _name: str, query: str):
+        # A flat aggregate (aggregate call, no GROUP BY) reads every deduplicated person, so the
+        # implicit API LIMIT must not reach the inner subquery -- otherwise it counts only LIMIT+1 rows.
+        for i in range(5):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"p{i}"], properties={"$some_prop": f"v{i}"})
+        flush_persons_and_events()
+
+        # LIMIT 2 mirrors the default limit the API/UI injects; the count must still see all 5 persons.
+        response = execute_hogql_query(
+            parse_select(f"{query} LIMIT 2"),
+            self.team,
+            modifiers=self._v2_modifiers(),
+        )
+        assert response.clickhouse is not None
+        assert "LIMIT 3" not in response.clickhouse
+        assert response.results is not None
+        assert response.results[0][0] == 5
+
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
     person_properties = {"$initial_referring_domain": "https://google.com"}
