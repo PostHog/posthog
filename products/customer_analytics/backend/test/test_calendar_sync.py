@@ -150,6 +150,26 @@ class TestCalendarSync(BaseTest):
         self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
 
+    def test_matches_account_via_person_group(self) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save()
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Acme", external_id="acme")
+        person_uuid = "0198b6f3-0000-0000-0000-000000000001"
+        person = MagicMock(uuid=person_uuid, distinct_ids=["person-distinct-id"])
+        group_query_response = MagicMock(results=[["person-distinct-id", "acme"]])
+
+        with (
+            patch.object(calendar_sync, "get_persons_by_uuids", return_value=[person]),
+            patch("posthog.hogql.query.execute_hogql_query", return_value=group_query_response),
+        ):
+            counts = self._sync(
+                [_pages_response([_event()])],
+                person_uuids={"jane@acme.com": person_uuid},
+            )
+
+        assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
+        assert counts.matched == 1
+
     def test_removed_attendee_is_deleted_on_resync(self):
         self._sync([_pages_response([_event()])])
         assert MeetingParticipant.objects.for_team(self.team.id).count() == 2

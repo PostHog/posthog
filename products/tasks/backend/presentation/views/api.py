@@ -45,7 +45,7 @@ from posthog.permissions import (
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS, SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
@@ -1055,6 +1055,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    def _is_sandbox_agent_request(self, task_id: str) -> bool:
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        access_token = authenticator.access_token
+        application = access_token.application
+        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+            return False
+        return access_token.sandbox_task_id == UUID(task_id) or "internal_run:read" in (
+            get_authenticator_scopes(authenticator) or []
+        )
+
     # Actions that only read run state. Everything else mutates or drives the
     # run, so it requires task control (not just visibility): public-channel
     # visibility lets teammates watch a run, never command it. connection_token
@@ -1621,8 +1633,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts_finalize_upload(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        is_agent_upload = self._is_sandbox_agent_request(task_id)
         finalized_entries, error = tasks_facade.finalize_task_run_artifact_uploads(
-            pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
+            pk,
+            task_id,
+            self.team_id,
+            artifacts=request.validated_data["artifacts"],
+            uploaded_by="agent" if is_agent_upload else "user",
+            uploaded_by_user_id=None if is_agent_upload else self._user_id(),
         )
         if finalized_entries is None and error is None:
             raise NotFound()
