@@ -131,7 +131,7 @@ export function PrChecksSection({ prUrl }: PrChecksSectionProps) {
         </span>
       }
     >
-      {visible.length > 0 && (
+      {visible.length > 0 ? (
         <div className="overflow-hidden rounded-md border border-(--gray-5)">
           {visible.map((check, index) => (
             <CheckRow
@@ -139,6 +139,12 @@ export function PrChecksSection({ prUrl }: PrChecksSectionProps) {
               check={check}
             />
           ))}
+        </div>
+      ) : (
+        <div className="py-1 text-[12px] text-gray-10">
+          {counts.fail + counts.cancel + counts.pending === 0
+            ? "All checks passed. Select a status above to see its runs."
+            : "No checks match the selected filters."}
         </div>
       )}
     </DetailSection>

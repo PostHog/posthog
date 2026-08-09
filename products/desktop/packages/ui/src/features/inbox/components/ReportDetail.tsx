@@ -59,9 +59,9 @@ function ReportDetailContent({ report }: { report: SignalReport }) {
       }
       summarySection={{ Icon: FileTextIcon, title: "Summary" }}
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+      aboveEvidence={<SuggestedReviewersSection report={report} />}
     >
       <ReportTasksSection report={report} />
-      <SuggestedReviewersSection report={report} />
       <ReportActivitySection reportId={report.id} />
       <ReportFeedbackFooter report={report} />
     </InboxDetailFrame>
