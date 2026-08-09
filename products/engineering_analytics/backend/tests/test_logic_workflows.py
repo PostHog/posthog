@@ -218,7 +218,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # The weekly digest's whole read path: headline aggregates with include_series=False must
         # still carry every number the digest renders — merged counts over ALL merged PRs (bots
         # included: the merge population that triggered the spend) while the median keeps the
-        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with all four
+        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with every
         # chart series empty. The default call keeps the series for the UI.
         self._create_table(
             "github_pull_requests",

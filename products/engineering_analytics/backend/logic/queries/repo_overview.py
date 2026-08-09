@@ -5,11 +5,12 @@ every headline number ships with its previous-window twin and the UI can render 
 honest delta instead of a server-baked percentage. The PR medians (bots and drafts
 excluded, per the locked cycle-time recipe) come from the PR snapshot the same way.
 
-The four chart series are a separate concern with a separate producer
-(``query_repo_series``): every series query computes unconditionally, the shared
-bucket granularity is decided exactly once, and a headline-only consumer composes
-``query_repo_overview`` with ``empty_repo_series`` instead of flag-switching what
-the query layer computes.
+The chart series are a separate concern with a separate producer
+(``query_repo_series``): every series query computes unconditionally (except the
+ready-to-merge series, which is empty when the issue-events table isn't synced),
+the shared bucket granularity is decided exactly once, and a headline-only consumer
+composes ``query_repo_overview`` with ``empty_repo_series`` instead of
+flag-switching what the query layer computes.
 """
 
 from dataclasses import dataclass
@@ -254,10 +255,10 @@ def query_open_to_merge_series(
 
 @dataclass(frozen=True)
 class RepoSeries:
-    """The repo hub's four chart series over one window, on one shared bucket granularity.
+    """The repo hub's chart series over one window, on one shared bucket granularity.
 
     Internal to the read layer: ``RepoOverview`` flattens it into the contract's per-series
-    fields. Produced by ``query_repo_series`` (four bucketed scans) or ``empty_repo_series``
+    fields. Produced by ``query_repo_series`` (one bucketed scan per series) or ``empty_repo_series``
     (no scans — the headline-only shape), so callers compose which one they pay for instead
     of the query layer flag-switching what it computes.
     """
@@ -276,7 +277,7 @@ def query_repo_series(
     date_from: datetime,
     date_to: datetime | None,
 ) -> RepoSeries:
-    """All four chart series across the window — the one place their shared granularity is decided."""
+    """All chart series across the window — the one place their shared granularity is decided."""
     granularity = pick_granularity(date_from, date_to)
     return RepoSeries(
         granularity=granularity,
