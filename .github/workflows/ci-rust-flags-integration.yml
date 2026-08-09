@@ -83,8 +83,8 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
-                  fetch-depth: 1000
+                  # Only the PR path needs history, to reach the merge base that keys the schema cache below.
+                  fetch-depth: ${{ github.event_name == 'pull_request' && 1000 || 1 }}
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
