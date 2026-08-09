@@ -20,7 +20,7 @@ from products.replay_vision.backend.api.backfills import (
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
-from products.replay_vision.backend.quota import compute_quota_snapshot, spend_projection
+from products.replay_vision.backend.quota import QuotaState, compute_quota_snapshot, spend_projection
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
     delete_backfill_schedule_activity,
@@ -205,9 +205,14 @@ class TestBackfillTickActivities:
     def test_prepare_clamps_batch_to_remaining_quota(self) -> None:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner, credits_per_observation=5)
-        headroom = MagicMock()
-        headroom.would_exceed.return_value = False
-        headroom.remaining = 7
+        # A real state, not a mock: the point of the test is the arithmetic that turns remaining
+        # credits into a batch size, and a stubbed collaborator can't fail when that changes.
+        headroom = QuotaState(
+            credit_limit=7,
+            credits_used=0,
+            period_start=_WINDOW_START,
+            period_end=_WINDOW_END,
+        )
         with patch(
             "products.replay_vision.backend.temporal.activities.backfill.quota_state",
             return_value=headroom,
