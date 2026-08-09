@@ -116,6 +116,9 @@ export function PrChecksSection({ prUrl }: PrChecksSectionProps) {
       Icon={ChecksIcon}
       title="Checks"
       collapsible
+      // A fully green run folds away; failed, cancelled, or still-running
+      // checks keep the section open because they need attention.
+      defaultCollapsed={counts.fail + counts.cancel + counts.pending === 0}
       rightSlot={
         <span className="flex items-center gap-1">
           {BUCKET_META.map(({ bucket, label, labelClass }) =>

@@ -18,8 +18,9 @@ interface PrFilesChangedSectionProps {
 
 /**
  * GitHub-style "Files changed" list for a PR: one collapsible diff per file,
- * all collapsed by default. An expanded file gets a footer row with the
- * "Viewed" toggle; marking a file viewed folds it back up.
+ * all expanded by default so the tab opens straight onto the changes. An
+ * expanded file gets a footer row with the "Viewed" toggle; marking a file
+ * viewed folds it back up.
  */
 export function PrFilesChangedSection({ prUrl }: PrFilesChangedSectionProps) {
   const filesQuery = usePrChangedFiles(prUrl);
@@ -30,7 +31,7 @@ export function PrFilesChangedSection({ prUrl }: PrFilesChangedSectionProps) {
 
   // Per-file collapse overrides on top of a section-wide baseline, so
   // expand/collapse-all is one state flip instead of a map rebuild.
-  const [baselineCollapsed, setBaselineCollapsed] = useState(true);
+  const [baselineCollapsed, setBaselineCollapsed] = useState(false);
   const [collapseOverrides, setCollapseOverrides] = useState<
     Map<string, boolean>
   >(new Map());

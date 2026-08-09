@@ -34,6 +34,7 @@ export function ReportActivitySection({
       Icon={ClockCounterClockwiseIcon}
       title="Activity"
       collapsible
+      defaultCollapsed
       rightSlot={
         <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
           {artefacts.length} entr{artefacts.length === 1 ? "y" : "ies"}
