@@ -23,7 +23,9 @@ Every attention state has its verb on the ticket detail: `TicketActions` (status
 | Ticket queue | `/code/support` |
 | Ticket detail (thread + meta) | `/code/support/$ticketId` |
 
-`routes/code/support.tsx` is the flag gate (layout route): everything under `/code/support` renders only when `future-support` is enabled (default on in dev builds). The sidebar item (`sidebar/components/items/SupportItem.tsx`) gates on the same flag in `SidebarNavSection.tsx`.
+`routes/code/support.tsx` is the flag gate (layout route): everything under `/code/support` renders only when `future-support` is enabled (default on in dev builds).
+
+**Support has two entry points, because the app has two shells.** `ChannelsSidebar` renders either the code sidebar (`SidebarNavSection`, with `items/SupportItem.tsx`) or — under the spaces layout (`useChannelsLayout`, i.e. `code-spaces-layout` + `project-bluebird`) — the icon rail `canvas/components/ChannelNav.tsx`. It's an either/or, not a superset: a destination wired into only one shell is *invisible* in the other, with no type error to catch it. Both flags default on in dev, so the rail is what you actually see locally. Add nav destinations to both, and note the rail is a hardcoded list — the Customize-sidebar dialog only governs `SidebarNavSection`.
 
 ## Ownership boundaries
 

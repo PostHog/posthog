@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   view: { type: "task-input" },
+  enabledFlags: new Set<string>(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
@@ -14,10 +15,13 @@ vi.mock(
   () => ({ useCommandCenterActiveCount: () => 0 }),
 );
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: (flag: string) => mocks.enabledFlags.has(flag),
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 0 } }),
+}));
+vi.mock("@posthog/ui/features/support/hooks/useSupportUnreadCount", () => ({
+  useSupportUnreadCount: () => ({ data: 0 }),
 }));
 vi.mock("@posthog/ui/router/useAppView", () => ({
   useAppView: () => mocks.view,
@@ -25,6 +29,8 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity: vi.fn(),
   navigateToInbox: vi.fn(),
+  navigateToLoops: vi.fn(),
+  navigateToSupport: vi.fn(),
   navigateToWebsiteCommandCenter: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
@@ -32,11 +38,26 @@ vi.mock("./ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
 
+import { FUTURE_SUPPORT_FLAG } from "@posthog/ui/features/support/featureFlag";
 import { ChannelNav } from "./ChannelNav";
 
 describe("ChannelNav", () => {
   beforeEach(() => {
     mocks.view = { type: "task-input" };
+    mocks.enabledFlags = new Set();
+  });
+
+  // This rail replaces the code sidebar wholesale under the spaces layout, so
+  // a flag-gated destination wired into only one of the two shells is invisible
+  // wherever the other one renders — with no type error to catch it.
+  it("shows Support only when its flag is on", () => {
+    const { rerender } = render(<ChannelNav />);
+    expect(screen.queryByLabelText("Support")).not.toBeInTheDocument();
+
+    mocks.enabledFlags = new Set([FUTURE_SUPPORT_FLAG]);
+    rerender(<ChannelNav />);
+
+    expect(screen.getByLabelText("Support")).toBeInTheDocument();
   });
 
   it("opens recent activity from the bell after the hover delay", async () => {
