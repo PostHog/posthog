@@ -247,6 +247,16 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # activity. Match the stable code, distinct from genuine credential-rejection wordings
     # ("password authentication failed", "SASL authentication failed").
     "(eauthquery)",
+    # Supavisor caches the per-tenant database credentials it needs to authenticate and proxy
+    # connections; when it can't fetch them (e.g. its own metadata store is briefly unreachable) it
+    # retries internally and, after exhausting those attempts, trips an internal circuit breaker
+    # that rejects new connects outright rather than retrying forever: a bare OperationalError
+    # carrying "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts,
+    # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
+    # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
+    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
+    # stable code, distinct from genuine credential-rejection wordings.
+    "(ecircuitbreaker)",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
