@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { IconCopy } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -20,23 +22,34 @@ export async function copyToClipboard(
         })
     }
 
+    const notifyFailure = (error: unknown): void => {
+        // Capture the reason so the failure rate is measurable, not swallowed.
+        posthog.captureException(error, { copyToClipboardDescription: description })
+        lemonToast.error(`Could not copy ${description} to clipboard. Try again in a moment.`)
+    }
+
     try {
         await navigator.clipboard.writeText(value)
         notifySuccess()
         return true
-    } catch {
+    } catch (clipboardError) {
         // If the Clipboard API fails, fallback to textarea method
         try {
             const textArea = document.createElement('textarea')
             textArea.value = value
             document.body.appendChild(textArea)
             textArea.select()
-            document.execCommand('copy')
+            const copied = document.execCommand('copy')
             document.body.removeChild(textArea)
+            if (!copied) {
+                // execCommand returns false without throwing, so an unchecked fallback claims success on an empty clipboard.
+                notifyFailure(clipboardError)
+                return false
+            }
             notifySuccess()
             return true
-        } catch (err) {
-            lemonToast.error(`Could not copy ${description} to clipboard: ${err}`)
+        } catch (fallbackError) {
+            notifyFailure(fallbackError)
             return false
         }
     }
