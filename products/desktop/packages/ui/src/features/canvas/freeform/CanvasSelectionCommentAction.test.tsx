@@ -70,6 +70,10 @@ describe("CanvasSelectionCommentAction", () => {
 
     fireEvent.click(screen.getByText("Submit selection comment"));
 
+    expect(useCanvasChatPanelStore.getState()).toMatchObject({
+      collapsed: false,
+      tab: "comments",
+    });
     expect(mutateAsync).toHaveBeenCalledWith({
       content: "Please revise this",
       context: {
@@ -85,17 +89,13 @@ describe("CanvasSelectionCommentAction", () => {
       },
       mentions: [4],
     });
-    await waitFor(() => {
-      expect(useCanvasChatPanelStore.getState()).toMatchObject({
-        collapsed: false,
-        tab: "comments",
-      });
-    });
-    expect(
-      useCommentNavigationStore.getState().focusByTask["task-1"],
-    ).toMatchObject({
-      threadId: "comment-1",
-      scrollTo: "none",
-    });
+    await waitFor(() =>
+      expect(
+        useCommentNavigationStore.getState().focusByTask["task-1"],
+      ).toMatchObject({
+        threadId: "comment-1",
+        scrollTo: "none",
+      }),
+    );
   });
 });

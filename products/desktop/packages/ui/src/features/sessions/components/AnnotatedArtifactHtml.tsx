@@ -45,6 +45,16 @@ function selectionAnchor(
   };
 }
 
+export function withSelectionPosition(
+  current: EditorSelection | null,
+  frame: ArtifactHtmlFrameRect,
+  selection: ArtifactHtmlFrameRect,
+): EditorSelection | null {
+  return current
+    ? { ...current, anchor: selectionAnchor(frame, selection) }
+    : null;
+}
+
 export function AnnotatedArtifactHtml({
   html,
   name,
@@ -181,12 +191,7 @@ export function AnnotatedArtifactHtml({
       if (data.type === "selection-position" && isFrameRect(data.rect)) {
         const rect = data.rect;
         setSelection((current) =>
-          current
-            ? {
-                ...current,
-                anchor: selectionAnchor(frameBox, rect),
-              }
-            : current,
+          withSelectionPosition(current, frameBox, rect),
         );
         return;
       }

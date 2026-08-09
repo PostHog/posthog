@@ -116,9 +116,11 @@ describe("SelectionCommentOverlay", () => {
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(submit).toHaveAttribute("aria-disabled", "true");
+    expect(submit).toHaveAttribute("aria-busy", "true");
     resolveSubmit?.();
     await waitFor(() => expect(onDismiss).toHaveBeenCalledOnce());
     expect(submit).toHaveAttribute("aria-disabled", "false");
+    expect(submit).not.toHaveAttribute("aria-busy");
   });
 
   it("keeps the draft open when comment creation fails", async () => {

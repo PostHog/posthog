@@ -40,28 +40,15 @@ describe("sanitizeArtifactBridgeMessage", () => {
   });
 
   it("accepts bounded selection position updates", () => {
-    const rect = {
-      top: 10,
-      left: 20,
-      right: 30,
-      bottom: 40,
-      width: 10,
-      height: 30,
-    };
-
-    expect(
-      sanitizeArtifactBridgeMessage({
-        marker,
-        channel: "artifact-comments-1",
-        type: "selection-position",
-        rect,
-      }),
-    ).toEqual({
+    const rect = selectionMessage().rect;
+    const message = {
       marker,
       channel: "artifact-comments-1",
       type: "selection-position",
       rect,
-    });
+    };
+
+    expect(sanitizeArtifactBridgeMessage(message)).toEqual(message);
   });
 
   it.each([

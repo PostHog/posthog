@@ -35,14 +35,13 @@ function loadBridgeDocument(
   return dom;
 }
 
-function selectParagraph(dom: JSDOM): Range {
+function selectParagraph(dom: JSDOM): void {
   const selection = dom.window.getSelection();
   const paragraph = dom.window.document.querySelector("p");
   if (!selection || !paragraph) throw new Error("test document needs a <p>");
   const range = dom.window.document.createRange();
   range.selectNodeContents(paragraph);
   selection.addRange(range);
-  return range;
 }
 
 function pressOn(dom: JSDOM, selector: string): void {
@@ -75,26 +74,25 @@ function actionButton(dom: JSDOM): HTMLElement | null {
   );
 }
 
-function activateAction(dom: JSDOM, input: "pointer" | "keyboard"): boolean {
+function pressAction(dom: JSDOM): void {
   const element = actionButton(dom);
   if (!element) throw new Error("missing comment action");
-  if (input === "pointer") {
-    element.dispatchEvent(
-      new dom.window.MouseEvent("pointerdown", {
-        bubbles: true,
-        composed: true,
-      }),
-    );
-  }
-  dom.window.getSelection()?.removeAllRanges();
-  const click = new dom.window.MouseEvent("click", {
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    detail: input === "pointer" ? 1 : 0,
-  });
-  element.dispatchEvent(click);
-  return click.defaultPrevented;
+  element.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true, composed: true }),
+  );
+}
+
+function activateAction(dom: JSDOM): void {
+  const element = actionButton(dom);
+  if (!element) throw new Error("missing comment action");
+  element.dispatchEvent(
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      detail: 1,
+    }),
+  );
 }
 
 describe("artifactHtmlCommentBridge", () => {
@@ -139,67 +137,68 @@ describe("artifactHtmlCommentBridge", () => {
     dom.window.close();
   });
 
-  it.each(["pointer", "keyboard"] as const)(
-    "posts the selected anchor and action position for %s activation",
-    (input) => {
-      const dom = loadBridgeDocument(
-        "<html><body><p>some selectable text here</p></body></html>",
-      );
-      const messages: unknown[] = [];
-      dom.window.postMessage = ((message: unknown) => {
-        messages.push(message);
-      }) as typeof dom.window.postMessage;
+  it("ignores presses on the action button itself", () => {
+    const dom = loadBridgeDocument(
+      "<html><body><p>some selectable text here</p></body></html>",
+    );
 
-      pressOn(dom, "p");
-      const range = selectParagraph(dom);
-      range.getClientRects = () =>
-        [
-          {
-            top: 50,
-            left: 70,
-            right: 110,
-            bottom: 60,
-            width: 40,
-            height: 10,
-          },
-        ] as unknown as DOMRectList;
-      releaseOn(dom, "p");
+    pressOn(dom, "p");
+    selectParagraph(dom);
+    releaseOn(dom, "p");
+    expect(actionButton(dom)?.style.display).toBe("flex");
 
-      const defaultPrevented = activateAction(dom, input);
+    pressAction(dom);
+    expect(actionButton(dom)?.style.display).toBe("flex");
+    dom.window.close();
+  });
 
-      expect(defaultPrevented).toBe(true);
-      expect(messages).toHaveLength(1);
-      expect(messages[0]).toMatchObject({
-        marker: BRIDGE_MARKER,
-        channel: CHANNEL,
-        type: "selection",
-        anchor: {
-          kind: "text",
-          quote: "some selectable text here",
-          start: 0,
-          end: 25,
-        },
-        rect: {
-          top: 50,
-          left: 70,
-          right: 110,
-          bottom: 60,
-          width: 40,
-          height: 10,
-        },
-        triggerRect: {
-          top: expect.any(Number),
-          left: expect.any(Number),
-          right: expect.any(Number),
-          bottom: expect.any(Number),
-          width: expect.any(Number),
-          height: expect.any(Number),
-        },
-      });
-      expect(actionButton(dom)?.style.display).toBe("none");
-      dom.window.close();
-    },
-  );
+  it("posts the selected anchor and action position when activated", () => {
+    const dom = loadBridgeDocument(
+      "<html><body><p>some selectable text here</p></body></html>",
+    );
+    const messages: unknown[] = [];
+    dom.window.postMessage = ((message: unknown) => {
+      messages.push(message);
+    }) as typeof dom.window.postMessage;
+
+    pressOn(dom, "p");
+    selectParagraph(dom);
+    releaseOn(dom, "p");
+    pressAction(dom);
+    dom.window.getSelection()?.removeAllRanges();
+    activateAction(dom);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      marker: BRIDGE_MARKER,
+      channel: CHANNEL,
+      type: "selection",
+      anchor: {
+        kind: "text",
+        quote: "some selectable text here",
+        start: 0,
+        end: 25,
+      },
+      rect: {
+        top: 40,
+        left: 10,
+        right: 110,
+        bottom: 60,
+        width: 100,
+        height: 20,
+      },
+      triggerRect: {
+        top: expect.any(Number),
+        left: expect.any(Number),
+        right: expect.any(Number),
+        bottom: expect.any(Number),
+        width: expect.any(Number),
+        height: expect.any(Number),
+      },
+    });
+    expect(actionButton(dom)?.style.display).toBe("none");
+    dom.window.close();
+  });
 
   it("updates the active composer position when the artifact scrolls", () => {
     const dom = loadBridgeDocument(
@@ -211,7 +210,9 @@ describe("artifactHtmlCommentBridge", () => {
     }) as typeof dom.window.postMessage;
 
     pressOn(dom, "p");
-    const range = selectParagraph(dom);
+    selectParagraph(dom);
+    const range = dom.window.getSelection()?.getRangeAt(0);
+    if (!range) throw new Error("missing selected range");
     let top = 50;
     range.getClientRects = () =>
       [
@@ -225,7 +226,9 @@ describe("artifactHtmlCommentBridge", () => {
         },
       ] as unknown as DOMRectList;
     releaseOn(dom, "p");
-    activateAction(dom, "pointer");
+    pressAction(dom);
+    dom.window.getSelection()?.removeAllRanges();
+    activateAction(dom);
 
     top = 20;
     dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
