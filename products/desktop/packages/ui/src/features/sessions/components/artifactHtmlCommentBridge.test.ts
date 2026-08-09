@@ -75,16 +75,26 @@ function actionButton(dom: JSDOM): HTMLElement | null {
   );
 }
 
-function activateAction(dom: JSDOM): boolean {
+function activateAction(dom: JSDOM, input: "pointer" | "keyboard"): boolean {
   const element = actionButton(dom);
   if (!element) throw new Error("missing comment action");
-  const event = new dom.window.MouseEvent("pointerdown", {
+  if (input === "pointer") {
+    element.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", {
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+  dom.window.getSelection()?.removeAllRanges();
+  const click = new dom.window.MouseEvent("click", {
     bubbles: true,
     cancelable: true,
     composed: true,
+    detail: input === "pointer" ? 1 : 0,
   });
-  element.dispatchEvent(event);
-  return event.defaultPrevented;
+  element.dispatchEvent(click);
+  return click.defaultPrevented;
 }
 
 describe("artifactHtmlCommentBridge", () => {
@@ -129,20 +139,47 @@ describe("artifactHtmlCommentBridge", () => {
     dom.window.close();
   });
 
-  it("posts the selected anchor and action position when activated", () => {
-    const dom = loadBridgeDocument(
-      "<html><body><p>some selectable text here</p></body></html>",
-    );
-    const messages: unknown[] = [];
-    dom.window.postMessage = ((message: unknown) => {
-      messages.push(message);
-    }) as typeof dom.window.postMessage;
+  it.each(["pointer", "keyboard"] as const)(
+    "posts the selected anchor and action position for %s activation",
+    (input) => {
+      const dom = loadBridgeDocument(
+        "<html><body><p>some selectable text here</p></body></html>",
+      );
+      const messages: unknown[] = [];
+      dom.window.postMessage = ((message: unknown) => {
+        messages.push(message);
+      }) as typeof dom.window.postMessage;
 
-    pressOn(dom, "p");
-    const range = selectParagraph(dom);
-    range.getClientRects = () =>
-      [
-        {
+      pressOn(dom, "p");
+      const range = selectParagraph(dom);
+      range.getClientRects = () =>
+        [
+          {
+            top: 50,
+            left: 70,
+            right: 110,
+            bottom: 60,
+            width: 40,
+            height: 10,
+          },
+        ] as unknown as DOMRectList;
+      releaseOn(dom, "p");
+
+      const defaultPrevented = activateAction(dom, input);
+
+      expect(defaultPrevented).toBe(true);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        marker: BRIDGE_MARKER,
+        channel: CHANNEL,
+        type: "selection",
+        anchor: {
+          kind: "text",
+          quote: "some selectable text here",
+          start: 0,
+          end: 25,
+        },
+        rect: {
           top: 50,
           left: 70,
           right: 110,
@@ -150,35 +187,19 @@ describe("artifactHtmlCommentBridge", () => {
           width: 40,
           height: 10,
         },
-      ] as unknown as DOMRectList;
-    releaseOn(dom, "p");
-
-    const defaultPrevented = activateAction(dom);
-
-    expect(defaultPrevented).toBe(true);
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({
-      marker: BRIDGE_MARKER,
-      channel: CHANNEL,
-      type: "selection",
-      anchor: {
-        kind: "text",
-        quote: "some selectable text here",
-        start: 0,
-        end: 25,
-      },
-      rect: {
-        top: 50,
-        left: 70,
-        right: 110,
-        bottom: 60,
-        width: 40,
-        height: 10,
-      },
-    });
-    expect(actionButton(dom)?.style.display).toBe("none");
-    dom.window.close();
-  });
+        triggerRect: {
+          top: expect.any(Number),
+          left: expect.any(Number),
+          right: expect.any(Number),
+          bottom: expect.any(Number),
+          width: expect.any(Number),
+          height: expect.any(Number),
+        },
+      });
+      expect(actionButton(dom)?.style.display).toBe("none");
+      dom.window.close();
+    },
+  );
 
   it.each(["light", "dark"] as const)(
     "applies the %s theme to the isolated comment action",
