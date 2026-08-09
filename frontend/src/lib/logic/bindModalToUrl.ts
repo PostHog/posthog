@@ -34,10 +34,18 @@ export function bindModalToUrl<L extends Logic = Logic>({
         }))(logic)
 
         urlToAction(({ actions, values }) => ({
-            '*': (_params, searchParams) => {
+            '*': (_params, searchParams, _hashParams, { method }) => {
                 const shouldBeOpen = searchParams.modal === urlKey
-                if (shouldBeOpen !== !!values[isOpenKey]) {
-                    ;(actions as any)[shouldBeOpen ? openActionKey : closeActionKey]()
+                if (shouldBeOpen === !!values[isOpenKey]) {
+                    return
+                }
+                if (shouldBeOpen) {
+                    ;(actions as any)[openActionKey]()
+                } else if (method !== 'REPLACE') {
+                    // Close only on a real navigation (push/pop). A `replace` that dropped the param —
+                    // a scene syncing its own filters to the URL, say — must not close a modal the user
+                    // just opened. The reducer owns the open state; the URL only deep-links into it.
+                    ;(actions as any)[closeActionKey]()
                 }
             },
         }))(logic)

@@ -210,7 +210,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <ButtonPrimitive
                             onClick={() => {
                                 showInviteModal()
-                                reportInviteMembersButtonClicked()
+                                reportInviteMembersButtonClicked('account_menu')
                             }}
                             menuItem
                             tooltip="Invite members"

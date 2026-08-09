@@ -12,6 +12,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -133,6 +134,7 @@ export function InvitesTable(): JSX.Element {
 
 export function Invites(): JSX.Element {
     const { showInviteModal } = useActions(inviteLogic)
+    const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -149,7 +151,10 @@ export function Invites(): JSX.Element {
             <InvitesTable />
             <LemonButton
                 type="primary"
-                onClick={showInviteModal}
+                onClick={() => {
+                    showInviteModal()
+                    reportInviteMembersButtonClicked('organization_settings')
+                }}
                 data-attr="invite-teammate-button"
                 disabledReason={userCannotInvite && "You can't invite other members or view invites"}
             >

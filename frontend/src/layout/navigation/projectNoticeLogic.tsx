@@ -602,7 +602,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Get more out of PostHog by inviting your team for free',
                             action: {
                                 'data-attr': 'invite-warning-cta',
-                                onClick: () => inviteLogic.actions.showInviteModal(),
+                                onClick: () => {
+                                    inviteLogic.actions.showInviteModal()
+                                    eventUsageLogic.actions.reportInviteMembersButtonClicked('project_notice')
+                                },
                                 icon: <IconPlus />,
                                 children: 'Invite team members',
                             },

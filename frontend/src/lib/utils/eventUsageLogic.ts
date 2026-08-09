@@ -1527,8 +1527,8 @@ export interface eventUsageLogicActions {
         integration: string
         kind: string
     }
-    reportInviteMembersButtonClicked: () => {
-        value: true
+    reportInviteMembersButtonClicked: (source?: string) => {
+        source?: string
     }
     reportMCPHintDismissed: (
         dismissType: 'all' | 'surface',
@@ -2660,7 +2660,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
-        reportInviteMembersButtonClicked: true,
+        reportInviteMembersButtonClicked: (source?: string) => ({ source }),
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
             dashboardId,
@@ -3886,8 +3886,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFeatureFlagScheduleFailure: ({ error }) => {
             posthog.capture('feature flag schedule failure', { error })
         },
-        reportInviteMembersButtonClicked: () => {
-            posthog.capture('invite members button clicked')
+        reportInviteMembersButtonClicked: ({ source }) => {
+            posthog.capture('invite members button clicked', { source })
         },
         reportTeamSettingChange: ({ name, value }) => {
             posthog.capture(`${name} team setting updated`, {

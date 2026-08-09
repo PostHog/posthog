@@ -99,6 +99,18 @@ describe('bindModalToUrl', () => {
         await expectLogic(logic).delay(1).toMatchValues({ isOpen: false })
     })
 
+    it('stays open when a `replace` drops the param without navigating (scene URL rewrite)', async () => {
+        logic.actions.showModal()
+        await expectLogic(router).delay(1)
+        expect(router.values.searchParams.modal).toBe('test-modal')
+
+        // A scene syncing its own filters to the URL replaces the location and drops the modal param.
+        // This used to close the modal the moment it opened; the reducer must keep owning the state.
+        router.actions.replace('/example', { tab: 'general' })
+
+        await expectLogic(logic).delay(1).toMatchValues({ isOpen: true })
+    })
+
     it('ignores modal params that belong to a different urlKey', async () => {
         router.actions.push('/example', { modal: 'some-other-modal' })
 

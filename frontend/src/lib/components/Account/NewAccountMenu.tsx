@@ -206,7 +206,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <Menu.Item
                                     onClick={() => {
                                         showInviteModal()
-                                        reportInviteMembersButtonClicked()
+                                        reportInviteMembersButtonClicked('account_menu')
                                     }}
                                     render={
                                         <ButtonPrimitive

@@ -20,7 +20,7 @@ export function InviteMembersButton({
             icon={<IconPlusSmall />}
             onClick={() => {
                 showInviteModal()
-                reportInviteMembersButtonClicked()
+                reportInviteMembersButtonClicked('account_menu')
             }}
             center={center}
             type={type}
