@@ -270,22 +270,22 @@ describe('alertFormLogic', () => {
 
     it.each([
         {
-            name: 'a descriptive error toast for a DRF ApiError',
+            name: 'the field mapped onto its modal label for a DRF ApiError',
             error: new ApiError('Bad request', 400, undefined, {
                 attr: 'calculation_interval',
                 detail: 'Must be one of hourly, daily, weekly, monthly',
             }),
-            expectedToast: 'Error saving alert: calculation interval: Must be one of hourly, daily, weekly, monthly',
+            expectedToast: "Couldn't save alert: Frequency: Must be one of hourly, daily, weekly, monthly",
         },
         {
             name: 'the error message for a non-ApiError',
             error: new Error('Network request failed'),
-            expectedToast: 'Error saving alert: Network request failed',
+            expectedToast: "Couldn't save alert: Network request failed",
         },
         {
             name: 'the ApiError message when attr and detail are missing',
             error: new ApiError('Bad request', 400),
-            expectedToast: 'Error saving alert: Bad request',
+            expectedToast: "Couldn't save alert: Bad request",
         },
     ])('shows %s when the create API call fails', async ({ error, expectedToast }) => {
         createSpy.mockRejectedValueOnce(error)
@@ -296,8 +296,50 @@ describe('alertFormLogic', () => {
             logic.actions.submitAlertForm()
         }).toFinishAllListeners()
 
-        expect(errorToastSpy).toHaveBeenCalledWith(expectedToast)
+        expect(errorToastSpy).toHaveBeenCalledWith(expectedToast, expect.any(Object))
         expect(successToastSpy).not.toHaveBeenCalled()
+    })
+
+    it('surfaces the rejected field inline and captures a failure event on a rejected create', async () => {
+        createSpy.mockRejectedValueOnce(
+            new ApiError('Bad request', 400, undefined, {
+                attr: 'calculation_interval',
+                detail: 'Must be one of hourly, daily, weekly, monthly',
+            })
+        )
+
+        const logic = mountForm()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        // Inline error keyed by the serializer attr carries the raw detail, so it renders next to the field.
+        expect(logic.values.alertFormManualErrors.calculation_interval).toBe(
+            'Must be one of hourly, daily, weekly, monthly'
+        )
+        expect(captureSpy).toHaveBeenCalledWith('alert creation failed', {
+            ui_version: 'redesigned',
+            field: 'calculation_interval',
+        })
+    })
+
+    it('supersedes the previous save-error toast instead of stacking on retry', async () => {
+        errorToastSpy.mockImplementation((_message: string, options?: { toastId?: string }) => options?.toastId)
+        const dismissSpy = jest.spyOn(lemonToast, 'dismiss').mockImplementation(jest.fn())
+        createSpy.mockRejectedValue(new ApiError('Bad request', 400))
+
+        const logic = mountForm()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        const firstToastId = errorToastSpy.mock.results[0].value
+        expect(dismissSpy).toHaveBeenCalledWith(firstToastId)
     })
 
     it('shows success toast and no error toast when update succeeds', async () => {
@@ -351,7 +393,8 @@ describe('alertFormLogic', () => {
         expect(createSpy).not.toHaveBeenCalled()
         expect(successToastSpy).not.toHaveBeenCalled()
         expect(errorToastSpy).toHaveBeenCalledWith(
-            "Couldn't save alert: Enter at least one threshold (less than or more than)"
+            "Couldn't save alert: Enter at least one threshold (less than or more than)",
+            expect.any(Object)
         )
         expect(logic.values.thresholdBoundsFormError).toBe('Enter at least one threshold (less than or more than)')
     })
@@ -377,7 +420,8 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(errorToastSpy).toHaveBeenCalledWith(
-            "Couldn't save alert: You need to give your alert a name. Start and end must differ. Enter at least one threshold (less than or more than)"
+            "Couldn't save alert: You need to give your alert a name. Start and end must differ. Enter at least one threshold (less than or more than)",
+            expect.any(Object)
         )
     })
 
@@ -412,7 +456,8 @@ describe('alertFormLogic', () => {
         expect(createSpy).not.toHaveBeenCalled()
         expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBeNull()
         expect(errorToastSpy).toHaveBeenCalledWith(
-            '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
+            '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.',
+            expect.any(Object)
         )
         expect(successToastSpy).not.toHaveBeenCalled()
     })

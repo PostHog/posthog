@@ -207,16 +207,65 @@ function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
     unmount()
 }
 
-function formatSaveError(error: unknown): string {
+/** Maps a rejected serializer field (`attr`) onto the label the modal shows for that control,
+ * so the toast and inline error name the field the user sees rather than the API attribute. */
+const SAVE_ERROR_FIELD_LABELS: Record<string, string> = {
+    calculation_interval: 'Frequency',
+    name: 'Name',
+    threshold: 'Threshold',
+    condition: 'Condition',
+    config: 'Alert configuration',
+    subscribed_users: 'Recipients',
+    schedule_restriction: 'Quiet hours',
+    detector_config: 'Anomaly detection',
+    skip_weekend: 'Skip weekends',
+}
+
+interface SaveErrorInfo {
+    /** The serializer `attr`, used to surface the error inline on the matching form field. */
+    field?: string
+    /** The raw server detail, shown inline next to the field. */
+    detail: string
+    /** Label + detail, shown in the toast. */
+    message: string
+}
+
+function describeSaveError(error: unknown): SaveErrorInfo {
+    // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as `{attr, detail}`.
     if (error instanceof ApiError) {
-        const field = error.attr?.replace(/_/g, ' ')
         const detail = error.detail ?? error.message
-        return field ? `${field}: ${detail}` : detail
+        const field = error.attr ?? undefined
+        if (field) {
+            const label = SAVE_ERROR_FIELD_LABELS[field] ?? field.replace(/_/g, ' ')
+            return { field, detail, message: `${label}: ${detail}` }
+        }
+        return { detail, message: detail }
     }
     if (error instanceof Error) {
-        return error.message
+        return { detail: error.message, message: error.message }
     }
-    return 'Unknown error'
+    return { detail: 'Unknown error', message: 'Unknown error' }
+}
+
+interface SaveToastCache {
+    saveErrorToastId?: number | string
+    saveErrorToastCount?: number
+}
+
+/** Show a save-error toast that supersedes the previous one, so retries never stack in the corner.
+ * A fresh id each time (rather than a fixed one) sidesteps the same-tick dismiss/re-show cancellation
+ * in `lemonToast`, so a repeated identical error still replaces its predecessor. */
+function showSaveErrorToast(cache: SaveToastCache, message: string): void {
+    dismissSaveErrorToast(cache)
+    cache.saveErrorToastCount = (cache.saveErrorToastCount ?? 0) + 1
+    cache.saveErrorToastId = lemonToast.error(message, { toastId: `alert-save-error-${cache.saveErrorToastCount}` })
+}
+
+function dismissSaveErrorToast(cache: SaveToastCache): void {
+    if (cache.saveErrorToastId != null) {
+        lemonToast.dismiss(cache.saveErrorToastId)
+        cache.saveErrorToastId = undefined
+    }
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
@@ -517,7 +566,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, values, actions, cache }) => ({
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
@@ -564,8 +613,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ),
                 })
                 if (entitlementCheck.blocked) {
-                    lemonToast.error(entitlementCheck.message)
                     actions.setAlertFormManualErrors({ calculation_interval: entitlementCheck.message })
+                    showSaveErrorToast(cache, entitlementCheck.message)
                     throw new Error(entitlementCheck.message)
                 }
 
@@ -643,12 +692,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ? await api.alerts.create(payload)
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
-                    // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
-                    // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
-                    // be formatted with those fields or we end up with "undefined: undefined".
-                    lemonToast.error(`Error saving alert: ${formatSaveError(error)}`)
+                    const saveError = describeSaveError(error)
+                    // Surface the error inline on the offending field, next to the control the user edited.
+                    if (saveError.field) {
+                        actions.setAlertFormManualErrors({ [saveError.field]: saveError.detail })
+                    }
+                    showSaveErrorToast(cache, `Couldn't save alert: ${saveError.message}`)
+                    // No capture event existed for a rejected save, so failed attempts were invisible.
+                    if (isNewAlert) {
+                        posthog.capture('alert creation failed', {
+                            ui_version: 'redesigned',
+                            field: saveError.field ?? null,
+                        })
+                    }
                     throw error
                 }
+
+                dismissSaveErrorToast(cache)
 
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
@@ -833,7 +893,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    listeners(({ props, values, actions }) => {
+    listeners(({ props, values, actions, cache }) => {
         const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
                 return insightAlertsLogic({
@@ -894,7 +954,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 )
                 if (validationErrors.length > 0) {
                     const message = validationErrors.map((error) => error.replace(/[.!?]+$/, '')).join('. ')
-                    lemonToast.error(`Couldn't save alert: ${message}`)
+                    showSaveErrorToast(cache, `Couldn't save alert: ${message}`)
                 }
             },
             submitAlertFormSuccess: async () => {
