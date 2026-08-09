@@ -1,3 +1,4 @@
+import re
 import gzip
 import json
 import time
@@ -11,7 +12,6 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.oauth import (
     AccessTokenProvider,
 )
@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 SP_API_HOSTS = {
     "na": "https://sellingpartnerapi-na.amazon.com",
@@ -44,6 +45,11 @@ REPORT_WINDOW_DAYS = 30
 REPORT_POLL_INTERVAL_SECONDS = 30
 REPORT_POLL_MAX_ATTEMPTS = 80
 REPORT_PENDING_STATUSES = frozenset({"IN_QUEUE", "IN_PROGRESS"})
+# Amazon marketplace IDs are short alphanumeric tokens (e.g. ATVPDKIKX0DER) and there are
+# roughly twenty of them worldwide; both bounds are sanity limits on operator input.
+MAX_MARKETPLACE_IDS = 50
+MARKETPLACE_ID_MAX_LENGTH = 32
+MARKETPLACE_ID_PATTERN = re.compile(r"[A-Za-z0-9]+")
 
 
 class AmazonSellingPartnerRetryableError(Exception):
@@ -77,15 +83,32 @@ def _base_url(region: str) -> str:
 
 
 def parse_marketplace_ids(raw: str) -> list[str]:
-    """Split the user's marketplace id list, preserving order and dropping duplicates."""
-    seen: list[str] = []
+    """Split the user's marketplace id list, preserving order and dropping duplicates.
+
+    The field is free text a source editor controls, so the parse is bounded rather than
+    trusting: each id is length- and character-checked, duplicates are detected against a
+    set (constant time, so a long list stays linear), and the count is capped. Amazon
+    operates on the order of twenty marketplaces, so `MAX_MARKETPLACE_IDS` is a guard
+    against a pathological config rather than a product limit.
+    """
+    ordered: list[str] = []
+    seen: set[str] = set()
     for chunk in raw.replace("\n", ",").replace(" ", ",").split(","):
         value = chunk.strip()
-        if value and value not in seen:
-            seen.append(value)
-    if not seen:
+        if not value or value in seen:
+            continue
+        if len(value) > MARKETPLACE_ID_MAX_LENGTH or not MARKETPLACE_ID_PATTERN.fullmatch(value):
+            raise ValueError(
+                f"Invalid Amazon marketplace ID: {value[:MARKETPLACE_ID_MAX_LENGTH]!r}. "
+                "Marketplace IDs are alphanumeric, like ATVPDKIKX0DER."
+            )
+        if len(ordered) >= MAX_MARKETPLACE_IDS:
+            raise ValueError(f"At most {MAX_MARKETPLACE_IDS} Amazon marketplace IDs can be synced at once")
+        seen.add(value)
+        ordered.append(value)
+    if not ordered:
         raise ValueError("At least one Amazon marketplace ID is required")
-    return seen
+    return ordered
 
 
 def _format_timestamp(value: Any) -> str:
