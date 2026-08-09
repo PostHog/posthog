@@ -13541,6 +13541,38 @@ export namespace Schemas {
     }
 
     /**
+     * * `type` - type
+     * * `team` - team
+     * * `multiple` - multiple
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      Type: 'type',
+      Team: 'team',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface BillingTimeSeriesPoint {
+      id?: number;
+      label?: string;
+      data?: number[];
+      dates?: string[];
+      breakdown_type?: BreakdownTypeEnum | null;
+      breakdown_value?: unknown;
+    }
+
+    export interface BillingTimeSeriesResponse {
+      status?: string;
+      type?: string;
+      customer_id?: string;
+      results: BillingTimeSeriesPoint[];
+      team_id_options?: number[];
+      next?: string;
+    }
+
+    /**
      * * `team_retention` - team_retention
      * * `byte_budget` - byte_budget
      */
@@ -83407,6 +83439,7 @@ export namespace Schemas {
 
     export type BillingSpendRetrieveParams = {
     /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
      * @nullable
      */
     breakdowns?: string | null;
@@ -83423,6 +83456,7 @@ export namespace Schemas {
      */
     start_date?: string | null;
     /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
      * @nullable
      */
     team_ids?: string | null;
@@ -83435,6 +83469,7 @@ export namespace Schemas {
 
     export type BillingUsageRetrieveParams = {
     /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
      * @nullable
      */
     breakdowns?: string | null;
@@ -83451,6 +83486,7 @@ export namespace Schemas {
      */
     start_date?: string | null;
     /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
      * @nullable
      */
     team_ids?: string | null;

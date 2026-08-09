@@ -12,11 +12,21 @@ import * as zod from 'zod'
  * Endpoint to fetch spend data (proxy to billing service).
  */
 export const BillingSpendRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    breakdowns: zod.string().nullish(),
+    breakdowns: zod
+        .string()
+        .nullish()
+        .describe(
+            'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
+        ),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
     start_date: zod.string().nullish(),
-    team_ids: zod.string().nullish(),
+    team_ids: zod
+        .string()
+        .nullish()
+        .describe(
+            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.'
+        ),
     usage_types: zod
         .string()
         .nullish()
@@ -26,11 +36,21 @@ export const BillingSpendRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const BillingUsageRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    breakdowns: zod.string().nullish(),
+    breakdowns: zod
+        .string()
+        .nullish()
+        .describe(
+            'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
+        ),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
     start_date: zod.string().nullish(),
-    team_ids: zod.string().nullish(),
+    team_ids: zod
+        .string()
+        .nullish()
+        .describe(
+            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.'
+        ),
     usage_types: zod
         .string()
         .nullish()

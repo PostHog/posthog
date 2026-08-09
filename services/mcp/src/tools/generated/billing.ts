@@ -70,7 +70,7 @@ const BillingSpendRetrieveSchema = BillingSpendRetrieveQueryParams.extend({
         "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
     ),
     team_ids: BillingSpendRetrieveQueryParams.shape['team_ids'].describe(
-        'Comma-separated team (project) IDs to filter by. Omit for all teams in the org.'
+        'JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org.'
     ),
     usage_types: BillingSpendRetrieveQueryParams.shape['usage_types'].describe(
         'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
@@ -83,11 +83,11 @@ const BillingSpendRetrieveSchema = BillingSpendRetrieveQueryParams.extend({
     ),
 })
 
-const billingSpendRetrieve = (): ToolBase<typeof BillingSpendRetrieveSchema, unknown> => ({
+const billingSpendRetrieve = (): ToolBase<typeof BillingSpendRetrieveSchema, Schemas.BillingTimeSeriesResponse> => ({
     name: 'billing-spend-retrieve',
     schema: BillingSpendRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof BillingSpendRetrieveSchema>) => {
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.BillingTimeSeriesResponse>({
             method: 'GET',
             path: `/api/billing/spend/`,
             query: {
@@ -111,7 +111,7 @@ const BillingUsageRetrieveSchema = BillingUsageRetrieveQueryParams.extend({
         "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
     ),
     team_ids: BillingUsageRetrieveQueryParams.shape['team_ids'].describe(
-        'Comma-separated team (project) IDs to filter by. Omit for all teams in the org.'
+        'JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org.'
     ),
     usage_types: BillingUsageRetrieveQueryParams.shape['usage_types'].describe(
         'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
@@ -124,11 +124,11 @@ const BillingUsageRetrieveSchema = BillingUsageRetrieveQueryParams.extend({
     ),
 })
 
-const billingUsageRetrieve = (): ToolBase<typeof BillingUsageRetrieveSchema, unknown> => ({
+const billingUsageRetrieve = (): ToolBase<typeof BillingUsageRetrieveSchema, Schemas.BillingTimeSeriesResponse> => ({
     name: 'billing-usage-retrieve',
     schema: BillingUsageRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof BillingUsageRetrieveSchema>) => {
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.BillingTimeSeriesResponse>({
             method: 'GET',
             path: `/api/billing/usage/`,
             query: {

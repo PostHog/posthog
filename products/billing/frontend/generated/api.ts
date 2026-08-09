@@ -20,6 +20,7 @@ import type {
     BillingOverviewResponseApi,
     BillingPeriodResponseApi,
     BillingSpendRetrieveParams,
+    BillingTimeSeriesResponseApi,
     BillingUsageRetrieveParams,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
@@ -52,22 +53,6 @@ export const billingList = async (options?: RequestInit): Promise<BillingOvervie
     return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getBillingPartialUpdateUrl = () => {
-    return `/api/billing///`
-}
-
-export const billingPartialUpdate = async (
-    patchedBillingApi?: PatchedBillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingPartialUpdateUrl(), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBillingApi),
     })
 }
 
@@ -246,8 +231,8 @@ export const getBillingSpendRetrieveUrl = (params?: BillingSpendRetrieveParams) 
 export const billingSpendRetrieve = async (
     params?: BillingSpendRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingSpendRetrieveUrl(params), {
+): Promise<BillingTimeSeriesResponseApi> => {
+    return apiMutator<BillingTimeSeriesResponseApi>(getBillingSpendRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
@@ -325,8 +310,8 @@ export const getBillingUsageRetrieveUrl = (params?: BillingUsageRetrieveParams) 
 export const billingUsageRetrieve = async (
     params?: BillingUsageRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingUsageRetrieveUrl(params), {
+): Promise<BillingTimeSeriesResponseApi> => {
+    return apiMutator<BillingTimeSeriesResponseApi>(getBillingUsageRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })

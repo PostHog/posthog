@@ -157,8 +157,24 @@ class BillingUsageRequestSerializer(serializers.Serializer):
             + '. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.'
         ),
     )
-    team_ids = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    team_ids = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "JSON-encoded array of numeric team/project IDs to filter on, "
+            "for example [1,2]. Omit for all teams in the organization."
+        ),
+    )
+    breakdowns = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            'JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", '
+            'for example ["type","team"]. Omit for a single aggregate series.'
+        ),
+    )
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
@@ -200,6 +216,54 @@ class BillingUsageRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Value must be a JSON array of usage type identifiers.")
 
         return value
+
+    def validate_team_ids(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("Value must be a JSON array of numeric team IDs.")
+
+        if not isinstance(parsed, list) or any(
+            not isinstance(team_id, int) or isinstance(team_id, bool) for team_id in parsed
+        ):
+            raise serializers.ValidationError("Value must be a JSON array of numeric team IDs.")
+
+        return value
+
+    def validate_breakdowns(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+
+        if not isinstance(parsed, list) or any(breakdown not in ("type", "team") for breakdown in parsed):
+            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+
+        return value
+
+
+class BillingTimeSeriesPointSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    label = serializers.CharField(required=False, allow_blank=True)
+    data = serializers.ListField(child=serializers.FloatField(), required=False)
+    dates = serializers.ListField(child=serializers.CharField(), required=False)
+    breakdown_type = serializers.ChoiceField(choices=["type", "team", "multiple"], allow_null=True, required=False)
+    breakdown_value = serializers.JSONField(allow_null=True, required=False)
+
+
+class BillingTimeSeriesResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(required=False)
+    type = serializers.CharField(required=False)
+    customer_id = serializers.CharField(required=False)
+    results = BillingTimeSeriesPointSerializer(many=True)
+    team_id_options = serializers.ListField(child=serializers.IntegerField(), required=False)
+    next = serializers.CharField(required=False, allow_blank=True)
 
 
 class BillingPeriodResponseSerializer(serializers.Serializer):
@@ -287,6 +351,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ).data
         )
 
+    @extend_schema(exclude=True)
     @action(
         methods=["PATCH"],
         detail=False,
@@ -688,6 +753,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="usage",
         permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        responses={200: BillingTimeSeriesResponseSerializer},
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -726,6 +792,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="spend",
         permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        responses={200: BillingTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
