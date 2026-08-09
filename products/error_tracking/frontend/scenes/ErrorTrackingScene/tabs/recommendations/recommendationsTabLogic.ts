@@ -64,15 +64,15 @@ export interface recommendationsTabLogicActions {
     loadRecommendations: () => {
         value: true
     }
-    markRecommendationComputing: (id: string) => {
-        id: string
-    }
     markAlertConfigured: (
         id: string,
         triggerKey: HogFunctionSubTemplateIdType
     ) => {
         id: string
         triggerKey: HogFunctionSubTemplateIdType
+    }
+    markRecommendationComputing: (id: string) => {
+        id: string
     }
     pollRecommendations: () => {
         value: true

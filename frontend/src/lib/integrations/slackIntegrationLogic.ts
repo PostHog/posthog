@@ -42,8 +42,8 @@ export interface slackIntegrationLogicValues {
     slackChannelById: SlackChannelType | null
     slackChannelByIdLoading: boolean
     slackChannels: SlackChannelType[]
-    slackChannelsForPicker: SlackChannelType[]
     slackChannelsError: string | null
+    slackChannelsForPicker: SlackChannelType[]
     slackIntegrationInactiveMessage: string | null
 }
 
@@ -108,10 +108,10 @@ export interface slackIntegrationLogicActions {
     setRecentlySubscribedChannelIds: (channelIds: string[]) => {
         channelIds: string[]
     }
-    setSlackIntegrationInactive: (message: string | null) => {
+    setSlackChannelsError: (message: string | null) => {
         message: string | null
     }
-    setSlackChannelsError: (message: string | null) => {
+    setSlackIntegrationInactive: (message: string | null) => {
         message: string | null
     }
 }
