@@ -5,19 +5,18 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCopy, IconInfo } from '@posthog/icons'
+import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
-import { Popover } from '../Popover/Popover'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
 import { determineColumnKey, getStickyColumnInfo } from './columnLayoutUtils'
@@ -31,10 +30,10 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
 
-/** Text extracted from a cell for "Copy cell contents". Reads `textContent` (which recovers the
- *  full value even when the cell is visually clipped by `text-overflow`), but joins the cell's
- *  direct child nodes with a space so visually-separated pieces (e.g. a label plus a tag) don't
- *  smush together — `textContent` alone drops the CSS spacing between them. Exported for testing. */
+/** Text extracted from a cell for "Copy cell contents". Joins the cell's direct child nodes with a
+ *  space — using `textContent` on the whole cell would both smush visually-separated children
+ *  (e.g. a label plus a tag) together and lose nothing to `text-overflow` clipping, since
+ *  `textContent` always reflects the full DOM value regardless of CSS. Exported for testing. */
 export function extractCellText(cell: HTMLElement): string {
     const parts: string[] = []
     cell.childNodes.forEach((node) => {
@@ -43,7 +42,7 @@ export function extractCellText(cell: HTMLElement): string {
             parts.push(text)
         }
     })
-    return (parts.length ? parts.join(' ') : (cell.textContent ?? '')).replace(/\s+/g, ' ').trim()
+    return parts.join(' ').replace(/\s+/g, ' ').trim()
 }
 
 export interface LemonTableProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
@@ -233,20 +232,22 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
 
     const scrollRef = useRef<HTMLDivElement>(null)
 
-    /** Cell whose right-click "Copy cell contents" menu is currently open, if any. */
-    const [cellContextMenu, setCellContextMenu] = useState<{ element: HTMLElement; text: string } | null>(null)
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
 
     // A single stable handler shared by every data cell keeps the per-cell cost to just a prop
     // reference (no extra components or DOM), so this stays cheap even on very large tables.
-    const handleCellContextMenu = useCallback((event: React.MouseEvent<HTMLTableCellElement>) => {
-        const text = extractCellText(event.currentTarget)
-        if (!text) {
-            setCellContextMenu(null) // Nothing to copy — close any open menu and fall back to the native one
-            return
-        }
-        event.preventDefault()
-        setCellContextMenu({ element: event.currentTarget, text })
-    }, [])
+    const handleCellContextMenu = useCallback(
+        (event: React.MouseEvent<HTMLTableCellElement>) => {
+            const text = extractCellText(event.currentTarget)
+            if (!text) {
+                closeCopyMenu() // Nothing to copy — close any open menu and fall back to the native one
+                return
+            }
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, text)
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
 
     // Width calculation for pinned columns
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
@@ -789,29 +790,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     </div>
                 </ScrollableShadows>
             </div>
-            {enableCellCopy && (
-                <Popover
-                    visible={!!cellContextMenu}
-                    referenceElement={cellContextMenu?.element ?? null}
-                    onClickOutside={() => setCellContextMenu(null)}
-                    placement="bottom-start"
-                    overlay={
-                        <LemonButton
-                            icon={<IconCopy />}
-                            fullWidth
-                            size="small"
-                            onClick={() => {
-                                if (cellContextMenu) {
-                                    void copyToClipboard(cellContextMenu.text, 'cell contents')
-                                }
-                                setCellContextMenu(null)
-                            }}
-                        >
-                            Copy cell contents
-                        </LemonButton>
-                    }
-                />
-            )}
+            {enableCellCopy && copyMenu}
         </>
     )
 }

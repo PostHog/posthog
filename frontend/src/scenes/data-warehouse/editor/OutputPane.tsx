@@ -35,10 +35,10 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -1132,25 +1132,23 @@ const Content = ({
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
-    /** Cell whose right-click "Copy cell contents" menu is open in the results grid, if any. */
-    const [cellContextMenu, setCellContextMenu] = useState<{ element: HTMLElement; text: string } | null>(null)
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
 
     // Right-click a results cell to copy its value. Unlike the LemonTable feature (which reads DOM
     // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
-    const handleGridCellContextMenu = useCallback((args: CellClickArgs<Record<string, any>>, event: CellMouseEvent) => {
-        if (args.column.key === '__details') {
-            setCellContextMenu(null) // Not a data cell — close any open menu and fall back to the native one
-            return
-        }
-        const value = args.row[args.column.key]
-        if (value === null || value === undefined || value === '') {
-            setCellContextMenu(null) // Nothing to copy — close any open menu and fall back to the native one
-            return
-        }
-        event.preventGridDefault()
-        event.preventDefault()
-        setCellContextMenu({ element: event.currentTarget, text: String(value) })
-    }, [])
+    const handleGridCellContextMenu = useCallback(
+        (args: CellClickArgs<any, any>, event: CellMouseEvent) => {
+            const value = args.column.key === '__details' ? undefined : args.row[args.column.key]
+            if (value === null || value === undefined || value === '') {
+                closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
+                return
+            }
+            event.preventGridDefault()
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, String(value))
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -1293,27 +1291,7 @@ const Content = ({
                             onSortColumnsChange={setSortColumns}
                             onCellContextMenu={handleGridCellContextMenu}
                         />
-                        <Popover
-                            visible={!!cellContextMenu}
-                            referenceElement={cellContextMenu?.element ?? null}
-                            onClickOutside={() => setCellContextMenu(null)}
-                            placement="bottom-start"
-                            overlay={
-                                <LemonButton
-                                    icon={<IconCopy />}
-                                    fullWidth
-                                    size="small"
-                                    onClick={() => {
-                                        if (cellContextMenu) {
-                                            void copyToClipboard(cellContextMenu.text, 'cell contents')
-                                        }
-                                        setCellContextMenu(null)
-                                    }}
-                                >
-                                    Copy cell contents
-                                </LemonButton>
-                            }
-                        />
+                        {copyMenu}
                     </TabScroller>
                 )}
             </div>
