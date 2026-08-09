@@ -201,6 +201,42 @@ describe("artifactHtmlCommentBridge", () => {
     },
   );
 
+  it("updates the active composer position when the artifact scrolls", () => {
+    const dom = loadBridgeDocument(
+      "<html><body><p>some selectable text here</p></body></html>",
+    );
+    const messages: Array<Record<string, unknown>> = [];
+    dom.window.postMessage = ((message: Record<string, unknown>) => {
+      messages.push(message);
+    }) as typeof dom.window.postMessage;
+
+    pressOn(dom, "p");
+    const range = selectParagraph(dom);
+    let top = 50;
+    range.getClientRects = () =>
+      [
+        {
+          top,
+          left: 70,
+          right: 110,
+          bottom: top + 10,
+          width: 40,
+          height: 10,
+        },
+      ] as unknown as DOMRectList;
+    releaseOn(dom, "p");
+    activateAction(dom, "pointer");
+
+    top = 20;
+    dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
+
+    expect(messages.at(-1)).toMatchObject({
+      type: "selection-position",
+      rect: { top: 20, right: 110, bottom: 30 },
+    });
+    dom.window.close();
+  });
+
   it.each(["light", "dark"] as const)(
     "applies the %s theme to the isolated comment action",
     (theme) => {

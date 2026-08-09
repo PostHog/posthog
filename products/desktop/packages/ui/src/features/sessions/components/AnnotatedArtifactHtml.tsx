@@ -34,6 +34,17 @@ function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
   });
 }
 
+function selectionAnchor(
+  frame: ArtifactHtmlFrameRect,
+  selection: ArtifactHtmlFrameRect,
+): { top: number; endX: number; bottom: number } {
+  return {
+    top: frame.top + selection.top,
+    endX: frame.left + selection.right,
+    bottom: frame.top + selection.bottom,
+  };
+}
+
 export function AnnotatedArtifactHtml({
   html,
   name,
@@ -167,6 +178,18 @@ export function AnnotatedArtifactHtml({
         onResolutionsChange(resolutions);
         return;
       }
+      if (data.type === "selection-position" && isFrameRect(data.rect)) {
+        const rect = data.rect;
+        setSelection((current) =>
+          current
+            ? {
+                ...current,
+                anchor: selectionAnchor(frameBox, rect),
+              }
+            : current,
+        );
+        return;
+      }
       if (data.type !== "selection" || !isFrameRect(data.rect)) return;
       const parsed = commentAnchorSchema.safeParse(data.anchor);
       if (!parsed.success || parsed.data.kind !== "text") return;
@@ -175,11 +198,7 @@ export function AnnotatedArtifactHtml({
         text: parsed.data.quote,
         fromLine: parsed.data.start + 1,
         toLine: parsed.data.end + 1,
-        anchor: {
-          top: frameBox.top + data.rect.top,
-          endX: frameBox.left + data.rect.right,
-          bottom: frameBox.top + data.rect.bottom,
-        },
+        anchor: selectionAnchor(frameBox, data.rect),
       });
     },
     [onActivateThread, onResolutionsChange],

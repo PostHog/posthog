@@ -458,9 +458,13 @@ describe("TaskCommentsList", () => {
     render(<TaskCommentsList task={task} timeline={[]} />);
     const thread = screen
       .getByText("Tighten this summary")
-      .closest("[data-comment-thread-id]");
-    expect(thread).not.toBeNull();
-    const scrollIntoView = vi.spyOn(thread as HTMLElement, "scrollIntoView");
+      .closest("[data-comment-thread-id]") as HTMLElement;
+    const pane = thread.parentElement as HTMLElement;
+    Object.defineProperty(pane, "scrollTop", { value: 20, writable: true });
+    pane.getBoundingClientRect = () => ({ top: 0, bottom: 100 }) as DOMRect;
+    thread.getBoundingClientRect = () => ({ top: 120, bottom: 160 }) as DOMRect;
+    const paneScroll = vi.spyOn(pane, "scrollTo");
+    const outerScroll = vi.spyOn(Element.prototype, "scrollIntoView");
 
     act(() => {
       useCommentNavigationStore
@@ -473,12 +477,14 @@ describe("TaskCommentsList", () => {
         );
     });
 
-    expect(scrollIntoView).toHaveBeenCalledWith({
+    expect(paneScroll).toHaveBeenCalledWith({
+      top: 80,
       behavior: "smooth",
-      block: "nearest",
     });
+    expect(outerScroll).not.toHaveBeenCalled();
     expect(mocks.openArtifactTab).not.toHaveBeenCalled();
-    scrollIntoView.mockRestore();
+    paneScroll.mockRestore();
+    outerScroll.mockRestore();
     animationFrame.mockRestore();
   });
 

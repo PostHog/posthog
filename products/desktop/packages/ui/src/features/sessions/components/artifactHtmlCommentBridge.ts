@@ -21,6 +21,21 @@ type BridgeComment = {
   active?: boolean;
 };
 
+type BridgeRect = {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+};
+
+type BridgeSelectionMessage = {
+  anchor: TextCommentAnchor;
+  rect: BridgeRect;
+  triggerRect: BridgeRect;
+};
+
 type BridgeRuntimeOptions = {
   channel: string;
   marker: string;
@@ -55,9 +70,11 @@ function runArtifactHtmlCommentBridge({
   const highlightRegistry = css?.highlights;
   const state = {
     button: null as HTMLButtonElement | null,
-    action: null as Record<string, unknown> | null,
+    action: null as { message: BridgeSelectionMessage; range: Range } | null,
+    activeRange: null as Range | null,
     selectionTimer: 0,
     renderTimer: 0,
+    positionFrame: 0,
     entries: [] as Array<{ id: string; range: Range }>,
     items: [] as BridgeComment[],
     theme: initialTheme as string,
@@ -158,6 +175,15 @@ function runArtifactHtmlCommentBridge({
     (document.head ?? document.documentElement).appendChild(style);
   };
 
+  const copyRect = (rect: BridgeRect): BridgeRect => ({
+    top: rect.top,
+    left: rect.left,
+    right: rect.right,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  });
+
   const hideAction = (): void => {
     if (state.button) state.button.style.display = "none";
     state.action = null;
@@ -171,7 +197,8 @@ function runArtifactHtmlCommentBridge({
       hideAction();
       return;
     }
-    send("selection", action);
+    state.activeRange = action.range;
+    send("selection", action.message);
     hideAction();
     window.getSelection()?.removeAllRanges();
   };
@@ -242,26 +269,42 @@ function runArtifactHtmlCommentBridge({
 
     const triggerRect = button.getBoundingClientRect();
     state.action = {
-      anchor,
-      rect: {
-        top: rect.top,
-        left: rect.left,
-        right: rect.right,
-        bottom: rect.bottom,
-        width: rect.width,
-        height: rect.height,
-      },
-      // Electron's preview boundary validates this legacy field before it
-      // forwards the message. The host positions the composer from rect.
-      triggerRect: {
-        top: triggerRect.top,
-        left: triggerRect.left,
-        right: triggerRect.right,
-        bottom: triggerRect.bottom,
-        width: triggerRect.width,
-        height: triggerRect.height,
+      range,
+      message: {
+        anchor,
+        rect: copyRect(rect),
+        // Electron validates this legacy field before forwarding the message.
+        triggerRect: copyRect(triggerRect),
       },
     };
+  };
+
+  const updateComposerPosition = (): void => {
+    const range = state.activeRange;
+    if (!range) return;
+    try {
+      const rect = anchorRect(
+        range.getClientRects?.() ?? [],
+        range.getBoundingClientRect(),
+      );
+      if (rect && (rect.width > 0 || rect.height > 0)) {
+        send("selection-position", { rect: copyRect(rect) });
+      }
+    } catch {
+      state.activeRange = null;
+    }
+  };
+
+  const scheduleComposerPosition = (): void => {
+    if (state.positionFrame) return;
+    if (!window.requestAnimationFrame) {
+      updateComposerPosition();
+      return;
+    }
+    state.positionFrame = window.requestAnimationFrame(() => {
+      state.positionFrame = 0;
+      updateComposerPosition();
+    });
   };
 
   const selectionChanged = (): void => {
@@ -316,7 +359,14 @@ function runArtifactHtmlCommentBridge({
     onIdleSelectionChange: selectionChanged,
     onGestureCancel: hideAction,
   });
-  document.addEventListener("scroll", hideAction, true);
+  document.addEventListener(
+    "scroll",
+    () => {
+      hideAction();
+      scheduleComposerPosition();
+    },
+    true,
+  );
   document.addEventListener(
     "click",
     (event) => {
