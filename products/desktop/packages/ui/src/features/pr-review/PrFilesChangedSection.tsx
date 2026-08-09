@@ -9,6 +9,7 @@ import { useDiffOptions } from "@posthog/ui/features/code-review/reviewShellPart
 import { usePrChangedFiles } from "@posthog/ui/features/git-interaction/useGitQueries";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { NestedButton } from "@posthog/ui/primitives/NestedButton";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import {
   fileViewedFingerprint,
@@ -199,13 +200,15 @@ export function PrFilesChangedSection({
               {files.length} file{files.length === 1 ? "" : "s"} changed
             </span>
             {headRefName && (
-              <span
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-(--accent-8) px-2.5 py-1 font-mono text-(--accent-11) text-[11px]"
-                title={headRefName}
+              <button
+                type="button"
+                onClick={() => openExternalUrl(prUrl)}
+                className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full border border-(--accent-8) px-2.5 py-1 font-mono text-(--accent-11) text-[11px] hover:bg-(--accent-a3)"
+                title="Open the pull request on GitHub"
               >
                 <GitBranchIcon size={11} className="shrink-0" />
                 <span className="truncate">{headRefName}</span>
-              </span>
+              </button>
             )}
           </span>
           <span className="flex items-center gap-2">
