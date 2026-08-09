@@ -97,6 +97,83 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
 
+    @mock.patch("posthog.api.comments.posthoganalytics.capture")
+    def test_task_comment_actions_track_mentions_without_counting_state_as_replies(self, capture: mock.Mock) -> None:
+        task = self._task_artifact_target()
+        mentioned = User.objects.create_and_join(self.organization, "comment-mention@example.com", None)
+        item_context = {
+            "anchor": {"kind": "unsupported"},
+            "taskId": str(task.id),
+        }
+        target = {
+            "scope": "task_artifact",
+            "item_id": "artifact-1",
+            "item_context": item_context,
+        }
+
+        root = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                **target,
+                "content": "A" * 60,
+                "mentions": [mentioned.id],
+                "item_context": {**item_context, "threadState": "resolved"},
+            },
+        )
+        reply = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {**target, "content": "Reply", "source_comment": root.json()["id"]},
+        )
+        resolved = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                **target,
+                "content": "Resolved this thread",
+                "source_comment": root.json()["id"],
+                "item_context": {**item_context, "threadState": "resolved"},
+            },
+        )
+
+        assert root.status_code == status.HTTP_201_CREATED
+        assert reply.status_code == status.HTTP_201_CREATED
+        assert resolved.status_code == status.HTTP_201_CREATED
+        events = [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == "Comment action"]
+        assert [event["properties"]["action_type"] for event in events] == ["created", "replied", "resolved"]
+        assert events[0]["properties"] == {
+            "analytics_version": 1,
+            "action_type": "created",
+            "scope": "task_artifact",
+            "anchor_kind": "unknown",
+            "task_id": str(task.id),
+            "item_id": "artifact-1",
+            "thread_id": root.json()["id"],
+            "comment_id": root.json()["id"],
+            "is_reply": False,
+            "mention_count": 1,
+            "content_length_bucket": "51-200",
+            "thread_state": "open",
+        }
+        assert events[1]["properties"]["is_reply"] is True
+        assert events[1]["properties"]["mention_count"] == 0
+        assert events[2]["properties"]["is_reply"] is False
+        assert events[2]["properties"]["thread_state"] == "resolved"
+        assert all(event["event"] == "Comment action" for event in events)
+
+        capture.reset_mock()
+        notebook = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"scope": "Notebook", "content": "Not a task comment"},
+        )
+        assert notebook.status_code == status.HTTP_201_CREATED
+        assert not any(call.kwargs.get("event") == "Comment action" for call in capture.call_args_list)
+
+        capture.side_effect = RuntimeError("Analytics unavailable")
+        saved = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {**target, "content": "Still saved"},
+        )
+        assert saved.status_code == status.HTTP_201_CREATED
+
     def test_task_comments_list_artifacts_comments_and_one_comment(self) -> None:
         task = self._task_artifact_target()
         task_run_model = apps.get_model("tasks", "TaskRun")

@@ -585,6 +585,21 @@ class SessionBucketsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# The experiment session-event-delta endpoint compares every event name in an experiment's recent
+# window, so unlike the bucket scan beside it there is no event-name predicate for ClickHouse to
+# prune on and one call is the heaviest in this family. Same project-wide bucketing and same
+# session-authenticated caller, at a lower rate again: the panel is opened deliberately rather than
+# loaded with the tab, and repeats hit a 15-minute server-side cache.
+class SessionEventDeltasBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_burst"
+    rate = "10/minute"
+
+
+class SessionEventDeltasSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_sustained"
+    rate = "100/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
