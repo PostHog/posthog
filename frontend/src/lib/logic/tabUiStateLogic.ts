@@ -113,6 +113,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
         ],
         savedQueriesByTabAndScene: [
             {} as SavedQueriesByTabAndScene,
+            { persist: true },
             {
                 setSavedQueryForTab: (state, { tabId, sceneKey, query }) => {
                     if (query === null) {

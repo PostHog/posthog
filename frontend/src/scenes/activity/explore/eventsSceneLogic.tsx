@@ -1,6 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -134,7 +134,9 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         setQuery: () => [
             urls.activity(ActivityTab.ExploreEvents),
             {},
-            objectsEqual(values.query, values.defaultQuery) ? {} : { q: values.query },
+            // Keep the current hash when the query matches the default. A remount that
+            // falls back to the default must not strip a `q` the user still has selected.
+            objectsEqual(values.query, values.defaultQuery) ? router.values.hashParams : { q: values.query },
             { replace: true },
         ],
     })),

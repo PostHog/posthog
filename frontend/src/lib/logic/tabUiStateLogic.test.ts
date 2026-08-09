@@ -19,6 +19,7 @@ const dataTableQuery: DataTableNode = setLatestVersionsOnQuery({
 
 describe('tabUiStateLogic', () => {
     beforeEach(() => {
+        window.localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
         tabUiStateLogic.mount()
@@ -180,6 +181,14 @@ describe('tabUiStateLogic', () => {
             const before = tabUiStateLogic.values.savedQueriesByTabAndScene
             tabUiStateLogic.actions.setSavedQueryForTab('never-set', 'events', null)
             expect(tabUiStateLogic.values.savedQueriesByTabAndScene).toBe(before)
+        })
+
+        it('keeps saved queries across an unmount and remount', () => {
+            tabUiStateLogic.actions.setSavedQueryForTab(TAB_A, 'events', queryA)
+            tabUiStateLogic.unmount()
+            tabUiStateLogic.mount()
+
+            expect(tabUiStateLogic.values.savedQueryFor(TAB_A, 'events')).toEqual(queryA)
         })
 
         it('clearTabUiState wipes saved queries for that tab', () => {

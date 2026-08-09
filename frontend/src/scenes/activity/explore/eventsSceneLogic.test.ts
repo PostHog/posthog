@@ -42,4 +42,26 @@ describe('eventsSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.query).toEqual(query)
     })
+
+    it('keeps the q hash when the query falls back to the default', async () => {
+        // A remount can reset the in-memory query to the default. That fall back must not
+        // strip the q the user still has selected from the URL.
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'person', 'timestamp'],
+                after: 'dStart',
+            } as any,
+            full: true,
+        }
+
+        router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setQuery(logic.values.defaultQuery)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.hashParams.q).toEqual(query)
+    })
 })
