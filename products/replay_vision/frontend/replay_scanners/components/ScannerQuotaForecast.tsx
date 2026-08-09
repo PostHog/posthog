@@ -10,7 +10,7 @@ import { QuotaImminentBanner } from '../../components/QuotaImminentBanner'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { buildQuotaMeter } from '../../utils/quotaContributions'
-import { QUOTA_STATUS_STYLES, type QuotaStatus, daysUntilCapReached, projectQuota } from '../../utils/quotaProjection'
+import { QUOTA_STATUS_STYLES, type QuotaStatus, daysUntilCapReached } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import {
     QUOTA_METER_BACKFILL_CLASS,
@@ -56,7 +56,12 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
     // The proposed scanner replaces its own stored estimate, so this lists the fleet explicitly rather than
     // adjusting the org total. Backfills stay a one-off; only the two scanner figures are rates.
-    const { projection, segments, periodEndPct, hasCap } = buildQuotaMeter(quota, [
+    const {
+        projection,
+        segments: rawSegments,
+        periodEndPct,
+        hasCap,
+    } = buildQuotaMeter(quota, [
         {
             key: 'backfills',
             label: 'Backfills',
@@ -76,7 +81,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             label: 'Projected (this scanner)',
             credits: projectedCredits ?? 0,
             kind: 'monthly-rate',
-            barClass: QUOTA_STATUS_STYLES[projectedCredits === null ? 'safe' : projectQuota(quota).status].bar,
+            barClass: '',
             striped: true,
         },
     ])
@@ -85,6 +90,10 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
     const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
+    // The proposed scanner carries the card's status colour, which depends on the projection it is part of.
+    const segments = rawSegments.map((segment) =>
+        segment.key === 'this-scanner' ? { ...segment, barClass: styles.bar } : segment
+    )
 
     // No estimate means the projection isn't about the scanner being edited.
     const imminentDays = projectedCredits !== null ? daysUntilCapReached(projection) : null

@@ -49,6 +49,8 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                       credits: backfillCredits,
                       kind: 'one-off' as const,
                       barClass: QUOTA_METER_BACKFILL_CLASS,
+                      // Striped marks the charge still being decided; the org's committed backfills are solid.
+                      striped: true,
                   },
               ]
             : []),
