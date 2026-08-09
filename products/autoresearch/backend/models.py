@@ -182,9 +182,6 @@ class AutoresearchIteration(UUIDModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="iterations")
     training_run = models.ForeignKey(AutoresearchTrainingRun, on_delete=models.CASCADE, related_name="iterations")
-    parent_iteration = models.ForeignKey(
-        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="children"
-    )
 
     iteration_number = models.IntegerField()
     recipe_hash = models.CharField(max_length=64)
@@ -266,12 +263,11 @@ class AutoresearchSuggestion(UUIDModel):
 
 
 class AutoresearchRun(UUIDModel):
-    """Generic operational run: inference, validation, or notebook generation."""
+    """Generic operational run: inference or validation."""
 
     class RunType(models.TextChoices):
         INFERENCE = "inference", "Inference"
         VALIDATION = "validation", "Validation"
-        NOTEBOOK = "notebook", "Notebook"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

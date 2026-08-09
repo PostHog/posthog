@@ -14,7 +14,8 @@
         },
         "distillation": {
             "default": "",
-            "description": "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads.",
+            "description": "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.",
+            "maxLength": 2000,
             "type": "string"
         },
         "id": {
@@ -32,7 +33,8 @@
         },
         "recommended_next": {
             "default": "",
-            "description": "What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete.",
+            "description": "What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.",
+            "maxLength": 2000,
             "type": "string"
         }
     },

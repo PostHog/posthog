@@ -13,7 +13,10 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
-from products.autoresearch.backend.api.serializers import AutoresearchPipelineCreateSerializer
+from products.autoresearch.backend.api.serializers import (
+    AutoresearchPipelineCreateSerializer,
+    PopulationDefinitionField,
+)
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.models import (
     AutoresearchModel,
@@ -768,6 +771,37 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
         serializer = self._serializer(**{field: value})
         assert not serializer.is_valid()
         assert field in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("not_an_object", ["properties"]),
+            ("properties_not_a_list", {"properties": {"key": "email"}}),
+            ("unknown_kind", {"kind": "bogus"}),
+            ("missing_days", {"kind": "performed_event_within_days"}),
+            ("days_not_int", {"kind": "person_first_seen_within_days", "days": "14"}),
+            ("days_out_of_range", {"kind": "performed_event_within_days", "days": 100000}),
+            ("missing_event_for_adoption", {"kind": "active_not_performed_target", "active_within_days": 30}),
+            ("missing_event_for_repeat", {"kind": "ever_performed_event"}),
+        ]
+    )
+    def test_uncompilable_population_rejected(self, _name: str, population: Any) -> None:
+        serializer = self._serializer(training_population=population)
+        assert not serializer.is_valid()
+        assert "training_population" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("empty", {}),
+            ("properties", {"properties": [{"key": "email", "type": "person", "operator": "is_set"}]}),
+            ("kind_any_event", {"kind": "performed_event_within_days", "days": 30}),
+            ("kind_with_event", {"kind": "ever_performed_event", "event": "checkout"}),
+            ("kind_adoption", {"kind": "active_not_performed_target", "active_within_days": 30, "event": "x"}),
+        ]
+    )
+    def test_compilable_population_accepted(self, _name: str, population: Any) -> None:
+        # Field-level only: the full serializer's validate() needs the DB for the
+        # output_person_property collision check, which SimpleTestCase forbids.
+        assert PopulationDefinitionField().run_validation(population) == population
 
     @parameterized.expand(
         [

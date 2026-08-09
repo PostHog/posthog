@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, path } from 'kea'
+import { MakeLogicType, connect, kea, path } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -18,9 +18,9 @@ import {
     ValidatePipelineResponseApi,
 } from './generated/api.schemas'
 
-export type TargetType = 'event' | 'action'
+type TargetType = 'event' | 'action'
 
-export interface NewPipelineFormValues {
+interface NewPipelineFormValues {
     name: string
     target_type: TargetType
     // For event targets this is the event name; for action targets it's the action's
@@ -89,27 +89,6 @@ export interface autoresearchNewLogicActions {
     resetNewPipeline: (values?: NewPipelineFormValues) => {
         values?: NewPipelineFormValues
     }
-    resetValidation: () => {
-        value: true
-    }
-    resetValidationFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    resetValidationSuccess: (
-        validation: null,
-        payload?: {
-            value: true
-        }
-    ) => {
-        validation: null
-        payload?: {
-            value: true
-        }
-    }
     runValidate: (_payload: any) => any
     runValidateFailure: (
         error: string,
@@ -166,14 +145,10 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
     connect({
         values: [teamLogic, ['currentTeamId']],
     }),
-    actions({
-        resetValidation: true,
-    }),
     loaders(({ values }) => ({
         validation: [
             null as ValidatePipelineResponseApi | null,
             {
-                resetValidation: () => null,
                 runValidate: async (_payload, breakpoint) => {
                     await breakpoint(VALIDATE_DEBOUNCE_MS)
                     const teamId = values.currentTeamId

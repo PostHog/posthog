@@ -16,7 +16,8 @@ generalises across time, not just the trailing horizon window.
 
 Per-user T0 cascades through the rest of the ML pipeline:
 - Feature SQL must read events with `timestamp < cutoff_ts` per user, where
-  cutoff_ts comes from a joined anchors table (see build_*_anchors_sql).
+  cutoff_ts comes from a joined anchors table (the labeled_anchors CTE at
+  training time, build_inference_anchors_sql at scoring time).
 - Holdout split is by user (fold = hash(person_id) % 5) so the same person
   never appears in both train and holdout.
 - Inference re-uses the same feature SQL with anchors = (person_id, now()).
@@ -32,7 +33,8 @@ Integer handling notes:
   ~24 bits anyway: max window 365d * 86400s ≈ 3.2e7).
 """
 
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 
@@ -47,6 +49,18 @@ logger = structlog.get_logger(__name__)
 
 # Number of folds for hash-based train/holdout split. fold == 0 → holdout (20%).
 NUM_FOLDS = 5
+
+# Semantic population kinds produced by templates.py. Every kind listed here must have a
+# compiler branch in _build_population_kind_conditions below — the write-time validator in
+# api/serializers.py imports this set, so an uncompilable kind is rejected at creation.
+POPULATION_KINDS = frozenset(
+    {
+        "performed_event_within_days",
+        "person_first_seen_within_days",
+        "active_not_performed_target",
+        "ever_performed_event",
+    }
+)
 
 # v1 scope: autoresearch models identified users only. Identified persons carry a
 # stable real distinct_id, so scoring-time identity resolution always succeeds and the
@@ -155,6 +169,115 @@ def _build_population_conditions(
     return parts, values
 
 
+@dataclass(frozen=True, kw_only=True)
+class _CompiledPopulationKind:
+    where_parts: list[str] = field(default_factory=list)
+    values: dict[str, Any] = field(default_factory=dict)
+    # Training-only refinement applied per user at T0 in the labeled_users CTE:
+    # "performed_before" keeps only users who performed the target before their T0,
+    # "not_performed_before" keeps only users who had not. None = fully expressed in where_parts.
+    anchor_target_relation: Literal["performed_before", "not_performed_before"] | None = None
+
+
+def _build_population_kind_conditions(
+    population: dict[str, Any] | None,
+    *,
+    now_expr: str = "now()",
+    anchor_mode: bool = False,
+) -> _CompiledPopulationKind:
+    """
+    Compile a semantic population spec (``{"kind": ..., ...}``, produced by
+    templates.py) into row-level HogQL WHERE fragments for an events scan.
+
+    Membership subqueries are bounded to the caller's lookback window, so
+    "ever performed" and "has not performed" mean "within the lookback window" —
+    the scan cost stays proportional to the data the query already reads. The
+    emitted fragments reference the ``{lookback}`` bound value, which every
+    population-consuming builder in this module binds.
+
+    ``now_expr`` is the anchor instant — ``now()`` for live queries, or a bound
+    backfill cutoff expression for historical scoring. All time windows are
+    computed relative to it.
+
+    ``anchor_mode=True`` (training) moves the target-performed test from a
+    row-level filter to a per-user-at-T0 refinement via ``anchor_target_relation``,
+    which ``_build_labeled_users_cte`` applies against each user's T0. This matters
+    for correctness, not just fidelity: excluding "ever performed the target" users
+    with a row filter at training time would remove exactly the users whose post-T0
+    adoption provides the positive labels.
+
+    Raises ValueError on an unknown kind or a spec missing a required key — a
+    population that cannot be compiled must fail loudly rather than silently
+    widening to "all users".
+    """
+    spec = population or {}
+    kind = spec.get("kind")
+    if kind is None:
+        return _CompiledPopulationKind()
+    if kind not in POPULATION_KINDS:
+        raise ValueError(f"Unknown population kind '{kind}'. Supported: {', '.join(sorted(POPULATION_KINDS))}")
+
+    def _positive_int(key: str) -> int:
+        raw = spec.get(key)
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise ValueError(f"Population kind '{kind}' requires a positive integer '{key}'")
+        return raw
+
+    def _event() -> str:
+        raw = spec.get("event")
+        if not raw or not isinstance(raw, str):
+            raise ValueError(f"Population kind '{kind}' requires an 'event'")
+        return raw
+
+    parts: list[str] = []
+    values: dict[str, Any] = {}
+    anchor_target_relation: Literal["performed_before", "not_performed_before"] | None = None
+
+    if kind == "performed_event_within_days":
+        values["popk_days"] = _positive_int("days")
+        event_clause = ""
+        if spec.get("event"):
+            values["popk_event"] = _event()
+            event_clause = " AND event = {popk_event}"
+        parts.append(
+            "person_id IN (SELECT DISTINCT person_id FROM events"
+            f" WHERE timestamp >= {now_expr} - toIntervalDay({{popk_days}})"
+            f" AND timestamp < {now_expr}{event_clause})"
+        )
+    elif kind == "person_first_seen_within_days":
+        values["popk_days"] = _positive_int("days")
+        parts.append(f"person.created_at >= {now_expr} - toIntervalDay({{popk_days}})")
+    elif kind == "active_not_performed_target":
+        values["popk_active_days"] = _positive_int("active_within_days")
+        parts.append(
+            "person_id IN (SELECT DISTINCT person_id FROM events"
+            f" WHERE timestamp >= {now_expr} - toIntervalDay({{popk_active_days}})"
+            f" AND timestamp < {now_expr})"
+        )
+        if anchor_mode:
+            anchor_target_relation = "not_performed_before"
+        else:
+            values["popk_event"] = _event()
+            parts.append(
+                "person_id NOT IN (SELECT DISTINCT person_id FROM events"
+                f" WHERE event = {{popk_event}} AND timestamp >= {now_expr} - toIntervalDay({{lookback}})"
+                f" AND timestamp < {now_expr})"
+            )
+    elif kind == "ever_performed_event":
+        values["popk_event"] = _event()
+        parts.append(
+            "person_id IN (SELECT DISTINCT person_id FROM events"
+            f" WHERE event = {{popk_event}} AND timestamp >= {now_expr} - toIntervalDay({{lookback}})"
+            f" AND timestamp < {now_expr})"
+        )
+        if anchor_mode:
+            # The row filter is a cheap superset (performed within lookback as of now);
+            # the anchor refinement narrows it to "performed before this user's T0".
+            anchor_target_relation = "performed_before"
+
+    return _CompiledPopulationKind(where_parts=parts, values=values, anchor_target_relation=anchor_target_relation)
+
+
 def build_target_condition(
     *,
     target_event: str,
@@ -215,12 +338,24 @@ def _build_labeled_users_cte(
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     train_parts, train_values = _build_population_conditions(training_properties)
-    training_clause = f" AND ({' AND '.join(train_parts)})" if train_parts else ""
+    compiled_kind = _build_population_kind_conditions(training_population, anchor_mode=True)
+    all_parts = train_parts + compiled_kind.where_parts
+    training_clause = f" AND ({' AND '.join(all_parts)})" if all_parts else ""
     identified_clause = _identified_users_and_clause()
     limit_clause = f"\n              LIMIT {int(sample_limit)}" if sample_limit is not None else ""
     target_cond, target_values = build_target_condition(
         target_event=target_event, target_definition=target_definition, team=team
     )
+
+    # Per-user-at-T0 population refinement for target-relative kinds (see
+    # _build_population_kind_conditions): membership is decided against each
+    # user's own T0, exactly as inference decides it against its cutoff.
+    anchor_having = ""
+    if compiled_kind.anchor_target_relation is not None:
+        wanted = 1 if compiled_kind.anchor_target_relation == "performed_before" else 0
+        anchor_having = (
+            f"\n              HAVING max(({target_cond}) AND toInt(toUnixTimestamp(e.timestamp)) < u.t0_ts) = {wanted}"
+        )
 
     cte = f"""
         WITH user_window AS (
@@ -255,7 +390,7 @@ def _build_labeled_users_cte(
             INNER JOIN user_t0 u ON e.person_id = u.person_id
             WHERE e.timestamp >= now() - toIntervalDay({{lookback}})
               AND e.timestamp < now()
-            GROUP BY u.person_id, u.t0_ts
+            GROUP BY u.person_id, u.t0_ts{anchor_having}
         )
     """
     values: dict[str, Any] = {
@@ -263,6 +398,7 @@ def _build_labeled_users_cte(
         "lookback": lookback_days,
         **target_values,
         **train_values,
+        **compiled_kind.values,
     }
     return cte, values
 
@@ -326,7 +462,12 @@ def build_eligible_count_sql(
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     train_parts, train_values = _build_population_conditions(training_properties)
-    training_clause = f" AND ({' AND '.join(train_parts)})" if train_parts else ""
+    # Row mode: the target-relative kinds are evaluated as of now() here, which is an
+    # approximation of the trainer's per-user-at-T0 semantics — acceptable for an
+    # advisory headline count.
+    compiled_kind = _build_population_kind_conditions(training_population)
+    all_parts = train_parts + compiled_kind.where_parts
+    training_clause = f" AND ({' AND '.join(all_parts)})" if all_parts else ""
 
     horizon_cond = "timestamp < now() - toIntervalDay({horizon})"
     eligible_cond = f"{horizon_cond} AND person.is_identified" if IDENTIFIED_USERS_ONLY else horizon_cond
@@ -343,53 +484,8 @@ def build_eligible_count_sql(
         "horizon": horizon_days,
         "lookback": lookback_days,
         **train_values,
+        **compiled_kind.values,
     }
-    return sql, values
-
-
-def build_training_anchors_sql(
-    *,
-    target_event: str,
-    horizon_days: int,
-    lookback_days: int,
-    training_population: dict[str, Any] | None,
-    target_definition: dict[str, Any] | None = None,
-    team: "Team | None" = None,
-) -> tuple[str, dict[str, Any]]:
-    """
-    Build a HogQL query producing one row per labeled user:
-        (person_id, t0_ts, positive, fold)
-
-    Used by the trainer in two roles:
-      - as the source for {anchors} substitution in the agent's feature_sql
-        (joining events with timestamp < cutoff_ts gives leak-free features);
-      - as the source for the binary labels and per-user fold assignment used
-        for hash-based train/holdout split (fold 0 = holdout, 1..4 = train).
-
-    Fold uses an independent salted hash so it doesn't correlate with the T0
-    assignment hash.
-
-    No sampling — the trainer needs every eligible user; wizard sampling is
-    only for the live preview path.
-    """
-    cte, values = _build_labeled_users_cte(
-        target_event=target_event,
-        target_definition=target_definition,
-        team=team,
-        horizon_days=horizon_days,
-        lookback_days=lookback_days,
-        training_population=training_population,
-        sample_limit=None,
-    )
-    sql = f"""
-        {cte}
-        SELECT
-            person_id,
-            t0_ts,
-            positive,
-            toInt(bitAnd(cityHash64(concat('fold:', toString(person_id))), 2147483647)) % {NUM_FOLDS} AS fold
-        FROM labeled_users
-    """
     return sql, values
 
 
@@ -415,12 +511,17 @@ def build_inference_anchors_sql(
     """
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
     inf_parts, inf_values = _build_population_conditions(inference_properties)
-    inf_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
-    identified_clause = _identified_users_and_clause()
 
     # now() for live scoring; a bound, backdated instant for a historical backfill.
     cutoff_expr = "fromUnixTimestamp({cutoff_ts})" if cutoff_ts is not None else "now()"
     cutoff_select = "toInt({cutoff_ts})" if cutoff_ts is not None else "toInt(toUnixTimestamp(now()))"
+
+    # Row mode anchored at the cutoff: population membership is decided as of the
+    # scoring instant, mirroring how training decides it as of each user's T0.
+    compiled_kind = _build_population_kind_conditions(inference_population, now_expr=cutoff_expr)
+    all_parts = inf_parts + compiled_kind.where_parts
+    inf_clause = f" AND ({' AND '.join(all_parts)})" if all_parts else ""
+    identified_clause = _identified_users_and_clause()
 
     sql = f"""
         SELECT DISTINCT
@@ -433,6 +534,7 @@ def build_inference_anchors_sql(
     values: dict[str, Any] = {
         "lookback": lookback_days,
         **inf_values,
+        **compiled_kind.values,
     }
     if cutoff_ts is not None:
         values["cutoff_ts"] = cutoff_ts

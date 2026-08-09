@@ -9,7 +9,10 @@
             "type": "number"
         },
         "inference_population": {
-            "description": "Population filter for daily scoring. Defaults to training_population if not provided."
+            "additionalProperties": {},
+            "description": "Population filter for daily scoring. Defaults to training_population if not provided.",
+            "properties": {},
+            "type": "object"
         },
         "target_definition": {
             "description": "Optional target definition. Pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event."
@@ -27,7 +30,10 @@
             "type": "number"
         },
         "training_population": {
-            "description": "Population filter for training examples. Use {} for all identified users."
+            "additionalProperties": {},
+            "description": "Population filter for training examples. Use {} for all identified users.",
+            "properties": {},
+            "type": "object"
         }
     },
     "type": "object"

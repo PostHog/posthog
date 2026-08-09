@@ -100,6 +100,20 @@ def build_agent_description(
             f"\n- **Training population filter**: `{_wrap_untrusted(json.dumps(pipeline.training_population))}`"
         )
 
+    # Advisory early-stop guidance — the agent is asked to stop, the budget is what
+    # actually bounds spend. Numeric model fields, so no untrusted-data wrapping.
+    stop_parts = []
+    if pipeline.success_auc is not None:
+        stop_parts.append(f"holdout AUC reaches {pipeline.success_auc:g}")
+    if pipeline.plateau_iterations:
+        stop_parts.append(f"{pipeline.plateau_iterations} consecutive iterations bring no holdout improvement")
+    stop_clause = ""
+    if stop_parts:
+        stop_clause = (
+            f"\n- **Early stop**: once you have met the minimum iterations below, stop and complete the run "
+            f"when {' or when '.join(stop_parts)}."
+        )
+
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
     target_spec_line, target_inline_ref = _describe_target(pipeline)
@@ -124,7 +138,7 @@ def build_agent_description(
         - **Target**: {target_spec_line}
         - **Prediction horizon**: {pipeline.horizon_days} days
         - **Output person property**: `{_wrap_untrusted(pipeline.output_person_property)}`
-        - **Iteration budget**: {iteration_budget}{pop_clause}
+        - **Iteration budget**: {iteration_budget}{stop_clause}{pop_clause}
         - **Today's date**: {today_iso}
 
         ## Identifiers for every tool call

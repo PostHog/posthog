@@ -5,13 +5,18 @@ Each template resolves to the same pipeline config shape as a custom pipeline,
 so validation and creation work identically whether the user started from a template
 or built a fully custom definition.
 
-Population specs use a semantic format compiled to HogQL by the training/inference
-harness. Supported kinds:
-  performed_event_within_days   users who did `event` in the last `days` days
-  person_first_seen_within_days users whose first_seen date is within `days` days
+Population specs use a semantic format compiled to HogQL by
+labeling._build_population_kind_conditions. Supported kinds:
+  performed_event_within_days   users who did `event` (any event when omitted) in
+                                the last `days` days
+  person_first_seen_within_days users whose first-seen date is within `days` days
   active_not_performed_target   active users (any event in `active_within_days`) who
                                 have NOT performed `event`
   ever_performed_event          users who have performed `event` at least once
+
+"Ever" and "has not performed" are bounded to the pipeline's training lookback
+window, and the target-relative kinds are evaluated per user at T0 during
+training — see the compiler's docstring for the semantics.
 """
 
 from __future__ import annotations

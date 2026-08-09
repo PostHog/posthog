@@ -7,6 +7,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.actions.backend.models.action import Action
+from products.autoresearch.backend.dataset.labeling import POPULATION_KINDS
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -113,15 +114,66 @@ class TargetDefinitionField(serializers.JSONField):
     pass
 
 
+# Required keys per semantic population kind, mirrored by the compiler in
+# dataset/labeling.py (_build_population_kind_conditions). Validated here so an
+# uncompilable spec is rejected at creation instead of failing at query time.
+_POPULATION_KIND_REQUIRED_DAYS: dict[str, str | None] = {
+    "performed_event_within_days": "days",
+    "person_first_seen_within_days": "days",
+    "active_not_performed_target": "active_within_days",
+    "ever_performed_event": None,
+}
+_POPULATION_KIND_REQUIRES_EVENT = frozenset({"active_not_performed_target", "ever_performed_event"})
+_POPULATION_DAYS_MAX = 730
+
+
 @extend_schema_field(
     {
         "type": "object",
-        "description": "Population definition as a HogQL cohort or filter object. Use {} for 'all identified users'.",
+        "description": (
+            "Population definition. Two shapes: a property filter object "
+            '({"properties": [{"key": ..., "type": "person"|"event", "operator": ..., "value": ...}]}) '
+            'or a semantic spec ({"kind": ..., ...}) as returned by autoresearch-resolve-template-create. '
+            "Supported kinds: 'performed_event_within_days' (did event, or any event, in last 'days' days), "
+            "'person_first_seen_within_days' (first seen within 'days' days), "
+            "'active_not_performed_target' (any event in last 'active_within_days' days and has not done 'event'), "
+            "'ever_performed_event' (did 'event' at least once in the training lookback window). "
+            "Use {} for all identified users."
+        ),
         "example": {"properties": [{"key": "email", "type": "person", "operator": "is_set"}]},
     }
 )
 class PopulationDefinitionField(serializers.JSONField):
-    pass
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Population must be an object. Use {} for all identified users.")
+        properties = value.get("properties")
+        if properties is not None and (
+            not isinstance(properties, list) or any(not isinstance(p, dict) for p in properties)
+        ):
+            raise serializers.ValidationError("Population 'properties' must be a list of filter objects.")
+        kind = value.get("kind")
+        if kind is None:
+            return value
+        if kind not in POPULATION_KINDS:
+            raise serializers.ValidationError(
+                f"Unknown population kind '{kind}'. Supported kinds: {', '.join(sorted(POPULATION_KINDS))}."
+            )
+        days_key = _POPULATION_KIND_REQUIRED_DAYS[kind]
+        if days_key is not None:
+            days = value.get(days_key)
+            if not isinstance(days, int) or isinstance(days, bool) or not 1 <= days <= _POPULATION_DAYS_MAX:
+                raise serializers.ValidationError(
+                    f"Population '{days_key}' must be a whole number between 1 and {_POPULATION_DAYS_MAX}."
+                )
+        if kind in _POPULATION_KIND_REQUIRES_EVENT:
+            event = value.get("event")
+            if not event or not isinstance(event, str):
+                raise serializers.ValidationError(
+                    f"Population kind '{kind}' needs an 'event' naming the event it applies to."
+                )
+        return value
 
 
 @extend_schema_field(
@@ -646,7 +698,6 @@ class AutoresearchIterationSerializer(serializers.ModelSerializer):
             "id",
             "pipeline",
             "training_run",
-            "parent_iteration",
             "iteration_number",
             "recipe_hash",
             "recipe_snapshot",
@@ -732,10 +783,8 @@ class AutoresearchRunSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "id": {"help_text": "Unique UUID of this run."},
             "pipeline": {"help_text": "Pipeline this run belongs to."},
-            "model": {"help_text": "Model used for scoring. Null for validation or notebook runs."},
-            "run_type": {
-                "help_text": "Type of run: 'inference' (daily scoring), 'validation' (outcome evaluation), or 'notebook' (report generation)."
-            },
+            "model": {"help_text": "Model used for scoring. Null for validation runs."},
+            "run_type": {"help_text": "Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation)."},
             "status": {"help_text": "Run status: pending, running, completed, or failed."},
             "rows_scored": {"help_text": "Number of users scored in this inference run."},
             "error": {"help_text": "Error message if the run failed."},
@@ -786,11 +835,11 @@ class ValidatePipelineRequestSerializer(serializers.Serializer):
         max_value=730,
         help_text="How far back to look for training examples. Default: 180.",
     )
-    training_population = serializers.JSONField(
+    training_population = PopulationDefinitionField(
         default=dict,
         help_text="Population filter for training examples. Use {} for all identified users.",
     )
-    inference_population = serializers.JSONField(
+    inference_population = PopulationDefinitionField(
         default=dict,
         help_text="Population filter for daily scoring. Defaults to training_population if not provided.",
     )

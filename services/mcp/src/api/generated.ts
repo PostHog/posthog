@@ -9876,8 +9876,6 @@ export namespace Schemas {
       readonly id: string;
       pipeline: string;
       training_run: string;
-      /** @nullable */
-      parent_iteration?: string | null;
       /**
          * @minimum -2147483648
          * @maximum 2147483647
@@ -10205,7 +10203,6 @@ export namespace Schemas {
     /**
      * * `inference` - Inference
      * * `validation` - Validation
-     * * `notebook` - Notebook
      */
     export type RunTypeEnum = typeof RunTypeEnum[keyof typeof RunTypeEnum];
 
@@ -10213,7 +10210,6 @@ export namespace Schemas {
     export const RunTypeEnum = {
       Inference: 'inference',
       Validation: 'validation',
-      Notebook: 'notebook',
     } as const;
 
     /**
@@ -10238,15 +10234,14 @@ export namespace Schemas {
       /** Pipeline this run belongs to. */
       pipeline: string;
       /**
-         * Model used for scoring. Null for validation or notebook runs.
+         * Model used for scoring. Null for validation runs.
          * @nullable
          */
       model?: string | null;
-      /** Type of run: 'inference' (daily scoring), 'validation' (outcome evaluation), or 'notebook' (report generation).
+      /** Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).
        *
        * * `inference` - Inference
-       * * `validation` - Validation
-       * * `notebook` - Notebook */
+       * * `validation` - Validation */
       run_type: RunTypeEnum;
       /** Run status: pending, running, completed, or failed.
        *
@@ -77612,6 +77607,16 @@ export namespace Schemas {
       notes: string[];
     }
 
+    /**
+     * Population filter for training examples. Use {} for all identified users.
+     */
+    export type ValidatePipelineRequestTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Population filter for daily scoring. Defaults to training_population if not provided.
+     */
+    export type ValidatePipelineRequestInferencePopulation = { [key: string]: unknown };
+
     export interface ValidatePipelineRequest {
       /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead). */
       target_event?: string;
@@ -77630,9 +77635,9 @@ export namespace Schemas {
          */
       training_lookback_days?: number;
       /** Population filter for training examples. Use {} for all identified users. */
-      training_population?: unknown;
+      training_population?: ValidatePipelineRequestTrainingPopulation;
       /** Population filter for daily scoring. Defaults to training_population if not provided. */
-      inference_population?: unknown;
+      inference_population?: ValidatePipelineRequestInferencePopulation;
     }
 
     export interface ValidationWarning {

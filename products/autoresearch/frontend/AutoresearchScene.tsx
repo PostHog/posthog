@@ -46,7 +46,7 @@ const STATUS_LABEL: Record<AutoresearchPipelineStatusEnumApi, string> = {
     archived: 'Archived',
 }
 
-export const STATUS_DESCRIPTION: Record<AutoresearchPipelineStatusEnumApi, string> = {
+const STATUS_DESCRIPTION: Record<AutoresearchPipelineStatusEnumApi, string> = {
     draft: 'Created but never trained. Start a training run to find a first champion.',
     bootstrapping: 'First training run in progress — no champion has been promoted yet.',
     running: 'Live: a champion is promoted and the population is scored on schedule.',

@@ -13,9 +13,9 @@ Nothing here trains or scores anything. It is the shared vocabulary that `../tra
   `T0` is a **deterministic hash of `person_id`**, so it is stable across runs and spread across the full lookback rather than clustered at the most-recent feasible point — one row per person, sampled once in their history.
 
   Three call sites share this module so they cannot drift: the wizard's live estimate (sampled), the trainer (full materialization with fold split), and inference (per-person cutoff = `now()`).
-  That is why `build_training_anchors_sql()` and `build_inference_anchors_sql()` are siblings here rather than living next to their callers.
+  That is why the training-side `labeled_anchors` CTE (inside `build_training_features_sql()`) and `build_inference_anchors_sql()` live here rather than next to their callers.
 
-  Also here: `_build_population_conditions()` (population filters → HogQL), `build_target_condition()` (event or action target → predicate), `NUM_FOLDS = 5` with fold 0 as holdout, and `IDENTIFIED_USERS_ONLY`.
+  Also here: `_build_population_conditions()` (property filters → HogQL), `_build_population_kind_conditions()` (semantic population kinds → HogQL, see below), `build_target_condition()` (event or action target → predicate), `NUM_FOLDS = 5` with fold 0 as holdout, and `IDENTIFIED_USERS_ONLY`.
 
 - `validation.py`
   Pre-flight viability. `validate_pipeline_definition()` answers "is there enough here to learn anything?" before a run is launched — `MIN_TRAINING_ROWS` (100), `MIN_POSITIVE_EXAMPLES` (20), `MIN_IDENTIFIED_FRACTION` (0.5).
@@ -32,8 +32,8 @@ A pipeline definition is declarative. This package is what turns it into SQL.
 ```text
 pipeline (target, population, horizon, lookback)
    │
-   ├─ build_training_anchors_sql   → one T0 per person, hashed, spread over lookback
-   │    └─ + labels + fold  → the trainer's labeled population
+   ├─ build_training_features_sql  → labeled_anchors CTE: one T0 per person, hashed,
+   │    └─ + labels + fold             spread over lookback — the trainer's labeled population
    │
    └─ build_inference_anchors_sql  → cutoff = now(), no labels, no folds
         └─ the scorer's population
@@ -59,7 +59,8 @@ The two branches differ only in cutoff and whether labels and folds are attached
 ## When editing this flow
 
 - **Any change to what a row means goes here and only here.** If you add a cutoff rule, a population kind, or a label variant next to a caller instead, the trainer and scorer will drift and the failure will be silent.
-- Keep `build_training_anchors_sql()` and `build_inference_anchors_sql()` symmetrical. They should differ in cutoff, labels, and folds — nothing else.
-- New population kinds need the semantic spec in `templates.py` _and_ the compiler branch in `labeling.py`; a spec with no compiler branch fails at query time, not at creation.
+- Keep the training-side `labeled_anchors` CTE and `build_inference_anchors_sql()` symmetrical. They should differ in cutoff, labels, and folds — nothing else.
+- New population kinds need the semantic spec in `templates.py`, the compiler branch in `_build_population_kind_conditions()` in `labeling.py`, and the required-key rules in the `PopulationDefinitionField` validator in `../api/serializers.py`. `POPULATION_KINDS` in `labeling.py` is the shared registry; a kind missing its compiler branch is rejected at creation and raises at query time.
+- Target-relative population kinds are evaluated **per user at T0** during training (the `HAVING` refinement in the labeled CTE), and **as of the cutoff** at inference. Excluding "ever performed the target" users with a plain row filter at training time would delete exactly the users whose post-T0 adoption provides the positive labels.
 - Fold 0 is the holdout everywhere. If you change `NUM_FOLDS` or the holdout fold, every recorded `holdout_score` in the database becomes incomparable to new ones.
 - **If you change the anchor, label, or population contract, update this file to match.**

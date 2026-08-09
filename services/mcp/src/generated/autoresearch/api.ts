@@ -171,7 +171,7 @@ export const AutoresearchModelsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List and retrieve inference, validation, and notebook runs for a pipeline.
+ * List and retrieve inference and validation runs for a pipeline.
  */
 export const AutoresearchRunsListParams = /* @__PURE__ */ zod.object({
     pipeline_id: zod.string(),
@@ -797,11 +797,11 @@ export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
         .default(autoresearchValidateCreateBodyTrainingLookbackDaysDefault)
         .describe('How far back to look for training examples. Default: 180.'),
     training_population: zod
-        .unknown()
+        .looseObject({})
         .optional()
         .describe('Population filter for training examples. Use {} for all identified users.'),
     inference_population: zod
-        .unknown()
+        .looseObject({})
         .optional()
         .describe('Population filter for daily scoring. Defaults to training_population if not provided.'),
 })

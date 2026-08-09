@@ -482,7 +482,7 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelVie
 @extend_schema(tags=["autoresearch"])
 class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
-    List and retrieve inference, validation, and notebook runs for a pipeline.
+    List and retrieve inference and validation runs for a pipeline.
     """
 
     scope_object = "autoresearch"

@@ -192,7 +192,7 @@ export const getAutoresearchRunsListUrl = (
 }
 
 /**
- * List and retrieve inference, validation, and notebook runs for a pipeline.
+ * List and retrieve inference and validation runs for a pipeline.
  */
 export const autoresearchRunsList = async (
     projectId: string,
@@ -211,7 +211,7 @@ export const getAutoresearchRunsRetrieveUrl = (projectId: string, pipelineId: st
 }
 
 /**
- * List and retrieve inference, validation, and notebook runs for a pipeline.
+ * List and retrieve inference and validation runs for a pipeline.
  */
 export const autoresearchRunsRetrieve = async (
     projectId: string,

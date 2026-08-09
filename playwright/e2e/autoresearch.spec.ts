@@ -7,7 +7,6 @@ const PIPELINE_LIST_PATH = '/api/projects/@current/autoresearch/'
 interface AutoresearchPipelineSummary {
     id: string
     name: string
-    status: string
 }
 
 test.describe('Autoresearch', () => {

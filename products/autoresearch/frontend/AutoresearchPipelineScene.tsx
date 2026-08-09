@@ -800,16 +800,12 @@ function MetricTrendCard({
     color,
     floor,
     ceil,
-    decimals = 3,
-    suffix = '',
 }: {
     title: string
     points: { date: string; value: number }[]
     color?: string
     floor?: number
     ceil?: number
-    decimals?: number
-    suffix?: string
 }): JSX.Element | null {
     if (points.length < 2) {
         return null
@@ -820,8 +816,7 @@ function MetricTrendCard({
             <div className="text-xs font-semibold text-muted uppercase tracking-wide">{title}</div>
             <MetricSparkline points={points} color={color} floor={floor} ceil={ceil} />
             <div className="text-xs text-muted">
-                {points[0].date} → {latest.date} · latest {latest.value.toFixed(decimals)}
-                {suffix}
+                {points[0].date} → {latest.date} · latest {latest.value.toFixed(3)}
             </div>
         </div>
     )
@@ -1081,7 +1076,7 @@ function SettingsTab(): JSX.Element {
 }
 
 /** Score-now action, gated on a champion existing. Reused in the title bar and empty states. */
-function ScoreNowButton({ size = 'small' }: { size?: 'small' | 'medium' }): JSX.Element | null {
+function ScoreNowButton(): JSX.Element | null {
     const { pipeline, models, scoreResultLoading } = useValues(autoresearchPipelineLogic)
     const { scoreNow } = useActions(autoresearchPipelineLogic)
     const hasChampion = models.some((m) => m.role === AutoresearchModelRoleEnumApi.Champion)
@@ -1091,7 +1086,7 @@ function ScoreNowButton({ size = 'small' }: { size?: 'small' | 'medium' }): JSX.
     return (
         <LemonButton
             type="secondary"
-            size={size}
+            size="small"
             icon={<IconRefresh />}
             onClick={() => scoreNow()}
             loading={scoreResultLoading}

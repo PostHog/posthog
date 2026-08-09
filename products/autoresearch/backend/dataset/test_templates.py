@@ -5,6 +5,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
+from products.autoresearch.backend.dataset.labeling import _build_population_kind_conditions
 from products.autoresearch.backend.dataset.templates import (
     TEMPLATES,
     ResolvedTemplate,
@@ -56,6 +57,21 @@ class TestTemplateDefinitions(TestCase):
         self.assertEqual(t.default_horizon_days, expected_horizon)
         self.assertEqual(t.requires_user_event, requires_user_event)
         self.assertEqual(t.requires_activity_resolution, requires_activity_resolution)
+
+
+class TestTemplateSpecsCompile(TestCase):
+    # Drift guard: every template's population spec must have a compiler branch in
+    # labeling.py, in both row mode (inference/eligible count) and anchor mode (training).
+
+    @parameterized.expand(list(TEMPLATES.keys()))
+    def test_population_specs_compile_in_both_modes(self, key: str) -> None:
+        t = TEMPLATES[key]
+        for spec in (t.training_population_spec, t.inference_population_spec):
+            population = _fill_population(spec, "some_target_event")
+            row = _build_population_kind_conditions(population)
+            anchor = _build_population_kind_conditions(population, anchor_mode=True)
+            self.assertTrue(row.where_parts)
+            self.assertTrue(anchor.where_parts or anchor.anchor_target_relation)
 
 
 class TestFillPopulation(TestCase):

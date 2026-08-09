@@ -138,18 +138,6 @@ def read_model(prefix: str) -> bytes | None:
     return object_storage.read_bytes(f"{prefix}/{MODEL_PKL}", missing_ok=True)
 
 
-def list_bundle(prefix: str) -> list[str]:
-    """Return the object keys present under ``prefix`` (empty list if none)."""
-    return object_storage.list_objects(prefix) or []
-
-
-def delete_bundle(prefix: str) -> None:
-    """Delete every object under ``prefix``."""
-    for key in list_bundle(prefix):
-        object_storage.delete(key)
-    logger.info("autoresearch_bundle_deleted", prefix=prefix)
-
-
 # ── Per-file access (the MCP upload/get/list/delete surface) ─────────────────────
 
 

@@ -60,7 +60,7 @@ function isPipelineTab(value: string | undefined): value is AutoresearchPipeline
 }
 
 /** Metrics stored in AutoresearchRun.metrics for validation runs. */
-export interface ValidationRunMetrics {
+interface ValidationRunMetrics {
     prediction_date: string
     realized_labels_count?: number
     warning?: string
@@ -83,7 +83,7 @@ export interface ValidationRunMetrics {
 }
 
 /** A decoded artifact bundle file, ready for display. */
-export interface ViewedArtifact {
+interface ViewedArtifact {
     runId: string
     path: string
     sizeBytes: number
@@ -108,7 +108,7 @@ function base64ToUtf8(base64: string): string {
 }
 
 /** Displayed progress for a training run. */
-export interface TrainingRunProgress {
+interface TrainingRunProgress {
     iterationCount: number
     bestHoldoutScore: number | null
 }
