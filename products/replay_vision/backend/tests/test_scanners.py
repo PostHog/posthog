@@ -84,6 +84,10 @@ class TestPreamble:
         assert "<masking>" in rendered
         assert "asterisks" in rendered
         assert "not a bug" in rendered.lower()
+        # A full media surface (embedded player, iframe, chart) rebuilt as a black/striped box is masking too,
+        # not a load or playback failure, so the model must not read it as a broken player.
+        assert "whole content region" in rendered
+        assert "playback failure" in rendered
 
     def test_preamble_forbids_reproducing_personal_data_verbatim(self) -> None:
         # Masking hides PII in the video, but the events tool / navigation URLs can expose it in the clear;
