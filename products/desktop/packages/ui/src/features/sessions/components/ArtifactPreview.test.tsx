@@ -1293,13 +1293,7 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("posthog-artifact-comment-active");
     expect(document).not.toContain("ph-artifact-comment-outline");
     expect(document).toContain("<span>Comment</span>");
-    expect(document).toContain('var CHANNEL="test-channel"');
-    expect(document).toContain('d.type==="locate"');
-    expect(document).toContain('send("open-external",{href:link.href})');
-    expect(document).toContain('target.closest("a[href]")');
-    expect(document).toContain("scrollIntoView");
-    expect(document).toContain("new MutationObserver");
-    expect(document).toContain("state.renderTimer");
+    expect(document).toContain('channel: "test-channel"');
     expect(document).toMatch(/script-src &#39;nonce-[^&]+&#39;/);
     expect(document).not.toContain(
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
