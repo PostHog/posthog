@@ -1451,6 +1451,20 @@
             "readOnlyHint": true
         }
     },
+    "channel-instructions-update": {
+        "description": "Publish a complete replacement for a channel's CONTEXT.md. Read the current version with channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if another update changes the document.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update channel instructions",
+        "title": "Update channel instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
         "category": "Tasks",
