@@ -6,7 +6,12 @@ import { dayjs } from 'lib/dayjs'
 
 import type { ActivityRun } from '../components/RunActivityChart'
 import { engineeringAnalyticsRepoOverview, engineeringAnalyticsRepoRunActivity } from '../generated/api'
-import type { RepoOverviewApi, WorkflowRunActivityApi } from '../generated/api.schemas'
+import type {
+    OpenToMergeBucketApi,
+    ReadyToMergeBucketApi,
+    RepoOverviewApi,
+    WorkflowRunActivityApi,
+} from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
@@ -20,7 +25,7 @@ const TOP_COST_WORKFLOWS = 5
 // Carry-forward + trim shared by the p50-seconds trends: a gap means "nothing merged", not instant
 // merges, so zero-filling would draw a false dip; the line starts at the first bucket with data.
 const p50Trend = (
-    series: { bucket_start: string; p50_seconds?: number | null }[],
+    series: (OpenToMergeBucketApi | ReadyToMergeBucketApi)[],
     granularity: string | undefined
 ): { values: number[]; labels: string[] } | null => {
     const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
