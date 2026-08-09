@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state, spend_projection
 
 
 # `many=False` stops drf-spectacular wrapping the response as `VisionQuotaApi[]` for the `list` action.
@@ -44,8 +44,23 @@ class VisionQuotaSerializer(serializers.Serializer):
     projected_monthly_credits = serializers.IntegerField(
         read_only=True,
         help_text=(
+            "`scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; "
+            "prefer the two components when pro-rating, since only the scanner half is a monthly rate."
+        ),
+    )
+    scanners_monthly_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
             "Credit-weighted sum of enabled scanners' projected observations/month across the organization. "
+            "A monthly rate: only the part falling in the days left of the period lands this period. "
             "Scanners without a computed estimate contribute 0."
+        ),
+    )
+    backfills_committed_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than "
+            "a rate, so it lands in full regardless of how much of the period is left."
         ),
     )
     free_monthly_credits = serializers.IntegerField(
@@ -65,5 +80,22 @@ class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(operation_id="environment_vision_quota_retrieve", responses={200: VisionQuotaSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
-        snapshot = compute_quota_snapshot(organization_id=UUID(self.organization_id))
-        return Response(VisionQuotaSerializer(instance=snapshot).data)
+        organization_id = UUID(self.organization_id)
+        state = quota_state(organization_id)
+        projection = spend_projection(organization_id)
+        return Response(
+            VisionQuotaSerializer(
+                {
+                    "credit_limit": state.credit_limit,
+                    "credits_used": state.credits_used,
+                    "remaining": state.remaining,
+                    "exhausted": state.exhausted,
+                    "period_start": state.period_start,
+                    "period_end": state.period_end,
+                    "free_monthly_credits": state.free_monthly_credits,
+                    "projected_monthly_credits": projection.total,
+                    "scanners_monthly_credits": projection.scanners_monthly_credits,
+                    "backfills_committed_credits": projection.backfills_committed_credits,
+                }
+            ).data
+        )

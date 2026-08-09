@@ -9,14 +9,8 @@ import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { QuotaImminentBanner } from '../../components/QuotaImminentBanner'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
-import {
-    QUOTA_STATUS_STYLES,
-    type QuotaStatus,
-    daysUntilCapReached,
-    hasCreditLimit,
-    projectQuota,
-    splitProjectedPct,
-} from '../../utils/quotaProjection'
+import { buildQuotaMeter } from '../../utils/quotaContributions'
+import { QUOTA_STATUS_STYLES, type QuotaStatus, daysUntilCapReached, projectQuota } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import {
     QUOTA_METER_BACKFILL_CLASS,
@@ -51,24 +45,43 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     // The estimate already applies the quality filter and sampling rate backend-side.
     const projectedObservations = scannerEstimate?.estimated_observations_per_month ?? null
     const projectedCredits = scannerEstimate?.estimated_credits_per_month ?? null
-    const hasCap = hasCreditLimit(quota)
     const used = quota?.credits_used ?? 0
     const cap = quota?.credit_limit ?? 0
 
     // `other_enabled_scanners_monthly_credits` comes from the same estimate response as `projectedCredits`, so the
     // two are a consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would
     // race the estimate-refresh cadence and double-count the scanner right after creating it.
-    const fleetMonthly = quota?.projected_monthly_credits ?? 0
     const othersMonthly = scannerEstimate?.other_enabled_scanners_monthly_credits ?? 0
-    // Backfill commitments sit in the snapshot's projection but not in `othersMonthly`, so replacing the fleet
-    // total with `others + this` drops them. That is what this projection wants: `projectQuota` pro-rates a
-    // monthly rate across the days left, and a backfill is charged once, so it is added back at full value as
-    // its own segment below instead.
     const backfillCredits = scannerEstimate?.active_backfill_credits ?? 0
-    // projectQuota wants a delta off the stored fleet total, so compute the new fleet total (others + this) and pass the difference.
-    const newFleetMonthly = projectedCredits !== null ? othersMonthly + projectedCredits : fleetMonthly
-    const projection = projectQuota(quota, newFleetMonthly - fleetMonthly)
-    const { status, resetsOn, usedPct, usedFreePct, projectedPct } = projection
+
+    // The proposed scanner replaces its own stored estimate, so this lists the fleet explicitly rather than
+    // adjusting the org total. Backfills stay a one-off; only the two scanner figures are rates.
+    const { projection, segments, periodEndPct, hasCap } = buildQuotaMeter(quota, [
+        {
+            key: 'backfills',
+            label: 'Backfills',
+            credits: backfillCredits,
+            kind: 'one-off',
+            barClass: QUOTA_METER_BACKFILL_CLASS,
+        },
+        {
+            key: 'others',
+            label: 'Projected (other scanners)',
+            credits: othersMonthly,
+            kind: 'monthly-rate',
+            barClass: 'bg-accent',
+        },
+        {
+            key: 'this-scanner',
+            label: 'Projected (this scanner)',
+            credits: projectedCredits ?? 0,
+            kind: 'monthly-rate',
+            barClass: QUOTA_STATUS_STYLES[projectedCredits === null ? 'safe' : projectQuota(quota).status].bar,
+            striped: true,
+        },
+    ])
+    const { status, resetsOn, usedPct, usedFreePct } = projection
+    const newFleetMonthly = othersMonthly + (projectedCredits ?? 0)
 
     const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
@@ -76,17 +89,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     // No estimate means the projection isn't about the scanner being edited.
     const imminentDays = projectedCredits !== null ? daysUntilCapReached(projection) : null
 
-    const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)
-    // Ahead of the projections, matching the backfill cost card: a committed one-off keeps its width and the
-    // rest-of-period forecast is what gets truncated when the total overshoots the limit.
-    const backfillPct = hasCap && cap > 0 ? (backfillCredits / cap) * 100 : 0
-    // The bar carries the backfill segment, so the headline percentage has to as well or the two disagree.
-    const periodEndPct = Math.round(usedPct + projectedPct + backfillPct)
-    const [freeWidth, billedWidth, backfillWidth, othersWidth, thisWidth] = quotaMeterWidths(usedPct, usedFreePct, [
-        backfillPct,
-        othersPct,
-        thisScannerPct,
-    ])
+    const [freeWidth, billedWidth, ...segmentWidths] = quotaMeterWidths(
+        usedPct,
+        usedFreePct,
+        segments.map((segment) => segment.pct)
+    )
 
     const breakdown = (
         <div className="text-xs space-y-0.5">
@@ -183,11 +190,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         <QuotaMeterBar
                             usedPct={usedPct}
                             usedFreePct={usedFreePct}
-                            projected={[
-                                { pct: backfillPct, barClass: QUOTA_METER_BACKFILL_CLASS },
-                                { pct: othersPct, barClass: 'bg-accent' },
-                                { pct: thisScannerPct, barClass: styles.bar, striped: true },
-                            ]}
+                            projected={segments}
                             valueNow={periodEndPct}
                             label={`Projected ${periodEndPct}% of the monthly spend limit by ${
                                 resetsOn ?? 'period end'
@@ -201,15 +204,16 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         <QuotaMeterLegendItem width={billedWidth}>
                             {freeWidth > 0 ? 'Billed' : 'Spent'}
                         </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass={QUOTA_METER_BACKFILL_CLASS} width={backfillWidth}>
-                            Backfills
-                        </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass="bg-accent" width={othersWidth}>
-                            Projected (other scanners)
-                        </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass={styles.bar} striped width={thisWidth}>
-                            Projected (this scanner)
-                        </QuotaMeterLegendItem>
+                        {segments.map((segment, index) => (
+                            <QuotaMeterLegendItem
+                                key={segment.key}
+                                barClass={segment.barClass}
+                                striped={segment.striped}
+                                width={segmentWidths[index]}
+                            >
+                                {segment.label}
+                            </QuotaMeterLegendItem>
+                        ))}
                     </div>
                 </>
             )}

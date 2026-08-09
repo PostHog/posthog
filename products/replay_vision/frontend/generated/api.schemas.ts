@@ -714,8 +714,12 @@ export interface VisionQuotaApi {
     readonly period_start: string
     /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
     readonly period_end: string
-    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+    /** `scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate. */
     readonly projected_monthly_credits: number
+    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
+    readonly scanners_monthly_credits: number
+    /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
+    readonly backfills_committed_credits: number
     /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
     readonly free_monthly_credits: number
 }
