@@ -113,12 +113,11 @@ export interface reportListLogicValues {
     sortField: InboxSortField // inboxFiltersLogic
     sourceProductFilter: string[] // inboxFiltersLogic
     user: UserType | null // userLogic
+    badgeCount: number | null
     count: number | null
     countLoading: boolean
-    badgeCount: number | null
     hasMore: boolean
     isLoaded: boolean
-    reportsLoadFailed: boolean
     listApiParams: any
     loadedContext: {
         hasActiveFilters: boolean
@@ -126,6 +125,7 @@ export interface reportListLogicValues {
     } | null
     loadedQueryKey: string | null
     reports: SignalReport[]
+    reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
     totalCount: number | null
