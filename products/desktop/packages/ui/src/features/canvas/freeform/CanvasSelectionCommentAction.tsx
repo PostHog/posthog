@@ -74,7 +74,8 @@ export function CanvasSelectionCommentAction({
         useCommentNavigationStore
           .getState()
           .requestCommentFocus(taskId, target, comment.id, {
-            scrollToComment: false,
+            scrollToAnchor: false,
+            scrollToThread: false,
           });
       }}
     />

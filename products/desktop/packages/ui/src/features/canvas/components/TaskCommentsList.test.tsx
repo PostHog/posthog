@@ -448,7 +448,7 @@ describe("TaskCommentsList", () => {
     });
   });
 
-  it("does not scroll when an artifact selects its thread", () => {
+  it("scrolls the comment pane without reopening the selected artifact", () => {
     const animationFrame = vi
       .spyOn(globalThis, "requestAnimationFrame")
       .mockImplementation((callback) => {
@@ -469,11 +469,14 @@ describe("TaskCommentsList", () => {
           "task-1",
           { scope: "task_artifact", itemId: "a" },
           "comment-1",
-          { scrollToComment: false },
+          { scrollToAnchor: false },
         );
     });
 
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "nearest",
+    });
     expect(mocks.openArtifactTab).not.toHaveBeenCalled();
     scrollIntoView.mockRestore();
     animationFrame.mockRestore();
@@ -798,7 +801,8 @@ describe("TaskCommentsList", () => {
     ).toMatchObject({
       target: { scope: "task", itemId: "task-1" },
       threadId: "created-comment",
-      scrollToComment: false,
+      scrollToAnchor: false,
+      scrollToThread: false,
     });
   });
 

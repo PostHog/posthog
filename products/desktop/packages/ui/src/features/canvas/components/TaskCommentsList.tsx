@@ -556,8 +556,8 @@ export function TaskCommentsList({
         : ALL_SOURCES,
     );
     setPulseThreadId(focus.threadId);
-    if (focus.scrollToComment === false) return;
-    openThread(focused, false);
+    if (focus.scrollToAnchor !== false) openThread(focused, false);
+    if (focus.scrollToThread === false) return;
     requestAnimationFrame(() => {
       document
         .querySelector(
@@ -742,7 +742,8 @@ export function TaskCommentsList({
             });
             setDraft("");
             requestCommentFocus(task.id, composerTarget, created.id, {
-              scrollToComment: false,
+              scrollToAnchor: false,
+              scrollToThread: false,
             });
           }}
           members={members}
