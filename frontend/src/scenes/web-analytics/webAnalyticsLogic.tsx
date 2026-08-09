@@ -3263,6 +3263,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
+            cache.hasRestoredWebUrl = true
+
             // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
             const stampKey = `ph_last_web_analytics_stamp_${posthog.get_distinct_id()}`
             const oneDayMs = 24 * 60 * 60 * 1000
@@ -3409,7 +3411,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         // counter keeps the guard correct if a restore re-enters (e.g. the bots-flag redirect).
         const toAction = (params: { productTab?: ProductTab }, searchParams: Record<string, any>): void => {
             const isInitialRestore = !cache.hasRestoredWebUrl
-            cache.hasRestoredWebUrl = true
             cache.applyUrlStateDepth = (cache.applyUrlStateDepth ?? 0) + 1
             try {
                 applyUrlState(params, searchParams, isInitialRestore)

@@ -449,13 +449,13 @@ describe('webAnalyticsLogic URL restoration', () => {
     }
 
     const FILTER_A = {
-        type: PropertyFilterType.Session,
+        type: PropertyFilterType.Session as const,
         key: '$entry_utm_source',
         operator: PropertyOperator.Exact,
         value: ['google'],
     }
     const FILTER_B = {
-        type: PropertyFilterType.Session,
+        type: PropertyFilterType.Session as const,
         key: '$entry_utm_medium',
         operator: PropertyOperator.Exact,
         value: ['cpc'],
@@ -503,6 +503,17 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
 
         router.actions.push('/web/live')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+
+    it('keeps filters when a cold /web/bots load redirects to /web with the bots flag off (reset flag on)', async () => {
+        enableBackNavReset()
+        logic.actions.setWebAnalyticsFilters([FILTER_A])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.cache.hasRestoredWebUrl = false
+
+        router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })
