@@ -42,8 +42,13 @@ export const StringVariableInput: Story = {
     args: { variable: stringVariable },
 }
 
-/** The date variable's calendar is much taller than the Update button next to it. Guards against the
- *  button stretching to the calendar's height. */
+/** The calendar's own Apply button commits a fixed date, so there is no second commit button here. */
 export const DateVariableInput: Story = {
     args: { variable: dateVariable },
+}
+
+/** The relative-date tab has no Apply of its own, so it keeps the Update button. Guards against that
+ *  button stretching to the height of the column beside it. */
+export const RelativeDateVariableInput: Story = {
+    args: { variable: { ...dateVariable, default_value: '-7d' } },
 }

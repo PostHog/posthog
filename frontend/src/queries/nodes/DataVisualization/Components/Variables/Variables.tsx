@@ -144,6 +144,10 @@ export const VariableInput = ({
     })
     const [isNull, setIsNull] = useState<boolean>(variable.isNull ?? false)
 
+    // A fixed date is committed by the calendar's own Apply button, so a second one would be redundant.
+    // The relative-date tab has no such button, and still needs ours.
+    const calendarOwnsApply = variable.type === 'Date' && !isRelativeDateValue(String(localInputValue))
+
     const inputRef = useRef<HTMLInputElement>(null)
     const codeRef = useRef<HTMLElement>(null)
 
@@ -213,25 +217,31 @@ export const VariableInput = ({
                     <DateField
                         variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
                         updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
+                        onApply={(value) => {
+                            onChange(variable.id, value, isNull)
+                            closePopover()
+                        }}
                         onSave={() => {}}
                     />
                 )}
-                <LemonButton
-                    type="primary"
-                    // Without this the button stretches to the tallest sibling, which for a date
-                    // variable is the whole calendar.
-                    className="self-start"
-                    onClick={() => {
-                        onChange(
-                            variable.id,
-                            variable.type === 'Number' ? Number(localInputValue) : localInputValue,
-                            isNull
-                        )
-                        closePopover()
-                    }}
-                >
-                    {showEditingUI ? 'Save' : 'Update'}
-                </LemonButton>
+                {!calendarOwnsApply && (
+                    <LemonButton
+                        type="primary"
+                        // Without this the button stretches to the tallest sibling, which for a date
+                        // variable is the relative-date column.
+                        className="self-start"
+                        onClick={() => {
+                            onChange(
+                                variable.id,
+                                variable.type === 'Number' ? Number(localInputValue) : localInputValue,
+                                isNull
+                            )
+                            closePopover()
+                        }}
+                    >
+                        {showEditingUI ? 'Save' : 'Update'}
+                    </LemonButton>
+                )}
             </div>
             {showEditingUI ? (
                 <>
