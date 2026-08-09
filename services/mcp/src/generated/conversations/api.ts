@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -200,11 +200,65 @@ export const ConversationsTicketsMessagesListQueryParams = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Update a private note on a ticket.
+ *
+ * Only the note's author can edit it. Customer-facing replies cannot be
+ * edited (outbound delivery only runs on create).
+ */
+export const ConversationsTicketsNotesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
+    message_id: zod.string().describe('The UUID of the private note (comment) to edit or delete.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const conversationsTicketsNotesPartialUpdateBodyMessageMax = 5000
+
+export const ConversationsTicketsNotesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod
+            .string()
+            .max(conversationsTicketsNotesPartialUpdateBodyMessageMax)
+            .optional()
+            .describe('Updated note content in markdown.'),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.'
+            ),
+    })
+    .describe('Payload for updating a private note on a ticket.')
+
+/**
+ * Soft-delete a private note on a ticket.
+ *
+ * Only the note's author can delete it. Customer-facing replies cannot be
+ * deleted via this endpoint.
+ */
+export const ConversationsTicketsNotesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
+    message_id: zod.string().describe('The UUID of the private note (comment) to edit or delete.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Post a reply or internal note to a ticket.
  *
  * With is_private=false, the reply is delivered to the customer via the
  * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
  * the message is stored as an internal note only visible to team members.
+ *
+ * Retrying an identical message from the same author within a short window returns the
+ * original message with a 200 rather than posting it twice, and a 409 while a concurrent
+ * request is still creating it.
  */
 export const ConversationsTicketsReplyCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe("The ticket's UUID or its numeric ticket number."),

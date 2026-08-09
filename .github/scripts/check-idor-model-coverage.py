@@ -155,6 +155,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "BatchExportRun",
         "CodeInvite",
         "CodeInviteRedemption",
+        # Comment↔Slack-thread mirror mapping — looked up by source_comment FK or
+        # (scope, item_id) within team scope, and by internally-generated task-arg id;
+        # never by user-supplied CommentSlackThread id through an API. Fail-closed via
+        # TeamScopedManager (TeamScopedRootMixin) on top.
+        "CommentSlackThread",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
@@ -186,13 +191,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckLakeBackfill",
         "DuckLakeCatalog",
         "DuckgresServer",
-        "DuckgresSinkSchemaState",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",
         "TeamConversationsTeamsChannelSync",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
+        "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
         "TeamFeatureFlagsConfig",
@@ -285,6 +290,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "PromptSequence",
         "UserPromptState",
         # --- Global catalogs ---
+        "CommunitySkill",  # instance-global community skills catalog, synced from GitHub
+        "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
         "MCPServer",
         # --- Special (has source_team + destination_team, not a plain team) ---
@@ -301,6 +308,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ProxyRecord",
         "Role",
         "RoleMembership",
+        "LinkedIdentityProviderConfig",
         # --- User-scoped (cross-tenant by design) ---
         "NotificationViewed",
         "SCIMProvisionedUser",
@@ -351,7 +359,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingExternalReference",  # via SessionRecording
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
-        "SourceBatchDuckgresStatus",  # via SourceBatch
         "SourceBatchStatus",  # via SourceBatch
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight

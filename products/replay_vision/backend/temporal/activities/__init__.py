@@ -29,6 +29,9 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
+from products.replay_vision.backend.temporal.activities.reap_childless_inline_scanners import (
+    reap_childless_inline_scanners_activity,
+)
 from products.replay_vision.backend.temporal.activities.reap_orphaned_observations import (
     reap_orphaned_observations_activity,
 )
@@ -73,6 +76,7 @@ __all__ = [
     "mark_observation_ineligible_activity",
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
+    "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
     "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",

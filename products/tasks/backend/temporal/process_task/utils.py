@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from pydantic import BaseModel
@@ -282,6 +283,56 @@ def get_reasoning_effort_error(
         f"Reasoning effort '{effort_value}' is not supported for runtime_adapter "
         f"'{adapter_value}' and model '{model}'. Supported values: {supported_values}."
     )
+
+
+def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
+    """Which runtime adapter serves `model`, per this catalogue.
+
+    The adapter is a property of the model rather than an independent choice, so
+    deriving it is what lets callers reject a `(runtime_adapter, model)` pair that
+    disagrees with itself. `None` when no adapter claims the model.
+    """
+    if not model:
+        return None
+
+    normalized = model.strip().lower()
+    for adapter in RuntimeAdapter:
+        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
+            return adapter
+    return None
+
+
+def validate_model_selection(
+    runtime_adapter: RuntimeAdapter | str | None,
+    model: str | None,
+    reasoning_effort: ReasoningEffort | str | None,
+) -> None:
+    """Raise `ValidationError` unless these three may be used together.
+
+    The one place a picker or a write path can ask "is this selection legal?", so a
+    linked-dropdown UI and the API that persists its output can't disagree.
+
+    A model this catalogue serves under a different runtime is rejected outright. A model
+    no runtime claims is left alone — callers whose model list comes from elsewhere (the
+    LLM gateway, say) own that allowlist, and rejecting anything unrecognised here would
+    make every newly served model look invalid.
+    """
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+
+    if adapter_value is not None and adapter_value not in {adapter.value for adapter in RuntimeAdapter}:
+        valid_adapters = ", ".join(sorted(adapter.value for adapter in RuntimeAdapter))
+        raise ValidationError(f"Unknown runtime_adapter '{adapter_value}'. Valid values: {valid_adapters}.")
+
+    owning_adapter = get_runtime_adapter_for_model(model)
+    if adapter_value is not None and owning_adapter is not None and owning_adapter.value != adapter_value:
+        raise ValidationError(
+            f"Model '{model}' runs on runtime_adapter '{owning_adapter.value}', not '{adapter_value}'. "
+            f"Models for '{adapter_value}': {', '.join(get_models_for_runtime_adapter(adapter_value))}."
+        )
+
+    effort_error = get_reasoning_effort_error(adapter_value, model, reasoning_effort)
+    if effort_error:
+        raise ValidationError(effort_error)
 
 
 def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str | None:

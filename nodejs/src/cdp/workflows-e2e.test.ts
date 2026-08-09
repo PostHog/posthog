@@ -397,8 +397,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     describe('simple workflow: trigger → function → exit', () => {
+        let workflowId: string
+
         beforeEach(async () => {
-            await createWorkflow({
+            workflowId = await createWorkflow({
                 actions: {
                     trigger: trigger(),
                     function_1: fetchAction('https://example.com/webhook'),
@@ -426,7 +428,9 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // Verify metrics were produced to Kafka
             await waitForExpect(() => {
-                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                const metrics = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                 expect(metrics.length).toBeGreaterThanOrEqual(1)
             }, 5000)
 
@@ -435,6 +439,24 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+
+        it('mirrors every metric of the run under the workflow version that produced it', async () => {
+            await triggerWorkflow(globals)
+
+            const namesFor = (appSource: string, appSourceId: string): string[] =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === appSource && m.value.app_source_id === appSourceId)
+                    .map((m: any) => m.value.metric_name)
+                    .sort()
+
+            // The version-scoped series has to carry the whole run, not just the run-level outcome —
+            // a per-version step funnel is only readable if every step's metric is mirrored.
+            await waitForExpect(() => {
+                expect(namesFor('hog_flow', workflowId)).toContain('succeeded')
+                expect(namesFor('hog_flow_version', `${workflowId}/1`)).toEqual(namesFor('hog_flow', workflowId))
+            }, 10000)
         })
     })
 
@@ -742,6 +764,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             await waitForExpect(() => {
                 const metricNames = mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .map((m: any) => m.value.metric_name)
                 expect(metricNames).toContain('exited_workflow_changed')
                 expect(metricNames).not.toContain('failed')
@@ -1453,7 +1476,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             last_seen_at: null,
             distinct_id: 'distinct_id',
         })
-        const distinctIdMoveMessage = (): any => ({
+        const distinctIdMoveMessage = (overrides: Record<string, any> = {}): any => ({
             value: Buffer.from(
                 JSON.stringify({
                     team_id: team.id,
@@ -1461,6 +1484,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                     person_id: 'new-uuid',
                     version: 2,
                     is_deleted: 0,
+                    ...overrides,
                 })
             ),
         })
@@ -1496,6 +1520,101 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             // survivor's plan=enterprise, and advances down the matched branch, firing the fetch.
             mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
             await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('anchors and wakes a wait that parked before its distinct_id had a person', async () => {
+            // Production shape: an event arrives for a distinct_id with no person yet, so the wait parks
+            // with person_id NULL. Person wakes are keyed on person_id alone, so nothing can address that
+            // job — before this was fixed, only the 10-minute polling re-check ever advanced it.
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The premise of the test: no anchor to wake.
+            const parked = await cyclotronPool.query(
+                `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+            )
+            expect(parked.rows).toHaveLength(1)
+            expect(parked.rows[0].person_id).toBeNull()
+
+            // The distinct_id acquires a person for the first time (version 0), and that person already
+            // satisfies the condition. The matcher fills the missing anchor and wakes the wait, which then
+            // resolves by personId and advances down the matched branch.
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processMoveBatch(
+                matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage({ version: 0 }) as any])
+            )
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('anchors a wait whose condition is still false, so a later person update can wake it', async () => {
+            // The shape the affected production runs actually take, and the one the test above does not
+            // cover: the person exists by the time the anchor is filled, but does not satisfy the condition
+            // yet. So the fill wakes the wait, the re-check fails, and it re-parks — this time WITH an
+            // anchor. The property is then set, and that person update has to be able to find the job.
+            // Without the anchor there is no key for the person stream to match on and only the polling
+            // re-check would ever advance it.
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            const beforeFill = await cyclotronPool.query(
+                `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+            )
+            expect(beforeFill.rows[0].person_id).toBeNull()
+
+            // First mapping arrives. The person exists now but has no `plan`, so the condition is false.
+            const personWithoutPlan = { ...survivorPersonRow(), properties: { email: 'test@posthog.com' } }
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([personWithoutPlan])
+            await matcher.processMoveBatch(
+                matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage({ version: 0 }) as any])
+            )
+
+            // It re-parked rather than advancing, and it now carries the anchor.
+            await waitForExpect(async () => {
+                const afterFill = await cyclotronPool.query(
+                    `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+                )
+                expect(afterFill.rows).toHaveLength(1)
+                expect(afterFill.rows[0].person_id).toBe('new-uuid')
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // Now the property is set. This is a person mutation with no analytics event, so it can only be
+            // matched on person_id — the anchor written above is what makes it findable.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'new-uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 3,
+                    })
+                ),
+            }
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processBatch(await matcher._parsePersonBatch([personMessage as any]))
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -1575,6 +1694,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             const conversionCount = (): number =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter((m: any) => m.value.metric_name === 'conversion')
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2412,6 +2532,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2483,6 +2604,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2696,6 +2818,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2804,6 +2927,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2915,6 +3039,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
@@ -3007,6 +3132,7 @@ describe('Workflows E2E (email queue)', () => {
         const emailsSent = () =>
             mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -3116,6 +3242,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)
@@ -3222,6 +3349,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(3)
@@ -3368,6 +3496,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)

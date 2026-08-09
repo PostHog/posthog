@@ -1,6 +1,8 @@
 import { CaretLeftIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
+  cn,
+  Kbd,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -15,6 +17,10 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { track } from "@posthog/ui/shell/analytics";
 
 // An overlay rather than a sibling: the back button fills the row, and nesting
@@ -79,11 +85,13 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                 showChannelList();
               }}
               // Quill's own height and radius, so this reads as one of the rows
-              // under it rather than a control sitting on top. The star well is
-              // unconditional (see the reserved span below): sized off its
-              // contents, a starrable channel ran taller than #me and everything
-              // below shifted on switch.
-              className="w-full gap-1.5 text-left"
+              // under it rather than a control sitting on top. The right padding
+              // is the star's well — the star is an overlay, because a button
+              // can't nest one, so without it the row's own content runs under
+              // the star. Padding rather than a spacer element: quill hides an
+              // empty one (`empty:hidden`), which is how the shortcut hint ended
+              // up sitting beneath the star.
+              className={cn("w-full gap-1.5 text-left", showStar && "pr-8")}
             >
               <CaretLeftIcon
                 size={12}
@@ -109,11 +117,27 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                   "Unavailable"
                 )}
               </span>
-              <span aria-hidden className="size-6 shrink-0" />
+              {/* Same key as the search box's hint: from inside a space it is
+                  the way back to the list, which is what this row does. */}
+              <Kbd className="mr-0! shrink-0 opacity-50">
+                {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
+              </Kbd>
+              {/* The star's well. Its height is unconditional — it is what
+                  sets the row's height, and a row that changed height between a
+                  starrable space and #me made everything below it jump on
+                  switch. Its width is not: with no star to hold, an empty
+                  column just pushes the shortcut hint off the edge. */}
+              <span
+                aria-hidden
+                className={cn(
+                  "h-6 shrink-0 empty:hidden",
+                  showStar ? "w-6" : "w-0",
+                )}
+              />
             </Button>
           }
         />
-        <TooltipContent side="bottom">Back to spaces</TooltipContent>
+        <TooltipContent side="bottom">Go back</TooltipContent>
       </Tooltip>
       {/* #me can't be starred, so its well stays empty — a greyed-out star read
           as a control you were being denied. The well itself is unconditional

@@ -50,7 +50,7 @@ export class CdpCyclotronWorker<
                 } else if (isSegmentPluginHogFunction(item.hogFunction)) {
                     return this.segmentDestinationExecutorService.execute(item)
                 } else {
-                    return this.hogExecutor.executeWithAsyncFunctions(item)
+                    return this.hogExecutorAsync.executeWithAsyncFunctions(item)
                 }
             })
         )
@@ -205,9 +205,7 @@ export class CdpCyclotronWorker<
         try {
             await Promise.all([
                 this.hogWatcher.observeResults(invocationResults),
-                mirrorCall('hog-watcher.observeResults', () =>
-                    this.hogWatcherMirror?.observeResults(invocationResults)
-                ),
+                mirrorCall('hog-watcher.observeResults', () => this.hogWatcherMirror.observeResults(invocationResults)),
             ])
         } catch (err: any) {
             captureException(err)

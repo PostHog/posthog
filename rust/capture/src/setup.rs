@@ -654,7 +654,7 @@ async fn create_sink(
 
         let kafka_sink = KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
             .await
-            .expect("failed to start Kafka sink");
+            .context("failed to start Kafka sink")?;
 
         let s3_sink = S3Sink::new(
             config
@@ -678,7 +678,7 @@ async fn create_sink(
         // full `Secondary` cutover hands the gating handle to the secondary).
         let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
             .await
-            .expect("failed to start Kafka sink");
+            .context("failed to start Kafka sink")?;
 
         Ok(Box::new(kafka_sink))
     }
@@ -1180,6 +1180,47 @@ mod tests {
         assert!(!set.contains(""));
 
         assert!(super::parse_token_allowlist("  ,  , ").is_empty());
+    }
+
+    /// A blank output topic makes `create_sink` refuse to boot in every capture
+    /// mode — the misconfig fails fast at startup (via the `OutputRegistry`
+    /// completeness check inside `KafkaSink::new`) rather than at first produce.
+    #[rstest::rstest]
+    #[case(CaptureMode::Events)]
+    #[case(CaptureMode::Recordings)]
+    #[case(CaptureMode::Ai)]
+    #[case(CaptureMode::Import)]
+    #[tokio::test]
+    async fn create_sink_refuses_boot_on_missing_output_topic(#[case] mode: CaptureMode) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode.as_tag()),
+            ("KAFKA_HOSTS", "localhost:9092"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.kafka.outputs_completeness_check_enabled = true;
+        config.kafka.kafka_dlq_topic = String::new();
+
+        let err = create_sink(&config, None, None)
+            .await
+            .err()
+            .expect("boot must be refused when an output topic is empty");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("dlq"),
+            "error should name the missing output: {msg}"
+        );
+
+        // The default: with the check off, the same blank topic boots (and
+        // would fail at first produce instead).
+        config.kafka.outputs_completeness_check_enabled = false;
+        create_sink(&config, None, None)
+            .await
+            .expect("boot must proceed when the completeness check is disabled");
     }
 
     /// Absent gauge means warnings are off on purpose; `0` means an operator

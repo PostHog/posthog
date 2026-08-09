@@ -461,7 +461,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "webhooks": {
-        "description": "A webhook Klaviyo posts events to.",
+        "description": "A webhook Klaviyo posts events to. Requires Klaviyo's Advanced KDP add-on.",
         "docs_url": "https://developers.klaviyo.com/en/reference/get_webhooks",
         "columns": {
             "id": "Unique identifier for the webhook.",

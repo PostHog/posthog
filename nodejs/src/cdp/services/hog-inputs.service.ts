@@ -17,7 +17,7 @@ export const EXTEND_OBJECT_KEY = '$$_extend_object'
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
-        private recipientTokensService: RecipientTokensService,
+        private recipientTokensService: RecipientTokensService | undefined,
         private encryptedFields: EncryptedFields
     ) {}
 
@@ -61,6 +61,9 @@ export class HogInputsService {
         const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
 
         if (emailInputSchema && emailInput) {
+            if (!this.recipientTokensService) {
+                throw new Error('HogInputsService was constructed without messaging preference URL support')
+            }
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {

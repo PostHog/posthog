@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from requests import Response
 from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout
 
@@ -659,6 +660,32 @@ class TestRESTClient:
 
         assert pages == [[{"id": 1}]]
         mock_sleep.assert_called_once_with(12.0)
+
+    @parameterized.expand(
+        [
+            ("rfc3339_utc", "2026-03-06T12:00:45Z", 45.0),
+            ("rfc3339_offset", "2026-03-06T12:01:00+00:00", 60.0),
+            ("capped", "2027-03-06T12:00:00Z", MAX_RETRY_AFTER_SECONDS),
+            # A window that has already cleared, or a value we can't read, tells us nothing — the
+            # caller falls back to exponential backoff rather than retrying with no delay at all.
+            ("already_elapsed", "2026-03-06T11:59:55Z", None),
+            ("unparseable", "in a bit", None),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_honors_anthropic_rate_limit_reset(
+        self, _name: str, header_value: str, expected: float | None, mock_datetime
+    ) -> None:
+        # Anthropic rate limits its Admin API per organization but answers 429 without a
+        # ``Retry-After``; this RFC 3339 reset instant is the only delay it advertises, and without
+        # it a rate-limited report sync spends its whole attempt budget inside a few seconds.
+        mock_datetime.now.return_value = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.fromisoformat = datetime.fromisoformat
+
+        response = _make_response({"error": "rate limited"}, status_code=429)
+        response.headers["anthropic-ratelimit-requests-reset"] = header_value
+
+        assert _parse_retry_after(response) == expected
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_caps_sentry_reset_header(self, mock_datetime) -> None:

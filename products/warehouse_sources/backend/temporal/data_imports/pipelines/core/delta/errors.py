@@ -98,6 +98,37 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     return "File not found" in text and "_delta_log/" in text
 
 
+# `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting
+# `target_size` bytes per bin, then reads every file in a bin into memory as Arrow batches before
+# writing them back out as one file. `Batcher` (pipelines/core/batcher.py) already keeps each
+# *written* file's string/binary columns under its 32-bit-offset limit, so no single file can
+# overflow on its own — but that guard doesn't cover compaction, which can bin together several
+# already-safe files whose combined column bytes cross the 2^31 (~2.1 GB) offset limit, especially
+# for highly-compressible text (e.g. JSON payloads) where on-disk size understates decompressed
+# size by a wide margin. delta-rs surfaces this as a Rust task panic wrapped in a generic DeltaError
+# rather than a typed error. Retrying the same bin changes nothing, so this isn't transient — the
+# caller instead retries compaction with a smaller `target_size` to shrink the bins.
+DELTA_OFFSET_OVERFLOW_ERROR_NEEDLE = "byte array offset overflow"
+
+
+def is_offset_overflow_compaction_error(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and DELTA_OFFSET_OVERFLOW_ERROR_NEEDLE in str(error)
+
+
+# The optimistic-concurrency conflict checker raises this when the loser of a race to commit the
+# very next version can't read back the winner's just-committed log entry (delta-rs
+# `kernel/transaction/conflict_checker.rs`'s `WinningCommitSummary::try_new`) — most commonly two
+# writers racing to create the very first version of the same brand-new table, where the version in
+# the message is 0. Unlike `CommitFailedError` (mapped from `DeltaTableError::Transaction`), this
+# variant falls through delta-rs's Python binding as a plain `DeltaError` (see its `python/src/error.rs`
+# catch-all), so callers need to recognize it by message to retry it the same way as a commit conflict.
+DELTA_INVALID_VERSION_RACE_NEEDLE = "Invalid table version:"
+
+
+def is_invalid_version_race(error: BaseException) -> bool:
+    return type(error) is deltalake.exceptions.DeltaError and DELTA_INVALID_VERSION_RACE_NEEDLE in str(error)
+
+
 def is_transient_maintenance_error(error: BaseException) -> bool:
     """Infra blips seen during delta maintenance that aren't a maintenance bug.
 

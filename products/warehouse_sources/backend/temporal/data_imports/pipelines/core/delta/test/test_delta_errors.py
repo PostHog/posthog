@@ -6,6 +6,8 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+    is_invalid_version_race,
+    is_offset_overflow_compaction_error,
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
@@ -154,3 +156,56 @@ class TestIsTransientMaintenanceError:
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_maintenance_error(error) is expected
+
+
+class TestIsInvalidVersionRace:
+    @parameterized.expand(
+        [
+            # Two writers racing to commit the very first version of a brand-new table: the loser's
+            # conflict check can't read back the winner's just-committed version 0 log entry.
+            ("invalid_table_version_zero", deltalake.exceptions.DeltaError("Invalid table version: 0"), True),
+            # The same race losing at a later version, not just table creation.
+            ("invalid_table_version_nonzero", deltalake.exceptions.DeltaError("Invalid table version: 7"), True),
+            # A distinct delta-rs error variant (`VersionDowngrade`, not `InvalidVersion`) with its own
+            # message shape and a real bug to surface (a caller requesting an older version than
+            # loaded) — must not be swept up by this race classifier.
+            (
+                "downgrade_error_not_matched",
+                deltalake.exceptions.DeltaError("Cannot downgrade from version 5 to 2; use DeltaTable.load_version()"),
+                False,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # `CommitFailedError` is a `DeltaError` subclass, but this classifier is deliberately exact-type
+            # only — that variant already has its own dedicated handling via `CommitFailedError`.
+            (
+                "commit_failed_error_not_matched",
+                deltalake.exceptions.CommitFailedError("Invalid table version: 0"),
+                False,
+            ),
+            ("wrong_exception_type", RuntimeError("Invalid table version: 0"), False),
+        ]
+    )
+    def test_classifies_invalid_version_race(self, _name: str, error: Exception, expected: bool):
+        assert is_invalid_version_race(error) is expected
+
+
+class TestIsOffsetOverflowCompactionError:
+    @parameterized.expand(
+        [
+            # delta-rs's Rust task panicking mid-compaction, surfaced as a generic DeltaError
+            # rather than a typed one — see errors.py for why binning already-safe files together
+            # can still overflow a 32-bit string/binary column offset.
+            (
+                "byte_array_offset_overflow_panic",
+                deltalake.exceptions.DeltaError(
+                    'Generic error: task 1237385 panicked with message "byte array offset overflow"'
+                ),
+                True,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # Same message shape but not the DeltaError type delta-rs actually raises for it.
+            ("wrong_exception_type", RuntimeError('panicked with message "byte array offset overflow"'), False),
+        ]
+    )
+    def test_classifies_offset_overflow_errors(self, _name: str, error: Exception, expected: bool):
+        assert is_offset_overflow_compaction_error(error) is expected

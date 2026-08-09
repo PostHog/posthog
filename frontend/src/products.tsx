@@ -38,6 +38,7 @@ import type {
     SchemaSceneTab,
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import {
@@ -156,10 +157,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+    '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+    '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
-    '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
-    '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
@@ -209,6 +210,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/code-review': ['CodeReview', 'codeReview'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
+    '/inbox': ['Inbox', 'inbox'],
+    '/inbox/:tab': ['Inbox', 'inbox'],
+    '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
+    '/inbox/scouts/findings': ['Inbox', 'inbox'],
+    '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
+    '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
+    '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
@@ -238,6 +246,10 @@ export const productRoutes: Record<string, [string, string]> = {
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
     ],
+    '/heatmaps': ['Heatmaps', 'heatmaps'],
+    '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
+    '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
+    '/heatmaps/:id': ['Heatmap', 'heatmap'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -847,6 +859,11 @@ export const productConfiguration: Record<string, any> = {
         description: 'View detailed session group summary.',
         iconType: 'notebook',
     },
+    Inbox: {
+        name: 'Inbox',
+        projectBased: true,
+        description: 'Actionable reports automatically generated from user session analysis and other signals.',
+    },
     Skills: {
         projectBased: true,
         name: 'Skills',
@@ -913,6 +930,15 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'visual_review',
     },
     VisualReviewSnapshotOverview: { name: 'Snapshots', projectBased: true, iconType: 'visual_review' },
+    Heatmaps: {
+        name: 'Heatmaps',
+        projectBased: true,
+        iconType: 'heatmap',
+        description: 'Heatmaps are a way to visualize user behavior on your website.',
+    },
+    Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
+    HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
+    HeatmapRecording: { name: 'Heatmap recording', projectBased: true, iconType: 'heatmap' },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -1379,6 +1405,14 @@ export const productUrls = {
     codeReview: (): string => '/code-review',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
+    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
+        const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
+        return `/inbox/scouts/${skillName}${segment}`
+    },
+    inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
+    inboxFindings: (): string => '/inbox/scouts/findings',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -1437,6 +1471,13 @@ export const productUrls = {
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
+    heatmaps: (params?: string): string =>
+        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    heatmapNew: (params?: string): string =>
+        `/heatmaps/new${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    heatmapRecording: (params?: string): string =>
+        `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    heatmap: (id: string | number): string => `/heatmaps/${id}`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -1485,7 +1526,6 @@ export const fileSystemTypes = {
         href: () => urls.endpoints(),
         iconColor: ['var(--color-product-endpoints-light)'],
         filterKey: 'endpoints',
-        flag: FEATURE_FLAGS.ENDPOINTS,
     },
     experiment: {
         name: 'Experiment',
@@ -1671,6 +1711,15 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.insightNew({ type: InsightType.FUNNELS }),
         iconType: 'insight/funnels',
         visualOrder: INSIGHT_VISUAL_ORDER.funnel,
+        sceneKeys: ['Insight'],
+    },
+    {
+        path: `Insight/Journeys`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.JOURNEYS }),
+        flag: FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2,
+        iconType: 'insight/paths',
+        visualOrder: INSIGHT_VISUAL_ORDER.journeys,
         sceneKeys: ['Insight'],
     },
     {
@@ -1945,7 +1994,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         href: urls.endpoints(),
         type: 'endpoints',
-        flag: FEATURE_FLAGS.ENDPOINTS,
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
@@ -2256,7 +2304,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_prompts',
         iconType: 'llm_prompts' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.aiObservabilityPrompts(),
         sceneKey: 'AIObservabilityPrompts',
         sceneKeys: [
@@ -2333,7 +2381,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         type: 'llm_skills',
         iconType: 'llm_prompts' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.skills(),
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill'],
@@ -2545,7 +2593,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
-        flag: FEATURE_FLAGS.ENDPOINTS,
         sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {

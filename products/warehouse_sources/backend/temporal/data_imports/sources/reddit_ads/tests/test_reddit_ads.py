@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 from typing import Any, Optional
 
@@ -5,6 +6,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -16,7 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
     get_resource,
     list_business_ad_accounts,
     list_businesses,
+    reddit_ads_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 
 
 class TestRedditAdsHelperFunctions:
@@ -126,6 +130,77 @@ class TestGetResource:
         # For now, we'll test the happy path since the config is properly structured
         resource = get_resource("campaigns", "test_account", False)
         assert isinstance(resource["endpoint"], dict)
+
+    @parameterized.expand(
+        [
+            ("ad_account", "/ad_accounts/test_account"),
+            ("custom_audiences", "/ad_accounts/test_account/custom_audiences"),
+            ("saved_audiences", "/ad_accounts/test_account/saved_audiences"),
+            ("pixels", "/ad_accounts/test_account/pixels"),
+            ("funding_instruments", "/ad_accounts/test_account/funding_instruments"),
+            ("lead_gen_forms", "/ad_accounts/test_account/lead_gen_forms"),
+            ("profiles", "/ad_accounts/test_account/profiles"),
+        ]
+    )
+    def test_account_scoped_list_endpoints_bind_the_account_id(self, endpoint: str, expected_path: str) -> None:
+        resource = get_resource(endpoint, "test_account", False)
+
+        assert isinstance(resource["endpoint"], dict)
+        assert resource["endpoint"]["path"] == expected_path
+        assert resource["endpoint"]["method"] == "GET"
+
+
+class TestBreakdownReportEndpoints:
+    """Reddit returns breakdowns as extra dimensions on the same report request, so each dimension is
+    its own table. The request body has two hard constraints these tests pin down."""
+
+    BREAKDOWN_TABLES = [
+        ("campaign_country_report", "COUNTRY", "country"),
+        ("campaign_gender_report", "GENDER", "gender"),
+        ("campaign_placement_report", "PLACEMENT", "placement"),
+        ("campaign_community_report", "COMMUNITY", "community"),
+        ("campaign_os_type_report", "OS_TYPE", "os_type"),
+    ]
+
+    @parameterized.expand(BREAKDOWN_TABLES)
+    def test_breakdowns_stay_within_reddits_three_dimension_cap(
+        self, endpoint: str, breakdown: str, column: str
+    ) -> None:
+        resource = get_resource(endpoint, "test_account", False)
+
+        assert isinstance(resource["endpoint"], dict)
+        body = resource["endpoint"]["json"]
+        assert body is not None
+        assert body["data"]["breakdowns"] == ["CAMPAIGN_ID", "DATE", breakdown]
+
+    @parameterized.expand(BREAKDOWN_TABLES)
+    def test_breakdown_column_is_part_of_the_primary_key(self, endpoint: str, breakdown: str, column: str) -> None:
+        # Rows only differ by the breakdown value, so leaving it out collapses every dimension value
+        # for a campaign-day onto one row.
+        assert REDDIT_ADS_CONFIG[endpoint].resource["primary_key"] == ["campaign_id", "date", column]
+
+    @parameterized.expand(
+        [
+            # Dimensions Reddit accepts in both `breakdowns` and `fields` must be requested as a field,
+            # otherwise the response carries no column to key the row on.
+            ("campaign_country_report", "COUNTRY", True),
+            ("campaign_gender_report", "GENDER", True),
+            ("campaign_placement_report", "PLACEMENT", True),
+            ("campaign_community_report", "COMMUNITY", True),
+            # `OS_TYPE` is a valid breakdown but is not a member of Reddit's `fields` enum — asking for
+            # it as a field is rejected and fails the whole report request.
+            ("campaign_os_type_report", "OS_TYPE", False),
+        ]
+    )
+    def test_dimension_is_requested_as_a_field_only_when_reddit_allows_it(
+        self, endpoint: str, breakdown: str, expected_in_fields: bool
+    ) -> None:
+        resource = get_resource(endpoint, "test_account", False)
+
+        assert isinstance(resource["endpoint"], dict)
+        body = resource["endpoint"]["json"]
+        assert body is not None
+        assert (breakdown in body["data"]["fields"]) is expected_in_fields
 
 
 class TestRedditAdsPaginator:
@@ -337,3 +412,72 @@ class TestListBusinessesAndAdAccounts:
 
         assert [business["id"] for business in businesses] == ["b1", "b2"]
         assert session.get.call_args_list[1][0][0] == "https://ads-api.reddit.com/api/v3/me/businesses?page=2"
+
+
+def _http_response(body: Any) -> Response:
+    response = Response()
+    response.status_code = 200
+    response._content = json.dumps(body).encode()
+    response.headers["Content-Type"] = "application/json"
+    return response
+
+
+class TestRedditAdsListEndpointTransport:
+    """Behaviour of the endpoints added on top of the original six, driven through a mocked session."""
+
+    SESSION_PATH = (
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source."
+        "rest_client.make_tracked_session"
+    )
+
+    def _run(self, endpoint: str, responses: list[Response]) -> tuple[list[Any], mock.MagicMock]:
+        with mock.patch(self.SESSION_PATH) as MockSession:
+            session = MockSession.return_value
+            session.headers = {}
+            session.prepare_request.side_effect = lambda req: req
+            session.send.side_effect = responses
+
+            source = reddit_ads_source(
+                account_id="789",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                access_token="test_token",
+                db_incremental_field_last_value=None,
+                resumable_source_manager=mock.MagicMock(can_resume=mock.MagicMock(return_value=False)),
+                should_use_incremental_field=False,
+            )
+            pages = list(source.items())
+            return [row for page in pages for row in page], session
+
+    def test_single_object_ad_account_response_yields_one_row(self):
+        # `GET /ad_accounts/{id}` returns one object rather than a list, and the pipeline must still
+        # see a row rather than choking on the unwrapped dict.
+        rows, session = self._run(
+            "ad_account",
+            [_http_response({"data": {"id": "a2_789", "currency": "USD", "time_zone_id": "America/Los_Angeles"}})],
+        )
+
+        assert rows == [{"id": "a2_789", "currency": "USD", "time_zone_id": "America/Los_Angeles"}]
+        assert session.send.call_args_list[0].args[0].url == "https://ads-api.reddit.com/api/v3/ad_accounts/789"
+
+    def test_structured_posts_are_fanned_out_over_every_profile(self):
+        # Reddit hangs creatives off profiles, not off the ad account, so this is the only endpoint
+        # that has to walk a parent list first.
+        rows, session = self._run(
+            "structured_posts",
+            [
+                _http_response({"data": [{"id": "t2_p1"}, {"id": "t2_p2"}], "pagination": {}}),
+                _http_response({"data": [{"id": "post-1", "profile_id": None}], "pagination": {}}),
+                _http_response({"data": [{"id": "post-2", "profile_id": None}], "pagination": {}}),
+            ],
+        )
+
+        requested = [call.args[0].url for call in session.send.call_args_list]
+        assert requested[0].startswith("https://ads-api.reddit.com/api/v3/ad_accounts/789/profiles")
+        assert "/profiles/t2_p1/structured_posts" in requested[1]
+        assert "/profiles/t2_p2/structured_posts" in requested[2]
+
+        # The parent id is authoritative: post rows carry a nullable `profile_id`, but the primary key
+        # is (profile_id, id), so an unpopulated one would collapse posts across profiles.
+        assert [(row["profile_id"], row["id"]) for row in rows] == [("t2_p1", "post-1"), ("t2_p2", "post-2")]

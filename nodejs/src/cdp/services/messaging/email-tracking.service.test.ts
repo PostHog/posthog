@@ -286,16 +286,19 @@ describe('EmailTrackingService', () => {
             const postBounce = async ({
                 functionId,
                 parentRunId,
+                workflowVersion,
             }: {
                 functionId: string
                 parentRunId?: string
+                workflowVersion?: number
             }): Promise<supertest.Response> => {
-                const trackingCode = signer.generate({
-                    functionId,
-                    id: invocationId,
-                    teamId: team.id,
-                    parentRunId,
-                })
+                // Third arg opts into the versioned payload, which `generate` won't emit by default
+                // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
+                const trackingCode = signer.generate(
+                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    false,
+                    workflowVersion !== undefined
+                )
                 const sesRecord = {
                     eventType: 'Bounce',
                     mail: {
@@ -375,6 +378,31 @@ describe('EmailTrackingService', () => {
 
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs).toHaveLength(0)
+            })
+
+            it('attributes the bounce to the version that sent it, not the version live when it lands', async () => {
+                // The workflow has been republished since the send. Reading the version off the flow
+                // manager here would blame v5 for v2's bounce — which is precisely the comparison
+                // ("did the new version bounce more?") the versioned series exists to answer.
+                const hogFlow = await insertHogFlow(hub.postgres, {
+                    ...new FixtureHogFlowBuilder().withTeamId(team.id).build(),
+                    version: 5,
+                })
+
+                const res = await postBounce({ functionId: hogFlow.id, workflowVersion: 2 })
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    const versioned = metrics.filter((m) => m.value.app_source === 'hog_flow_version')
+                    // Permanent bounces emit the rollup plus the hard-only sub-metric, so both mirror.
+                    expect(versioned.map((m) => m.value.app_source_id)).toEqual([`${hogFlow.id}/2`, `${hogFlow.id}/2`])
+                    // Mirrored, not moved — the version-agnostic series every existing reader uses
+                    // still carries the same two rows.
+                    expect(
+                        metrics.filter((m) => m.value.app_source === 'hog_flow').map((m) => m.value.metric_name)
+                    ).toEqual(['email_bounced', 'email_bounced_hard'])
+                })
             })
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {

@@ -29,6 +29,7 @@ from posthog.hogql.database.schema.information_schema import information_schema_
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
+from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
 
 from products.customer_analytics.backend.facade.hogql import (
@@ -41,6 +42,12 @@ from products.customer_analytics.backend.facade.hogql import (
     accounts,
     custom_property_definitions,
 )
+from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
+
+# Source types that map to a direct-SQL engine, so a source of this type can be live-queried through a
+# connection. Plain strings, not the enum members: these end up in the pickled catalog, which only
+# restores a fixed set of classes. Sorted for a stable printed query.
+LIVE_QUERYABLE_SOURCE_TYPES: list[str] = sorted(str(source_type) for source_type in DIRECT_ENGINE_BY_SOURCE_TYPE)
 
 
 class IngestionWarningsTable(Table):
@@ -330,6 +337,122 @@ dashboard_tiles: PostgresTable = PostgresTable(
     },
 )
 
+datasets: PostgresTable = PostgresTable(
+    name="datasets",
+    postgres_table_name="llm_analytics_dataset_v2",
+    access_scope="dataset",
+    description="AI observability datasets used to curate inputs and expected outputs; one row per dataset.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Dataset UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Dataset name."),
+        "description": StringDatabaseField(name="description", description="What the dataset contains."),
+        "metadata": StringJSONDatabaseField(name="metadata", description="JSON dataset metadata."),
+        "archived": BooleanDatabaseField(name="archived", description="Whether the dataset is archived."),
+        "current_revision_id": UUIDDatabaseField(
+            name="current_revision_id",
+            nullable=True,
+            description="Latest committed revision; NULL before the first item mutation.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the dataset."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the dataset was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the dataset fields or item contents last changed."
+        ),
+    },
+)
+
+dataset_revisions: PostgresTable = PostgresTable(
+    name="dataset_revisions",
+    postgres_table_name="llm_analytics_datasetrevision_v2",
+    access_scope="dataset",
+    access_control_id_field="dataset_id",
+    description="Immutable snapshots of dataset contents; one row per committed dataset revision.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Dataset revision UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
+        "revision": IntegerDatabaseField(name="revision", description="Monotonic revision number within the dataset."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who committed the revision."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the revision was committed."),
+    },
+)
+
+dataset_items: PostgresTable = PostgresTable(
+    name="dataset_items",
+    postgres_table_name="llm_analytics_datasetitem_v2",
+    access_scope="dataset",
+    access_control_id_field="dataset_id",
+    description="Stable identities for versioned dataset items; one row per item.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Stable dataset item UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
+        "client_item_id": StringDatabaseField(
+            name="external_id",
+            nullable=True,
+            description="Optional caller-owned stable key, unique within the dataset.",
+        ),
+        "current_version_id": UUIDDatabaseField(
+            name="current_version_id", nullable=True, description="Latest immutable item version."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the item."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the item was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the item last received a version."
+        ),
+    },
+)
+
+dataset_item_versions: PostgresTable = PostgresTable(
+    name="dataset_item_versions",
+    postgres_table_name="llm_analytics_datasetitemversion_v2",
+    access_scope="dataset",
+    access_control_id_field="dataset_id",
+    description="Immutable content versions of dataset items; one row per item version.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Dataset item version UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
+        "dataset_item_id": UUIDDatabaseField(
+            name="dataset_item_id", description="Stable item; joins to dataset_items.id."
+        ),
+        "dataset_revision_id": UUIDDatabaseField(
+            name="dataset_revision_id",
+            description="Revision that introduced this version; joins to dataset_revisions.id.",
+        ),
+        "version": IntegerDatabaseField(name="version", description="Monotonic version number within the item."),
+        "archived": BooleanDatabaseField(name="archived", description="Whether this version archives the item."),
+        "input": StringJSONDatabaseField(name="input", description="JSON input supplied to the system under test."),
+        "expected_output": StringJSONDatabaseField(
+            name="expected_output", nullable=True, description="Optional JSON expected output."
+        ),
+        "source_output": StringJSONDatabaseField(
+            name="source_output", nullable=True, description="Optional JSON output captured from the source trace."
+        ),
+        "metadata": StringJSONDatabaseField(name="metadata", description="JSON item metadata."),
+        "source_trace_id": StringDatabaseField(
+            name="source_trace_id", nullable=True, description="Source AI trace ID."
+        ),
+        "source_event_id": StringDatabaseField(
+            name="source_event_id", nullable=True, description="Source event ID within the trace."
+        ),
+        "source_timestamp": DateTimeDatabaseField(
+            name="source_timestamp", nullable=True, description="Timestamp used to retrieve the source trace event."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created this version."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the version was created."),
+    },
+)
+
 insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
@@ -425,12 +548,68 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     name="data_warehouse_sources",
     postgres_table_name="posthog_externaldatasource",
     access_scope="external_data_source",
-    description="Configured data warehouse import sources (Stripe, Postgres, Hubspot, etc.); one row per connected source.",
+    description="Configured data warehouse sources (Stripe, Postgres, Hubspot, etc.); one row per connected source. "
+    "Covers both synced sources, whose tables are queryable by name from this catalog, and direct "
+    "connections, whose tables are live-queried by passing the source's id as the query's connection id — "
+    "filter on `is_live_queryable` to find the latter.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Source id."),
+        "id": StringDatabaseField(
+            name="id",
+            description="Source UUID. Pass it as a query's connection id to live-query a direct connection.",
+        ),
         "team_id": IntegerDatabaseField(name="team_id"),
         "source_type": StringDatabaseField(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
+        ),
+        "status": StringDatabaseField(
+            name="status", description="Latest source-level status, e.g. Running, Paused, Error, Completed."
+        ),
+        "access_method": StringDatabaseField(
+            name="access_method",
+            description="'direct' for a live-query connection (nothing is synced; its tables exist only "
+            "when queried through the connection), or 'warehouse' for a source synced into PostHog.",
+        ),
+        "_direct_query_enabled": BooleanDatabaseField(name="direct_query_enabled", hidden=True),
+        "direct_query_enabled": ExpressionField(
+            name="direct_query_enabled",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_direct_query_enabled"])]),
+            description="1 if this synced source may also be live-queried through a direct connection, "
+            "0 otherwise. Meaningless for sources that are already access_method='direct'.",
+        ),
+        "is_live_queryable": ExpressionField(
+            name="is_live_queryable",
+            # Mirrors `is_direct_capable`: the source type must map to an engine, and the source must
+            # either be a pure direct connection or a synced source opted into live queries. Built as
+            # AST rather than parse_expr with a placeholder: placeholder replacement compiles bytecode,
+            # which would drag posthog.schema onto the django.setup() import path via this module-level call.
+            expr=ast.Call(
+                name="toInt",
+                args=[
+                    ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In,
+                                left=ast.Field(chain=["source_type"]),
+                                right=ast.Tuple(
+                                    exprs=[ast.Constant(value=name) for name in LIVE_QUERYABLE_SOURCE_TYPES]
+                                ),
+                            ),
+                            ast.Or(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["access_method"]),
+                                        right=ast.Constant(value="direct"),
+                                    ),
+                                    ast.Field(chain=["_direct_query_enabled"]),
+                                ]
+                            ),
+                        ]
+                    )
+                ],
+            ),
+            description="1 if this source can be live-queried by passing its id as a query's connection id, "
+            "0 otherwise. Use `WHERE is_live_queryable = 1` to list every connection available for live queries.",
         ),
         "api_version": StringDatabaseField(
             name="api_version",
@@ -493,7 +672,9 @@ data_modeling_views: PostgresTable = PostgresTable(
 data_warehouse_tables: PostgresTable = PostgresTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
-    description="Tables synced into the data warehouse from external sources; one row per warehouse table.",
+    description="Tables belonging to a data warehouse source; one row per table. A row whose source is a "
+    "direct connection is not queryable by name from this catalog — query it through that connection "
+    "instead, using the source id as the query's connection id.",
     fields={
         "id": StringDatabaseField(name="id", description="Warehouse table UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1006,6 +1187,8 @@ activity_logs: PostgresTable = PostgresTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
     access_scope="activity_log",
+    # Matches `premium_feature_on_cloud` on the REST activity-log viewsets, which gate the same rows.
+    required_feature_on_cloud=AvailableFeature.AUDIT_LOGS,
     description="Audit trail of changes to objects (insights, flags, dashboards, etc.); one row per logged activity.",
     fields={
         "id": StringDatabaseField(name="id", description="Activity log entry UUID."),
@@ -1857,6 +2040,68 @@ support_tickets: PostgresTable = PostgresTable(
     },
 )
 
+evaluation_directories: PostgresTable = PostgresTable(
+    name="evaluation_directories",
+    postgres_table_name="llm_analytics_evaluationdirectory",
+    access_scope="evaluation",
+    description="Directories used to organize online evaluations; one row per directory.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Directory UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Directory name."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the directory."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the directory was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the directory was last updated."
+        ),
+    },
+)
+
+evaluations: PostgresTable = PostgresTable(
+    name="evaluations",
+    postgres_table_name="llm_analytics_evaluation",
+    access_scope="evaluation",
+    description="Online evaluations that score AI generations or traces; one row per evaluation.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Evaluation UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "directory_id": UUIDDatabaseField(
+            name="directory_id",
+            nullable=True,
+            description="Directory containing the evaluation; NULL means the top level.",
+        ),
+        "name": StringDatabaseField(name="name", description="Evaluation name."),
+        "description": StringDatabaseField(name="description", description="Evaluation description."),
+        "enabled": BooleanDatabaseField(name="enabled", description="Whether the evaluation is active."),
+        "status": StringDatabaseField(name="status", description="Evaluation status."),
+        "status_reason": StringDatabaseField(
+            name="status_reason", nullable=True, description="Reason for the current status, when available."
+        ),
+        "evaluation_type": StringDatabaseField(name="evaluation_type", description="Evaluation implementation type."),
+        "evaluation_config": StringJSONDatabaseField(
+            name="evaluation_config", description="Evaluation-specific configuration."
+        ),
+        "output_type": StringDatabaseField(name="output_type", description="Evaluation result type."),
+        "output_config": StringJSONDatabaseField(name="output_config", description="Evaluation output configuration."),
+        "conditions": StringJSONDatabaseField(name="conditions", description="Conditions that select matching input."),
+        "target": StringDatabaseField(name="target", description="Unit evaluated, such as a generation or trace."),
+        "target_config": StringJSONDatabaseField(name="target_config", description="Target-specific configuration."),
+        "model_configuration_id": UUIDDatabaseField(
+            name="model_configuration_id",
+            nullable=True,
+            description="Model configuration used by an LLM judge evaluation.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the evaluation."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the evaluation was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the evaluation was last updated."),
+        "deleted": BooleanDatabaseField(name="deleted", description="Whether the evaluation has been deleted."),
+    },
+)
+
 review_queues: PostgresTable = PostgresTable(
     name="review_queues",
     postgres_table_name="llm_analytics_reviewqueue",
@@ -2400,6 +2645,10 @@ class SystemTables(TableNode):
         "custom_property_definitions": TableNode(name="custom_property_definitions", table=custom_property_definitions),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
+        "dataset_item_versions": TableNode(name="dataset_item_versions", table=dataset_item_versions),
+        "dataset_items": TableNode(name="dataset_items", table=dataset_items),
+        "dataset_revisions": TableNode(name="dataset_revisions", table=dataset_revisions),
+        "datasets": TableNode(name="datasets", table=datasets),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
@@ -2423,6 +2672,8 @@ class SystemTables(TableNode):
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
         ),
         "early_access_features": TableNode(name="early_access_features", table=early_access_features),
+        "evaluation_directories": TableNode(name="evaluation_directories", table=evaluation_directories),
+        "evaluations": TableNode(name="evaluations", table=evaluations),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),

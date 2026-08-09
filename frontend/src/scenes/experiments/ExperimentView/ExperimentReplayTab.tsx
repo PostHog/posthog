@@ -21,9 +21,11 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 
 import { Experiment } from '~/types'
 
+import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
+import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
@@ -300,6 +302,10 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )}
+                <ExperimentBehaviorComparisonToggle experiment={experiment} />
+                <div className="ml-auto">
+                    <SummarizeSessionReplaysButton experiment={experiment} />
+                </div>
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}
@@ -321,9 +327,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     )}
                 </div>
             )}
+            <ExperimentBehaviorComparison experiment={experiment} />
             <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist
                     logicKey={`experiment-${experiment.id}`}
+                    analyticsSource="experiment-recordings-tab"
                     filters={recordingsFilters}
                     updateSearchParams={false}
                     onFiltersChange={(filters) => playlistFiltersChanged(filters)}
