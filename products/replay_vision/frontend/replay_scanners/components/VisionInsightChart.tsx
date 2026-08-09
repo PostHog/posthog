@@ -1,9 +1,10 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import posthog from 'lib/posthog-typed'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -41,22 +42,28 @@ export type ChartOverlayState = 'none' | 'loading' | 'error'
 /**
  * `insightData` is always a truthy object, but `insightData.result` is `undefined` until a query resolves (an empty
  * result is `[]`), so it — not the object — is the real "is there anything to render" signal. No data while loading is
- * a spinner; no data once settled is a failed/cancelled query we surface as a retry rather than a blank box.
+ * a spinner. No data once settled is only a hard error when the load actually failed (`error` is set); without an error
+ * the load has not been dispatched yet — a first-render race — so we keep the spinner instead of dead-ending the user
+ * on the retry overlay.
  */
 export function chartOverlayState(
     insightData: { result?: unknown } | null | undefined,
-    loading: boolean
+    loading: boolean,
+    error: unknown
 ): ChartOverlayState {
     if (insightData?.result != null) {
         return 'none'
     }
-    return loading ? 'loading' : 'error'
+    if (loading) {
+        return 'loading'
+    }
+    return error ? 'error' : 'loading'
 }
 
 /**
  * Embedded insight chart with a guaranteed loading/error state. Off a dashboard, InsightViz can fall through to a
- * blank box when a query is cancelled or hasn't resolved (its empty/refresh fallbacks are dashboard-only), so we
- * overlay our own spinner/retry whenever there's no response to render.
+ * blank box when a query has not resolved (its empty/refresh fallbacks are dashboard-only), so we overlay our own
+ * spinner while a load is pending and a retry only once a load has actually failed.
  */
 export function VisionInsightChart({
     query,
@@ -71,10 +78,21 @@ export function VisionInsightChart({
         [chartProps, onDataPointClick]
     )
     const logic = insightVizDataLogic(chartProps)
-    const { insightData, insightDataLoading } = useValues(logic)
+    const { insightData, insightDataLoading, insightDataError } = useValues(logic)
     const { loadData } = useActions(logic)
 
-    const overlay = chartOverlayState(insightData, insightDataLoading)
+    const overlay = chartOverlayState(insightData, insightDataLoading, insightDataError)
+
+    // The scene's own failure state was invisible to analytics, so a daily first-load error went unnoticed.
+    // Capture each failed load once so the rate is measurable instead of only showing up in session recordings.
+    useEffect(() => {
+        if (overlay === 'error') {
+            posthog.captureRaw('replay_vision_chart_load_failed', {
+                insight_key: chartProps.dashboardItemId,
+                error: insightDataError?.error ?? insightDataError?.detail ?? null,
+            })
+        }
+    }, [overlay, chartProps.dashboardItemId, insightDataError])
 
     return (
         <div className={clsx('relative', className)}>

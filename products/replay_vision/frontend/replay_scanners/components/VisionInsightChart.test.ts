@@ -23,18 +23,28 @@ const TRENDS_VIZ: InsightVizNode = {
 describe('VisionInsightChart', () => {
     describe('chartOverlayState', () => {
         // `insightData` is always a truthy object from the selector, so the decision must hinge on `result`, not the object.
-        const cases: [string, { result?: unknown } | null | undefined, boolean, ChartOverlayState][] = [
-            ['null insightData while loading', null, true, 'loading'],
-            ['null insightData settled (cancelled/never-loaded)', null, false, 'error'],
-            ['truthy object with no result while loading', { result: undefined }, true, 'loading'],
-            ['truthy object with no result settled', { result: undefined }, false, 'error'],
-            ['loaded with rows', { result: [{ x: 1 }] }, false, 'none'],
-            ['loaded but empty result', { result: [] }, false, 'none'],
-            ['loaded, ignores a stale loading flag during refresh', { result: [{ x: 1 }] }, true, 'none'],
+        // A settled query with no result is only an error when the load actually failed; without an error it has not been
+        // dispatched yet (a first-render race), so it must stay a spinner rather than dead-end on the retry overlay.
+        const cases: [string, { result?: unknown } | null | undefined, boolean, unknown, ChartOverlayState][] = [
+            ['null insightData while loading', null, true, null, 'loading'],
+            ['null insightData settled with no error (not dispatched yet)', null, false, null, 'loading'],
+            ['null insightData settled after a failed load', null, false, { error: 'Failed to fetch' }, 'error'],
+            ['truthy object with no result while loading', { result: undefined }, true, null, 'loading'],
+            ['truthy object with no result settled, no error', { result: undefined }, false, null, 'loading'],
+            [
+                'truthy object with no result settled, failed load',
+                { result: undefined },
+                false,
+                { detail: 'boom' },
+                'error',
+            ],
+            ['loaded with rows', { result: [{ x: 1 }] }, false, null, 'none'],
+            ['loaded but empty result', { result: [] }, false, null, 'none'],
+            ['loaded, ignores a stale loading flag during refresh', { result: [{ x: 1 }] }, true, null, 'none'],
         ]
 
-        it.each(cases)('%s', (_label, insightData, loading, expected) => {
-            expect(chartOverlayState(insightData, loading)).toEqual(expected)
+        it.each(cases)('%s', (_label, insightData, loading, error, expected) => {
+            expect(chartOverlayState(insightData, loading, error)).toEqual(expected)
         })
     })
 
