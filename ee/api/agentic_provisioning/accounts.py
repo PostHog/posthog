@@ -231,7 +231,8 @@ def handle_new_user(
         configuration = {}
 
     label = partner_label(partner)
-    max_org_name_length = Organization._meta.get_field("name").max_length
+    # max_length is Optional on the field descriptor, but Organization.name always sets it.
+    max_org_name_length = Organization._meta.get_field("name").max_length or 64
     supplied_org_name = configuration.get("organization_name")
     if supplied_org_name:
         # The partner can shorten a name it controls, so a too-long value is a partner
