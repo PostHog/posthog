@@ -62,6 +62,7 @@ export interface annotationModalLogicValues {
     isAnnotationModalSubmitting: boolean
     isAnnotationModalValid: boolean
     isModalOpen: boolean
+    modalOwnerKey: string | null
     onSavedInsight: boolean
     scope: AnnotationType['scope'] | null
     shouldShowEmptyState: boolean
@@ -89,23 +90,30 @@ export interface annotationModalLogicActions {
     closeModal: () => {
         value: true
     }
+    closeModalForOwner: (ownerKey: string) => {
+        ownerKey: string
+    }
     openModalToCreateAnnotation: (
         initialDate?: Dayjs | null,
         insightId?: QueryBasedInsightModel['id'] | null,
-        dashboardId?: DashboardBasicType['id'] | null
+        dashboardId?: DashboardBasicType['id'] | null,
+        ownerKey?: string | null
     ) => {
         dashboardId: number | null | undefined
         initialDate: Dayjs | null | undefined
         insightId: number | null | undefined
+        ownerKey: string | null | undefined
     }
     openModalToEditAnnotation: (
         annotation: AnnotationType,
         insightId?: QueryBasedInsightModel['id'] | null,
-        dashboardId?: DashboardBasicType['id'] | null
+        dashboardId?: DashboardBasicType['id'] | null,
+        ownerKey?: string | null
     ) => {
         annotation: AnnotationType
         dashboardId: number | null | undefined
         insightId: number | null | undefined
+        ownerKey: string | null | undefined
     }
     resetAnnotationModal: (values?: AnnotationModalForm) => {
         values?: AnnotationModalForm
@@ -174,22 +182,30 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         openModalToCreateAnnotation: (
             initialDate?: Dayjs | null,
             insightId?: QueryBasedInsightModel['id'] | null,
-            dashboardId?: DashboardBasicType['id'] | null
+            dashboardId?: DashboardBasicType['id'] | null,
+            ownerKey?: string | null
         ) => ({
             initialDate,
             insightId,
             dashboardId,
+            ownerKey,
         }),
         openModalToEditAnnotation: (
             annotation: AnnotationType,
             insightId?: QueryBasedInsightModel['id'] | null,
-            dashboardId?: DashboardBasicType['id'] | null
+            dashboardId?: DashboardBasicType['id'] | null,
+            ownerKey?: string | null
         ) => ({
             annotation,
             insightId,
             dashboardId,
+            ownerKey,
         }),
         closeModal: true,
+        // Close the modal only when the caller owns the currently open modal. Each annotations
+        // overlay renders its own modal against this singleton, so an unrelated overlay unmounting
+        // must not close a modal another overlay just opened.
+        closeModalForOwner: (ownerKey: string) => ({ ownerKey }),
         setScope: (scope: AnnotationType['scope'] | null) => ({ scope }),
     }),
     reducers(() => ({
@@ -216,8 +232,21 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 openModalToEditAnnotation: (_, { insightId }) => !!insightId,
             },
         ],
+        modalOwnerKey: [
+            null as string | null,
+            {
+                openModalToCreateAnnotation: (_, { ownerKey }) => ownerKey ?? null,
+                openModalToEditAnnotation: (_, { ownerKey }) => ownerKey ?? null,
+                closeModal: () => null,
+            },
+        ],
     })),
     listeners(({ cache, actions, values }) => ({
+        closeModalForOwner: ({ ownerKey }) => {
+            if (values.modalOwnerKey === ownerKey) {
+                actions.closeModal()
+            }
+        },
         openModalToEditAnnotation: ({ annotation: { date_marker, scope, content, emoji }, insightId, dashboardId }) => {
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),

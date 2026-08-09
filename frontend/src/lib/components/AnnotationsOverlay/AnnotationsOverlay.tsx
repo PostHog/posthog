@@ -116,14 +116,18 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations } = useValues(logic)
     const { closePopover } = useActions(logic)
-    const { closeModal } = useActions(annotationModalLogic)
+    const { closeModalForOwner } = useActions(annotationModalLogic)
+
+    // Identifies this overlay to the shared modal singleton. A scene mounts one overlay per chart,
+    // so the unmount cleanup must only close the modal when this overlay is the one that opened it.
+    const ownerKey = React.useId()
 
     useEffect(() => {
         return () => {
             closePopover()
-            closeModal()
+            closeModalForOwner(ownerKey)
         }
-    }, [closePopover, closeModal])
+    }, [closePopover, closeModalForOwner, ownerKey])
 
     const overlayRef = useRef<HTMLDivElement | null>(null)
     const modalContentRef = useRef<HTMLDivElement | null>(null)
@@ -226,6 +230,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                         overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]}
                         badgeElement={activeBadgeElement}
                         cluster={activeCluster}
+                        ownerKey={ownerKey}
                     />
                 )}
                 <AnnotationModal
@@ -342,10 +347,12 @@ function AnnotationsPopover({
     overlayRefs,
     badgeElement,
     cluster,
+    ownerKey,
 }: {
     overlayRefs: React.MutableRefObject<HTMLDivElement | null>[]
     badgeElement: HTMLButtonElement | null
     cluster: AnnotationBadgeCluster | undefined
+    ownerKey: string
 }): JSX.Element {
     const { activeDate, groupingUnit, isDateLocked, insightId, isPopoverShown, annotationsOverlayProps } =
         useValues(annotationsOverlayLogic)
@@ -398,9 +405,14 @@ function AnnotationsPopover({
                         <LemonButton
                             type="primary"
                             onClick={() =>
-                                openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
+                                openModalToCreateAnnotation(
+                                    activeDate,
+                                    insightId,
+                                    annotationsOverlayProps.dashboardId,
+                                    ownerKey
+                                )
                             }
-                            disabled={!isDateLocked}
+                            disabledReason={!isDateLocked ? 'Click the marker to add an annotation here' : undefined}
                         >
                             Add annotation
                         </LemonButton>
@@ -412,7 +424,7 @@ function AnnotationsPopover({
                     {popoverAnnotations.length > 0 ? (
                         <ul className="flex flex-col gap-2 w-full overflow-y-auto">
                             {popoverAnnotations.map((annotation) => (
-                                <AnnotationCard key={annotation.id} annotation={annotation} />
+                                <AnnotationCard key={annotation.id} annotation={annotation} ownerKey={ownerKey} />
                             ))}
                         </ul>
                     ) : (
@@ -424,7 +436,7 @@ function AnnotationsPopover({
     )
 }
 
-function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
+function AnnotationCard({ annotation, ownerKey }: { annotation: AnnotationType; ownerKey: string }): JSX.Element {
     const { insightId, timezone, annotationsOverlayProps } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
@@ -451,7 +463,12 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                             icon={<IconPencil />}
                             tooltip="Edit this annotation"
                             onClick={() =>
-                                openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
+                                openModalToEditAnnotation(
+                                    annotation,
+                                    insightId,
+                                    annotationsOverlayProps.dashboardId,
+                                    ownerKey
+                                )
                             }
                             noPadding
                         />
