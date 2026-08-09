@@ -425,3 +425,16 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             with_recording_two_id,
             with_both_recording_id,
         ]
+
+    @parameterized.expand(["title", "-title", "created_at", "-created_at", "last_modified_at", "-last_modified_at"])
+    def test_list_accepts_allowed_order(self, order: str) -> None:
+        self._create_notebook_with_content([BASIC_TEXT("some notes")])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?order={order}")
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(["nonsense_field_xyz", "content", "team__id"])
+    def test_list_rejects_unknown_order_with_400(self, order: str) -> None:
+        # An unknown order value used to reach Django's order_by() and 500 with a FieldError.
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?order={order}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

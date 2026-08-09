@@ -117,6 +117,21 @@ _LOCAL_FRAME_REF_ERROR = (
     "Switch this cell to PostHog to use it."
 )
 
+# Fields the notebooks list can be ordered by. Both directions of each column the table sorts on.
+# An `order` value outside this set reaches Django's order_by() and raises FieldError, which
+# escapes as a 500, so we reject it with a 400 instead.
+DEFAULT_LIST_ORDER = "-last_modified_at"
+ALLOWED_LIST_ORDERINGS = frozenset(
+    {
+        "title",
+        "-title",
+        "created_at",
+        "-created_at",
+        "last_modified_at",
+        "-last_modified_at",
+    }
+)
+
 
 def depluralize(string: str | None) -> str | None:
     if not string:
@@ -693,10 +708,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             queryset = queryset.defer("content", "text_content")
 
         order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-last_modified_at")
+        if order and order not in ALLOWED_LIST_ORDERINGS:
+            raise serializers.ValidationError(
+                {"order": f"Invalid ordering. Valid choices are: {', '.join(sorted(ALLOWED_LIST_ORDERINGS))}."}
+            )
+        queryset = queryset.order_by(order or DEFAULT_LIST_ORDER)
 
         return queryset
 
