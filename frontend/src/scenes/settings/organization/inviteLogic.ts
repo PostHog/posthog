@@ -6,7 +6,6 @@ import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAu
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
-import { uuid } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -27,9 +26,12 @@ export interface InviteRowState {
     private_project_access: Array<{ id: number; level: AccessControlLevel.Member | AccessControlLevel.Admin }>
 }
 
+let nextInviteRowId = 0
+
 function emptyInvite(): InviteRowState {
+    nextInviteRowId += 1
     return {
-        id: uuid(),
+        id: `invite-row-${nextInviteRowId}`,
         target_email: '',
         first_name: '',
         level: OrganizationMembershipLevel.Member,
