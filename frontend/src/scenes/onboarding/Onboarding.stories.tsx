@@ -272,6 +272,33 @@ export const LinkData: Story = {
     },
 }
 
+// The list of sources fails to load (e.g. a 403). The step must still offer a way forward
+// — a retry and a Skip button — rather than a button-less placeholder.
+export const LinkDataSourcesUnavailable: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/wizard': () => [403, { detail: 'Forbidden' }],
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.DATA_WAREHOUSE, stepKey: OnboardingStepKey.LINK_DATA })
+            )
+        })
+
+        return <App />
+    },
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_VALUE_PROP]: 'table' },
+        testOptions: { waitForSelector: '[data-attr="dwh-onboarding-retry-sources"]' },
+    },
+}
+
 // ==========================================
 // Error Tracking
 // ==========================================

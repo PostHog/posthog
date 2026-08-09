@@ -1,11 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
-import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/components/InlineSourceSetup'
 
 import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
@@ -16,7 +15,6 @@ import { DataWarehouseValuePropVariant } from './DataWarehouseValuePropVariant'
 export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
     const { goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
-    const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const isTableVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'table')
     const isQueryVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'query')
 
@@ -33,7 +31,7 @@ export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = (
             title="Connect your data for better insights"
             stepKey={OnboardingStepKey.LINK_DATA}
             showContinue={false}
-            showSkip={!availableSourcesLoading}
+            showSkip
             subtitle="Link sources like Stripe and Hubspot so you can query them alongside product data to find correlations."
         >
             <InlineSourceSetup

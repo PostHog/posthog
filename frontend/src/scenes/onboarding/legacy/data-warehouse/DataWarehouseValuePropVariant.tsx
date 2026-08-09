@@ -21,7 +21,12 @@ import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/compo
 
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { ConnectorIconGrid, DataWarehouseOnboardingLoadingPlaceholder, initialOnboardingPhase } from './components'
+import {
+    ConnectorIconGrid,
+    DataWarehouseOnboardingErrorPlaceholder,
+    DataWarehouseOnboardingLoadingPlaceholder,
+    initialOnboardingPhase,
+} from './components'
 
 const EXAMPLE_QUERIES = [
     {
@@ -55,8 +60,12 @@ const EXAMPLE_QUERIES = [
 export function DataWarehouseValuePropVariant(): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <DataWarehouseOnboardingLoadingPlaceholder />
+    }
+
+    if (availableSources === null) {
+        return <DataWarehouseOnboardingErrorPlaceholder />
     }
 
     return (
@@ -69,7 +78,6 @@ export function DataWarehouseValuePropVariant(): JSX.Element {
 function DataWarehouseValuePropInner(): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
-    const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const { connectors } = useValues(sourceWizardLogic)
     const [phase, setPhase] = useState<'value-prop' | 'setup'>(initialOnboardingPhase)
 
@@ -87,12 +95,7 @@ function DataWarehouseValuePropInner(): JSX.Element {
     }
 
     return (
-        <OnboardingStep
-            title="Import data"
-            stepKey={OnboardingStepKey.LINK_DATA}
-            showContinue={false}
-            showSkip={!availableSourcesLoading}
-        >
+        <OnboardingStep title="Import data" stepKey={OnboardingStepKey.LINK_DATA} showContinue={false} showSkip>
             {phase === 'value-prop' ? (
                 <div className="max-w-2xl mx-auto mt-4 space-y-5">
                     <div className="space-y-1">

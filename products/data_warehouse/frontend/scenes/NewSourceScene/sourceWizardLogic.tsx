@@ -3740,15 +3740,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     ...(sourceValues as Record<string, any>),
                     access_method: selectedAccessMethod,
                 }
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], normalizedValues as any)
-
-                if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
-                    actions.setSourceConnectionDetailsManualErrors({
-                        prefix: undefined,
-                    })
-                }
-
-                return errors
+                return getErrorsForFields(values.selectedConnector?.fields ?? [], normalizedValues as any)
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
@@ -3831,11 +3823,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                         actions.setIsLoading(false)
                     } catch (e: any) {
-                        if (e?.data?.message) {
-                            actions.setSourceConnectionDetailsManualErrors({
-                                prefix: e.data.message,
-                            })
-                        }
+                        lemonToast.error(resolveConnectErrorMessage(e))
                         actions.setIsLoading(false)
 
                         throw e

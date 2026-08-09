@@ -24,7 +24,12 @@ import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/compo
 
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { ConnectorIconGrid, DataWarehouseOnboardingLoadingPlaceholder, initialOnboardingPhase } from './components'
+import {
+    ConnectorIconGrid,
+    DataWarehouseOnboardingErrorPlaceholder,
+    DataWarehouseOnboardingLoadingPlaceholder,
+    initialOnboardingPhase,
+} from './components'
 
 // The query skeleton is fixed — SELECT, FROM, JOIN, ON stay put.
 // Only the slots (comment, columns, source, posthog table, on clause,
@@ -141,8 +146,12 @@ const QUERY_STYLES = `
 export function DataWarehouseQueryVariant(): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <DataWarehouseOnboardingLoadingPlaceholder />
+    }
+
+    if (availableSources === null) {
+        return <DataWarehouseOnboardingErrorPlaceholder />
     }
 
     return (
@@ -155,7 +164,6 @@ export function DataWarehouseQueryVariant(): JSX.Element {
 function DataWarehouseQueryInner(): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
-    const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const { connectors } = useValues(sourceWizardLogic)
     const [phase, setPhase] = useState<'value-prop' | 'setup'>(initialOnboardingPhase)
     const [sceneIndex, setSceneIndex] = useState(0)
@@ -198,12 +206,7 @@ function DataWarehouseQueryInner(): JSX.Element {
     )
 
     return (
-        <OnboardingStep
-            title="Import data"
-            stepKey={OnboardingStepKey.LINK_DATA}
-            showContinue={false}
-            showSkip={!availableSourcesLoading}
-        >
+        <OnboardingStep title="Import data" stepKey={OnboardingStepKey.LINK_DATA} showContinue={false} showSkip>
             {phase === 'value-prop' ? (
                 <div className="max-w-2xl mx-auto mt-4 space-y-5">
                     <style>{QUERY_STYLES}</style>

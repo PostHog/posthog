@@ -1,4 +1,6 @@
-import { useValues } from 'kea'
+import { useActions } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -9,8 +11,29 @@ import { OnboardingStep } from '../OnboardingStep'
 
 export function DataWarehouseOnboardingLoadingPlaceholder(): JSX.Element {
     return (
-        <OnboardingStep title="Import data" stepKey={OnboardingStepKey.LINK_DATA} showContinue={false} showSkip={false}>
+        <OnboardingStep title="Import data" stepKey={OnboardingStepKey.LINK_DATA} showContinue={false} showSkip>
             <div className="h-64" />
+        </OnboardingStep>
+    )
+}
+
+// Shown when the list of sources fails to load. Without this the step falls back to the loading
+// placeholder forever, leaving the user with no way forward.
+export function DataWarehouseOnboardingErrorPlaceholder(): JSX.Element {
+    const { load } = useActions(availableSourcesLogic)
+
+    return (
+        <OnboardingStep title="Import data" stepKey={OnboardingStepKey.LINK_DATA} showContinue={false} showSkip>
+            <div className="max-w-2xl mx-auto mt-4 text-center space-y-3">
+                <h2 className="text-lg font-bold">Couldn't load data sources</h2>
+                <p className="text-sm text-muted">
+                    Something went wrong loading the sources you can connect. Try again, or skip for now and connect a
+                    source later.
+                </p>
+                <LemonButton type="primary" onClick={() => load()} data-attr="dwh-onboarding-retry-sources">
+                    Try again
+                </LemonButton>
+            </div>
         </OnboardingStep>
     )
 }
@@ -19,11 +42,6 @@ export function DataWarehouseOnboardingLoadingPlaceholder(): JSX.Element {
 // InlineSourceSetup is mounted to resume the wizard rather than showing the value-prop screen.
 export function initialOnboardingPhase(): 'value-prop' | 'setup' {
     return new URLSearchParams(window.location.search).get('kind') ? 'setup' : 'value-prop'
-}
-
-export function useDataWarehouseLoadingState(): { isLoading: boolean } {
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
-    return { isLoading: availableSourcesLoading || availableSources === null }
 }
 
 export function ConnectorIconGrid({ connectors }: { connectors: SourceConfig[] }): JSX.Element | null {
