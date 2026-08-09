@@ -1,7 +1,9 @@
 import {
+  groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
   parseRunArtifacts,
   type RunArtifact,
+  type RunArtifactVersions,
 } from "@posthog/core/canvas/runArtifactSchemas";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
@@ -15,6 +17,8 @@ import type {
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
+
+export type RunFile = RunArtifact & { runId: string };
 
 export type ArtifactRow =
   | { kind: "pr"; key: string; url: string }
@@ -33,6 +37,7 @@ export type ArtifactRow =
       name: string;
       runId: string | null;
       size: number | undefined;
+      group: RunArtifactVersions<RunFile>;
     }
   | { kind: "slack"; key: string; url: string };
 
@@ -164,36 +169,25 @@ export function buildRows(
   const allRuns =
     runs.length > 0 ? runs : task.latest_run ? [task.latest_run] : [];
 
-  // Re-uploading a file replaces it rather than adding a second one: agents
-  // revise a deliverable and upload it again under the same name, so keeping
-  // every copy would bury the current one under its own drafts.
-  const newestByName = new Map<string, { file: RunArtifact; runId: string }>();
-  const undismissedNames = new Set<string>();
+  const files: RunFile[] = [];
   for (const run of allRuns) {
     for (const outputPr of readPrUrls(run.output)) {
       addPr(outputPr, `output-pr:${outputPr}`);
     }
-    for (const file of readRunOutputs(run)) {
-      if (!file.name) continue;
-      if (!file.dismissed_at) undismissedNames.add(file.name);
-      const previous = newestByName.get(file.name);
-      const isNewer =
-        !previous ||
-        (file.uploaded_at ?? "") >= (previous.file.uploaded_at ?? "");
-      if (isNewer) newestByName.set(file.name, { file, runId: run.id });
-    }
+    files.push(
+      ...readRunOutputs(run).map((file) => ({ ...file, runId: run.id })),
+    );
   }
-  for (const [name, { file, runId }] of newestByName) {
-    // A file goes only when every version of it is dismissed, so dismissing the
-    // one on show cannot resurface the copy it replaced.
-    if (!undismissedNames.has(name)) continue;
+  for (const group of groupRunArtifactVersions(files)) {
+    if (group.dismissed) continue;
     rows.push({
       kind: "file",
-      key: `file:${file.id ?? file.storage_path ?? name}`,
-      artifactId: file.id ?? null,
-      name,
-      runId,
-      size: file.size,
+      key: `file:${group.name}`,
+      artifactId: group.latest.id ?? null,
+      name: group.name,
+      runId: group.latest.runId,
+      size: group.latest.size,
+      group,
     });
   }
 
