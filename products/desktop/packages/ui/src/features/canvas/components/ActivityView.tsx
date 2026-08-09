@@ -24,11 +24,13 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
@@ -361,6 +363,8 @@ export function ActivityView() {
     () => getUnreadActivityItems(visibleItems),
     [visibleItems],
   );
+  const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
+  const shownItems = unreadsOnly ? unreadItems : visibleItems;
   const visibleUnreadCount = activityUnreadTotalForLabel({
     commentsEnabled,
     unreadCount,
@@ -403,51 +407,65 @@ export function ActivityView() {
     </Button>
   );
 
+  // Sits below the rows and below the empty state alike: filtering to unreads can
+  // empty a page that still has unread activity waiting on the next one.
+  const loadMoreButton = hasNextPage && (
+    <div className="mt-3 flex justify-center">
+      <Button
+        variant="outline"
+        loading={isFetchingNextPage}
+        disabled={isFetchingNextPage}
+        onClick={() => void fetchNextPage()}
+      >
+        Load more
+      </Button>
+    </div>
+  );
+
   // The feed body is identical in both shells; only the empty-state copy tracks
   // the layout's naming ("spaces" vs "channels").
   const feed =
-    isLoading && visibleItems.length === 0 ? (
+    isLoading && shownItems.length === 0 ? (
       <div className="flex justify-center py-16">
         <Spinner />
       </div>
-    ) : visibleItems.length === 0 ? (
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <BellIcon size={20} />
-          </EmptyMedia>
-          <EmptyTitle>No activity yet</EmptyTitle>
-          <EmptyDescription>
-            Task updates and comment notifications across{" "}
-            {spacesLayout ? "spaces" : "channels"} appear here.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+    ) : shownItems.length === 0 ? (
+      <>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BellIcon size={20} />
+            </EmptyMedia>
+            <EmptyTitle>
+              {unreadsOnly ? "No unread activity" : "No activity yet"}
+            </EmptyTitle>
+            <EmptyDescription>
+              {unreadsOnly
+                ? "You're all caught up."
+                : `Task updates and comment notifications across ${spacesLayout ? "spaces" : "channels"} appear here.`}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+        {loadMoreButton}
+      </>
     ) : (
-      <div className="flex flex-col gap-0.5">
-        {visibleItems.map((item) => (
-          <ActivityRow
-            key={item.id}
-            item={item}
-            channelId={item.channelId}
-            onOpen={markRead}
-            onMarkRead={markRead}
-            currentUser={currentUser}
-            blockedTaskIds={blockedTaskIds}
-          />
-        ))}
-        {hasNextPage && (
-          <Button
-            variant="outline"
-            className="mt-3 self-center"
-            loading={isFetchingNextPage}
-            disabled={isFetchingNextPage}
-            onClick={() => void fetchNextPage()}
-          >
-            Load more
-          </Button>
-        )}
-      </div>
+      <>
+        <div className="flex flex-col gap-0.5">
+          {shownItems.map((item) => (
+            <ActivityRow
+              key={item.id}
+              item={item}
+              channelId={item.channelId}
+              onOpen={markRead}
+              onMarkRead={markRead}
+              currentUser={currentUser}
+              blockedTaskIds={blockedTaskIds}
+            />
+          ))}
+        </div>
+        {loadMoreButton}
+      </>
+
     );
 
   if (spacesLayout) {
@@ -462,9 +480,10 @@ export function ActivityView() {
                   {unreadCount} unread
                 </PageHeaderChip>
               )}
-              {unreadCount > 0 && (
-                <PageHeaderActions>{markAllReadButton}</PageHeaderActions>
-              )}
+              <PageHeaderActions>
+                {unreadCount > 0 && markAllReadButton}
+                <ActivityUnreadsToggle />
+              </PageHeaderActions>
             </PageHeaderTitleRow>
             <PageHeaderDescription>
               Task updates and comment notifications across spaces.
@@ -491,7 +510,10 @@ export function ActivityView() {
               {spacesLayout ? "spaces" : "channels"}.
             </Text>
           </div>
-          {unreadCount > 0 && markAllReadButton}
+          <div className="flex shrink-0 items-center gap-2">
+            {unreadCount > 0 && markAllReadButton}
+            <ActivityUnreadsToggle />
+          </div>
         </div>
         <div className="mt-4">{feed}</div>
       </div>
