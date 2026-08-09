@@ -1,4 +1,5 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
+import type { BaseUIEvent } from '@base-ui/react/types'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
@@ -705,7 +706,14 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
     )
 
     const handleInputKeyDown = useCallback(
-        (e: React.KeyboardEvent) => {
+        (e: BaseUIEvent<React.KeyboardEvent>) => {
+            // Home and End move the caret within the query, which is what they do in every other
+            // text input. Base UI would otherwise jump the highlight to the ends of its own
+            // navigation order, and that order starts on the exact match rather than the top row.
+            if (e.key === 'Home' || e.key === 'End') {
+                e.preventBaseUIHandler()
+                return
+            }
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {
                 e.preventDefault()
                 onAskAiClick?.()
