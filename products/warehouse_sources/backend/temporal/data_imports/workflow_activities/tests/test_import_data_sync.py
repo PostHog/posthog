@@ -258,6 +258,7 @@ async def test_retryable_source_error_hands_delay_to_temporal_and_surfaces_messa
     assert exc_info.value.next_retry_delay == retry_after
     assert exc_info.value.__cause__ is error
     write_mock.assert_awaited_once()
+    assert write_mock.await_args is not None
     assert write_mock.await_args.args[2] == "waiting until 15:45 UTC"
     logger.aexception.assert_not_awaited()
 
