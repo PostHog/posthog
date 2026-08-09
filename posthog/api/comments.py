@@ -132,9 +132,9 @@ def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Te
 
     context = comment.item_context if isinstance(comment.item_context, dict) else {}
     thread_state = context.get("threadState")
-    if thread_state == "resolved":
+    if comment.source_comment_id and thread_state == "resolved":
         action_type = "resolved"
-    elif thread_state == "open":
+    elif comment.source_comment_id and thread_state == "open":
         action_type = "reopened"
     elif comment.source_comment_id:
         action_type = "replied"
@@ -143,12 +143,13 @@ def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Te
 
     anchor = context.get("anchor")
     anchor_kind = anchor.get("kind") if isinstance(anchor, dict) else None
+    raw_task_id = comment.item_id if comment.scope == "task" else context.get("taskId")
     properties: dict[str, Any] = {
         "analytics_version": 1,
         "action_type": action_type,
         "scope": comment.scope,
         "anchor_kind": anchor_kind if anchor_kind in {"text", "region", "document"} else "unknown",
-        "task_id": comment.item_id if comment.scope == "task" else context.get("taskId"),
+        "task_id": raw_task_id if isinstance(raw_task_id, str) else None,
         "item_id": comment.item_id,
         "thread_id": str(comment.source_comment_id or comment.id),
         "comment_id": str(comment.id),
@@ -421,10 +422,11 @@ class CommentSerializer(serializers.ModelSerializer):
             data["scope"] = root.scope
             data["item_id"] = root.item_id
             reply_context = data.get("item_context") or {}
+            root_context = root.item_context if isinstance(root.item_context, dict) else {}
             # Replies inherit the root's context (anchor, taskId) so filters keep
             # working, but a reply's own signal keys must survive the merge.
             data["item_context"] = {
-                **(root.item_context or {}),
+                **{key: value for key, value in root_context.items() if key != "threadState"},
                 **({"is_emoji": reply_context["is_emoji"]} if "is_emoji" in reply_context else {}),
                 **(
                     {"threadState": reply_context["threadState"]}

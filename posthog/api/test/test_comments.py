@@ -101,7 +101,10 @@ class TestComments(APIBaseTest, QueryMatchingTest):
     def test_task_comment_actions_track_mentions_without_counting_state_as_replies(self, capture: mock.Mock) -> None:
         task = self._task_artifact_target()
         mentioned = User.objects.create_and_join(self.organization, "comment-mention@example.com", None)
-        item_context = {"anchor": {"kind": "document"}, "taskId": str(task.id)}
+        item_context = {
+            "anchor": {"kind": "unsupported"},
+            "taskId": str(task.id),
+        }
         target = {
             "scope": "task_artifact",
             "item_id": "artifact-1",
@@ -110,7 +113,12 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         root = self.client.post(
             f"/api/projects/{self.team.id}/comments",
-            {**target, "content": "A" * 60, "mentions": [mentioned.id]},
+            {
+                **target,
+                "content": "A" * 60,
+                "mentions": [mentioned.id],
+                "item_context": {**item_context, "threadState": "resolved"},
+            },
         )
         reply = self.client.post(
             f"/api/projects/{self.team.id}/comments",
@@ -135,7 +143,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "analytics_version": 1,
             "action_type": "created",
             "scope": "task_artifact",
-            "anchor_kind": "document",
+            "anchor_kind": "unknown",
             "task_id": str(task.id),
             "item_id": "artifact-1",
             "thread_id": root.json()["id"],
@@ -150,6 +158,21 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert events[2]["properties"]["is_reply"] is False
         assert events[2]["properties"]["thread_state"] == "resolved"
         assert all(event["event"] == "Comment action" for event in events)
+
+        capture.reset_mock()
+        notebook = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"scope": "Notebook", "content": "Not a task comment"},
+        )
+        assert notebook.status_code == status.HTTP_201_CREATED
+        capture.assert_not_called()
+
+        capture.side_effect = RuntimeError("Analytics unavailable")
+        saved = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {**target, "content": "Still saved"},
+        )
+        assert saved.status_code == status.HTTP_201_CREATED
 
     def test_task_comments_list_artifacts_comments_and_one_comment(self) -> None:
         task = self._task_artifact_target()
