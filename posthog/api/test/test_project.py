@@ -164,8 +164,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization_membership.save()
 
         # The only project is now pending deletion, so it must not block a replacement
-        self.team.is_pending_deletion = True
-        self.team.save(update_fields=["is_pending_deletion"])
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
 
         response = self.client.post("/api/projects/", {"name": "Replacement Project"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

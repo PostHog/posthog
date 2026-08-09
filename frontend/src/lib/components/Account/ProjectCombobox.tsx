@@ -181,9 +181,7 @@ export function ProjectCombobox(): JSX.Element | null {
                                 return
                             }
                             guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                                currentUsage: currentOrganization?.teams?.filter(
-                                    (team) => !team.is_pending_deletion
-                                ).length,
+                                currentUsage: currentOrganization?.teams?.length,
                             })
                         }}
                     >

@@ -257,9 +257,13 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        visible_teams = visible_teams_for_user(
-            instance, self.user_access_control, self.user_permissions
-        ).select_related("project")
+        # Exclude teams whose project is pending deletion so the project switcher and the
+        # plan-limit count stop treating a deleted project as still present.
+        visible_teams = (
+            visible_teams_for_user(instance, self.user_access_control, self.user_permissions)
+            .exclude(project__is_pending_deletion=True)
+            .select_related("project")
+        )
         return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
     @tracer.start_as_current_span("organization_serializer.projects")

@@ -802,6 +802,17 @@ class TestOrganizationSerializer(APIBaseTest):
         team_names = {team["name"] for team in teams}
         self.assertEqual(team_names, {self.team.name, team2.name, team3.name})
 
+    def test_get_teams_excludes_pending_deletion_projects(self):
+        team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
+        team2.project.is_pending_deletion = True
+        team2.project.save(update_fields=["is_pending_deletion"])
+
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+        teams = serializer.get_teams(self.organization)
+
+        team_names = {team["name"] for team in teams}
+        self.assertEqual(team_names, {self.team.name})
+
     def test_get_teams_with_multiple_orgs(self):
         org2, _, _ = Organization.objects.bootstrap(self.user)
         team2 = Team.objects.create(organization=org2, name="Org 2 Team")

@@ -1925,7 +1925,10 @@ class PremiumMultiProjectPermission(BasePermission):
                 return False
 
         current_non_demo_project_count = (
-            organization.teams.exclude(is_demo=True).exclude(is_pending_deletion=True).distinct("project_id").count()
+            organization.teams.exclude(is_demo=True)
+            .exclude(project__is_pending_deletion=True)
+            .distinct("project_id")
+            .count()
         )
         projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
 
