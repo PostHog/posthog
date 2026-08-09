@@ -75,20 +75,16 @@ function actionButton(dom: JSDOM): HTMLElement | null {
   );
 }
 
-function pressAction(dom: JSDOM): void {
+function activateAction(dom: JSDOM): boolean {
   const element = actionButton(dom);
   if (!element) throw new Error("missing comment action");
-  element.dispatchEvent(
-    new dom.window.MouseEvent("pointerdown", { bubbles: true, composed: true }),
-  );
-}
-
-function activateAction(dom: JSDOM): void {
-  const element = actionButton(dom);
-  if (!element) throw new Error("missing comment action");
-  element.dispatchEvent(
-    new dom.window.MouseEvent("mousedown", { bubbles: true, composed: true }),
-  );
+  const event = new dom.window.MouseEvent("pointerdown", {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  });
+  element.dispatchEvent(event);
+  return event.defaultPrevented;
 }
 
 describe("artifactHtmlCommentBridge", () => {
@@ -133,21 +129,6 @@ describe("artifactHtmlCommentBridge", () => {
     dom.window.close();
   });
 
-  it("ignores presses on the action button itself", () => {
-    const dom = loadBridgeDocument(
-      "<html><body><p>some selectable text here</p></body></html>",
-    );
-
-    pressOn(dom, "p");
-    selectParagraph(dom);
-    releaseOn(dom, "p");
-    expect(actionButton(dom)?.style.display).toBe("flex");
-
-    pressAction(dom);
-    expect(actionButton(dom)?.style.display).toBe("flex");
-    dom.window.close();
-  });
-
   it("posts the selected anchor and action position when activated", () => {
     const dom = loadBridgeDocument(
       "<html><body><p>some selectable text here</p></body></html>",
@@ -172,8 +153,9 @@ describe("artifactHtmlCommentBridge", () => {
       ] as unknown as DOMRectList;
     releaseOn(dom, "p");
 
-    activateAction(dom);
+    const defaultPrevented = activateAction(dom);
 
+    expect(defaultPrevented).toBe(true);
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({
       marker: BRIDGE_MARKER,
