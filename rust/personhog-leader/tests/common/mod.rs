@@ -261,6 +261,7 @@ pub fn test_recovery(kafka_bootstrap: &str) -> Arc<ChangelogRecovery> {
             pod_name: "test-pod".to_string(),
             recv_timeout: Duration::from_secs(2),
             pool_size: 2,
+            fetch_wait_max_ms: 100,
         })
         .expect("build recovery pool"),
     )
@@ -357,6 +358,7 @@ pub async fn start_leader_pod(
         &warming.kafka,
         name,
         &warming.writer_consumer_group,
+        100,
     ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
@@ -457,6 +459,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         &warming.kafka,
         name,
         &warming.writer_consumer_group,
+        100,
     ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
@@ -740,6 +743,7 @@ fn handoff_handler_with(
             &test_kafka_config(),
             "test",
             "personhog-writer",
+            100,
         )),
         Some(fenced),
         Some(authority),

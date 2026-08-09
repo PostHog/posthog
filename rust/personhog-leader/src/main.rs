@@ -314,6 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pod_name: config.pod_name.clone(),
             recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
             pool_size: config.recovery_pool_size,
+            fetch_wait_max_ms: config.warm_fetch_wait_max_ms,
         })
         .expect("Failed to build changelog recovery consumer pool"),
     );
@@ -445,6 +446,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.kafka,
         &config.pod_name,
         &config.writer_consumer_group,
+        config.warm_fetch_wait_max_ms,
     ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),

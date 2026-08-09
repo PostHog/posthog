@@ -464,6 +464,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
         &warming.kafka,
         "fence-pod",
         &warming.writer_consumer_group,
+        100,
     ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
@@ -592,6 +593,7 @@ async fn drain_fences_before_waiting_on_inflight() {
         &warming.kafka,
         "fence-race-pod",
         &warming.writer_consumer_group,
+        100,
     ));
     let handler = Arc::new(LeaderHandoffHandler::new(
         Arc::clone(&cache),
@@ -2038,6 +2040,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         pod_name: "cancel-pod".to_string(),
         recv_timeout: Duration::from_secs(2),
         pool_size: 1,
+        fetch_wait_max_ms: 100,
     })
     .unwrap();
 

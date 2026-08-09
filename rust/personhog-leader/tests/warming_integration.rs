@@ -86,7 +86,7 @@ fn warming_config_for(
     cluster: &MockCluster<'static, DefaultProducerContext>,
 ) -> (WarmingConfig, WarmClientPools) {
     let cfg = test_warming_config(pod_name, &cluster.bootstrap_servers());
-    let pools = WarmClientPools::new(&cfg.kafka, pod_name, &cfg.writer_consumer_group);
+    let pools = WarmClientPools::new(&cfg.kafka, pod_name, &cfg.writer_consumer_group, 100);
     (cfg, pools)
 }
 

@@ -30,6 +30,10 @@ pub struct RecoveryConfig {
     pub recv_timeout: Duration,
     /// Number of pooled consumers, bounding concurrent recoveries.
     pub pool_size: usize,
+    /// fetch.wait.max.ms for the pooled consumers; recoveries read a
+    /// single already-produced record, so the long-poll only delays the
+    /// miss path.
+    pub fetch_wait_max_ms: u32,
 }
 
 /// Classifies a failed fetch step for the retry loop: transient failures
@@ -88,7 +92,7 @@ impl ChangelogRecovery {
         let mut idle = VecDeque::with_capacity(cfg.pool_size);
         for _ in 0..cfg.pool_size {
             idle.push_back(
-                make_consumer(&cfg.kafka, &group)
+                make_consumer(&cfg.kafka, &group, cfg.fetch_wait_max_ms)
                     .map_err(|e| format!("create recovery consumer: {e}"))?,
             );
         }

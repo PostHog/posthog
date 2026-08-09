@@ -437,7 +437,12 @@ mod tests {
             kafka_producer_acks: None,
             kafka_producer_retries: None,
         };
-        let pools = Arc::new(WarmClientPools::new(&kafka, "test", "personhog-writer"));
+        let pools = Arc::new(WarmClientPools::new(
+            &kafka,
+            "test",
+            "personhog-writer",
+            100,
+        ));
         LeaderHandoffHandler::new(
             Arc::new(PartitionedCache::new(1 << 20)),
             Arc::new(InflightTracker::new()),

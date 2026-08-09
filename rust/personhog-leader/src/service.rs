@@ -1503,6 +1503,7 @@ mod tests {
                     pod_name: "test".to_string(),
                     recv_timeout: Duration::from_millis(10),
                     pool_size: 1,
+                    fetch_wait_max_ms: 100,
                 })
                 .expect("build recovery pool"),
             ),

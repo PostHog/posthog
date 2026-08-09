@@ -121,6 +121,7 @@ pub struct WarmingConfig {
 pub(crate) fn make_consumer(
     kafka: &KafkaConfig,
     group_id: &str,
+    fetch_wait_max_ms: u32,
 ) -> Result<StreamConsumer, rdkafka::error::KafkaError> {
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", &kafka.kafka_hosts)
@@ -128,6 +129,13 @@ pub(crate) fn make_consumer(
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
         .set("auto.offset.reset", "earliest")
+        // How long the broker may hold a fetch open waiting for data.
+        // These consumers read bounded, already-produced ranges, where
+        // long-polling only delays the tail: past the last record the
+        // range's end is observed through the fetch position, and every
+        // quiet round can sit behind this wait. Tunable to measure that
+        // tail against librdkafka's 500ms default.
+        .set("fetch.wait.max.ms", fetch_wait_max_ms.to_string())
         // Only committed transactions: with fencing on, aborted windows
         // and zombie leftovers must never reach the cache. Identical
         // behavior on a topic without transactional records.
@@ -161,6 +169,7 @@ pub(crate) fn make_consumer(
 pub struct ConsumerPool {
     kafka: KafkaConfig,
     group_id: String,
+    fetch_wait_max_ms: u32,
     /// Metric label; also names the pool in logs.
     label: &'static str,
     stack: StdMutex<Vec<StreamConsumer>>,
@@ -168,10 +177,16 @@ pub struct ConsumerPool {
 }
 
 impl ConsumerPool {
-    pub fn new(kafka: KafkaConfig, group_id: String, label: &'static str) -> Self {
+    pub fn new(
+        kafka: KafkaConfig,
+        group_id: String,
+        label: &'static str,
+        fetch_wait_max_ms: u32,
+    ) -> Self {
         Self {
             kafka,
             group_id,
+            fetch_wait_max_ms,
             label,
             stack: StdMutex::new(Vec::new()),
             created: AtomicU64::new(0),
@@ -189,7 +204,7 @@ impl ConsumerPool {
             "pool" => self.label
         )
         .increment(1);
-        make_consumer(&self.kafka, &self.group_id)
+        make_consumer(&self.kafka, &self.group_id, self.fetch_wait_max_ms)
             .map_err(|e| CoordError::invalid_state(format!("create {} client: {e}", self.label)))
     }
 
@@ -281,13 +296,24 @@ pub struct WarmClientPools {
 }
 
 impl WarmClientPools {
-    pub fn new(kafka: &KafkaConfig, pod_name: &str, writer_group: &str) -> Self {
+    pub fn new(
+        kafka: &KafkaConfig,
+        pod_name: &str,
+        writer_group: &str,
+        fetch_wait_max_ms: u32,
+    ) -> Self {
         Self {
-            offsets: ConsumerPool::new(kafka.clone(), writer_group.to_string(), "offsets"),
+            offsets: ConsumerPool::new(
+                kafka.clone(),
+                writer_group.to_string(),
+                "offsets",
+                fetch_wait_max_ms,
+            ),
             warming: ConsumerPool::new(
                 kafka.clone(),
                 format!("personhog-leader-warm-{pod_name}"),
                 "warming",
+                fetch_wait_max_ms,
             ),
         }
     }
@@ -528,6 +554,11 @@ pub async fn warm_from_kafka(
     // warm is declared stalled.
     let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
     let mut quiet_since = Instant::now();
+    // When the last record arrived, for the tail span: the stretch from
+    // final delivery to loop exit is pure end-detection — control-record
+    // skips and fetch waits — and is the consume span's suspected
+    // variance source. With no deliveries the whole loop is tail.
+    let mut last_delivery_at = Instant::now();
 
     loop {
         let msg = match timeout(poll_slice, consumer.recv()).await {
@@ -610,6 +641,7 @@ pub async fn warm_from_kafka(
             }
         };
         quiet_since = Instant::now();
+        last_delivery_at = Instant::now();
 
         let offset = msg.offset();
         last_offset = offset;
@@ -650,6 +682,7 @@ pub async fn warm_from_kafka(
     }
 
     record_warm_span("consume", span_start);
+    record_warm_span("tail", last_delivery_at);
 
     // Records at or above the writer's committed offset are not yet in PG:
     // seed the dirty index so that, if the cache later evicts them, a miss

@@ -151,6 +151,13 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub warm_recv_timeout_secs: u64,
 
+    /// fetch.wait.max.ms for the warm and recovery consumers — how long
+    /// the broker may hold a fetch open waiting for data. Bounded-range
+    /// readers pay this on end detection, so it is tunable; the default
+    /// matches librdkafka's, making the override an explicit experiment.
+    #[envconfig(default = "500")]
+    pub warm_fetch_wait_max_ms: u32,
+
     /// Maximum attempts for retryable warming metadata calls
     /// (committed-offset query, fetch-watermarks).
     #[envconfig(default = "3")]
