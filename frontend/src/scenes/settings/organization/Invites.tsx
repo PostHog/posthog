@@ -7,6 +7,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -64,7 +65,11 @@ function makeActionsComponent(
 
 export function InvitesTable(): JSX.Element {
     const { invites, invitesLoading } = useValues(inviteLogic)
-    const { deleteInvite } = useActions(inviteLogic)
+    const { deleteInvite, loadInvites } = useActions(inviteLogic)
+
+    // inviteLogic is mounted app-wide, so its lazy loader fires only once per app session.
+    // Refresh on mount so revisiting this page shows the current invites, not a stale copy.
+    useOnMountEffect(loadInvites)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,

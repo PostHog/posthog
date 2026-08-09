@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { ApiError, PaginatedResponse } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -269,11 +269,22 @@ export const inviteLogic = kea<inviteLogicType>([
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
-                    await api.delete(
-                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
-                    )
+                    try {
+                        await api.delete(
+                            `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
+                        )
+                        lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
+                    } catch (error) {
+                        // The server removes invites the open tab knows nothing about (the invitee
+                        // accepted, or someone re-invited the same email), so the row can already be
+                        // gone. Treat that 404 as a successful cancel instead of leaking the error.
+                        if (error instanceof ApiError && error.status === 404) {
+                            lemonToast.info('That invite no longer exists')
+                        } else {
+                            throw error
+                        }
+                    }
                     preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
-                    lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
                     return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
                 },
             },
@@ -392,6 +403,14 @@ export const inviteLogic = kea<inviteLogicType>([
         addProjectAccess: ({ projectId }) => {
             // Load access control for the project when it's added
             actions.loadProjectAccessControl(projectId)
+        },
+        // Resync with the server after a cancel, so any invites the server already removed drop
+        // off the list even when the client held a stale copy.
+        deleteInviteSuccess: () => {
+            actions.loadInvites()
+        },
+        deleteInviteFailure: () => {
+            actions.loadInvites()
         },
     })),
     bindModalToUrl({
