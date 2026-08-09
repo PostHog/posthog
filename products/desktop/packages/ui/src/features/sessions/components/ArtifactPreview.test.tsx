@@ -1024,11 +1024,24 @@ describe("ArtifactPreview", () => {
         ],
       },
     ];
-    useQuery.mockReturnValue({
-      data: editablePreview(),
-      isLoading: false,
-      isError: false,
-    });
+    const currentPreview = editablePreview();
+    useQuery.mockImplementation(
+      (options: {
+        queryKey: unknown[];
+        placeholderData?: (previousData: unknown) => unknown;
+      }) => {
+        const isLoadingOlderVersion = options.queryKey.includes("artifact-0");
+        const data = isLoadingOlderVersion
+          ? options.placeholderData?.(currentPreview)
+          : currentPreview;
+        return {
+          data,
+          isLoading: data === undefined,
+          isError: false,
+          isPlaceholderData: isLoadingOlderVersion && data !== undefined,
+        };
+      },
+    );
 
     render(
       <ArtifactPreview
@@ -1047,8 +1060,12 @@ describe("ArtifactPreview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Older version" }));
 
     expect(screen.getByText("v1/2")).toBeInTheDocument();
+    expect(screen.getByText("Report")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Older version" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
     ).toHaveAttribute("aria-disabled", "true");
     let lastCall = useQuery.mock.calls.at(-1)?.[0] as {
       queryKey: unknown[];

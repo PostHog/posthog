@@ -159,21 +159,27 @@ export function ArtifactPreview({
     }
     setSelectedVersionId(focus.target.itemId);
   }, [activeArtifactId, focus, versions]);
-  const { artifactResult, previewData, previewUrl, isLoading, isError } =
-    useArtifactPreviewData({
-      sessionService,
-      authIdentity,
-      taskId,
-      runId: activeRunId,
-      artifactId: activeArtifactId,
-      name,
-    });
+  const {
+    artifactResult,
+    previewData,
+    previewUrl,
+    isLoading,
+    isError,
+    isPlaceholderData,
+  } = useArtifactPreviewData({
+    sessionService,
+    authIdentity,
+    taskId,
+    runId: activeRunId,
+    artifactId: activeArtifactId,
+    name,
+  });
   const editing = useArtifactEditing({
     sessionService,
     artifactResult,
     versions:
       versions.length > 0 ? versions : (artifactResult?.artifacts ?? []),
-    versionsLoading: runsLoading,
+    versionsLoading: runsLoading || isPlaceholderData,
     refreshVersions,
     taskId,
     runId: activeRunId,
@@ -252,7 +258,7 @@ export function ArtifactPreview({
           size="icon"
           variant="default"
           aria-label="Older version"
-          disabled={versionIndex >= versions.length - 1}
+          disabled={isPlaceholderData || versionIndex >= versions.length - 1}
           onClick={() => {
             const older = versions[versionIndex + 1];
             if (older?.id) setSelectedVersionId(older.id);
@@ -267,7 +273,7 @@ export function ArtifactPreview({
           size="icon"
           variant="default"
           aria-label="Newer version"
-          disabled={versionIndex <= 0}
+          disabled={isPlaceholderData || versionIndex <= 0}
           onClick={() => {
             const newer = versions[versionIndex - 1];
             if (newer?.id) setSelectedVersionId(newer.id);
@@ -316,7 +322,7 @@ export function ArtifactPreview({
       versionNav={versionNav}
       taskId={taskId}
       commentTarget={commentTarget}
-      commentsEnabled={commentsEnabled}
+      commentsEnabled={commentsEnabled && !isPlaceholderData}
       canEdit={editing.canEdit}
       beginEditing={editing.beginEditing}
       previewData={previewData}

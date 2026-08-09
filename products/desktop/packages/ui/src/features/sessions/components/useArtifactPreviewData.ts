@@ -89,8 +89,9 @@ export function useArtifactPreviewData({
   previewUrl: string | null;
   isLoading: boolean;
   isError: boolean;
+  isPlaceholderData: boolean;
 } {
-  const { data, isLoading, isError } = useQuery<
+  const { data, isLoading, isError, isPlaceholderData } = useQuery<
     PreviewData | ArtifactPreviewResult
   >({
     queryKey: ["artifactPreview", authIdentity, taskId, runId, artifactId],
@@ -135,6 +136,7 @@ export function useArtifactPreviewData({
     },
     enabled: authIdentity !== null,
     staleTime: Infinity,
+    placeholderData: (previousData) => previousData,
     retry: false,
     meta: AUTH_SCOPED_QUERY_META,
   });
@@ -154,5 +156,12 @@ export function useArtifactPreviewData({
     return () => URL.revokeObjectURL(objectUrl);
   }, [previewData]);
 
-  return { artifactResult, previewData, previewUrl, isLoading, isError };
+  return {
+    artifactResult,
+    previewData,
+    previewUrl,
+    isLoading,
+    isError,
+    isPlaceholderData,
+  };
 }
