@@ -14,6 +14,7 @@ describe('eventsSceneLogic', () => {
     let logic: ReturnType<typeof eventsSceneLogic.build>
 
     beforeEach(() => {
+        window.localStorage.clear()
         useMocks({
             get: {
                 '/api/environments/:team_id/query': () => [200, { results: [] }],
