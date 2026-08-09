@@ -588,6 +588,29 @@ class TestFailureStreakProbeCollection:
 
         assert [p.skill_name for p in probes] == (["signals-scout-general"] if expect_probe else [])
 
+    def test_a_lane_paused_after_a_backdated_stamp_still_serves_its_full_cooldown(self) -> None:
+        # The run that trips the breaker is dispatched while the lane is still enabled, so it is
+        # stamped with a slot anchor that can sit up to a full period before the trip. Reading the
+        # cooldown off `last_run_at` alone then makes a lane paused seconds ago look a day cold,
+        # and it probes on the very next tick instead of serving the cooldown.
+        now = timezone.now()
+        team = Team.objects.create(organization=Organization.objects.create(name="probe-org"), name="probe-team")
+        with team_scope(team.id, canonical=True):
+            _create_config(
+                team,
+                "signals-scout-general",
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                consecutive_failure_count=5,
+                last_run_at=now - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 3600),
+                status_changed_at=now - timedelta(minutes=5),
+            )
+
+        paused_by_team = _breaker_paused_configs_by_team()
+        probes = _collect_probe_runs(paused_by_team.get(team.id, []), {"signals-scout-general"}, now)
+
+        assert probes == []
+
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
@@ -798,12 +821,15 @@ class TestSlotAlignedDispatchAnchors:
             assert tick_start - anchor < timedelta(minutes=interval)
             assert int(anchor.timestamp()) % (COORDINATOR_INTERVAL_MINUTES * 60) == 0
 
-    @parameterized.expand([(30, 30), (45, 60), (60, 60), (75, 90), (100, 120), (720, 720), (1440, 1440)])
+    @parameterized.expand(
+        [(30, 30), (31, 30), (45, 60), (60, 60), (61, 60), (75, 90), (100, 120), (720, 720), (1440, 1440)]
+    )
     def test_steady_state_cadence_matches_the_tick_grid(self, interval: int, expected_gap: int) -> None:
-        # `run_interval_minutes` takes any value in 30..43200, so an interval that is not a whole
-        # number of ticks is ordinary. Deriving the slot period by rounding DOWN shortened the
-        # cadence for those: a 75-minute scout ran hourly and a 100-minute scout every 90 minutes,
-        # both more often than configured.
+        # The slot period has to equal the gap the grid actually produces, or the anchor drags the
+        # scout onto a shorter schedule than its owner configured, every dispatch, forever. Two
+        # ways to get it wrong, both caught here: rounding the interval down (a 75-minute scout
+        # dispatches hourly) and ignoring DUE_GRACE_SECONDS (a 31-minute scout comes due at 30
+        # minutes exactly, so its period is one tick, not two).
         config_pk = _SLOT_TEST_PKS[0]
         dispatched_at = _slot_anchor(config_pk, interval, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
         for _ in range(4):

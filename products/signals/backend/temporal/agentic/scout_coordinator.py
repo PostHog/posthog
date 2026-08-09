@@ -172,14 +172,18 @@ def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
 def _ticks_per_interval(run_interval_minutes: int) -> int:
     """The scout's dispatch period, as a count of coordinator ticks.
 
-    Rounded UP, because that is the cadence the tick grid already imposes: a scout is dispatched at
-    the first tick at or after it comes due, so a 75-minute interval has always run every 90
-    minutes. Rounding down would make the anchor period shorter than the real cadence and dispatch
-    that scout every 60 minutes instead, which is more often than its owner configured.
-    `run_interval_minutes` is validated to 30..43200 with no multiple-of-30 constraint, so
-    non-grid intervals are ordinary rather than exotic.
+    This has to be the cadence the grid actually produces, or the anchor pulls the scout onto a
+    schedule its owner did not configure: an anchor period shorter than the real cadence snaps
+    every dispatch back far enough that the scout comes due again early, forever. So it accounts
+    for both effects the grid applies. A scout comes due `DUE_GRACE_SECONDS` short of its interval,
+    and is then dispatched at the first tick at or after that, which is why the interval is
+    rounded up rather than down and why the grace is subtracted before rounding.
+
+    `run_interval_minutes` is validated to 30..43200 with no multiple-of-30 constraint, so an
+    interval that lands off the grid is allowed even though the fleet does not use one today.
     """
-    return max(1, -(-run_interval_minutes // COORDINATOR_INTERVAL_MINUTES))
+    due_after_seconds = run_interval_minutes * 60 - DUE_GRACE_SECONDS
+    return max(1, -(-due_after_seconds // TICK_SECONDS))
 
 
 def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datetime) -> datetime:
@@ -198,12 +202,15 @@ def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datet
 
     The snapped anchor always lands in `(this tick - period, this tick]`, where the period is the
     scout's cadence from `_ticks_per_interval`. Once a scout is dispatched on its own slot the
-    anchor is exactly that tick, so its cadence is the configured one forever after. Before then
-    the anchor can sit up to one period back, which shortens that single gap: the scout runs once
-    earlier than it otherwise would, and is then on its slot. That borrows the run from the next
-    period rather than adding one, so the fleet's total run count is unchanged. It is the
-    transition cost of moving a scout onto its slot, and it is paid once per scout, on rollout and
-    again after any interval edit.
+    anchor is exactly that tick, so its cadence is the configured one forever after.
+
+    Before then the anchor can sit up to one period back, which shortens that single gap and costs
+    the scout ONE EXTRA RUN. The shift is permanent rather than repaid: the scout keeps its new
+    phase and its normal cadence from there, so it never skips a later run to make up for the early
+    one. Each scout pays it once, when it first lands on its slot, and again after an interval edit
+    (which changes its period, and so its slot). Accepted deliberately: it buys a de-merge that
+    needs no migration and no backfill command, and the extra runs spread across every tick in the
+    period rather than landing in the wave this is meant to break up.
     """
     ticks_per_interval = _ticks_per_interval(run_interval_minutes)
     slot = _dispatch_slot(config_pk, run_interval_minutes)
@@ -543,11 +550,17 @@ def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: se
     for config in paused_configs:
         if config.skill_name not in live_skills:
             continue
-        # `last_run_at` is stamped on every dispatch, including the failed run that tripped the
-        # breaker, so the first probe lands one full cooldown after the trip. A null (possible
-        # only through manual row surgery) probes immediately rather than never.
+        # The cooldown runs from the later of the lane's last dispatch and the moment it was
+        # paused. `last_run_at` alone is not enough: the run that trips the breaker was dispatched
+        # while the lane was still enabled, so it was stamped with a slot anchor that can sit up to
+        # a full period before the trip, and the cooldown would then read as already elapsed and
+        # probe on the next tick. `status_changed_at` alone is not enough either, because a failed
+        # probe leaves the status untouched and only `last_run_at` advances to restart the
+        # cooldown. Neither set (possible only through manual row surgery) probes immediately
+        # rather than never.
+        cooldown_anchors = [moment for moment in (config.last_run_at, config.status_changed_at) if moment is not None]
         cooldown_elapsed_s = (
-            (now - config.last_run_at).total_seconds() if config.last_run_at else float(AUTO_PAUSE_PROBE_INTERVAL_S)
+            (now - max(cooldown_anchors)).total_seconds() if cooldown_anchors else float(AUTO_PAUSE_PROBE_INTERVAL_S)
         )
         overdue_s = cooldown_elapsed_s - AUTO_PAUSE_PROBE_INTERVAL_S
         if overdue_s < 0:
