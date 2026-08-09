@@ -5,7 +5,7 @@ import { useDiffOptions } from "@posthog/ui/features/code-review/reviewShellPart
 import { usePrChangedFiles } from "@posthog/ui/features/git-interaction/useGitQueries";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { NestedButton } from "@posthog/ui/primitives/NestedButton";
-import { useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import {
   fileViewedFingerprint,
   isFileViewed,
@@ -14,6 +14,12 @@ import {
 
 interface PrFilesChangedSectionProps {
   prUrl: string;
+  /**
+   * Flat layout for a dedicated tab, like the web detail's Files changed
+   * page: a plain header row and the per-file diffs as siblings, instead of
+   * one card wrapping every diff.
+   */
+  bare?: boolean;
 }
 
 /**
@@ -22,7 +28,10 @@ interface PrFilesChangedSectionProps {
  * expanded file gets a footer row with the "Viewed" toggle; marking a file
  * viewed folds it back up.
  */
-export function PrFilesChangedSection({ prUrl }: PrFilesChangedSectionProps) {
+export function PrFilesChangedSection({
+  prUrl,
+  bare = false,
+}: PrFilesChangedSectionProps) {
   const filesQuery = usePrChangedFiles(prUrl);
   const diffOptions = useDiffOptions();
   const viewedByPr = usePrViewedFilesStore((s) => s.viewedByPr);
@@ -51,33 +60,32 @@ export function PrFilesChangedSection({ prUrl }: PrFilesChangedSectionProps) {
     [files, viewedByPr, prUrl],
   );
 
-  if (filesQuery.isLoading) {
-    return (
+  const messageState = (body: ReactNode) =>
+    bare ? (
+      <div className="py-3 text-[12px] text-gray-10">{body}</div>
+    ) : (
       <DetailSection Icon={GitDiffIcon} title="Files changed">
-        <div className="flex items-center gap-2 py-3 text-[12px] text-gray-10">
-          <Spinner />
-          Loading changed files…
-        </div>
+        <div className="py-3 text-[12px] text-gray-10">{body}</div>
       </DetailSection>
+    );
+
+  if (filesQuery.isLoading) {
+    return messageState(
+      <span className="flex items-center gap-2">
+        <Spinner />
+        Loading changed files…
+      </span>,
     );
   }
 
   if (filesQuery.isError || !files) {
-    return (
-      <DetailSection Icon={GitDiffIcon} title="Files changed">
-        <div className="py-3 text-[12px] text-gray-10">
-          Couldn't load the changed files for this pull request.
-        </div>
-      </DetailSection>
+    return messageState(
+      "Couldn't load the changed files for this pull request.",
     );
   }
 
   if (files.length === 0) {
-    return (
-      <DetailSection Icon={GitDiffIcon} title="Files changed">
-        <div className="py-3 text-[12px] text-gray-10">No changed files.</div>
-      </DetailSection>
-    );
+    return messageState("No changed files.");
   }
 
   const isCollapsed = (path: string) =>
@@ -89,95 +97,110 @@ export function PrFilesChangedSection({ prUrl }: PrFilesChangedSectionProps) {
     setCollapseOverrides(new Map());
   };
 
+  const headerControls = (
+    <span className="flex items-center gap-2">
+      <span className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
+        {viewedCount} / {files.length} viewed
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setAllCollapsed(allExpanded)}
+      >
+        {allExpanded ? "Collapse all" : "Expand all"}
+      </Button>
+    </span>
+  );
+
+  const fileList = (
+    <div className="flex flex-col gap-3">
+      {files.map((file) => {
+        const viewed = isFileViewed(viewedByPr, prUrl, file);
+        const collapsed = isCollapsed(file.path);
+        const setCollapsed = (next: boolean) =>
+          setCollapseOverrides((prev) => new Map(prev).set(file.path, next));
+        // Folding removes a diff that can be taller than the viewport,
+        // which would leave it staring at blank space below — scroll the
+        // folded file back into view. rAF runs after React commits the
+        // collapse but before the browser paints.
+        const collapseAndReveal = () => {
+          setCollapsed(true);
+          requestAnimationFrame(() => {
+            fileContainers.get(file.path)?.scrollIntoView({ block: "nearest" });
+          });
+        };
+        const handleViewedChange = (next: boolean) => {
+          if (next) {
+            markViewed(prUrl, file.path, fileViewedFingerprint(file));
+            // Fold the file away once it's read, like GitHub.
+            if (!collapsed) collapseAndReveal();
+          } else {
+            unmarkViewed(prUrl, file.path);
+          }
+        };
+        return (
+          <div
+            key={file.path}
+            ref={(el) => {
+              if (el) fileContainers.set(file.path, el);
+              else fileContainers.delete(file.path);
+            }}
+            className="overflow-hidden rounded-md border border-(--gray-5)"
+          >
+            <PatchedFileDiff
+              file={file}
+              taskId={prUrl}
+              options={diffOptions}
+              collapsed={collapsed}
+              onToggle={() => setCollapsed(!collapsed)}
+              externalUrl={`${prUrl}/files`}
+              prUrl={prUrl}
+              headerTrailing={
+                collapsed ? (
+                  <ViewedToggle viewed={viewed} onChange={handleViewedChange} />
+                ) : undefined
+              }
+            />
+            {!collapsed && (
+              <div className="flex items-center justify-end gap-1 border-t border-t-(--gray-5) bg-(--gray-2) px-3 py-[4px]">
+                <button
+                  type="button"
+                  onClick={collapseAndReveal}
+                  className="cursor-pointer rounded border-0 bg-transparent px-[6px] py-[2px] text-(--accent-9) text-[11px] hover:bg-gray-4"
+                >
+                  Collapse
+                </button>
+                <ViewedToggle viewed={viewed} onChange={handleViewedChange} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  if (bare) {
+    return (
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="cursor-default select-none font-semibold text-[13px] text-gray-12">
+            {files.length} file{files.length === 1 ? "" : "s"} changed
+          </span>
+          {headerControls}
+        </div>
+        {fileList}
+      </div>
+    );
+  }
+
   return (
     <DetailSection
       Icon={GitDiffIcon}
       title={`Files changed (${files.length})`}
-      rightSlot={
-        <span className="flex items-center gap-2">
-          <span className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
-            {viewedCount} / {files.length} viewed
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setAllCollapsed(allExpanded)}
-          >
-            {allExpanded ? "Collapse all" : "Expand all"}
-          </Button>
-        </span>
-      }
+      rightSlot={headerControls}
     >
-      <div className="flex flex-col gap-3">
-        {files.map((file) => {
-          const viewed = isFileViewed(viewedByPr, prUrl, file);
-          const collapsed = isCollapsed(file.path);
-          const setCollapsed = (next: boolean) =>
-            setCollapseOverrides((prev) => new Map(prev).set(file.path, next));
-          // Folding removes a diff that can be taller than the viewport,
-          // which would leave it staring at blank space below — scroll the
-          // folded file back into view. rAF runs after React commits the
-          // collapse but before the browser paints.
-          const collapseAndReveal = () => {
-            setCollapsed(true);
-            requestAnimationFrame(() => {
-              fileContainers
-                .get(file.path)
-                ?.scrollIntoView({ block: "nearest" });
-            });
-          };
-          const handleViewedChange = (next: boolean) => {
-            if (next) {
-              markViewed(prUrl, file.path, fileViewedFingerprint(file));
-              // Fold the file away once it's read, like GitHub.
-              if (!collapsed) collapseAndReveal();
-            } else {
-              unmarkViewed(prUrl, file.path);
-            }
-          };
-          return (
-            <div
-              key={file.path}
-              ref={(el) => {
-                if (el) fileContainers.set(file.path, el);
-                else fileContainers.delete(file.path);
-              }}
-              className="overflow-hidden rounded-md border border-(--gray-5)"
-            >
-              <PatchedFileDiff
-                file={file}
-                taskId={prUrl}
-                options={diffOptions}
-                collapsed={collapsed}
-                onToggle={() => setCollapsed(!collapsed)}
-                externalUrl={`${prUrl}/files`}
-                prUrl={prUrl}
-                headerTrailing={
-                  collapsed ? (
-                    <ViewedToggle
-                      viewed={viewed}
-                      onChange={handleViewedChange}
-                    />
-                  ) : undefined
-                }
-              />
-              {!collapsed && (
-                <div className="flex items-center justify-end gap-1 border-t border-t-(--gray-5) bg-(--gray-2) px-3 py-[4px]">
-                  <button
-                    type="button"
-                    onClick={collapseAndReveal}
-                    className="cursor-pointer rounded border-0 bg-transparent px-[6px] py-[2px] text-(--accent-9) text-[11px] hover:bg-gray-4"
-                  >
-                    Collapse
-                  </button>
-                  <ViewedToggle viewed={viewed} onChange={handleViewedChange} />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {fileList}
     </DetailSection>
   );
 }

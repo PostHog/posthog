@@ -127,7 +127,10 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
                 </>
               ),
               content: (
-                <PrFilesChangedSection prUrl={report.implementation_pr_url} />
+                <PrFilesChangedSection
+                  prUrl={report.implementation_pr_url}
+                  bare
+                />
               ),
             }
           : undefined
