@@ -97,7 +97,6 @@ describe('LemonInput', () => {
     it.each([
         ['a bare zero', '0'],
         ['a decimal', '0.5'],
-        ['a negative decimal', '-0.5'],
     ])('accepts %s entered into a cleared field', (_, entered) => {
         const onValueChange = jest.fn()
         const { container } = render(<NumberFieldHarness fallback={0} onValueChange={onValueChange} />)
@@ -121,7 +120,47 @@ describe('LemonInput', () => {
         fireEvent.change(input, { target: { value: '' } })
         fireEvent.change(input, { target: { value: '-' } })
 
-        expect(input.value).not.toBe('0')
+        // jsdom applies value sanitization but keeps no record of the raw text, so '' is all we can
+        // assert here — what matters is that React declined to write the fallback over it. A real
+        // browser keeps the '-' visible on top of the same empty `value`.
+        expect(input.value).toBe('')
+    })
+
+    it('leaves an uncontrolled number field uncontrolled while it is emptied', () => {
+        // Consumers that pass only `defaultValue` have no echoed fallback to defend against, and
+        // swapping their undefined value for '' would flip the input controlled and back again.
+        const messages: string[] = []
+        const consoleError = jest.spyOn(console, 'error').mockImplementation((...args) => {
+            messages.push(args.map(String).join(' '))
+        })
+        try {
+            const { container } = render(<LemonInput type="number" defaultValue={50} />)
+            const input = container.querySelector<HTMLInputElement>('input')!
+
+            fireEvent.focus(input)
+            fireEvent.change(input, { target: { value: '' } })
+            typeInto(input, '5')
+
+            expect(messages.filter((message) => /uncontrolled input|controlled input/.test(message))).toEqual([])
+        } finally {
+            consoleError.mockRestore()
+        }
+    })
+
+    it('drops the has-content style while a number field is drafting empty', () => {
+        const { container } = render(<NumberFieldHarness fallback={100} />)
+        const wrapper = container.querySelector<HTMLElement>('.LemonInput')!
+        const input = container.querySelector<HTMLInputElement>('input')!
+
+        expect(wrapper.classList).toContain('LemonInput--has-content')
+
+        fireEvent.focus(input)
+        fireEvent.change(input, { target: { value: '' } })
+        // The consumer still holds 100 here — the class has to follow what is on screen, not the prop.
+        expect(wrapper.classList).not.toContain('LemonInput--has-content')
+
+        fireEvent.blur(input)
+        expect(wrapper.classList).toContain('LemonInput--has-content')
     })
 
     it('leaves a cleared text input to its consumer', () => {

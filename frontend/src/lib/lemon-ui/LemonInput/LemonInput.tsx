@@ -206,10 +206,14 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
 
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
     // A cleared controlled number input holds NaN; show '' so it stays controlled instead of feeding
-    // NaN to the DOM (undefined stays uncontrolled). While the field is focused and the user has
-    // emptied it, their empty text also wins over the fallback a consumer echoes back.
+    // NaN to the DOM. While the field is focused and the user has emptied it, their empty text also
+    // wins over the fallback a consumer echoes back. Both branches require a controlled input —
+    // `undefined` means the consumer passed only `defaultValue`, and swapping that for '' mid-edit
+    // would flip the input uncontrolled -> controlled and back on the next keystroke.
     const displayValue =
-        type === 'number' && ((focused && numberDraftEmpty) || (typeof value === 'number' && Number.isNaN(value)))
+        type === 'number' &&
+        value !== undefined &&
+        ((focused && numberDraftEmpty) || (typeof value === 'number' && Number.isNaN(value)))
             ? ''
             : value
     return (
@@ -256,8 +260,11 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         }
 
                         if (type === 'number') {
-                            // Keyed on the text, not valueAsNumber, which is also NaN for intermediate
-                            // states like '-' and '1e' that the user is still in the middle of typing
+                            // Value sanitization empties `value` for anything that isn't a valid float,
+                            // so intermediate states like '-' and '0.' count as draft-empty too. That is
+                            // what we want: the browser keeps showing the half-typed text, and marking it
+                            // empty stops React's `value === 0 && node.value === ''` case from replacing
+                            // it with a fallback of 0 before the user can finish the number.
                             setNumberDraftEmpty(event.currentTarget.value === '')
                         }
 
