@@ -1280,6 +1280,35 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Connection-limit error should not be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # The exact production message: the source (or a pooler/firewall/SSH tunnel in front of
+            # it) dropped our connect. `_connect_with_dropped_retry` retries this in-process on the
+            # setup/read connect; it only reaches `_handle_import_error` once that bounded budget is
+            # exhausted, and stays transient.
+            'connection failed: connection to server at "66.33.22.247", port 15502 failed: '
+            "server closed the connection unexpectedly",
+            "OperationalError: server closed the connection unexpectedly",
+            "consuming input failed: SSL connection has been closed unexpectedly",
+            "consuming input failed: SSL SYSCALL error: EOF detected",
+            "connection to server was lost",
+            "the connection is lost",
+            # Supavisor pooler drop — arrives as a generic XX000 InternalError_ carrying the code.
+            "XX000 (EDBHANDLEREXITED) DbHandler exited. Check logs for more information",
+        ],
+    )
+    def test_connection_dropped_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg.lower() for pattern in retryable)
+        assert is_retryable, f"Connection-dropped error should be classified retryable: {error_msg}"
+
+    def test_connection_dropped_is_not_also_non_retryable(self, source):
+        error_msg = "server closed the connection unexpectedly"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime

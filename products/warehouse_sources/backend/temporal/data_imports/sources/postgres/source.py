@@ -41,7 +41,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+    _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -793,9 +795,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
         # sustained shortage that outlasts that budget is still transient — the same
         # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        #
+        # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` / `_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS` (e.g.
+        # "server closed the connection unexpectedly", a pooler "DbHandler exited") are the mid-stream
+        # and connect-time drops `_is_connection_dropped_error` recognises. `_connect_with_dropped_retry`
+        # and the offset-chunking reconnect already retry them in-process; a drop that outlasts that
+        # bounded budget reaches here on the setup or read connect and is still the same transient
+        # class. Without these entries `_handle_import_error` logs the drop at `exception` and reports
+        # it on every occurrence, flooding error tracking with a self-recovering failure. (The
+        # "terminating connection due to" member also covers the admin-shutdown case above.)
         return {
-            "terminating connection due to",
             "the database system is shutting down",
+            *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+            *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
         }
 
