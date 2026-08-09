@@ -139,7 +139,7 @@ Components come from `@posthog/quill`; layout is `div`s with Tailwind. Radix is 
 - Do not add any `@radix-ui/*` import. Use `@posthog/quill` plus `div` + Tailwind.
 - Do not reuse the deleted legacy `ReportListRow`, `ReportDetailPane`, or old list/detail stores.
 - Do not put page-level Inbox title or navigation into the global app header; `InboxView` owns the Inbox page chrome.
-- Do not add a configure shortcut back into the Inbox header; Responders configuration is a sidebar destination.
+- Responder configuration stays at `/code/agents`. The Inbox header carries a "Configure agents" link to it, but do not embed configuration UI in the Inbox itself.
 - Scout (`signals_scout`) is a real Cloud source product. Keep it covered wherever source products surface: `INBOX_SOURCE_OPTIONS`, `SOURCE_PRODUCT_META`, and the scout-name display in `SignalCard`.
 - Scout management UI (fleet configuration, run history) lives in `features/scouts/` and is backed by the PostHog Cloud scout endpoints (`/api/projects/{teamId}/signals/scout/`). Do not add scout controls that have no backing endpoint there.
 - Do not put preview shims or mock report data in `apps/code/index.html`; the app shell should stay minimal.
