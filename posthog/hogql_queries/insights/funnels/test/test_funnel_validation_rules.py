@@ -5,6 +5,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    EventPropertyFilter,
     EventsNode,
     FunnelExclusionEventsNode,
     FunnelsFilter,
@@ -204,3 +205,20 @@ class TestFunnelValidationRules(BaseTest):
 
         self.assertIn(expected_error, str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["funnel_optional_steps_invalid"])
+
+    def test_allows_optional_step_before_broader_required_step(self):
+        # An optional step with a property filter, followed by a broader required step on the same event,
+        # is a valid configuration: the two rows match different events at different points in the funnel.
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step 1"),
+                EventsNode(
+                    event="click",
+                    optionalInFunnel=True,
+                    properties=[EventPropertyFilter(key="tag_name", value="button", operator="exact")],
+                ),
+                EventsNode(event="click"),
+            ],
+        )
+
+        ValidateOptionalFunnelSteps().validate(self._context(query))

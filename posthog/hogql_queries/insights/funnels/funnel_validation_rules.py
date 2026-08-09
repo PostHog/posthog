@@ -134,13 +134,14 @@ class ValidateOptionalFunnelSteps:
         if getattr(series[0], "optionalInFunnel", False):
             raise ValidationError("The first step of a funnel cannot be optional.", code=self.code)
 
-        # Validate that an optional step is not immediately followed by an equivalent required step.
-        # In that case, the required step can consume the shared event and the optional step will never convert.
-        # Not trying to be overly clever here - putting filters in different order or using SQL queries that are
-        # slightly different could get around this, but we want to stop the naive case from spawning support issues.
+        # Validate that an optional step is not immediately followed by an identical required step.
+        # In that case, the required step consumes the shared event and the optional step never converts.
+        # Only the exact-match case is blocked. A required step that is broader than the optional step
+        # (fewer property filters) still matches different events at different points in a sequential
+        # funnel, so it stays a valid configuration.
         for previous_step, current_step in pairwise(series):
             if (
-                (is_equal(previous_step, current_step) or is_superset(current_step, previous_step))
+                is_equal(previous_step, current_step)
                 and getattr(previous_step, "optionalInFunnel", False)
                 and not getattr(current_step, "optionalInFunnel", False)
             ):

@@ -44,8 +44,10 @@ export function FunnelExclusionsFilter(): JSX.Element {
                 filters={exclusionFilters}
                 typeKey={typeKey}
                 addFilterDefaultOptions={{
-                    id: '$pageview',
-                    name: '$pageview',
+                    // Start empty so a new exclusion row does not preselect an event that is
+                    // already a funnel step, which the backend rejects with a blocking error.
+                    id: null,
+                    name: null,
                     type: EntityTypes.EVENTS,
                     funnel_from_step: exclusionDefaultStepRange.funnelFromStep,
                     funnel_to_step: exclusionDefaultStepRange.funnelToStep,
