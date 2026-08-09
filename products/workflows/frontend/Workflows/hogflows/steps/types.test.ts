@@ -74,10 +74,10 @@ describe('HogFlowActionSchema', () => {
         ['3', false],
         ['0m', false],
         ['0d', false],
-        ['1.5h', false],
-        ['0.5h', false],
-        ['.5d', false],
-        ['0.1m', false],
+        ['1.5h', true],
+        ['0.5h', true],
+        ['.5d', true],
+        ['0.1m', true],
     ])('delay_duration %p → valid=%p', (duration, valid) => {
         expect(HogFlowActionSchema.safeParse(delayAction(duration)).success).toBe(valid)
     })
@@ -93,8 +93,8 @@ describe('HogFlowActionSchema', () => {
         ['NaNd', false],
         ['0m', false],
         ['0d', false],
-        ['1.5h', false],
-        ['0.5h', false],
+        ['1.5h', true],
+        ['0.5h', true],
     ])('max_wait_duration %p → valid=%p', (duration, valid) => {
         expect(HogFlowActionSchema.safeParse(waitAction(duration)).success).toBe(valid)
     })
@@ -105,9 +105,8 @@ describe('HogFlowActionSchema', () => {
     it.each([
         ['', 'Please enter a duration'],
         ['m', 'Please enter a duration'],
-        ['3', 'Duration must be a whole number followed by d, h, or m'],
-        ['1.5h', 'Duration must be a whole number followed by d, h, or m'],
-        ['0m', 'Duration must be at least 1'],
+        ['3', 'Duration must be a number followed by d, h, or m'],
+        ['0m', 'Duration must be greater than 0'],
     ])('delay_duration %p → message %p', (duration, message) => {
         const result = HogFlowActionSchema.safeParse(delayAction(duration))
         expect(result.success).toBe(false)

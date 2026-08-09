@@ -24,12 +24,14 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
         return
     }
-    if (!/^\d+[dhm]$/.test(v)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a whole number followed by d, h, or m' })
+    // Match the API contract (DELAY_DURATION_REGEX in hog_flow.py) and the executor, both of which
+    // accept fractions like "1.5d". A whole-number-only rule here rejected values the backend saved.
+    if (!/^\d*\.?\d+[dhm]$/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a number followed by d, h, or m' })
         return
     }
-    if (parseInt(v, 10) < 1) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be at least 1' })
+    if (parseFloat(v) <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be greater than 0' })
     }
 })
 
