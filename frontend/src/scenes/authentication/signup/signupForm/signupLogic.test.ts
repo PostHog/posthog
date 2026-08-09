@@ -1,3 +1,4 @@
+import { startRegistration } from '@simplewebauthn/browser'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -5,6 +6,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { signupLogic } from './signupLogic'
+
+jest.mock('@simplewebauthn/browser', () => ({
+    startRegistration: jest.fn(),
+}))
 
 describe('signupLogic — email error surfacing', () => {
     let logic: ReturnType<typeof signupLogic.build>
@@ -55,6 +60,49 @@ describe('signupLogic — email error surfacing', () => {
         expect(logic.values.signupPanelEmailManualErrors.email).toBe(
             'There is already an account with this email address.'
         )
+    })
+})
+
+describe('signupLogic — passkey registration feedback', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/webauthn/signup-register/begin/': () => [
+                    200,
+                    {
+                        already_registered: false,
+                        rp: { id: 'localhost', name: 'PostHog' },
+                        user: { id: 'user-id', name: 'test@example.com', displayName: 'test@example.com' },
+                        challenge: 'challenge',
+                        pubKeyCredParams: [],
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('surfaces a message when the WebAuthn prompt is cancelled or no authenticator is available', async () => {
+        const cancellation = new Error('The operation either timed out or was not allowed.')
+        cancellation.name = 'NotAllowedError'
+        ;(startRegistration as jest.Mock).mockRejectedValueOnce(cancellation)
+
+        logic.actions.setSignupPanelEmailValue('email', 'test@example.com')
+        logic.actions.registerPasskey()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.passkeyError).not.toBeNull()
+        expect(logic.values.passkeyRegistered).toBe(false)
+        expect(logic.values.isPasskeyRegistering).toBe(false)
     })
 })
 

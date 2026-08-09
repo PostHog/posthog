@@ -667,6 +667,12 @@ export const signupLogic = kea<signupLogicType>([
             }
         },
         registerPasskey: async () => {
+            // Ignore a second click while one registration is in flight. Concurrent WebAuthn
+            // requests hang WebKit.
+            if (values.isPasskeyRegistering) {
+                return
+            }
+
             const email = values.signupPanelEmail.email
             if (!email) {
                 actions.setPasskeyError('Email is required')
@@ -709,8 +715,16 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setPasskeyRegistered(true)
                 actions.setSignupPanelAuthValue('password', '') // Clear password since we're using passkey
             } catch (e: any) {
-                if (!isWebAuthnCancellation(e)) {
+                // A NotAllowedError cannot tell a user dismissal apart from a device with no
+                // usable authenticator, so the message must cover both.
+                if (isWebAuthnCancellation(e)) {
+                    actions.setPasskeyError(
+                        'The passkey did not register. Your device may have no passkey set up, or you dismissed the request. Try again, or use a password below.'
+                    )
+                    posthog.capture('signup passkey registration failed', { reason: 'cancelled_or_unavailable' })
+                } else {
                     actions.setPasskeyError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
+                    posthog.capture('signup passkey registration failed', { reason: 'error' })
                 }
             } finally {
                 actions.setPasskeyRegistering(false)
