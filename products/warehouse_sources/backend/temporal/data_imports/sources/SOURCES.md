@@ -515,6 +515,7 @@ the row lists both.
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
+| quickbooks                       | HTTP                        | requests                                                        | ✅                          |
 | railway                          | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | recurly                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                             | HTTP                        | requests                                                        | ✅                          |
@@ -1241,7 +1242,6 @@ doesn't conflict with concurrent PRs.
 - qdrant
 - qonto
 - quay
-- quickbooks
 - railz
 - raisely
 - raken

@@ -184,6 +184,7 @@ export interface RoleLookupResponseApi {
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
  * * `posthog` - Posthog
+ * * `quickbooks` - Quickbooks
  * * `reddit-ads` - Reddit Ads
  * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
@@ -233,6 +234,7 @@ export const IntegrationKindEnumApi = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     Posthog: 'posthog',
+    Quickbooks: 'quickbooks',
     RedditAds: 'reddit-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
@@ -495,6 +497,7 @@ export interface IntegrationAccessRequestApi {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
+     * * `quickbooks` - Quickbooks
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -656,6 +659,7 @@ export type IntegrationsListParams = {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
+     * * `quickbooks` - Quickbooks
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -716,6 +720,7 @@ export const IntegrationsListKind = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     Posthog: 'posthog',
+    Quickbooks: 'quickbooks',
     RedditAds: 'reddit-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',

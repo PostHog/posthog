@@ -5788,6 +5788,7 @@ export namespace Schemas {
       Gitlab: 'gitlab',
       MetaAds: 'meta-ads',
       Clickup: 'clickup',
+      Quickbooks: 'quickbooks',
       RedditAds: 'reddit-ads',
       Databricks: 'databricks',
       TiktokAds: 'tiktok-ads',
@@ -39835,6 +39836,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
+     * * `quickbooks` - Quickbooks
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -39885,6 +39887,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       Posthog: 'posthog',
+      Quickbooks: 'quickbooks',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -39935,6 +39938,7 @@ export namespace Schemas {
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
        * * `posthog` - Posthog
+       * * `quickbooks` - Quickbooks
        * * `reddit-ads` - Reddit Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
@@ -84529,6 +84533,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
+     * * `quickbooks` - Quickbooks
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -84590,6 +84595,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       Posthog: 'posthog',
+      Quickbooks: 'quickbooks',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
