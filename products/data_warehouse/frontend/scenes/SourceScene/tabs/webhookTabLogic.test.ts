@@ -25,7 +25,7 @@ describe('webhookTabLogic', () => {
             id: 'source-1',
             source_type: 'Stripe',
             schemas: [],
-        } as ExternalDataSource)
+        } as unknown as ExternalDataSource)
         jest.spyOn(api.externalDataSources, 'jobs').mockResolvedValue([])
         jest.spyOn(api.externalDataSources, 'getWebhookInfo').mockResolvedValue({ exists: false } as any)
     })
