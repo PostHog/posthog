@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type FocusEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -974,6 +974,33 @@ function AnchorTimeField({
               .tz(currentTeam?.timezone || 'UTC')
               .format('HH:mm:00')
         : utcTime
+    const displayTime = localTime.substring(0, 5)
+
+    // The input edits wall-clock time in the shown timezone. A `type="time"` field reports an empty
+    // value while it is half-typed, so keep a local buffer and only convert to the committed UTC
+    // value on blur — matching QuietHoursFields. Committing on every keystroke lets a partial value
+    // reach dayjs, which stores "Invalid date" and renders it back as "Inval".
+    const [timeDraft, setTimeDraft] = useState(displayTime)
+    useEffect(() => {
+        setTimeDraft(displayTime)
+    }, [displayTime])
+
+    const commitTime = (value: string): void => {
+        if (!/^\d{2}:\d{2}$/.test(value)) {
+            setTimeDraft(displayTime)
+            return
+        }
+        const newValue = `${value}:00`
+        // dayjs.tz(str, zone) interprets the wall-clock time in the project timezone; plain
+        // dayjs(str) would parse it in the browser's timezone.
+        const utcValue = isProjectTime
+            ? dayjs
+                  .tz(`${dayjs().format('YYYY-MM-DD')}T${newValue}`, currentTeam?.timezone || 'UTC')
+                  .utc()
+                  .format('HH:mm:00')
+            : newValue
+        setDraftSyncTimeOfDay(utcValue)
+    }
 
     const disabledReasonForInput = useCallback((): string | undefined => {
         if (!schema.should_sync && !isSyncTimeSet) {
@@ -1031,19 +1058,9 @@ function AnchorTimeField({
                     className="flex-1"
                     type="time"
                     disabledReason={accessDisabledReason ?? disabledReasonForInput()}
-                    value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
-                    onChange={(value) => {
-                        const newValue = `${value}:00`
-                        // dayjs.tz(str, zone) interprets the wall-clock time in the project
-                        // timezone; plain dayjs(str) would parse it in the browser's timezone.
-                        const utcValue = isProjectTime
-                            ? dayjs
-                                  .tz(`${dayjs().format('YYYY-MM-DD')}T${newValue}`, currentTeam?.timezone || 'UTC')
-                                  .utc()
-                                  .format('HH:mm:00')
-                            : newValue
-                        setDraftSyncTimeOfDay(utcValue)
-                    }}
+                    value={isSyncTimeSet ? timeDraft : undefined}
+                    onChange={setTimeDraft}
+                    onBlur={(e: FocusEvent<HTMLInputElement>) => commitTime(e.currentTarget.value)}
                     suffix={
                         isSyncTimeSet && schema.should_sync ? (
                             <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, draftFrequency)}>
