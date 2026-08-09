@@ -5777,6 +5777,7 @@ export namespace Schemas {
       GoogleCalendar: 'google-calendar',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      DisplayVideo360: 'display-video-360',
       LinkedinAds: 'linkedin-ads',
       Snapchat: 'snapchat',
       Stripe: 'stripe',
@@ -39813,6 +39814,7 @@ export namespace Schemas {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
+     * * `display-video-360` - Display Video 360
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -39863,6 +39865,7 @@ export namespace Schemas {
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
+      DisplayVideo360: 'display-video-360',
       Email: 'email',
       Firebase: 'firebase',
       Github: 'github',
@@ -39913,6 +39916,7 @@ export namespace Schemas {
        * * `customerio-track` - Customerio Track
        * * `customerio-webhook` - Customerio Webhook
        * * `databricks` - Databricks
+       * * `display-video-360` - Display Video 360
        * * `email` - Email
        * * `firebase` - Firebase
        * * `github` - Github
@@ -84507,6 +84511,7 @@ export namespace Schemas {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
+     * * `display-video-360` - Display Video 360
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -84568,6 +84573,7 @@ export namespace Schemas {
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
+      DisplayVideo360: 'display-video-360',
       Email: 'email',
       Firebase: 'firebase',
       Github: 'github',

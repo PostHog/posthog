@@ -47,6 +47,14 @@ _REDACT_PARAM_NAMES: Final[frozenset[str]] = frozenset(
         "refresh_token",
         "subject_token",
         "actor_token",
+        # Pre-signed object-storage URLs (GCS V4, S3 SigV4). The signature and credential
+        # are enough to replay the download until the URL expires, so redact them before
+        # a signed URL lands in a log line or captured sample.
+        "x-goog-signature",
+        "x-goog-credential",
+        "x-amz-signature",
+        "x-amz-credential",
+        "x-amz-security-token",
     }
 )
 
