@@ -6,15 +6,19 @@ import type { UseQueryResult } from "@tanstack/react-query";
 // change on a human timescale — no need to refetch them per queue poll.
 const SUPPORT_TICKET_VIEWS_STALE_MS = 60_000;
 
+/** Shared so the favorite mutation writes the cache this query reads. */
+export const SUPPORT_TICKET_VIEWS_QUERY_KEY = ["support-ticket-views"];
+
 /**
- * Saved ticket views the team has defined elsewhere. Read-only here: the queue
- * applies one by `short_id` and lets the server expand it, so we never have to
- * interpret the `filters` blob (which carries criteria our filter set can't
- * express — tag match modes, exclusions, date ranges).
+ * Saved ticket views the team has defined elsewhere. Views are created,
+ * renamed and deleted in PostHog; the only write this surface makes is
+ * favoriting. The queue applies a view by `short_id` and lets the server
+ * expand it, so we never interpret the `filters` blob (which carries criteria
+ * our filter set can't express — tag match modes, exclusions, date ranges).
  */
 export function useSupportTicketViews(): UseQueryResult<TicketView[]> {
   return useAuthenticatedQuery(
-    ["support-ticket-views"],
+    SUPPORT_TICKET_VIEWS_QUERY_KEY,
     (client) => client.listTicketViews(),
     { staleTime: SUPPORT_TICKET_VIEWS_STALE_MS },
   );

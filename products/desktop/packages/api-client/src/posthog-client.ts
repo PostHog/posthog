@@ -281,7 +281,15 @@ export type TicketStatus = Schemas.TicketStatusEnum;
 export type TicketPriority = Schemas.PriorityEnum;
 export type TicketAssignment = Schemas.TicketAssignment;
 export type TicketPerson = Schemas.TicketPerson;
-export type TicketView = Schemas.TicketView;
+/**
+ * The generated schema is stale: `is_favorited` is a real, writable field on
+ * TicketViewSerializer, and the list endpoint annotates it per requesting user
+ * (favorites are personal) and sorts favorited views to the top. Optional
+ * because an older server simply omits it.
+ */
+export type TicketView = Schemas.TicketView & {
+  is_favorited?: boolean;
+};
 export type PaginatedTicketList = Schemas.PaginatedTicketList;
 
 export interface ListTicketsOptions {
@@ -6892,7 +6900,12 @@ export class PostHogAPIClient {
     );
   }
 
-  async listTicketViews(): Promise<Schemas.TicketView[]> {
+  /**
+   * Saved ticket views. The server annotates `is_favorited` per requesting
+   * user and sorts favorited views to the top, so the returned order is
+   * already the one the UI wants.
+   */
+  async listTicketViews(): Promise<TicketView[]> {
     const teamId = await this.getTeamId();
     const data = await this.api.get(
       "/api/environments/{project_id}/conversations/views/",
@@ -6901,7 +6914,43 @@ export class PostHogAPIClient {
         query: { limit: 100 },
       },
     );
-    return data.results ?? [];
+    return (data.results ?? []) as TicketView[];
+  }
+
+  /**
+   * Favorite or unfavorite a saved view for the current user. Keyed by
+   * `short_id` — the viewset's `lookup_field` — not the UUID.
+   *
+   * PATCH, never PUT: the viewset excludes PUT on purpose, because `filters`
+   * defaults to `{}` on the serializer, so a full replace would silently wipe
+   * the view's saved criteria for the whole team. The endpoint is absent from
+   * the generated spec (which knows only list/create/retrieve/destroy here),
+   * so this goes through the raw fetcher.
+   */
+  async setTicketViewFavorited(
+    shortId: string,
+    favorited: boolean,
+  ): Promise<TicketView> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/environments/${teamId}/conversations/views/${shortId}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ is_favorited: favorited }),
+      },
+    });
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ?? `Failed to update view: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TicketView;
   }
 
   /**

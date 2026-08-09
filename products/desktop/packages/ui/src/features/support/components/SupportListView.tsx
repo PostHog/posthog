@@ -4,9 +4,11 @@ import {
   ArrowUpIcon,
   LifebuoyIcon,
   MagnifyingGlassIcon,
+  SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { rankQueue } from "@posthog/core/support/attention";
 import {
+  Button,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -36,6 +38,7 @@ import { QueueDisplayMenu } from "./QueueDisplayMenu";
 import { QueueFilterChips } from "./QueueFilterChips";
 import { QueueFilterMenu } from "./QueueFilterMenu";
 import { QueueViewPicker } from "./QueueViewPicker";
+import { SavedViewsRail } from "./SavedViewsRail";
 import { SectionLabel } from "./SectionLabel";
 import { TicketRow } from "./TicketRow";
 
@@ -54,6 +57,8 @@ export function SupportListView() {
   const sort = useSupportQueueStore((state) => state.sort);
   const toggleSort = useSupportQueueStore((state) => state.toggleSort);
   const clearSort = useSupportQueueStore((state) => state.clearSort);
+  const railCollapsed = useSupportQueueStore((state) => state.railCollapsed);
+  const toggleRail = useSupportQueueStore((state) => state.toggleRail);
   const visibleColumnIds = useSupportQueueStore(
     (state) => state.visibleColumnIds,
   );
@@ -106,110 +111,139 @@ export function SupportListView() {
     setSearchInput(next.search);
   };
 
+  const selectView = (view: string | null) =>
+    applyFilters({ ...filters, view });
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-4 pb-3">
-        <h2 className="font-semibold text-[18px]">Support</h2>
-        <QueueViewPicker
+    <div className="flex h-full min-h-0">
+      {!railCollapsed && (
+        <SavedViewsRail
           views={views.data}
           isPending={views.isPending}
           isError={views.isError}
           activeShortId={filters.view}
-          onChange={(view) => applyFilters({ ...filters, view })}
+          onSelect={selectView}
         />
-        <QueueFilterMenu filters={filters} onChange={applyFilters} />
-        <QueueDisplayMenu />
-        <div className="relative ml-auto">
-          <MagnifyingGlassIcon
-            size={14}
-            className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted-foreground"
-          />
-          <Input
-            type="search"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search tickets…"
-            aria-label="Search tickets"
-            maxLength={200}
-            className="w-64 pl-8"
-          />
-        </div>
-      </div>
-
-      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2">
-        <QueueFilterChips
-          filters={filters}
-          views={views.data}
-          onChange={applyFilters}
-          onClearAll={() => applyFilters(EMPTY_QUEUE_FILTERS)}
-        />
-        {sort && (
-          <button
+      )}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-4 pb-3">
+          <Button
             type="button"
-            onClick={clearSort}
-            className="ml-auto cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            size="icon-sm"
+            variant="outline"
+            aria-label={railCollapsed ? "Show saved views" : "Hide saved views"}
+            aria-pressed={!railCollapsed}
+            onClick={toggleRail}
           >
-            Sorted by column — back to attention order
-          </button>
-        )}
-      </div>
+            <SidebarSimpleIcon size={14} />
+          </Button>
+          <h2 className="font-semibold text-[18px]">Support</h2>
+          {/* Only when the rail is hidden: with it open these are two controls
+              for one thing, but an active view must stay switchable and
+              clearable when the rail can't show it. */}
+          {railCollapsed && (
+            <QueueViewPicker
+              views={views.data}
+              isPending={views.isPending}
+              isError={views.isError}
+              activeShortId={filters.view}
+              onChange={selectView}
+            />
+          )}
+          <QueueFilterMenu filters={filters} onChange={applyFilters} />
+          <QueueDisplayMenu />
+          <div className="relative ml-auto">
+            <MagnifyingGlassIcon
+              size={14}
+              className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted-foreground"
+            />
+            <Input
+              type="search"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search tickets…"
+              aria-label="Search tickets"
+              maxLength={200}
+              className="w-64 pl-8"
+            />
+          </div>
+        </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <div className="overflow-hidden rounded-lg border border-border">
-          <ListHeader columns={columns} sort={sort} onToggle={toggleSort} />
-          {isPending && (
-            <QueueState>
-              <EmptyMedia variant="icon">
-                <Spinner />
-              </EmptyMedia>
-              <EmptyTitle>Loading tickets</EmptyTitle>
-            </QueueState>
-          )}
-          {isError && (
-            <QueueState>
-              <EmptyMedia variant="icon">
-                <LifebuoyIcon size={20} />
-              </EmptyMedia>
-              <EmptyTitle>Couldn't load tickets</EmptyTitle>
-              <EmptyDescription>
-                Check that Conversations is enabled for this project, then try
-                again.
-              </EmptyDescription>
-            </QueueState>
-          )}
-          {!isPending && !isError && rows.length === 0 && (
-            <QueueState>
-              <EmptyMedia variant="icon">
-                <LifebuoyIcon size={20} />
-              </EmptyMedia>
-              <EmptyTitle>No tickets</EmptyTitle>
-              <EmptyDescription>
-                Customer tickets from Conversations will show up here.
-              </EmptyDescription>
-            </QueueState>
-          )}
-          {rows.length > 0 && (
-            <ul className="divide-y divide-border">
-              {rows.map(({ ticket, state }) => (
-                <TicketRow
-                  key={ticket.id}
-                  ticket={ticket}
-                  state={state}
-                  columns={columns}
-                  now={now}
-                  onClick={() => navigateToSupportTicketDetail(ticket.id)}
-                />
-              ))}
-            </ul>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2">
+          <QueueFilterChips
+            filters={filters}
+            views={views.data}
+            onChange={applyFilters}
+            onClearAll={() => applyFilters(EMPTY_QUEUE_FILTERS)}
+          />
+          {sort && (
+            <button
+              type="button"
+              onClick={clearSort}
+              className="ml-auto cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Sorted by column — back to attention order
+            </button>
           )}
         </div>
-        {data && (
-          <div className="pt-2 text-[11px] text-muted-foreground">
-            {rows.length === 0
-              ? "No tickets need attention"
-              : `${rows.length} of ${data.count} tickets need attention`}
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          <div className="overflow-hidden rounded-lg border border-border">
+            <ListHeader columns={columns} sort={sort} onToggle={toggleSort} />
+            {isPending && (
+              <QueueState>
+                <EmptyMedia variant="icon">
+                  <Spinner />
+                </EmptyMedia>
+                <EmptyTitle>Loading tickets</EmptyTitle>
+              </QueueState>
+            )}
+            {isError && (
+              <QueueState>
+                <EmptyMedia variant="icon">
+                  <LifebuoyIcon size={20} />
+                </EmptyMedia>
+                <EmptyTitle>Couldn't load tickets</EmptyTitle>
+                <EmptyDescription>
+                  Check that Conversations is enabled for this project, then try
+                  again.
+                </EmptyDescription>
+              </QueueState>
+            )}
+            {!isPending && !isError && rows.length === 0 && (
+              <QueueState>
+                <EmptyMedia variant="icon">
+                  <LifebuoyIcon size={20} />
+                </EmptyMedia>
+                <EmptyTitle>No tickets</EmptyTitle>
+                <EmptyDescription>
+                  Customer tickets from Conversations will show up here.
+                </EmptyDescription>
+              </QueueState>
+            )}
+            {rows.length > 0 && (
+              <ul className="divide-y divide-border">
+                {rows.map(({ ticket, state }) => (
+                  <TicketRow
+                    key={ticket.id}
+                    ticket={ticket}
+                    state={state}
+                    columns={columns}
+                    now={now}
+                    onClick={() => navigateToSupportTicketDetail(ticket.id)}
+                  />
+                ))}
+              </ul>
+            )}
           </div>
-        )}
+          {data && (
+            <div className="pt-2 text-[11px] text-muted-foreground">
+              {rows.length === 0
+                ? "No tickets need attention"
+                : `${rows.length} of ${data.count} tickets need attention`}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

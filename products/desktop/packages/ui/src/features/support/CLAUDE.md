@@ -28,12 +28,26 @@ Every attention state has its verb on the ticket detail: `TicketActions` (status
 
 ### Saved views
 
-Views are read-only here: created and edited in PostHog, listed by `useSupportTicketViews`, applied by `short_id`.
+Views are created, renamed and deleted in PostHog. The only write this surface makes is **favoriting** — a single-field PATCH, which is why it's in scope where create/rename/delete (all of which need the filters codec) are not.
 
 - **Never expand a view's `filters` blob client-side.** The queue sends `view=<short_id>` and lets the server resolve it. The stored filters carry criteria `QueueFilters` can't express — tag match-any/all, exclusions, date ranges — so reconstructing them would silently drop scope and show the wrong queue confidently. `QueueFilters.view` therefore holds the id and nothing else.
 - **A view and the filters coexist.** The server loads the view's filters first and merges the explicit query params over the top, so ad-hoc filters *refine* a view. That's why the applied view renders as the first chip next to the filter chips rather than as a separate mode: peers on one line is what makes "these stack" readable. It's also why "Clear all" drops the view too — it clears everything narrowing the queue.
 - **A stale view must not wedge the queue.** A view deleted or renamed elsewhere answers the next poll with `400 {"view": …}`. `isUnknownSavedViewError` recognises exactly that shape; the queue drops the view, toasts once, and the retry lands on all tickets. Keep the predicate narrow — every other 400 is a real failure the user needs to see.
 - Selection is session-only, held in the view's own `filters` state and deliberately not in `supportQueueStore`. Same reasoning as the sort override: a view silently scoping today's queue after a relaunch, with the reason off-screen, is the failure mode being avoided. A view narrows *which* tickets are fetched and never touches how they rank.
+
+#### The rail, the picker, and the chip
+
+`SavedViewsRail` is a collapsible left column **owned by Support** — deliberately not a contribution to the app's `ChannelsSidebar`, because these are a queue control, not an app destination. It holds a built-in "All tickets" row, a Favorited section, then the rest, with a search box that appears only past `SAVED_VIEW_SEARCH_THRESHOLD` (a filter box over four views is pure chrome). Favoriting is the hover-revealed row action.
+
+Three controls could show the active view, so they're split by state rather than stacked:
+
+- **Rail** — the primary control whenever it's open.
+- **`QueueViewPicker`** — renders *only while the rail is collapsed*. With the rail open the two are one control duplicated; with it closed the picker is what keeps an active view switchable. Collapsing must never leave the queue scoped by something you can't see or change — the same failure mode as a persisted sort override or a stale view.
+- **The chip** — always, in both states. It's the "everything narrowing this queue" line, and dropping it when the rail is open would make the view the one scoping criterion with no × next to the filters.
+
+**Persist display, never scope.** `railCollapsed` persists in `supportQueueStore` alongside the columns because collapsing changes nothing about which tickets are fetched. The sort override and the applied view don't, because both do.
+
+Row chrome maps hogdesk's tokens rather than copying them: it uses `bg-accent/10 text-accent`, and **desktop has no bare `accent` colour** (only Radix's `accent-N` scale and quill's semantic set), so those classes would silently resolve to nothing. The rail uses `bg-fill-selected` — the app's own selected-nav treatment from `SidebarItem`, a `color-mix` over `--foreground` that reads correctly in both themes — with `bg-primary` for the `ActiveBar` and `text-warning-foreground` for a filled star.
 
 **The detail** (`TicketDetailView`) is header + thread + right column:
 
@@ -63,9 +77,9 @@ Base UI note: `DropdownMenuLabel` is `Menu.GroupLabel` and throws at render outs
 
 ## Ownership boundaries
 
-- Components render; hooks (`hooks/`) wrap exactly one query via `useAuthenticatedQuery`.
+- Components render; hooks (`hooks/`) wrap exactly one query via `useAuthenticatedQuery`. `useSetTicketViewFavorited` uses `useMutation` + `useOptionalAuthenticatedClient` directly instead, because `useAuthenticatedMutation` fixes three generics and so can't type an optimistic `onMutate` context — same pattern as `useChannelStars`.
 - Pure display logic lives in `ticketPresentation.ts` — deterministic, `now` passed in, unit-tested. That includes the column inventory, the filter→chip and filter→query-param mappings, the column-sort comparators, and the Tailwind class maps for SLA/status/priority. Add ranking logic to core, not here.
-- `supportQueueStore.ts` is view state only: visible column ids (persisted) and the sort override (not persisted — a stale column order would silently bury today's urgent work).
+- `supportQueueStore.ts` is view state only, and splits on **display vs scope**: visible column ids and the rail's collapsed state persist (neither changes what's fetched); the sort override does not, and the applied view lives outside the store entirely (both change what you see or in what order, and a stale one would reshape today's queue with the reason off-screen).
 - Ticket storage and business rules stay in `products/conversations` (posthog). Do not add frontend-only controls that imply a backend capability that doesn't exist.
 
 ## Domain rules worth knowing
@@ -84,7 +98,8 @@ All under the Conversations product (`products/conversations/backend` in posthog
 - `GET /api/projects/{project_id}/conversations/tickets/{id}/` — single ticket.
 - `GET /api/projects/{project_id}/conversations/tickets/{id}/messages/` — thread, oldest first, paginated. **Not in the generated OpenAPI client** — hand-typed as `TicketMessage` in `posthog-client.ts`; update both if the serializer changes.
 - `GET /api/projects/{project_id}/conversations/tickets/unread_count/` — returns `{ count }`. The generated spec mis-annotates this as a full `Ticket`; the client method corrects it.
-- `GET /api/environments/{project_id}/conversations/views/` — saved ticket views (note: `environments`, not `projects`). `TicketView` is `{ id, short_id, name, filters, created_at, created_by }`; the queue reads only `short_id` and `name`.
+- `GET /api/environments/{project_id}/conversations/views/` — saved ticket views (note: `environments`, not `projects`; the viewset is registered once and served on both prefixes). The server annotates `is_favorited` per requesting user and orders `-is_favorited, -created_at`, so favorites already arrive first. The queue reads `short_id`, `name` and `is_favorited`.
+- `PATCH /api/environments/{project_id}/conversations/views/{short_id}/` — the only view write this surface makes: `{ is_favorited }`. Keyed by **`short_id`** (`lookup_field` on the viewset), not the UUID. **PATCH, never PUT** — the viewset excludes PUT deliberately, because `filters` defaults to `{}` on the serializer, so a full replace would wipe the view's saved criteria for the whole team. **Not in the generated spec** (which knows only list/create/retrieve/destroy here), so `setTicketViewFavorited` goes through the raw fetcher. The generated `TicketView` schema is also stale and omits `is_favorited` — the re-exported type in `posthog-client.ts` adds it.
 - `PATCH /api/projects/{project_id}/conversations/tickets/{id}/` — triage writes; the surface only sends `status`, `priority` (nullable), `snoozed_until` (nullable). `assignee` is read-only on this serializer — assignment needs its own endpoint work.
 - `POST /api/projects/{project_id}/conversations/tickets/{id}/reply/` — `{ message, is_private }`; `is_private=false` delivers to the customer over the ticket's channel, `true` stores a team-only note. Markdown, max 5000 chars, throttled server-side. **Not in the generated spec** — hand-typed in `posthog-client.ts`.
 
@@ -94,5 +109,5 @@ Generated types (`Ticket`, `TicketView`, `TicketAssignment`, …) come from `pac
 
 - `ticketPresentation.test.ts` covers status/priority/assignee/SLA/requester rules (`it.each`), including the null-priority and role-vs-user cases.
 - It also covers the layout logic worth breaking: the at-risk boundary against `SLA_AT_RISK_WINDOW_MS`, column resolution (customer always in, canonical order), the sort override (attention preserved when unset, untriaged above low, absent SLA/assignee last in *both* directions), chip removal clearing exactly one filter, and the history merge that keeps the open ticket present.
-- Saved views: `view` reaching the endpoint *alongside* the filters (not instead of them), a chip rendering even when the view's name hasn't resolved, and `isUnknownSavedViewError` matching only a 400 that names the view field.
+- Saved views: `view` reaching the endpoint *alongside* the filters (not instead of them), a chip rendering even when the view's name hasn't resolved, `isUnknownSavedViewError` matching only a 400 that names the view field, and `groupSavedViews` keeping favorites out of the rail's search filter (filtering before partitioning would make your favorites vanish as you type) with the search box appearing strictly *above* the threshold.
 - Rendering integration is covered by typecheck plus the running app. Typecheck does not catch Base UI composition errors (see the `DropdownMenuGroup` note above) — open new menus once in the app.

@@ -604,6 +604,44 @@ export function queueListOptions(filters: QueueFilters): ListTicketsOptions {
 }
 
 /**
+ * Below this many views, scanning the rail by eye beats typing, so a search
+ * box is pure chrome.
+ */
+export const SAVED_VIEW_SEARCH_THRESHOLD = 6;
+
+export interface SavedViewGroups {
+  favorited: TicketView[];
+  /** Everything else, narrowed by the search term. */
+  other: TicketView[];
+  showSearch: boolean;
+  /** A search term that matched nothing, so the rail can say so. */
+  noMatches: boolean;
+}
+
+/**
+ * Split the rail into its two sections. Favorited views deliberately ignore
+ * the search term: they're the handful you keep within reach, and filtering
+ * them out from under a search would defeat the point of favoriting them.
+ */
+export function groupSavedViews(
+  views: readonly TicketView[],
+  search: string,
+): SavedViewGroups {
+  const query = search.trim().toLowerCase();
+  const favorited = views.filter((view) => view.is_favorited);
+  const rest = views.filter((view) => !view.is_favorited);
+  const other = query
+    ? rest.filter((view) => view.name.toLowerCase().includes(query))
+    : rest;
+  return {
+    favorited,
+    other,
+    showSearch: views.length > SAVED_VIEW_SEARCH_THRESHOLD,
+    noMatches: query !== "" && other.length === 0,
+  };
+}
+
+/**
  * Did this request fail *because* the saved view is gone? The server answers a
  * short_id it can't resolve with `400 {"view": "..."}`, which a deleted or
  * renamed view produces on the very next poll. The queue clears the view and
