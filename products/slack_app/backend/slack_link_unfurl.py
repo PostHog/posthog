@@ -262,23 +262,30 @@ def _ticket_unfurl_payload(*, url: str, ticket: Ticket, requester: str, opening_
     return {"blocks": blocks}
 
 
-def _is_normal_public_channel(slack: SlackIntegration, channel: str) -> bool:
+def _is_normal_public_channel(slack: SlackIntegration, channel: str, cache: dict[str, bool]) -> bool:
+    if channel in cache:
+        return cache[channel]
     try:
         conversation = slack.client.conversations_info(channel=channel).get("channel") or {}
     except Exception:
         logger.exception("slack_task_reference_channel_lookup_failed", channel=channel)
+        cache[channel] = False
         return False
-    return bool(
+    cache[channel] = bool(
         conversation.get("is_channel")
         and not conversation.get("is_private")
         and not conversation.get("is_shared")
         and not conversation.get("is_ext_shared")
         and not conversation.get("is_org_shared")
     )
+    return cache[channel]
 
 
 def _task_owner_can_view_public_slack_channel(
-    slack: SlackIntegration, integration: Integration, task: TaskSlackUnfurlDTO
+    slack: SlackIntegration,
+    integration: Integration,
+    task: TaskSlackUnfurlDTO,
+    cache: dict[str, bool],
 ) -> bool:
     if task.created_by_id is None:
         return False
@@ -293,12 +300,18 @@ def _task_owner_can_view_public_slack_channel(
     )
     if owner_link is None:
         return False
+    if owner_link.integration_id in cache:
+        return cache[owner_link.integration_id]
     try:
         owner = slack.client.users_info(user=owner_link.integration_id).get("user") or {}
     except Exception:
         logger.exception("slack_task_reference_owner_lookup_failed", task_id=str(task.id))
+        cache[owner_link.integration_id] = False
         return False
-    return bool(not owner.get("deleted") and not owner.get("is_restricted") and not owner.get("is_ultra_restricted"))
+    cache[owner_link.integration_id] = bool(
+        not owner.get("deleted") and not owner.get("is_restricted") and not owner.get("is_ultra_restricted")
+    )
+    return cache[owner_link.integration_id]
 
 
 def _attach_public_slack_thread_reference(
@@ -308,6 +321,8 @@ def _attach_public_slack_thread_reference(
     task: TaskSlackUnfurlDTO,
     event: dict,
     shared_by_slack_user_id: str,
+    public_channel_cache: dict[str, bool],
+    owner_access_cache: dict[str, bool],
 ) -> None:
     if event.get("source") != "conversations_history":
         return
@@ -315,14 +330,21 @@ def _attach_public_slack_thread_reference(
     message_ts = event.get("message_ts")
     if not isinstance(channel, str) or not isinstance(message_ts, str):
         return
-    if not _is_normal_public_channel(slack, channel):
-        return
-    if not _task_owner_can_view_public_slack_channel(slack, integration, task):
-        return
-
     thread_ts = event.get("thread_ts")
     if not isinstance(thread_ts, str):
         thread_ts = message_ts
+    if tasks_facade.has_slack_thread_reference(
+        task_id=task.id,
+        team_id=integration.team_id,
+        slack_workspace_id=integration.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    ):
+        return
+    if not _is_normal_public_channel(slack, channel, public_channel_cache):
+        return
+    if not _task_owner_can_view_public_slack_channel(slack, integration, task, owner_access_cache):
+        return
     tasks_facade.attach_slack_thread_reference(
         task_id=task.id,
         team_id=integration.team_id,
@@ -349,6 +371,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     unfurl_id = event.get("unfurl_id")
     source = event.get("source")
     links = event.get("links") or []
+    public_channel_cache: dict[str, bool] = {}
+    owner_access_cache: dict[str, bool] = {}
 
     if not channel or not message_ts or not slack_user_id or not links:
         logger.info("slack_link_unfurl_skip_missing_fields", has_channel=bool(channel), has_ts=bool(message_ts))
@@ -440,7 +464,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             if task is None:
                 continue
             label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
-            unfurls[raw_url] = _unfurl_payload(resource_label=label, title=task.title, description=None)
+            unfurls[raw_url] = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
             try:
                 _attach_public_slack_thread_reference(
                     slack=slack,
@@ -448,6 +472,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                     task=task,
                     event=event,
                     shared_by_slack_user_id=slack_user_id,
+                    public_channel_cache=public_channel_cache,
+                    owner_access_cache=owner_access_cache,
                 )
             except Exception:
                 logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)

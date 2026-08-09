@@ -472,9 +472,25 @@ def attach_slack_thread_reference(
         ):
             return
         references.append(reference)
-        state["slack_thread_references"] = references
+        # Keep a rolling window to bound task state and API response size.
+        state["slack_thread_references"] = references[-30:]
         task.state = state
         task.save(update_fields=["state", "updated_at"])
+
+
+def has_slack_thread_reference(
+    *, task_id: str | UUID, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str
+) -> bool:
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    if task is None:
+        return False
+    return any(
+        item.get("slack_workspace_id") == slack_workspace_id
+        and item.get("channel") == channel
+        and item.get("thread_ts") == thread_ts
+        for item in (task.state or {}).get("slack_thread_references", [])
+        if isinstance(item, dict)
+    )
 
 
 def _task_detail_to_dto(

@@ -167,7 +167,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         task = Task.objects.create(
             team=self.team,
             created_by=self.user,
-            title="Review Slack task links",
+            title="Review <https://example.com|Slack task links>",
             description="Sensitive prompt that must not appear",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
@@ -200,8 +200,11 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         handle_posthog_link_unfurl(event, self.integration)
 
         text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
-        assert "Review Slack task links" in text
+        assert "Review &lt;https://example.com|Slack task links&gt;" in text
+        assert "<https://example.com|Slack task links>" not in text
         assert "Sensitive prompt" not in text
+        mock_client.conversations_info.assert_called_once_with(channel="C_PUBLIC")
+        mock_client.users_info.assert_called_once_with(user="U_OWNER")
         task.refresh_from_db()
         state = task.state or {}
         references = state.get("slack_thread_references")
