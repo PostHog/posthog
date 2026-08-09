@@ -7,14 +7,23 @@
 // reviewable, versioned statement of which integration apps PostHog owns and what
 // credential material each one holds.
 //
-// One AWS secret per provider (`<prefix><provider>`), holding that provider's fields
-// as a flat JSON object. Per-provider granularity matters because AWS staging labels
-// apply to a whole secret version — rotating Stripe must not disturb Google.
+// One AWS secret holds every field (see store/secretsManager.ts); the provider a key
+// belongs to is a grouping for metrics, rotation reporting and review, not a storage
+// boundary. Rotation rides an explicit `<KEY>_FALLBACKS` sibling rather than AWS staging
+// labels, precisely because a staging label applies to a whole secret version.
 //
 // Key names are the existing Django env var names, unchanged. That makes the cutover
 // a 1:1 mapping with nothing to get wrong. Logical `provider/field` names come later,
 // when the per-team Integration model moves onto this service and there is a reason
 // to rename.
+//
+// ONLY OUTBOUND CREDENTIALS BELONG HERE. Every key below is something PostHog presents
+// to a third party. An inbound-request authenticator — a webhook signing secret, an API
+// key we check on requests arriving at PostHog — must not be added: there is no
+// per-deployment allowlist any more, so anything in this manifest is readable by every
+// deployment holding a signing key, and for an outbound OAuth secret that is no
+// expansion (the pod already had its own copy in its environment) while for an inbound
+// authenticator it hands any compromised pod the ability to forge requests to us.
 
 export interface ProviderDefinition {
     /** Credential field names, i.e. the keys inside this provider's AWS secret. */
@@ -75,12 +84,12 @@ export const PROVIDERS: Readonly<Record<string, ProviderDefinition>> = {
         keys: ['SALESFORCE_CONSUMER_KEY', 'SALESFORCE_CONSUMER_SECRET'],
     },
     stripe: {
-        keys: [
-            'STRIPE_APP_CLIENT_ID',
-            'STRIPE_APP_SECRET_KEY',
-            'STRIPE_POSTHOG_OAUTH_CLIENT_ID',
-            'STRIPE_SIGNING_SECRET',
-        ],
+        // Deliberately NOT here: STRIPE_SIGNING_SECRET, which authenticates requests
+        // arriving at ee/partners/stripe/api/provisioning/ rather than requests we make,
+        // and STRIPE_POSTHOG_OAUTH_CLIENT_ID, which is a public client id and not
+        // credential material. Both stay as plain env vars on the one deployment that
+        // uses them. See the header for why an inbound authenticator cannot live here.
+        keys: ['STRIPE_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'],
     },
     'tiktok-ads': {
         keys: ['TIKTOK_ADS_CLIENT_ID', 'TIKTOK_ADS_CLIENT_SECRET'],

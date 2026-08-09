@@ -2,7 +2,7 @@ import { SignJWT } from 'jose'
 import { describe, expect, it } from 'vitest'
 
 import { JwtVerifier, bearerToken } from '@/auth/jwt.js'
-import type { SigningKeyLoader } from '@/auth/registry.js'
+import { SigningKeyLoader } from '@/auth/registry.js'
 import { AUDIENCE, AuthError, type SigningKeys } from '@/auth/types.js'
 
 const DW = 'temporal-worker-data-warehouse'
@@ -27,16 +27,20 @@ async function mint(opts: {
     keys?: string[]
     audience?: string
     expiresIn?: string
+    /** Mint with no `exp` at all — the shape jose accepts unless `exp` is required. */
+    omitExpiry?: boolean
 }): Promise<string> {
-    return new SignJWT({
+    const builder = new SignJWT({
         caller: opts.product ?? 'warehouse-sources',
         keys: opts.keys ?? ['GOOGLE_ADS_APP_CLIENT_SECRET'],
     })
         .setProtectedHeader({ alg: 'HS256' })
         .setAudience(opts.audience ?? AUDIENCE)
         .setIssuedAt()
-        .setExpirationTime(opts.expiresIn ?? '5m')
-        .sign(new TextEncoder().encode(opts.key))
+    if (!opts.omitExpiry) {
+        builder.setExpirationTime(opts.expiresIn ?? '5m')
+    }
+    return builder.sign(new TextEncoder().encode(opts.key))
 }
 
 // Resolves to the rejection reason, or throws if the token was accepted. Asserts by
@@ -83,6 +87,10 @@ describe('jwt verification', () => {
         ['an expired token', { expiresIn: '-1s' }, 'expired'],
         ['a token for another audience', { audience: 'posthog:recording_api' }, 'bad_audience'],
         ['a token with no keys claim', { keys: [] }, 'no_keys_claim'],
+        // jose validates `exp` only when it is present, so a token minted without one
+        // would otherwise verify and never expire. The bound has to live here rather than
+        // in whichever client happens to mint today.
+        ['a token that never expires', { omitExpiry: true }, 'no_expiry'],
     ])('rejects %s', async (_label, overrides, reason) => {
         const token = await mint({ key: DW_KEY_NEW, ...overrides })
         expect(await reasonFor(verifier().verify(token))).toBe(reason)
@@ -138,6 +146,60 @@ describe('jwt verification', () => {
             const token = await mint({ key: DW_KEY_NEW, keys: ['A_KEY', 'A_KEY'] })
             expect((await verifier().verify(token)).requestedKeys).toEqual(['A_KEY'])
         })
+    })
+})
+
+describe('signing key registry', () => {
+    function loader(fields: Record<string, unknown>): SigningKeyLoader {
+        const client = {
+            send: () => Promise.resolve({ SecretString: JSON.stringify(fields) }),
+        }
+        return new SigningKeyLoader(client as never, 'integration-service-secrets')
+    }
+
+    it('derives one deployment per CALLER_KEY_ entry and ignores everything else', async () => {
+        const keys = loader({
+            CALLER_KEY_POSTHOG_DJANGO: `${DJANGO_KEY}`,
+            CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW}, ${DW_KEY_OLD}`,
+            STRIPE_APP_SECRET_KEY: 'not-a-signing-key',
+        })
+        await keys.load()
+
+        expect(Object.fromEntries(keys.entries())).toEqual(KEYS)
+    })
+
+    // The verifier breaks on the first key set that verifies, so two deployments sharing a
+    // value collapse into one identity: revoking either leaves the other working, and
+    // every attribution names the wrong caller. A paste error is invisible in an opaque
+    // value, so it has to fail at boot.
+    it('refuses to load when two deployments are given the same signing key', async () => {
+        const keys = loader({
+            CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
+            CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW},${DJANGO_KEY}`,
+        })
+
+        await expect(keys.load()).rejects.toThrow(/also listed for posthog-django/)
+        expect(keys.isLoaded).toBe(false)
+    })
+
+    // A malformed edit must not lock a running fleet out, so reload keeps the previous
+    // keys. That makes it the one path a revocation travels and it fails open — see the
+    // last-loaded gauge and the failure counter in metrics.ts.
+    it('keeps the previous keys when a reload fails', async () => {
+        let healthy = true
+        const client = {
+            send: () =>
+                healthy
+                    ? Promise.resolve({ SecretString: JSON.stringify({ CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY }) })
+                    : Promise.reject(new Error('access denied')),
+        }
+        const keys = new SigningKeyLoader(client as never, 'integration-service-secrets')
+        await keys.load()
+
+        healthy = false
+        await keys.reload()
+
+        expect(Object.fromEntries(keys.entries())).toEqual({ [DJANGO]: [DJANGO_KEY] })
     })
 })
 

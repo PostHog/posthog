@@ -23,6 +23,7 @@
 import { GetSecretValueCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager'
 
 import { logger } from '../lib/logging.js'
+import { signingKeyReloadFailuresTotal, signingKeysLastLoadedTimestamp } from '../metrics.js'
 import type { SigningKeys } from './types.js'
 
 const KEY_PREFIX = 'CALLER_KEY_'
@@ -55,9 +56,23 @@ function parseSigningKeys(raw: string): SigningKeys {
             .split(',')
             .map((part) => part.trim())
             .filter(Boolean)
-        if (parts.length > 0) {
-            keys[deploymentFor(secretKey)] = parts
+        if (parts.length === 0) {
+            continue
         }
+        const deployment = deploymentFor(secretKey)
+        // Two deployments sharing a key value would collapse into one identity: the
+        // verifier breaks on the first entry that verifies, so both would resolve to
+        // whichever CALLER_KEY_* came first. Revoking one would then not cut it off,
+        // because the same value is still listed under the other name — and revocation is
+        // the containment this design relies on. Attribution goes with it: the audit log,
+        // the usage rollup and safeToRetirePrevious would all name the wrong caller.
+        // Fail the edit at boot instead; a paste error is the likely cause and it is not
+        // visible in an opaque value.
+        const clash = Object.entries(keys).find(([, existing]) => existing.some((key) => parts.includes(key)))
+        if (clash) {
+            throw new Error(`signing key for ${deployment} is also listed for ${clash[0]}`)
+        }
+        keys[deployment] = parts
     }
     return keys
 }
@@ -83,17 +98,27 @@ export class SigningKeyLoader {
         }
         this.keys = keys
         this.loaded = true
+        signingKeysLastLoadedTimestamp.set(Date.now() / 1000)
         logger.info('auth:signing_keys_loaded', { deployments: Object.keys(keys).sort() })
     }
 
     /**
      * Reload, keeping the previous keys if the new value is unreadable. A malformed edit
-     * must not lock every caller out of a running fleet; it should page instead.
+     * must not lock every caller out of a running fleet.
+     *
+     * That makes this the one path a revocation ever travels, and it fails open — so it
+     * has to be alertable rather than a log line. The failure counter and the
+     * last-loaded gauge above are the two signals: `time() -
+     * integration_service_signing_keys_last_loaded_timestamp` exceeding a couple of
+     * refresh intervals means "a revocation has not landed on this pod", whatever the
+     * cause (an unreadable secret, a malformed edit, or one that leaves no CALLER_KEY_*
+     * entries at all).
      */
     async reload(): Promise<void> {
         try {
             await this.load()
         } catch (err) {
+            signingKeyReloadFailuresTotal.inc()
             logger.error('auth:signing_keys_reload_failed', {
                 error: err instanceof Error ? err.message : String(err),
             })

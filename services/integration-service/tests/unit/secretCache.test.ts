@@ -149,6 +149,36 @@ describe('secret cache', () => {
         expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
     })
 
+    // The envelope binds a sealed snapshot to its cache key and environment, but not to a
+    // point in time — so an old ciphertext re-SET into Redis opens exactly as cleanly as
+    // the current one. Without an age check on the plaintext, whoever can write that key
+    // pins every replica to a retired credential and INTEGRATION_RECOVERY_KEYS never
+    // lands. This is the test that fails if the check is removed.
+    it('ignores a replayed Redis entry that is older than the read path accepts', async () => {
+        const redis = fakeRedis()
+        let clock = 1_000_000_000
+        const writer = build({
+            store: { load: () => Promise.resolve(snapshotFor('retired', new Date(clock).toISOString())) },
+            redis,
+            now: () => clock,
+        })
+        await writer.cache.get()
+        await writer.cache.settled()
+        const sealed = [...redis.store.values()][0]
+
+        // A fresh replica, long after that snapshot was sealed, finding the same
+        // ciphertext still sitting in Redis.
+        clock += 300 * 1000 * 3
+        const load = vi.fn(() => Promise.resolve(snapshotFor('current', new Date(clock).toISOString())))
+        const reader = build({ store: { load }, redis, now: () => clock })
+        redis.store.set('integration-service:v1:prod-us:secrets', sealed)
+
+        const snapshot = await reader.cache.get()
+
+        expect(load).toHaveBeenCalledTimes(1)
+        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('current')
+    })
+
     it('keeps working when Redis is unavailable entirely', async () => {
         const brokenRedis = {
             get: () => Promise.reject(new Error('connection refused')),

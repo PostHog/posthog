@@ -15,6 +15,7 @@ export type AuthFailureReason =
     | 'malformed'
     | 'bad_signature'
     | 'expired'
+    | 'no_expiry'
     | 'bad_audience'
     | 'no_keys_claim'
     | 'oversized_keys_claim'

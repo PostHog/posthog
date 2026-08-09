@@ -106,12 +106,12 @@ describe('secrets manager store', () => {
         const snapshot = await store({
             STRIPE_APP_CLIENT_ID: 'id',
             STRIPE_APP_SECRET_KEY: 'burned',
-            STRIPE_SIGNING_SECRET: 'also-burned',
-            INTEGRATION_RECOVERY_KEYS: 'STRIPE_APP_SECRET_KEY, STRIPE_SIGNING_SECRET',
+            HUBSPOT_APP_CLIENT_SECRET: 'also-burned',
+            INTEGRATION_RECOVERY_KEYS: 'STRIPE_APP_SECRET_KEY, HUBSPOT_APP_CLIENT_SECRET',
         }).load()
 
         expect(snapshot?.secrets['STRIPE_APP_SECRET_KEY']?.state).toBe('recovery')
-        expect(snapshot?.secrets['STRIPE_SIGNING_SECRET']?.state).toBe('recovery')
+        expect(snapshot?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('recovery')
         expect(snapshot?.secrets['STRIPE_APP_CLIENT_ID']?.state).toBe('steady')
     })
 

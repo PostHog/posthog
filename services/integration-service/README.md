@@ -34,7 +34,7 @@ otherwise.
 
 ## API
 
-```
+```text
 GET  /_liveness          200 always
 GET  /_readiness         200 once the client registry is loaded and providers are warmed
 GET  /metrics            prometheus text (bearer-gated when a token is configured)
@@ -70,8 +70,9 @@ that one call needed:
 }
 ```
 
-Denials are per key rather than a 403 over the whole batch, so a policy mistake reads as one named
-field a human can act on.
+An unresolvable field is reported per key in `missing` rather than as a 4xx over the whole batch, so
+a mistyped name or an unset value reads as one named field a human can act on while the rest of the
+request still succeeds.
 
 Callers do not cache, so there is no freshness hint to send. A rotation reaches every caller on
 their next read.
@@ -103,7 +104,14 @@ actually read is in the audit log and the usage rollup, which is the more useful
 incident anyway.
 
 So one thing bounds a request: the `keys` claim, which _is_ the request. A token lifted from a log
-unlocks the fields of one call, for five minutes.
+unlocks the fields of one call, for as long as it has left to run — the verifier requires an `exp`,
+and the client mints for five minutes.
+
+The corollary is a rule on the manifest: **only outbound credentials belong in it.** Anything in
+`providers.ts` is readable by every deployment holding a signing key. For an OAuth app secret we
+present to a third party that is no expansion — the pod already had its own copy in its
+environment. For an inbound-request authenticator such as a webhook signing secret it would be one,
+so those stay as plain env vars on the deployment that checks them.
 
 Signing keys live in the same secret as the credentials, one flat entry per deployment
 (`CALLER_KEY_<DEPLOYMENT>`). Deployment names are derived from the entries present, not declared in
@@ -123,7 +131,7 @@ can drop in later without touching the routes or the policy layer.
 preference — the `PostHog/secrets` CLI and UI only manage `[A-Z0-9_]+` keys with plain string
 values, and a nested object would be invisible to the very tooling meant to operate this.
 
-```
+```text
 integration-service-secrets
   STRIPE_APP_SECRET_KEY                 = "<credential>"
   STRIPE_APP_SECRET_KEY_FALLBACKS       = "<outgoing value, only while rotating>"
@@ -215,7 +223,8 @@ retrofitting envelope encryption under live traffic is worse than building it no
 The service passes an explicit AWS credential provider and the build **aliases the SDK's default
 chain to a stub that throws** (`src/aws/unreachable-provider.ts`). There are exactly two ways in:
 the IRSA web identity token in cluster, and static throwaway credentials when `AWS_ENDPOINT_URL`
-points at a local mock.
+points at a local mock. The second is a dev-only path, enforced rather than documented:
+`loadConfig()` exits if that variable is set under `NODE_ENV=production`.
 
 This is a security control, not only a bundle-size one: a service whose entire job is holding
 third-party credentials should not be able to silently authenticate as an EC2 instance role or as
@@ -265,8 +274,14 @@ local work. Point `AWS_ENDPOINT_URL` at moto to exercise the store without real 
 | `INTEGRATION_SERVICE_RETIRE_QUIET_HOURS`   | `24`                          | Quiet window for `safeToRetirePrevious`                            |
 | `INTEGRATION_SERVICE_USAGE_BUCKET`         | —                             | Unset disables usage publishing                                    |
 | `INTEGRATION_SERVICE_USAGE_KMS_KEY_ID`     | —                             | SSE-KMS key for the usage artifact                                 |
-| `INTEGRATION_SERVICE_METRICS_TOKEN`        | —                             | Unset leaves `/metrics` open for in-cluster scrapes                |
+| `INTEGRATION_SERVICE_METRICS_TOKEN`        | —                             | Bearer token for `/metrics`. Required in production                |
 | `PORT`                                     | `8004`                        |                                                                    |
 
 The service exits at boot rather than starting degraded when a production-required variable is
-missing, or when Redis is configured without a KMS key.
+missing, when Redis is configured without a KMS key, or when `AWS_ENDPOINT_URL` is set under
+`NODE_ENV=production` — that variable skips IRSA for static throwaway credentials and points every
+AWS client at whatever it names, so it belongs to local dev only.
+
+`/metrics` is bearer-gated whenever a token is set, and the token is production-required because the
+endpoint exposes `integration_secret_resolve_total{deployment,product,provider,key}` — no credential
+values, but a precise map of which deployment reads which credential.

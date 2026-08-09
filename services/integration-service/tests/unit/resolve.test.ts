@@ -34,8 +34,9 @@ function deps(overrides: Partial<ResolveDeps> = {}): ResolveDeps {
     }
 }
 
-// `temporal-worker-data-warehouse` is a real deployment in src/deployments.ts, so its
-// allowlist here is the one the service will actually apply.
+// `temporal-worker-data-warehouse` is a real calling deployment, and `warehouse-sources`
+// a product name src/products.ts recognises, so the labels here are the ones the service
+// will actually record.
 function identity(requestedKeys: string[]): CallerIdentity {
     return {
         deployment: 'temporal-worker-data-warehouse',
@@ -81,7 +82,7 @@ describe('resolve', () => {
 
     it.each([
         ['a key absent from the provider manifest', 'NOT_A_REAL_KEY'],
-        ['a manifest key with no value in the store', 'STRIPE_SIGNING_SECRET'],
+        ['a manifest key with no value in the store', 'STRIPE_APP_CLIENT_ID'],
     ])('reports %s as missing rather than failing the request', async (_label, key) => {
         const response = await resolveKeys(identity([key, 'GOOGLE_ADS_APP_CLIENT_ID']), deps())
 

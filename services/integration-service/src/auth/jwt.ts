@@ -53,6 +53,7 @@ export class JwtVerifier implements Verifier {
         let deployment = ''
         let sawExpired = false
         let sawBadAudience = false
+        let sawMissingExpiry = false
 
         outer: for (const [candidate, candidateKeys] of this.keys.entries()) {
             for (const key of candidateKeys) {
@@ -60,6 +61,12 @@ export class JwtVerifier implements Verifier {
                     const result = await jwtVerify(token, new TextEncoder().encode(key), {
                         algorithms: ['HS256'],
                         audience: AUDIENCE,
+                        // jose only checks `exp` when the claim is present, so without this
+                        // a token minted without one verifies and never expires. The five
+                        // minutes the README quotes is set by the minting client; this is
+                        // what makes a bound exist at the boundary, for every future
+                        // minting path as well as the one that exists today.
+                        requiredClaims: ['exp'],
                     })
                     payload = result.payload as Record<string, unknown>
                     deployment = candidate
@@ -69,7 +76,11 @@ export class JwtVerifier implements Verifier {
                     if (code === 'ERR_JWT_EXPIRED') {
                         sawExpired = true
                     } else if (code === 'ERR_JWT_CLAIM_VALIDATION_FAILED') {
-                        sawBadAudience = true
+                        if ((err as { claim?: string }).claim === 'exp') {
+                            sawMissingExpiry = true
+                        } else {
+                            sawBadAudience = true
+                        }
                     }
                 }
             }
@@ -78,6 +89,9 @@ export class JwtVerifier implements Verifier {
         if (!payload) {
             if (sawExpired) {
                 throw new AuthError('expired', 'token has expired')
+            }
+            if (sawMissingExpiry) {
+                throw new AuthError('no_expiry', 'token carries no exp claim')
             }
             if (sawBadAudience) {
                 throw new AuthError('bad_audience', 'token audience does not match')

@@ -123,8 +123,23 @@ async function main(): Promise<void> {
         metricsToken: config.metricsToken,
     })
 
-    await cache.warm()
-    lifecycle.ready = true
+    // Readiness tracks whether this pod actually holds a snapshot, not merely that warm()
+    // ran. A pod with no credentials at all must fail its probe: every resolve would come
+    // back all-missing, which callers treat as terminal rather than retryable. `warm()`
+    // still returns true while serving a last known good snapshot through a store blip,
+    // so a transient AWS wobble does not take a warm fleet out of rotation.
+    const warmAndSetReady = async (): Promise<void> => {
+        const holdsSnapshot = await cache.warm()
+        if (!holdsSnapshot && lifecycle.ready) {
+            logger.error('cache:snapshot_lost', {})
+        }
+        lifecycle.ready = holdsSnapshot
+    }
+
+    await warmAndSetReady()
+    if (!lifecycle.ready) {
+        logger.error('startup:no_snapshot', { secretId: config.secretId })
+    }
 
     const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
         logger.info('server:started', { host: config.host, port: info.port, env: config.env })
@@ -132,9 +147,7 @@ async function main(): Promise<void> {
 
     // Background refresh keeps the cache warm ahead of expiry, so a rotation reaches
     // callers within a TTL without anyone paying a cold read.
-    scheduleJittered(config.cacheTtlSeconds * 1000, async () => {
-        await cache.warm()
-    })
+    scheduleJittered(config.cacheTtlSeconds * 1000, warmAndSetReady)
     scheduleJittered(config.cacheTtlSeconds * 1000, async () => {
         await signingKeys.reload()
     })

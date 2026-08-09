@@ -8,8 +8,9 @@
 // integration_secret_serving_stale_seconds climbs. Failing closed on a refresh failure
 // would turn a transient AWS wobble into a fleet-wide sync outage.
 //
-// Redis holds only sealed bytes (see envelope.ts). A decrypt failure is treated as a miss,
-// not an error, so a poisoned or stale-format entry costs one extra store read instead of
+// Redis holds only sealed bytes (see envelope.ts). A decrypt failure — or a plaintext that
+// opens but is older than the read path will accept — is treated as a miss, not an error,
+// so a poisoned, replayed or stale-format entry costs one extra store read instead of
 // breaking the request.
 
 import type { Redis } from 'ioredis'
@@ -46,6 +47,13 @@ export class SecretCache {
     private readonly redis: Redis | undefined
     private readonly env: string
     private readonly ttlMs: number
+    /**
+     * How old a decrypted L2 entry may be before it is treated as a miss. Two TTLs rather
+     * than one: the entry is written with a Redis TTL of exactly one, so a shorter bound
+     * would reject entries Redis is still legitimately holding through clock skew between
+     * the writer and this reader.
+     */
+    private readonly maxL2AgeMs: number
     private readonly now: () => number
 
     private entry: Entry | null = null
@@ -61,6 +69,7 @@ export class SecretCache {
         this.redis = opts.redis
         this.env = opts.env
         this.ttlMs = opts.ttlSeconds * 1000
+        this.maxL2AgeMs = this.ttlMs * 2
         this.now = opts.now ?? Date.now
     }
 
@@ -145,7 +154,20 @@ export class SecretCache {
             if (!sealed) {
                 return null
             }
-            return JSON.parse(await this.cipher.open(sealed, key)) as SecretsSnapshot
+            const snapshot = JSON.parse(await this.cipher.open(sealed, key)) as SecretsSnapshot
+            // Age-check the plaintext, not just the seal. Neither binding on the envelope
+            // covers time — the GCM AAD is `<env>|<cacheKey>` and the KMS encryption
+            // context is service + env — so a sealed snapshot captured months ago opens
+            // exactly as cleanly as the current one. Without this, anyone able to SET this
+            // Redis key pins every replica to a retired credential for as long as they
+            // keep rewriting it, and INTEGRATION_RECOVERY_KEYS never lands. Treated as a
+            // miss so the store read below is what serves the request.
+            const age = this.now() - Date.parse(snapshot.fetchedAt)
+            if (!Number.isFinite(age) || age > this.maxL2AgeMs) {
+                logger.warn('cache:l2_entry_too_old', { ageSeconds: Math.round(age / 1000) })
+                return null
+            }
+            return snapshot
         } catch (err) {
             // Covers both a Redis outage and an unopenable entry. Either way the store
             // read below is the correct fallback.
@@ -169,15 +191,21 @@ export class SecretCache {
     }
 
     /**
-     * Load the snapshot once at boot, before readiness flips, so the first real request
-     * never pays a cold read and a misconfigured store is caught by the readiness probe
-     * rather than by a caller.
+     * Load the snapshot, reporting whether one actually arrived.
+     *
+     * Called at boot before readiness flips, and again on every background refresh, so a
+     * pod holding no snapshot at all fails its probe rather than accepting traffic it can
+     * only answer with "every key is missing" — which a caller reads as a terminal
+     * SecretMissingError, not as a retryable fault. A store failure with a snapshot
+     * already in hand is a different case: `get()` serves the last known good value and
+     * this still returns true.
      */
-    async warm(): Promise<void> {
+    async warm(): Promise<boolean> {
         try {
-            await this.get()
+            return (await this.get()) !== null
         } catch (err) {
             logger.warn('cache:warm_failed', { error: err instanceof Error ? err.message : String(err) })
+            return false
         }
     }
 }

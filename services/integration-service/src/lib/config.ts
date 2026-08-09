@@ -93,8 +93,23 @@ export function loadConfig(): Config {
         if (!config.kmsKeyId) {
             missing.push('INTEGRATION_SERVICE_KMS_KEY_ID')
         }
+        // /metrics carries no credential values, but it does carry
+        // integration_secret_resolve_total{deployment,product,provider,key} — a precise
+        // map of which deployment reads which credential. Leaving it open by default made
+        // that a decision nobody took; requiring the token makes exposing it deliberate.
+        if (!config.metricsToken) {
+            missing.push('INTEGRATION_SERVICE_METRICS_TOKEN')
+        }
         if (missing.length > 0) {
             logger.error('config:missing_required', { missing })
+            process.exit(1)
+        }
+        // Only ever meant for pointing local dev and tests at moto. Honoured in production
+        // it is a fail-open in the one module written to fail closed: it skips IRSA for
+        // static throwaway credentials and sends every AWS client — Secrets Manager, KMS
+        // and S3 — at whatever that URL serves. See aws/credentials.ts.
+        if (config.awsEndpoint) {
+            logger.error('config:aws_endpoint_override_in_production', { endpoint: config.awsEndpoint })
             process.exit(1)
         }
     }

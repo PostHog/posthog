@@ -12,8 +12,10 @@
 // So there are exactly two ways in:
 //   - in the cluster: the IRSA web identity token, which is how the pod is meant to
 //     assume its role;
-//   - against a local mock (moto): static throwaway credentials, only when
-//     AWS_ENDPOINT_URL points somewhere that is not AWS.
+//   - against a local mock (moto): static throwaway credentials, when AWS_ENDPOINT_URL is
+//     set. loadConfig() exits the process if that variable is present under
+//     NODE_ENV=production, so this branch cannot be reached on a deployed pod — otherwise
+//     one environment variable would turn "exactly two ways in" into an arbitrary endpoint.
 //
 // Narrowing this also drops the SSO/INI/IMDS providers out of the bundle, which is what
 // keeps deps-allowlist.txt short.

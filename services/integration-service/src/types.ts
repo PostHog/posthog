@@ -3,7 +3,7 @@
 /**
  * How a credential field currently stands relative to a rotation.
  *
- * - `steady`   — one live value. No AWSPREVIOUS version, or it holds the same value.
+ * - `steady`   — one live value. No `<KEY>_FALLBACKS` sibling, or it holds the same value.
  * - `rotating` — a `<KEY>_FALLBACKS` sibling holds a different value. Both are served;
  *                callers that can dual-accept try current first, then previous. This is
  *                the window in which a third party may still be handing back tokens

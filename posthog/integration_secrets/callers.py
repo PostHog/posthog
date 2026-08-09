@@ -11,11 +11,12 @@ class IntegrationCaller(StrEnum):
 
     This is attribution, not authorization. The service does not trust it: Django holds
     one signing key and hosts every product below, so a compromised Django pod could name
-    any of them. What bounds a request is the deployment's signing key and the provider
-    allowlist the service holds for it.
+    any of them. What bounds a request is the deployment's signing key, which decides
+    whether the token verifies at all, and the `keys` claim inside it, which is the whole
+    of the request scope. There is no per-deployment provider allowlist.
 
     Keep in step with KNOWN_PRODUCTS in
-    services/integration-service/src/deployments.ts — a name the service does not
+    services/integration-service/src/products.ts — a name the service does not
     recognise still works, it just records as "unknown".
     """
 

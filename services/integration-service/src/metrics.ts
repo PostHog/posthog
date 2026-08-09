@@ -3,7 +3,7 @@
 // Cardinality is deployment × product × provider × key. Every one of those is drawn from
 // fixed configuration in code, never from a request: a key the manifest does not define
 // and a product we do not recognise both collapse to a constant. See policy/resolve.ts
-// and deployments.ts. Never add a per-team or per-request label.
+// and products.ts. Never add a per-team or per-request label.
 //
 // Everything here is measured by this service. Nothing is reported to it by a caller, so
 // no metric depends on a client being well behaved, current, or honest.
@@ -24,7 +24,7 @@ export const resolveTotal = new Counter({
     name: 'integration_secret_resolve_total',
     help: 'Credential field resolutions, by deployment, product and outcome',
     // `deployment` is authenticated; `product` is caller-supplied but collapsed to a
-    // known set in deployments.ts, so both stay bounded.
+    // known set in products.ts, so both stay bounded.
     labelNames: ['deployment', 'product', 'provider', 'key', 'result'],
     registers: [register],
 })
@@ -44,7 +44,7 @@ export const lastResolvedTimestamp = new Gauge({
 // field that is mid-rotation. Says nothing about whether anyone needed it.
 export const previousVersionServedTotal = new Counter({
     name: 'integration_secret_previous_version_served_total',
-    help: 'Responses in which a previous (AWSPREVIOUS) value was included alongside the current one',
+    help: 'Responses in which a previous (<KEY>_FALLBACKS) value was included alongside the current one',
     labelNames: ['provider', 'key'],
     registers: [register],
 })
@@ -115,6 +115,21 @@ export const authFailuresTotal = new Counter({
     name: 'integration_service_auth_failures_total',
     help: 'Rejected requests, by why the token was not accepted',
     labelNames: ['reason'],
+    registers: [register],
+})
+
+// Revocation is applied by reloading the signing keys, and that reload deliberately fails
+// open so a malformed edit cannot lock a running fleet out. These two make the fail-open
+// alertable: staleness on the gauge means "a revocation has not landed on this pod".
+export const signingKeysLastLoadedTimestamp = new Gauge({
+    name: 'integration_service_signing_keys_last_loaded_timestamp',
+    help: 'Unix timestamp of the last successful load of the caller signing keys',
+    registers: [register],
+})
+
+export const signingKeyReloadFailuresTotal = new Counter({
+    name: 'integration_service_signing_key_reload_failures_total',
+    help: 'Background signing-key reloads that failed, leaving the previous key set in place',
     registers: [register],
 })
 
