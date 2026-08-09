@@ -115,6 +115,7 @@ export function PrChecksSection({ prUrl }: PrChecksSectionProps) {
     <DetailSection
       Icon={ChecksIcon}
       title="Checks"
+      collapsible
       rightSlot={
         <span className="flex items-center gap-1">
           {BUCKET_META.map(({ bucket, label, labelClass }) =>
