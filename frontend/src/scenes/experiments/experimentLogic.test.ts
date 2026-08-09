@@ -604,8 +604,102 @@ describe('experimentLogic', () => {
             // ...but the user's rejected edit stays visible for review and retry.
             expect(logic.values.experiment.description).toEqual('stale write')
         })
+
+        it('collapses identical concurrent dispatches into a single request', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue({ ...snapshot, description: 'twice', version: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'twice' })
+                logic.actions.updateExperiment({ description: 'twice' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(4)
+            expect(logic.values.experiment.description).toEqual('twice')
+        })
+
+        it('queues a different concurrent update behind the in-flight one and sends the absorbed version', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValueOnce({ ...snapshot, description: 'first', version: 4 })
+            api.update.mockResolvedValueOnce({ ...snapshot, description: 'first', name: 'renamed', version: 5 })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'first' })
+                logic.actions.updateExperiment({ name: 'renamed' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(2)
+            expect(api.update).toHaveBeenNthCalledWith(
+                1,
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ description: 'first', version: 3 })
+            )
+            // The second request waits for the first response and carries its absorbed
+            // version, so it never enters the stale-write path at all.
+            expect(api.update).toHaveBeenNthCalledWith(
+                2,
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ name: 'renamed', version: 4 })
+            )
+        })
+
+        it('still sends a queued update when the in-flight one fails', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockRejectedValueOnce(new Error('network down'))
+            api.update.mockResolvedValueOnce({ ...snapshot, name: 'second', version: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'doomed' })
+                logic.actions.updateExperiment({ name: 'second' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(2)
+            expect(api.update).toHaveBeenLastCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ name: 'second' })
+            )
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(4)
+        })
+
+        it('never moves the concurrency snapshot backwards to an older version', async () => {
+            // Concurrent writers (a user save and the running-time auto-save) absorb their
+            // responses independently, and responses can land out of order: a late older
+            // response poisoning the snapshot makes every following save a false conflict.
+            logic.actions.setUnmodifiedExperiment({ ...experiment, version: 5, name: 'newer' } as Experiment)
+            logic.actions.setUnmodifiedExperiment({ ...experiment, version: 4, name: 'late straggler' } as Experiment)
+            expect(logic.values.unmodifiedExperiment?.name).toEqual('newer')
+
+            logic.actions.setUnmodifiedExperiment({ ...experiment, version: 6, name: 'fresher' } as Experiment)
+            expect(logic.values.unmodifiedExperiment?.name).toEqual('fresher')
+            // Versionless snapshots (a draft being created) keep replacing freely.
+            logic.actions.setUnmodifiedExperiment({
+                ...experiment,
+                version: undefined,
+                name: 'no version',
+            } as Experiment)
+            expect(logic.values.unmodifiedExperiment?.name).toEqual('no version')
+
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValueOnce({ ...snapshot, description: 'saved', version: 8 })
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'saved' })
+            }).toFinishAllListeners()
+            // The absorbed post-save state wins over a stale response landing afterwards, so
+            // the next save carries version 8, not 3.
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(8)
+        })
     })
-    describe('saveMetricsReorder', () => {
+    describe('moveMetricsBetweenSections', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',
             uuid: 'primary-metric-uuid',
@@ -649,35 +743,6 @@ describe('experimentLogic', () => {
             api.update.mockClear()
         })
 
-        it('persists a pure reorder without touching metric arrays or results', async () => {
-            const testExperiment = {
-                ...experiment,
-                saved_metrics: [],
-                metrics: [primaryMetric, otherPrimaryMetric],
-                metrics_secondary: [],
-                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
-            } as unknown as Experiment
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
-            api.update.mockResolvedValue({
-                ...testExperiment,
-                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['other-primary-uuid', 'primary-metric-uuid'], [], [])
-            })
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
-
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
-                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
-                update_feature_flag_params: false,
-            })
-            expect(logic.values.primaryMetricsResults).toEqual([primaryMetricResult, otherPrimaryMetricResult])
-        })
-
         it('moves an inline metric to secondary and reuses existing results', async () => {
             const testExperiment = {
                 ...experiment,
@@ -698,7 +763,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(
+                logic.actions.moveMetricsBetweenSections(
                     false,
                     ['primary-metric-uuid', 'other-primary-uuid'],
                     [],
@@ -756,7 +821,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(
+                logic.actions.moveMetricsBetweenSections(
                     false,
                     ['primary-metric-uuid', 'other-primary-uuid', 'third-primary-uuid'],
                     ['other-primary-uuid'],
@@ -815,7 +880,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
@@ -875,7 +940,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
             })
                 .toDispatchActions(['updateExperimentSuccess', 'retryPrimaryMetric'])
                 .toFinishAllListeners()
@@ -915,10 +980,81 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
             })
                 .toDispatchActions(['updateExperiment', 'refreshExperimentResults'])
                 .toFinishAllListeners()
+        })
+    })
+    describe('reorderMetrics', () => {
+        const testExperiment = {
+            ...experiment,
+            saved_metrics: [],
+            metrics: [
+                { kind: 'ExperimentMetric', uuid: 'first-uuid', name: 'First' },
+                { kind: 'ExperimentMetric', uuid: 'second-uuid', name: 'Second' },
+            ],
+            metrics_secondary: [],
+            primary_metrics_ordered_uuids: ['first-uuid', 'second-uuid'],
+        } as unknown as Experiment
+
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+            logic.actions.setExperiment(testExperiment)
+        })
+
+        it('applies the new order before the request lands, then persists only the ordering', async () => {
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
+            })
+
+            logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+
+            // Optimistic: the table must not wait on the round trip to show the new order.
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['second-uuid', 'first-uuid'])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
+                    update_feature_flag_params: false,
+                })
+            )
+        })
+
+        it('rolls the order back when the update fails', async () => {
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+            api.update.mockRejectedValue(new Error('nope'))
+
+            await expectLogic(logic, () => {
+                logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['first-uuid', 'second-uuid'])
+            expect(errorMock).toHaveBeenCalledWith('Could not save the new metric order')
+        })
+
+        it('coalesces drops inside the debounce window into one request', async () => {
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                primary_metrics_ordered_uuids: ['first-uuid', 'second-uuid'],
+            })
+
+            logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+            logic.actions.reorderMetrics(false, ['first-uuid', 'second-uuid'])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            // A superseded run must not report its cancellation as a save failure.
+            expect(errorMock).not.toHaveBeenCalled()
         })
     })
     describe('breakdown management', () => {
