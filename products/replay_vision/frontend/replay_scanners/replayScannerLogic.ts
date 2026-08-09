@@ -1300,6 +1300,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.requestScannerEstimate()
                 persistDraft()
             },
+            // Picking a template, switching scanner type, or discarding a draft replaces the query through
+            // resetScanner. That action does not fire setScannerValue(s), so request a fresh estimate here too.
+            // This stops the "nothing to scan" banner and the cost card from describing the previous configuration.
+            resetScanner: () => actions.requestScannerEstimate(),
             startFromTemplate: ({ templateKey }) => {
                 clearScannerDraft()
                 actions.setScannerDraftSavedAt(null)

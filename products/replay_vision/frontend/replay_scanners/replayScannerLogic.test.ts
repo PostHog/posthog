@@ -129,6 +129,18 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('estimate refresh', () => {
+        // These actions replace the query through resetScanner, which does not fire setScannerValue(s).
+        // Without an explicit refresh, the estimate would keep describing the previous configuration.
+        it.each([
+            ['picking a template', () => logic.actions.startFromTemplate(null)],
+            ['switching scanner type', () => logic.actions.setScannerType('summarizer')],
+            ['resetting the scanner', () => logic.actions.resetScanner()],
+        ])('%s requests a fresh estimate', async (_name, act) => {
+            await expectLogic(logic, act).toDispatchActions(['requestScannerEstimate'])
+        })
+    })
+
     describe('appendClassifierTags', () => {
         it('merges suggested tags into the vocabulary, deduping case-insensitively and trimming', async () => {
             logic.actions.setScannerType('classifier')
