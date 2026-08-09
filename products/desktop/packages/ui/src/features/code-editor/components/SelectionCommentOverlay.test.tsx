@@ -1,10 +1,4 @@
-import {
-  createEvent,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -87,23 +81,6 @@ describe("SelectionCommentOverlay", () => {
 
     expect(screen.getByRole("tooltip")).toHaveTextContent("Add to chat");
   });
-
-  it("keeps the selection while opening the comment composer", () => {
-    renderCollapsed({
-      actionLabel: "Add comment",
-      showActionText: true,
-      members: [],
-    });
-    const action = screen.getByLabelText("Add comment");
-    const mouseDown = createEvent.mouseDown(action);
-
-    fireEvent(action, mouseDown);
-    fireEvent.click(action);
-
-    expect(mouseDown.defaultPrevented).toBe(true);
-    expect(screen.getByLabelText("Comment draft")).toBeInTheDocument();
-  });
-
   it("prevents duplicate comment creation while submitting", async () => {
     let resolveSubmit: (() => void) | undefined;
     const onSubmit = vi.fn(

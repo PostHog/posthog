@@ -141,7 +141,6 @@ function SelectionComposerCard({
         label={actionLabel}
         iconOnly={!showActionText}
         position={style}
-        onMouseDown={(event) => event.preventDefault()}
         onClick={() => setUserExpanded(true)}
       >
         {showActionText ? (
