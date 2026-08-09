@@ -474,6 +474,7 @@ describe("TaskCommentsList", () => {
     });
 
     expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(mocks.openArtifactTab).not.toHaveBeenCalled();
     scrollIntoView.mockRestore();
     animationFrame.mockRestore();
   });

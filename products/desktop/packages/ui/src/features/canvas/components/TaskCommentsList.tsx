@@ -556,8 +556,8 @@ export function TaskCommentsList({
         : ALL_SOURCES,
     );
     setPulseThreadId(focus.threadId);
-    openThread(focused, false);
     if (focus.scrollToComment === false) return;
+    openThread(focused, false);
     requestAnimationFrame(() => {
       document
         .querySelector(
