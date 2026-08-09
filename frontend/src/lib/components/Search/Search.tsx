@@ -20,7 +20,7 @@ import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/ic
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { filterSearchItems, promoteExactMatch } from 'lib/components/Search/utils'
+import { filterSearchItems, rotateToExactMatch } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -218,6 +218,8 @@ interface SearchContextValue {
     setSearchValue: (value: string) => void
     filteredItems: SearchItem[]
     groupedItems: { category: string; items: SearchItem[]; isLoading?: boolean }[]
+    /** Position of each result in the autocomplete's navigation order, which the display order can differ from. */
+    navigationIndexByItem: Map<SearchItem, number>
     isSearching: boolean
     isActive: boolean
     inputRef: RefObject<HTMLInputElement>
@@ -603,20 +605,21 @@ function SearchRoot({
 
     // Re-rank: pin the incumbent first item so async results don't shift what's highlighted.
     // Promotes the incumbent's group to the front if needed.
-    const reRankedGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
+    const stableGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
 
-    // Applied last so an exact name match wins over both the fixed category order and the
-    // incumbent pinned above, including when it only arrives with late async results.
-    const stableGroupedItems = useMemo(
-        () => promoteExactMatch(reRankedGroupedItems, searchValue),
-        [reRankedGroupedItems, searchValue]
-    )
-
-    // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
-    // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
-    // breaks at group boundaries where the two orderings diverge.
+    // Derive a flat item list from groupedItems so it matches the DOM render order.
     const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
     orderedItemsRef.current = orderedItems
+
+    // Base UI highlights whichever result it holds at index 0, so an exact name match becomes the
+    // default selection by starting the navigation order on it. Display order stays put; each item
+    // gets its navigation position back through the `index` prop so the two stay in step, which
+    // Base UI's keyboard navigation needs at group boundaries.
+    const navigationItems = useMemo(() => rotateToExactMatch(orderedItems, searchValue), [orderedItems, searchValue])
+    const navigationIndexByItem = useMemo(
+        () => new Map(navigationItems.map((item, index): [SearchItem, number] => [item, index])),
+        [navigationItems]
+    )
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
@@ -625,6 +628,7 @@ function SearchRoot({
             setSearchValue,
             filteredItems: orderedItems,
             groupedItems: stableGroupedItems,
+            navigationIndexByItem,
             isSearching,
             isActive,
             inputRef,
@@ -638,6 +642,7 @@ function SearchRoot({
             searchValue,
             orderedItems,
             stableGroupedItems,
+            navigationIndexByItem,
             isSearching,
             isActive,
             handleItemClick,
@@ -652,7 +657,7 @@ function SearchRoot({
                 className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
             >
                 <Autocomplete.Root
-                    items={orderedItems}
+                    items={navigationItems}
                     mode="none"
                     itemToStringValue={(item) => item?.name ?? ''}
                     actionsRef={actionsRef}
@@ -859,7 +864,8 @@ function SearchResults({
     listClassName?: string
     groupLabelClassName?: string
 }): JSX.Element {
-    const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue } = useSearchContext()
+    const { groupedItems, handleItemClick, highlightedItemRef, isSearching, navigationIndexByItem, searchValue } =
+        useSearchContext()
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -925,6 +931,7 @@ function SearchResults({
                                                     <ContextMenuTrigger asChild>
                                                         <Autocomplete.Item
                                                             value={item}
+                                                            index={navigationIndexByItem.get(item)}
                                                             onClick={(e) => {
                                                                 // Plain clicks only. LinkPrimitive returns early on
                                                                 // metaKey/ctrlKey, so modifier clicks never get here and

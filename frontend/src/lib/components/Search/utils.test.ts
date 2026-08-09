@@ -1,4 +1,4 @@
-import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems, promoteExactMatch } from './utils'
+import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems, rotateToExactMatch } from './utils'
 
 interface TestItem {
     name: string
@@ -105,39 +105,36 @@ describe('filterSearchItems', () => {
     })
 })
 
-// The first item of the first group is what gets highlighted and opened on Enter, so anything
-// that leaves an exact match behind a fuzzy one sends the user to the wrong scene.
-describe('promoteExactMatch', () => {
-    const groups = [
-        { category: 'tools', items: [makeItem('Evaluations'), makeItem('Error tracking')] },
-        { category: 'data-management', items: [makeItem('Annotations'), makeItem('Actions')] },
-    ]
+// The result at navigation index 0 is what gets highlighted and opened on Enter, so anything that
+// leaves an exact match behind a fuzzy one sends the user to the wrong scene.
+describe('rotateToExactMatch', () => {
+    const results = [makeItem('Evaluations'), makeItem('Error tracking'), makeItem('Actions'), makeItem('Annotations')]
 
-    const flatten = (result: typeof groups): string[] => result.flatMap((g) => g.items.map((i) => i.name))
+    const names = (items: typeof results): string[] => items.map((i) => i.name)
 
-    it('hoists an exact match out of a later group, keeping the rest of the order', () => {
-        const result = promoteExactMatch(groups, 'actions')
-
-        expect(result.map((g) => g.category)).toEqual(['data-management', 'tools'])
-        expect(flatten(result)).toEqual(['Actions', 'Annotations', 'Evaluations', 'Error tracking'])
+    it('starts the order on the exact match and wraps the results above it round to the end', () => {
+        expect(names(rotateToExactMatch(results, 'actions'))).toEqual([
+            'Actions',
+            'Annotations',
+            'Evaluations',
+            'Error tracking',
+        ])
     })
 
     it('matches on displayName', () => {
-        const withDisplayName = [
-            { category: 'tools', items: [makeItem('Evaluations')] },
-            { category: 'recents', items: [makeItem('insight-42', 'recents', { displayName: 'Actions' })] },
-        ]
+        const withDisplayName = [makeItem('Evaluations'), makeItem('insight-42', 'recents', { displayName: 'Actions' })]
 
-        expect(flatten(promoteExactMatch(withDisplayName, 'Actions'))).toEqual(['insight-42', 'Evaluations'])
+        expect(names(rotateToExactMatch(withDisplayName, 'Actions'))).toEqual(['insight-42', 'Evaluations'])
     })
 
     const noOpCases: [label: string, query: string][] = [
-        ['leaves order alone when nothing matches exactly', 'action'],
-        ['leaves order alone for an empty query', '   '],
+        ['leaves the order alone when nothing matches exactly', 'action'],
+        ['leaves the order alone for an empty query', '   '],
+        ['leaves the order alone when the exact match is already first', 'evaluations'],
     ]
 
     it.each(noOpCases)('%s', (_label, query) => {
-        expect(promoteExactMatch(groups, query)).toBe(groups)
+        expect(rotateToExactMatch(results, query)).toBe(results)
     })
 })
 
