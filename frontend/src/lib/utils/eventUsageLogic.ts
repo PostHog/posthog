@@ -1528,7 +1528,7 @@ export interface eventUsageLogicActions {
         kind: string
     }
     reportInviteMembersButtonClicked: (source?: string) => {
-        source?: string
+        source: string | undefined
     }
     reportMCPHintDismissed: (
         dismissType: 'all' | 'surface',
