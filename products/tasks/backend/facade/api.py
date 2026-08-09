@@ -6002,6 +6002,24 @@ def list_channel_instruction_versions(
     return [_instructions_to_dto(row) for row in versions]
 
 
+def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("origin_product").first()
+    if task is None:
+        return False
+    if task.origin_product != Task.OriginProduct.LOOP:
+        return True
+
+    run_state = (
+        TaskRun.objects.filter(task_id=task.id, team_id=team_id)
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
+    outputs = context_target.get("outputs") or {}
+    return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
+
+
 def publish_channel_instructions(
     channel_id: str | UUID,
     team_id: int,
