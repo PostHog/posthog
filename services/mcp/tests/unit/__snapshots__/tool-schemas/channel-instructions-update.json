@@ -2,16 +2,10 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "base_version": {
-            "anyOf": [
-                {
-                    "minimum": 0,
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded."
+            "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
         },
         "content": {
             "description": "The complete markdown instructions (CONTEXT.md) for the channel.",
@@ -23,6 +17,6 @@
             "type": "string"
         }
     },
-    "required": ["id", "content"],
+    "required": ["id", "content", "base_version"],
     "type": "object"
 }

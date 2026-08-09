@@ -1459,7 +1459,7 @@
         "title": "Update channel instructions",
         "required_scopes": ["task:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false

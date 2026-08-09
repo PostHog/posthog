@@ -29,6 +29,7 @@ import {
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
+import { ChannelInstructionsBaseVersionSchema } from '@/schema/tool-inputs'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -84,6 +85,7 @@ const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omi
         id: TaskChannelsInstructionsUpdateParams.shape['id'].describe(
             'ID of the channel whose instructions to update.'
         ),
+        base_version: ChannelInstructionsBaseVersionSchema,
     })
 
 const channelInstructionsUpdate = (): ToolBase<

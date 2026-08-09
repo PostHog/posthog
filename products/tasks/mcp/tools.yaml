@@ -51,7 +51,7 @@ tools:
             - task:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Update channel instructions
         description: >
@@ -61,6 +61,8 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to update.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
         operation: task_channels_list
         enabled: true
