@@ -230,6 +230,22 @@ export const getDefaultFilters = (
     return defaults
 }
 
+// Whether the current filters differ from what "Reset filters" would restore. Compares the whole
+// filter object against the defaults, so the reset button stays in sync with every field - a
+// hand-maintained field count silently missed filter_test_accounts, order, and order_direction,
+// which left the button dead while a filter was visibly applied.
+export const hasNonDefaultRecordingFilters = (
+    filters: RecordingUniversalFilters,
+    personUUID?: PersonUUID,
+    pinnedFilters?: UniversalFiltersGroup
+): boolean => {
+    const defaults = getDefaultFilters(personUUID, pinnedFilters)
+    // An empty or absent session_ids list means "none applied"; the defaults carry no session_ids key
+    const dropEmptySessionIds = ({ session_ids, ...rest }: RecordingUniversalFilters): RecordingUniversalFilters =>
+        session_ids?.length ? { ...rest, session_ids } : rest
+    return !objectsEqual(dropEmptySessionIds(filters), dropEmptySessionIds(defaults))
+}
+
 function mergePinnedFilters(
     filterGroup: UniversalFiltersGroup,
     pinnedFilters: UniversalFiltersGroup
@@ -493,6 +509,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     eventsHaveSessionIdLoading: boolean
     filters: RecordingUniversalFilters
     hasNext: boolean
+    hasNonDefaultFilters: boolean
     hiddenRecordings: SessionRecordingType[]
     hiddenRecordingsCount: number
     isAddToCollectionModalOpen: boolean
@@ -795,6 +812,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
         ) => boolean
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
         totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any) => number
+        hasNonDefaultFilters: (filters: RecordingUniversalFilters, arg: any, arg2: any) => boolean
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
             hideViewedRecordings: HideViewedRecordingsOptions,
@@ -1827,6 +1845,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (filters.session_ids?.length ? 1 : 0)
                 )
             },
+        ],
+
+        hasNonDefaultFilters: [
+            (s) => [s.filters, (_, props) => props.personUUID, (_, props) => props.pinnedFilters],
+            (filters: RecordingUniversalFilters, personUUID, pinnedFilters): boolean =>
+                hasNonDefaultRecordingFilters(filters, personUUID, pinnedFilters),
         ],
 
         hiddenRecordings: [

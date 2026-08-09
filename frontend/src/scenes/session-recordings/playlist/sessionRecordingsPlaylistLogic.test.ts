@@ -1097,6 +1097,40 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('hasNonDefaultFilters', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('is false at the defaults', async () => {
+            await expectLogic(logic).toMatchValues({ hasNonDefaultFilters: false })
+        })
+
+        // These fields never fed the old totalFiltersCount sum, so the reset button sat dead while they
+        // were applied - the exact dead-click regression this selector fixes
+        it.each([
+            ['filter_test_accounts', { filter_test_accounts: true }],
+            ['order', { order: 'mouse_activity_count' as const }],
+            ['order_direction', { order_direction: 'ASC' as const }],
+        ])('is true when %s differs from the default', async (_field, filters) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters(filters)
+            }).toMatchValues({ hasNonDefaultFilters: true })
+        })
+
+        it('returns to false after a reset', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ filter_test_accounts: true })
+                logic.actions.resetFilters()
+            }).toMatchValues({ hasNonDefaultFilters: false })
+        })
+    })
+
     describe('matchingEventsMatchType', () => {
         it('classifies a bare event-property filter as backend', () => {
             // The shape the experiments server-side-flag exposure fallback produces

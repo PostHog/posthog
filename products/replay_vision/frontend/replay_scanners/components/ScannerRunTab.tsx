@@ -83,7 +83,7 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
 }
 
 function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
-    const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
+    const { filters, hasNonDefaultFilters, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
     const { observationBySession, pendingId, refreshingObservations, bulkScanning } = useValues(
@@ -203,7 +203,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                     resetFilters={resetFilters}
                     filters={filters}
                     setFilters={setFilters}
-                    totalFiltersCount={totalFiltersCount}
+                    hasNonDefaultFilters={hasNonDefaultFilters}
                     allowReplayHogQLFilters={false}
                     compactActions
                 />

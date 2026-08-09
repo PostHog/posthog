@@ -12,6 +12,8 @@ import type { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
     DEFAULT_RECORDING_FILTERS,
+    getDefaultFilters,
+    hasNonDefaultRecordingFilters,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -116,9 +118,18 @@ export const Settings = ({
         updateAttributes({ universalFilters: { ...filters, ...newFilters } })
     }
 
+    const resetFilters = (): void => {
+        updateAttributes({ universalFilters: getDefaultFilters() })
+    }
+
     return (
         <PostHogErrorBoundary>
-            <RecordingsUniversalFiltersEmbed filters={filters} setFilters={setFilters} />
+            <RecordingsUniversalFiltersEmbed
+                filters={filters}
+                setFilters={setFilters}
+                resetFilters={resetFilters}
+                hasNonDefaultFilters={hasNonDefaultRecordingFilters(filters)}
+            />
         </PostHogErrorBoundary>
     )
 }

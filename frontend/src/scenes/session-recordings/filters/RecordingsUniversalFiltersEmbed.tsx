@@ -310,8 +310,10 @@ export const RecordingsUniversalFiltersEmbedButton = ({
 interface ReplayUniversalFiltersEmbedProps {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-    resetFilters?: () => void
-    totalFiltersCount?: number
+    resetFilters: () => void
+    // Whether a reset would change anything. Gates the "Reset filters" button so it can't sit
+    // enabled-looking but dead while a filter is applied.
+    hasNonDefaultFilters?: boolean
     className?: string
     allowReplayHogQLFilters?: boolean
     pinnedFilters?: UniversalFiltersGroup
@@ -726,7 +728,7 @@ export const ReplayFiltersTab = ({
     setFilters,
     resetFilters,
     className,
-    totalFiltersCount,
+    hasNonDefaultFilters,
     allowReplayHogQLFilters = false,
     pinnedFilters,
     compactActions = false,
@@ -820,7 +822,7 @@ export const ReplayFiltersTab = ({
             onClick={handleResetFilters}
             icon={<IconRevert />}
             tooltip="Remove all filters and reset to defaults"
-            disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
+            disabledReason={hasNonDefaultFilters ? undefined : 'No filters applied'}
         >
             Reset filters
         </LemonButton>

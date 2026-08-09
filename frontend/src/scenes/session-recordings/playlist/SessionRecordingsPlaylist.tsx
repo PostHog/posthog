@@ -179,7 +179,7 @@ function PlayerWrapper({
         matchingEventsMatchType,
         activeSessionRecording,
         allowHogQLFilters,
-        totalFiltersCount,
+        hasNonDefaultFilters,
         nextSessionRecording,
         pinnedFilters,
         sessionRecordingsResponseLoading,
@@ -208,7 +208,7 @@ function PlayerWrapper({
                         resetFilters={resetFilters}
                         filters={filters}
                         setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
+                        hasNonDefaultFilters={hasNonDefaultFilters}
                         allowReplayHogQLFilters={allowHogQLFilters}
                         pinnedFilters={pinnedFilters}
                     />
