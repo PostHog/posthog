@@ -33,6 +33,7 @@ import {
     AutoresearchPipelineTab,
     OnlinePerformanceRow,
     autoresearchPipelineLogic,
+    trainingRunProgress,
 } from './autoresearchPipelineLogic'
 import {
     AutoresearchIterationStatusEnumApi,
@@ -314,6 +315,7 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
     const { toggleRunArtifacts, viewArtifact } = useActions(autoresearchPipelineLogic)
     const isExpanded = expandedRunId === run.id
     const paths = artifactsByRun[run.id]
+    const progress = trainingRunProgress(run)
 
     return (
         <div className="border rounded">
@@ -341,9 +343,9 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
                             {run.status === 'running' && <Spinner className="ml-2 inline" />}
                         </div>
                         <div className="text-xs text-muted">
-                            {run.iteration_count} iterations ·{' '}
-                            {run.best_holdout_score != null
-                                ? `best AUC ${run.best_holdout_score.toFixed(3)}`
+                            {progress.iterationCount} iterations ·{' '}
+                            {progress.bestHoldoutScore != null
+                                ? `best AUC ${progress.bestHoldoutScore.toFixed(3)}`
                                 : 'no score yet'}
                         </div>
                     </div>
@@ -609,6 +611,12 @@ function ProbabilityUsersTable({
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        WITH latest AS (
+                            SELECT max(toDate(timestamp)) AS d
+                            FROM events
+                            WHERE event = 'autoresearch_prediction'
+                              AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                        )
                         SELECT
                             coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
                             round(argMax(toFloat(properties.$autoresearch_p_y), timestamp), 4) AS probability,
@@ -616,6 +624,7 @@ function ProbabilityUsersTable({
                         FROM events
                         WHERE event = 'autoresearch_prediction'
                           AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                          AND toDate(timestamp) = (SELECT d FROM latest)
                         GROUP BY person_id
                         ORDER BY probability ${direction}
                         LIMIT 50
@@ -700,12 +709,12 @@ function PredictionsTab(): JSX.Element {
                     },
                     {
                         key: 'highest',
-                        header: 'Highest-probability users',
+                        header: 'Highest-probability users (latest scoring run)',
                         content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="DESC" />,
                     },
                     {
                         key: 'lowest',
-                        header: 'Lowest-probability users',
+                        header: 'Lowest-probability users (latest scoring run)',
                         content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="ASC" />,
                     },
                     {

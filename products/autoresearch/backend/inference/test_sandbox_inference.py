@@ -29,7 +29,7 @@ from products.autoresearch.backend.training.artifacts import ArtifactBundle
 from products.tasks.backend.facade.sandbox import ExecutionResult
 
 
-def _scores_parquet(rows: list[tuple[str, float]]) -> bytes:
+def _scores_parquet(rows: list[tuple[str, object]]) -> bytes:
     """Build a scores.parquet payload (distinct_id, p_y) the way an agent's predict.py would."""
     buf = io.BytesIO()
     pd.DataFrame({"distinct_id": [r[0] for r in rows], "p_y": [r[1] for r in rows]}).to_parquet(buf, index=False)
@@ -160,6 +160,28 @@ class TestMaterializeData(BaseTest):
 
         assert captured["query"].rstrip().endswith(f"LIMIT {sandbox_inference._MATERIALIZE_ROW_LIMIT}")
 
+    @parameterized.expand(
+        [
+            ("under_limit", 2, False),
+            ("at_limit", 3, True),
+        ]
+    )
+    def test_run_hogql_fails_when_result_hits_row_limit(self, _name, n_rows, expect_raise):
+        # A result that fills the LIMIT is a truncated population — completing would
+        # advance last_scored_at while silently skipping the users past the cap.
+        fake_result = MagicMock(results=[(f"p{i}",) for i in range(n_rows)], columns=["distinct_id"])
+        with (
+            patch.object(sandbox_inference, "_MATERIALIZE_ROW_LIMIT", 3),
+            patch.object(sandbox_inference, "HogQLQueryRunner") as runner_cls,
+        ):
+            runner_cls.return_value.run.return_value = fake_result
+            if expect_raise:
+                with self.assertRaises(SandboxInferenceError):
+                    sandbox_inference._run_hogql(team=self.team, sql="SELECT person_id FROM events", values={})
+            else:
+                rows = sandbox_inference._run_hogql(team=self.team, sql="SELECT person_id FROM events", values={})
+                assert len(rows) == n_rows
+
 
 class TestParquetSerialization(BaseTest):
     def test_features_parquet_columns_and_rows(self):
@@ -229,11 +251,28 @@ class TestFileReadback(BaseTest):
         with self.assertRaises(SandboxInferenceError):
             _read_scores(fake)
 
-    def test_join_scores_drops_unscored_rows(self):
-        scored = _join_scores(score_rows=_SCORE_ROWS, scores={"s1": 0.8})
-        assert len(scored) == 1
-        assert scored[0]["distinct_id"] == "s1"
-        assert scored[0]["p_y"] == 0.8
+    @parameterized.expand(
+        [
+            ("nan", float("nan")),
+            ("inf", float("inf")),
+            ("neg_inf", float("-inf")),
+            ("above_one", 1.5),
+            ("below_zero", -0.01),
+            ("non_numeric", "not-a-probability"),
+        ]
+    )
+    def test_read_scores_fails_on_invalid_probability(self, _name, p_y):
+        # predict.py output is untrusted agent code — a NaN/inf/out-of-range score must
+        # fail the run rather than flow into emitted prediction events.
+        fake = _FakeSandbox(scores_parquet=_scores_parquet([("s1", p_y)]))
+        with self.assertRaises(SandboxInferenceError):
+            _read_scores(fake)
+
+    def test_join_scores_fails_when_predictions_omit_rows(self):
+        # A user missing from scores.parquet must fail the run — skipping them would
+        # advance last_scored_at while silently leaving the user unscored.
+        with self.assertRaises(SandboxInferenceError):
+            _join_scores(score_rows=_SCORE_ROWS, scores={"s1": 0.8})
 
 
 class TestScoreViaSandbox(BaseTest):

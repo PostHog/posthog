@@ -37,6 +37,9 @@ class TestStubTraining(BaseTest):
         assert champion.source_training_run == training_run
         assert champion.model_recipe is not None
         assert "feature_sql" in champion.model_recipe
+        # The stub must not count autoresearch's own prediction events — they feed the
+        # model its own output once scoring starts.
+        assert "NOT LIKE 'autoresearch_%'" in champion.model_recipe["feature_sql"]
 
     def test_creates_one_iteration(self):
         pipeline = self._make_pipeline()

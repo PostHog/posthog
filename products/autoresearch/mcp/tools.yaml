@@ -16,13 +16,14 @@ tools:
             - autoresearch:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Archive pipeline
         description: >
             Soft-delete a pipeline. Stops daily scoring and training. Prediction history and model artifacts are
             preserved. Archived pipelines are excluded from autoresearch-list. This is reversible only via direct DB
             access — use pause instead if you want to temporarily stop a pipeline.
+        feature_flag: autoresearch
     autoresearch-create:
         operation: autoresearch_create
         enabled: true
@@ -40,8 +41,9 @@ tools:
             e.g. '$pageview') or a PostHog action (pass target_definition = {"type": "action", "action_id": N} to predict
             a multi-step / property / autocapture matcher; target_event is then optional and used only as a display
             label). Provide exactly one. horizon_days defaults to 7. The output person property (e.g.
-            'predicted_p_pageview') is auto-derived from target_event if omitted. After creating, call
-            autoresearch-train-create to run stub training and generate a champion model.
+            'predicted_p_pageview') is auto-derived from target_event if omitted, and must be unique among the
+            project's non-archived pipelines. After creating, call autoresearch-train-create to start an asynchronous
+            agent training run.
         exclude_params:
             - id
             - created_by
@@ -50,6 +52,7 @@ tools:
             - last_scored_at
             - status
             - iteration_budget_remaining
+        feature_flag: autoresearch
     autoresearch-destroy:
         operation: autoresearch_destroy
         enabled: false
@@ -81,6 +84,7 @@ tools:
                 - last_scored_at
                 - created_at
                 - updated_at
+        feature_flag: autoresearch
     autoresearch-materialize-features:
         operation: autoresearch_training_runs_materialize_features_create
         enabled: true
@@ -98,6 +102,7 @@ tools:
             the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the
             returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it
             whenever you change features.sql.
+        feature_flag: autoresearch
     autoresearch-models-list:
         operation: autoresearch_models_list
         enabled: true
@@ -127,6 +132,7 @@ tools:
                 - trained_on_end
                 - promoted_at
                 - created_at
+        feature_flag: autoresearch
     autoresearch-models-retrieve:
         operation: autoresearch_models_retrieve
         enabled: true
@@ -140,6 +146,7 @@ tools:
         description: >
             Get full details for a specific model version, including the portable model recipe (feature SQL, transforms,
             model class, params) and feature importance explanation.
+        feature_flag: autoresearch
     autoresearch-partial-update:
         operation: autoresearch_partial_update
         enabled: false
@@ -156,6 +163,7 @@ tools:
         description: >
             Pause a running pipeline. Daily scoring and training stop until the pipeline is resumed. Use
             autoresearch-resume-create to restart.
+        feature_flag: autoresearch
     autoresearch-resolve-template-create:
         operation: autoresearch_resolve_template_create
         enabled: true
@@ -181,6 +189,7 @@ tools:
             - display_name
             - description
             - notes
+        feature_flag: autoresearch
     autoresearch-resume-create:
         operation: autoresearch_resume_create
         enabled: true
@@ -193,6 +202,7 @@ tools:
         title: Resume pipeline
         description: |
             Resume a paused pipeline. Returns 400 if the pipeline is not currently paused.
+        feature_flag: autoresearch
     autoresearch-retrieve:
         operation: autoresearch_retrieve
         enabled: true
@@ -207,6 +217,7 @@ tools:
         description: >
             Get full details for a specific autoresearch pipeline by ID, including population definitions, training
             configuration, and current status.
+        feature_flag: autoresearch
     autoresearch-runs-list:
         operation: autoresearch_runs_list
         enabled: true
@@ -233,6 +244,7 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
+        feature_flag: autoresearch
     autoresearch-runs-retrieve:
         operation: autoresearch_runs_retrieve
         enabled: false
@@ -254,6 +266,7 @@ tools:
             execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event =
             'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY
             properties.$autoresearch_p_y DESC LIMIT 50.
+        feature_flag: autoresearch
     autoresearch-suggestions-create:
         operation: autoresearch_suggestions_create
         enabled: true
@@ -279,6 +292,7 @@ tools:
             - agent_response
             - created_by
             - linked_iteration_ids
+        feature_flag: autoresearch
     autoresearch-suggestions-list:
         operation: autoresearch_suggestions_list
         enabled: true
@@ -305,6 +319,7 @@ tools:
                 - agent_response
                 - linked_iteration_ids
                 - created_at
+        feature_flag: autoresearch
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: true
@@ -317,6 +332,7 @@ tools:
         title: Get suggestion
         description: |
             Get full details for a specific suggestion including its status and agent_response.
+        feature_flag: autoresearch
     autoresearch-suggestions-respond:
         operation: autoresearch_suggestions_respond_create
         enabled: true
@@ -334,6 +350,7 @@ tools:
             agent_response), and write a one-line agent_response. Recording an iteration with parent_suggestion set
             already advances a suggestion to 'acted_on'; use this tool to add the narrative or to mark a suggestion
             picked_up/dismissed without a dedicated iteration.
+        feature_flag: autoresearch
     autoresearch-templates-list:
         operation: autoresearch_templates_list
         enabled: true
@@ -362,6 +379,7 @@ tools:
                 - requires_user_event
                 - requires_activity_resolution
                 - notes
+        feature_flag: autoresearch
     autoresearch-train-create:
         operation: autoresearch_train_create
         enabled: true
@@ -373,10 +391,13 @@ tools:
             idempotent: false
         title: Start training
         description: >
-            Start a training run for a pipeline. Creates a champion model and marks the pipeline as running. Currently
-            synchronous stub training (hand-authored recipe, ~0.7 holdout AUC). Returns the training run object with
-            status, iteration_count, and best_holdout_score. After training completes, call autoresearch-score-create to
-            run inference and emit prediction events. You can optionally override the iteration_budget for this run.
+            Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns
+            the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run
+            reaches 'completed' or 'failed'; no champion model exists until the run completes and server-side promotion
+            runs. Returns 400 if a training run is already in progress for the pipeline. After a run completes and
+            promotes a champion, call autoresearch-score-create to run inference and emit prediction events. You can
+            optionally override the iteration_budget for this run.
+        feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
         enabled: true
@@ -387,8 +408,10 @@ tools:
             destructive: true
             idempotent: true
         title: Delete an artifact bundle file
-        description: |
+        description: >
             Remove one file from a training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
+            Only allowed while the run is still running; the bundle is frozen once the run completes or fails.
+        feature_flag: autoresearch
     autoresearch-training-runs-artifacts-get-create:
         operation: autoresearch_training_runs_artifacts_get_create
         enabled: true
@@ -403,6 +426,7 @@ tools:
             Fetch one file from a training run's artifact bundle, base64-encoded. Use this to read the prior champion's
             train.py / features.sql as a starting point before iterating (look up the champion's source_training_run via
             autoresearch-models-retrieve).
+        feature_flag: autoresearch
     autoresearch-training-runs-artifacts-retrieve:
         operation: autoresearch_training_runs_artifacts_retrieve
         enabled: true
@@ -416,6 +440,7 @@ tools:
         description: >
             List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql, and any
             eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.
+        feature_flag: autoresearch
     autoresearch-training-runs-artifacts-upload-create:
         operation: autoresearch_training_runs_artifacts_upload_create
         enabled: true
@@ -432,7 +457,9 @@ tools:
             notebook). Re-uploading the same path overwrites it. This is how you author the model — author train.py and
             predict.py (standalone sklearn scripts) and features.sql (HogQL with the {anchors}/{lookback_days}
             contract), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference
-            runs in a sandbox.
+            runs in a sandbox. Only allowed while the run is still running; the bundle is frozen once the run completes
+            or fails.
+        feature_flag: autoresearch
     autoresearch-training-runs-complete-create:
         operation: autoresearch_training_runs_complete_create
         enabled: true
@@ -452,6 +479,7 @@ tools:
             Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run
             should try next) — these are stored in the run summary and read back by the next run during orientation; the
             backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.
+        feature_flag: autoresearch
     autoresearch-training-runs-create:
         operation: autoresearch_training_runs_create
         enabled: true
@@ -467,6 +495,7 @@ tools:
             scheduled job) then records iterations against this run with autoresearch-training-runs-iterations-create
             and finalizes it with autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally
             override the iteration_budget for this run.
+        feature_flag: autoresearch
     autoresearch-training-runs-history:
         operation: autoresearch_training_runs_history_retrieve
         enabled: true
@@ -485,6 +514,7 @@ tools:
             model_spec) to drill into when a summary points somewhere worth it. Call this before iterating to reuse the
             features and transforms that won and avoid repeating approaches already discarded. Optional `limit` (default
             5, max 20) caps how many prior runs are returned.
+        feature_flag: autoresearch
     autoresearch-training-runs-iterations-create:
         operation: autoresearch_training_runs_iterations_create
         enabled: true
@@ -503,6 +533,7 @@ tools:
             on failure. Iterations are picked up at completion time to choose the champion. If this iteration was
             spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the
             iteration to the suggestion for attribution and marks the suggestion 'acted_on'.
+        feature_flag: autoresearch
     autoresearch-training-runs-list:
         operation: autoresearch_training_runs_list
         enabled: true
@@ -529,6 +560,7 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
+        feature_flag: autoresearch
     autoresearch-training-runs-retrieve:
         operation: autoresearch_training_runs_retrieve
         enabled: false
@@ -553,6 +585,7 @@ tools:
             if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth
             noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples),
             or extreme_imbalance (base rate below 0.001). Always validate before creating.
+        feature_flag: autoresearch
     autoresearch-validate-online-create:
         operation: autoresearch_validate_online_create
         enabled: true
@@ -572,3 +605,4 @@ tools:
             automatically. Returns one run object per prediction date processed; an empty list means no dates have
             matured yet. In production this is triggered by the daily Temporal validation workflow after inference runs.
             Call autoresearch-models-list after this to see updated realized_score values on champion/challenger models.
+        feature_flag: autoresearch

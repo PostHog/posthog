@@ -85,7 +85,7 @@ export interface UserBasicApi {
 }
 
 /**
- * Full target definition including event filters and positive-label conditions.
+ * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
  */
 export type AutoresearchPipelineApiTargetDefinition = { [key: string]: unknown }
 
@@ -114,7 +114,7 @@ export interface AutoresearchPipelineApi {
      * @maxLength 255
      */
     target_event: string
-    /** Full target definition including event filters and positive-label conditions. */
+    /** Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}. */
     target_definition: AutoresearchPipelineApiTargetDefinition
     /**
      * Prediction horizon in days. The model predicts whether the target event occurs within this window.
@@ -201,7 +201,7 @@ export interface PaginatedAutoresearchPipelineListApi {
 }
 
 /**
- * Full target definition. Can be left empty to use target_event alone.
+ * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
  */
 export type AutoresearchPipelineCreateApiTargetDefinition = { [key: string]: unknown }
 
@@ -228,18 +228,18 @@ export interface AutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     target_event?: string
-    /** Full target definition. Can be left empty to use target_event alone. */
+    /** Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted. */
     target_definition?: AutoresearchPipelineCreateApiTargetDefinition
     /**
-     * Prediction horizon in days. The model predicts whether the target event occurs within this window.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.
+     * @minimum 1
+     * @maximum 365
      */
     horizon_days?: number
     /**
-     * How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.
+     * @minimum 7
+     * @maximum 730
      */
     training_lookback_days?: number
     /** Training population filter. Use {} for all identified users. */
@@ -247,15 +247,15 @@ export interface AutoresearchPipelineCreateApi {
     /** Inference population filter. Defaults to training_population if not set. */
     inference_population?: AutoresearchPipelineCreateApiInferencePopulation
     /**
-     * Re-score the inference population every N days. Default: 1.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Re-score the inference population every N days (1-365). Default: 1.
+     * @minimum 1
+     * @maximum 365
      */
     cadence_days?: number
     /**
-     * Total training iterations allowed for the autoresearch loop. Default: 50.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+     * @minimum 1
+     * @maximum 500
      */
     iteration_budget?: number
     /**
@@ -270,7 +270,7 @@ export interface AutoresearchPipelineCreateApi {
      */
     plateau_iterations?: number
     /**
-     * Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'.
+     * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines.
      * @maxLength 255
      */
     output_person_property?: string
@@ -334,6 +334,11 @@ export interface AutoresearchModelApi {
     calibration_error?: number | null
     /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
     metrics?: unknown
+    /**
+     * Training run that produced this model. Read that run's artifact bundle to reuse the champion's train.py and features.sql as a starting point. Null for legacy models.
+     * @nullable
+     */
+    readonly source_training_run: string | null
     /** The agent's own plain-English description of what this recipe does and why it was chosen. */
     agent_description?: string
     /**
@@ -850,9 +855,15 @@ export interface CompleteTrainingRunApi {
     best_iteration_id?: string | null
     /** Global feature importance / directionality bundle for the champion model card. */
     model_explanation?: CompleteTrainingRunApiModelExplanation
-    /** What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete. */
+    /**
+     * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
+     * @maxLength 2000
+     */
     recommended_next?: string
-    /** A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. */
+    /**
+     * A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.
+     * @maxLength 2000
+     */
     distillation?: string
 }
 
@@ -1032,7 +1043,7 @@ export interface TrainingRunHistoryApi {
 }
 
 /**
- * Full target definition. Can be left empty to use target_event alone.
+ * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
  */
 export type PatchedAutoresearchPipelineCreateApiTargetDefinition = { [key: string]: unknown }
 
@@ -1059,18 +1070,18 @@ export interface PatchedAutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     target_event?: string
-    /** Full target definition. Can be left empty to use target_event alone. */
+    /** Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted. */
     target_definition?: PatchedAutoresearchPipelineCreateApiTargetDefinition
     /**
-     * Prediction horizon in days. The model predicts whether the target event occurs within this window.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.
+     * @minimum 1
+     * @maximum 365
      */
     horizon_days?: number
     /**
-     * How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.
+     * @minimum 7
+     * @maximum 730
      */
     training_lookback_days?: number
     /** Training population filter. Use {} for all identified users. */
@@ -1078,15 +1089,15 @@ export interface PatchedAutoresearchPipelineCreateApi {
     /** Inference population filter. Defaults to training_population if not set. */
     inference_population?: PatchedAutoresearchPipelineCreateApiInferencePopulation
     /**
-     * Re-score the inference population every N days. Default: 1.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Re-score the inference population every N days (1-365). Default: 1.
+     * @minimum 1
+     * @maximum 365
      */
     cadence_days?: number
     /**
-     * Total training iterations allowed for the autoresearch loop. Default: 50.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+     * @minimum 1
+     * @maximum 500
      */
     iteration_budget?: number
     /**
@@ -1101,7 +1112,7 @@ export interface PatchedAutoresearchPipelineCreateApi {
      */
     plateau_iterations?: number
     /**
-     * Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'.
+     * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines.
      * @maxLength 255
      */
     output_person_property?: string

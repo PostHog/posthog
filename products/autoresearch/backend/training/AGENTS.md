@@ -28,7 +28,7 @@ The other half is `../inference/`, which consumes what this package produces and
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.
   `normalize_artifact_path()` and `MAX_ARTIFACT_BYTES` (10 MiB) are the guardrails on agent-supplied paths — the agent chooses these strings, so treat them as untrusted input.
 - `recipe_validation.py`
-  Server-side validation of whatever an agent records. `validate_feature_sql()` parses the SQL and enforces the one-row-per-person contract: a read-only `SELECT` keyed on `person_id`.
+  Server-side validation of whatever an agent records. `validate_feature_sql()` parses the SQL and enforces the one-row-per-person contract: a read-only `SELECT` keyed on `person_id`, with the `{anchors}` placeholder required so every feature query is cut off at each person's T0 (SQL without it would read outcome-window events — target leakage). `validate_unique_distinct_ids()` re-checks the one-row-per-person contract on actual materialized rows, where duplicates first become visible.
   `validate_model_class()` is deliberately **not** applied at recording time — in the bundle world the agent's real model is arbitrary sandboxed code, so a recorded `model_class` is informational. The allowlist is enforced only where it is a genuine code-execution surface: the legacy in-process path in `../inference/scoring.py`, which resolves it through `importlib`.
 
 ## Mental model

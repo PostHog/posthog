@@ -890,7 +890,6 @@ autoresearch_pipelines: PostgresTable = PostgresTable(
         "description": StringDatabaseField(name="description"),
         "target_event": StringDatabaseField(name="target_event"),
         "horizon_days": IntegerDatabaseField(name="horizon_days"),
-        "prediction_mode": StringDatabaseField(name="prediction_mode"),
         "status": StringDatabaseField(name="status"),
         "iteration_budget": IntegerDatabaseField(name="iteration_budget"),
         "iteration_budget_remaining": IntegerDatabaseField(name="iteration_budget_remaining"),

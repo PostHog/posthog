@@ -1,13 +1,16 @@
 from datetime import date, timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
+from parameterized import parameterized
 
 from products.autoresearch.backend.evaluation.online_validation import (
+    ValidationDataTruncatedError,
     _compute_validation_metrics,
     _expected_calibration_error,
+    _fetch_predictions_by_model,
     _find_mature_unvalidated_dates,
     _lift_at_k,
     _update_model_realized_metrics,
@@ -261,6 +264,59 @@ class TestRunOnlineValidationForPipeline(BaseTest):
         assert runs[0].status == AutoresearchRun.Status.COMPLETED
         assert runs[0].rows_scored == 0
         assert runs[0].metrics.get("warning") == "no_predictions_found"
+
+    @patch("products.autoresearch.backend.evaluation.online_validation._fetch_realized_labels")
+    @patch("products.autoresearch.backend.evaluation.online_validation._fetch_predictions_by_model")
+    @patch("products.autoresearch.backend.evaluation.online_validation._fetch_matured_prediction_dates")
+    def test_label_fetch_failure_marks_run_failed_and_continues(self, mock_dates, mock_preds, mock_labels):
+        pipeline = self._make_pipeline()
+        champion = self._make_champion(pipeline)
+        d1 = date.today() - timedelta(days=11)
+        d2 = date.today() - timedelta(days=10)
+
+        mock_dates.return_value = [d1, d2]
+        mock_preds.return_value = {str(champion.pk): {"user-a": 0.9, "user-b": 0.2}}
+        mock_labels.side_effect = [RuntimeError("clickhouse unavailable"), frozenset(["user-a"])]
+
+        runs = run_online_validation_for_pipeline(pipeline)
+
+        assert [r.status for r in runs] == [AutoresearchRun.Status.FAILED, AutoresearchRun.Status.COMPLETED]
+        failed_run = runs[0]
+        assert failed_run.metrics["prediction_date"] == d1.isoformat()
+        assert "per_model" not in failed_run.metrics
+        assert "clickhouse unavailable" in failed_run.metrics["error"]
+
+
+class TestFetchPredictionsByModel(BaseTest):
+    def _make_pipeline(self) -> AutoresearchPipeline:
+        return AutoresearchPipeline.objects.create(
+            team=self.team,
+            name="Test",
+            target_event="$pageview",
+            horizon_days=7,
+            iteration_budget=50,
+            iteration_budget_remaining=50,
+        )
+
+    @parameterized.expand(
+        [
+            ("at_limit_raises", 3, True),
+            ("under_limit_returns", 2, False),
+        ]
+    )
+    @patch("products.autoresearch.backend.evaluation.online_validation.VALIDATION_QUERY_LIMIT", 3)
+    @patch("products.autoresearch.backend.evaluation.online_validation.HogQLQueryRunner")
+    def test_truncation_guard(self, _name, n_rows, expect_raise, mock_runner_cls):
+        pipeline = self._make_pipeline()
+        rows = [(f"user-{i}", "model-1", 0.5) for i in range(n_rows)]
+        mock_runner_cls.return_value.run.return_value = MagicMock(results=rows)
+
+        if expect_raise:
+            with self.assertRaises(ValidationDataTruncatedError):
+                _fetch_predictions_by_model(self.team, pipeline, date(2026, 5, 1))
+        else:
+            predictions = _fetch_predictions_by_model(self.team, pipeline, date(2026, 5, 1))
+            assert predictions == {"model-1": {f"user-{i}": 0.5 for i in range(n_rows)}}
 
 
 class TestFindMatureUnvalidatedDates(BaseTest):

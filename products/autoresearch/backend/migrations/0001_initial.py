@@ -135,6 +135,7 @@ class Migration(migrations.Migration):
                     "created_by",
                     models.ForeignKey(
                         blank=True,
+                        db_constraint=False,
                         db_index=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
@@ -144,6 +145,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="autoresearch_pipelines",
                         to="posthog.team",

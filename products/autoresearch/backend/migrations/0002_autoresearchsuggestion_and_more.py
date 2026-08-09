@@ -75,6 +75,7 @@ class Migration(migrations.Migration):
                     "created_by",
                     models.ForeignKey(
                         blank=True,
+                        db_constraint=False,
                         db_index=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,

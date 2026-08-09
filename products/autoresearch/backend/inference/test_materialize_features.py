@@ -11,7 +11,7 @@ from products.autoresearch.backend.inference.sandbox import MaterializedData
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchTrainingRun
 from products.tasks.backend.facade.sandbox import ExecutionResult
 
-VALID_FEATURE_SQL = "SELECT person_id AS distinct_id, countIf(event = '$pageview') AS pv FROM events GROUP BY person_id"
+VALID_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS pv FROM {anchors} a GROUP BY a.person_id"
 
 
 class _FakeSandbox:
@@ -98,15 +98,15 @@ class TestMaterializeFeatures(APIBaseTest):
         )
         assert resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.autoresearch.backend.api.views.Sandbox")
+    @patch("products.autoresearch.backend.api.views.get_sandbox_class")
     @patch("products.autoresearch.backend.api.views.materialize_training_data")
-    @patch("products.tasks.backend.models.TaskRun.objects.get")
-    def test_writes_parquet_and_returns_paths(self, mock_task_get, mock_materialize, mock_sandbox):
+    @patch("products.autoresearch.backend.api.views.tasks_facade.get_task_run")
+    def test_writes_parquet_and_returns_paths(self, mock_task_get, mock_materialize, mock_get_sandbox_cls):
         run = self._run(task_run_id=uuid.uuid4())
         mock_task_get.return_value = self._fake_task_run(run)
         mock_materialize.return_value = _materialized()
         fake_sandbox = _FakeSandbox()
-        mock_sandbox.get_by_id.return_value = fake_sandbox
+        mock_get_sandbox_cls.return_value.get_by_id.return_value = fake_sandbox
 
         resp = self.client.post(self._url(run), {"features_sql": VALID_FEATURE_SQL}, format="json")
         assert resp.status_code == status.HTTP_200_OK, resp.json()
@@ -123,21 +123,21 @@ class TestMaterializeFeatures(APIBaseTest):
             "/tmp/workspace/autoresearch/data/holdout_labels.parquet",
         }
         assert body["train_features_path"] == "/tmp/workspace/autoresearch/data/train_features.parquet"
-        mock_sandbox.get_by_id.assert_called_once_with("sb-123")
+        mock_get_sandbox_cls.return_value.get_by_id.assert_called_once_with("sb-123")
 
-    @patch("products.autoresearch.backend.api.views.Sandbox")
+    @patch("products.autoresearch.backend.api.views.get_sandbox_class")
     @patch("products.autoresearch.backend.api.views.materialize_training_data")
-    @patch("products.tasks.backend.models.TaskRun.objects.get")
-    def test_rejects_sandbox_not_owned_by_run(self, mock_task_get, mock_materialize, mock_sandbox):
+    @patch("products.autoresearch.backend.api.views.tasks_facade.get_task_run")
+    def test_rejects_sandbox_not_owned_by_run(self, mock_task_get, mock_materialize, mock_get_sandbox_cls):
         run = self._run(task_run_id=uuid.uuid4())
         # TaskRun state points at a DIFFERENT training run — must be rejected.
         mock_task_get.return_value = MagicMock(
             state={"autoresearch_training_run_id": str(uuid.uuid4()), "sandbox_id": "sb-123"}
         )
         mock_materialize.return_value = _materialized()
-        mock_sandbox.get_by_id.return_value = _FakeSandbox()
+        mock_get_sandbox_cls.return_value.get_by_id.return_value = _FakeSandbox()
 
         resp = self.client.post(self._url(run), {"features_sql": VALID_FEATURE_SQL}, format="json")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not belong" in str(resp.json()).lower()
-        mock_sandbox.get_by_id.assert_not_called()
+        mock_get_sandbox_cls.return_value.get_by_id.assert_not_called()

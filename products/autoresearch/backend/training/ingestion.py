@@ -22,7 +22,7 @@ from django.utils import timezone as django_timezone
 import structlog
 
 from products.autoresearch.backend.models import AutoresearchIteration, AutoresearchPipeline, AutoresearchTrainingRun
-from products.autoresearch.backend.training.promotion import complete_training_run
+from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
 
 logger = structlog.get_logger(__name__)
 
@@ -75,6 +75,13 @@ def handle_task_run_completed(task_run: Any) -> None:
 
     try:
         complete_training_run(training_run)
+    except PromotionError as e:
+        logger.exception(
+            "autoresearch_agent_recorded_complete_failed",
+            training_run_id=training_run_id,
+            task_run_id=str(task_run.id),
+        )
+        _mark_failed(training_run, error=str(e))
     except Exception:
         logger.exception(
             "autoresearch_agent_recorded_complete_failed",

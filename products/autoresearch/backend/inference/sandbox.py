@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import base64
 import binascii
 from dataclasses import dataclass, field
@@ -54,6 +55,7 @@ from posthog.models.team.team import Team
 from products.autoresearch.backend.dataset.labeling import build_inference_features_sql, build_training_features_sql
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, read_bundle, read_model, write_model
+from products.autoresearch.backend.training.recipe_validation import validate_unique_distinct_ids
 from products.tasks.backend.facade.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class
 
 Sandbox = get_sandbox_class()
@@ -235,6 +237,7 @@ def materialize_training_data(*, team: Team, pipeline: AutoresearchPipeline, fea
         training_population=pipeline.training_population,
     )
     training_rows = _run_hogql(team=team, sql=train_sql, values=train_values)
+    validate_unique_distinct_ids(training_rows)
     feature_cols = _numeric_feature_cols(training_rows)
     train_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) != _HOLDOUT_FOLD]
     holdout_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) == _HOLDOUT_FOLD]
@@ -286,6 +289,14 @@ def _run_hogql(*, team: Team, sql: str, values: dict[str, Any]) -> list[dict[str
     if not result.results or not result.columns:
         return []
     rows = [dict(zip(result.columns, row)) for row in result.results]
+    # A result that fills the bound is almost certainly truncated — completing anyway
+    # would advance last_scored_at while silently skipping the users past the cap.
+    # Pagination for larger populations is follow-up work; until then, fail loudly.
+    if len(rows) >= _MATERIALIZE_ROW_LIMIT:
+        raise SandboxInferenceError(
+            f"Materialization hit the {_MATERIALIZE_ROW_LIMIT}-row limit; "
+            "the population is likely truncated, refusing to score a partial population"
+        )
     for r in rows:
         if r.get("distinct_id") is not None:
             r["distinct_id"] = str(r["distinct_id"])
@@ -311,7 +322,10 @@ def _sandbox_config(pipeline: AutoresearchPipeline, kind: str) -> SandboxConfig:
     return SandboxConfig(
         name=f"autoresearch-{kind}-{pipeline.pk}",
         template=SandboxTemplate.NOTEBOOK_BASE,
-        environment_variables=None,  # no credentials, no egress — pure local compute
+        environment_variables=None,  # no credentials
+        # An empty allowlist means UNRESTRICTED egress; no-egress must be stated
+        # explicitly. train.py/predict.py are pure local compute over parquet.
+        block_network=True,
         metadata={"product": "autoresearch", "pipeline_id": str(pipeline.pk)},
     )
 
@@ -438,10 +452,15 @@ def _read_scores(sandbox: Sandbox) -> dict[str, float]:
         did = str(distinct_id).strip()
         if not did:
             continue
+        # predict.py is agent-authored and untrusted — a NaN, inf, or out-of-range
+        # probability would flow straight into emitted prediction events.
         try:
-            scores[did] = float(p_y)
-        except (TypeError, ValueError):
-            continue
+            score = float(p_y)
+        except (TypeError, ValueError) as exc:
+            raise SandboxInferenceError(f"scores.parquet has a non-numeric p_y ({p_y!r}) for {did!r}") from exc
+        if not math.isfinite(score) or not (0.0 <= score <= 1.0):
+            raise SandboxInferenceError(f"scores.parquet has an invalid probability p_y ({score!r}) for {did!r}")
+        scores[did] = score
     if not scores:
         raise SandboxInferenceError("scores.parquet produced no parseable rows")
     return scores
@@ -482,10 +501,18 @@ def _between_sentinels(stdout: str) -> str:
 
 
 def _join_scores(*, score_rows: list[dict[str, Any]], scores: dict[str, float]) -> list[dict[str, Any]]:
+    """Join predict.py's scores back onto the input rows. Every input row must be scored —
+    a silently skipped user would never be scored again once last_scored_at advances."""
     scored: list[dict[str, Any]] = []
+    missing: list[str] = []
     for row in score_rows:
         distinct_id = row.get("distinct_id")
         if not distinct_id or distinct_id not in scores:
+            missing.append(str(distinct_id))
             continue
         scored.append({**row, "p_y": round(scores[distinct_id], 4)})
+    if missing:
+        raise SandboxInferenceError(
+            f"scores.parquet covered only {len(scored)} of {len(score_rows)} input rows; missing e.g. {missing[:5]!r}"
+        )
     return scored

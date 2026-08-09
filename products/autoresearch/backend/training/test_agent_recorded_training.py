@@ -12,9 +12,14 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
 
 VALID_RECIPE = {
-    "feature_sql": "SELECT person_id AS distinct_id, countIf(event = '$pageview') AS pv FROM events GROUP BY person_id",
+    "feature_sql": (
+        "SELECT a.person_id AS distinct_id, countIf(e.event = '$pageview') AS pv "
+        "FROM {anchors} a LEFT JOIN events e ON e.person_id = a.person_id "
+        "GROUP BY a.person_id, a.cutoff_ts"
+    ),
     "feature_transforms": [],
 }
 VALID_SPEC = {"model_class": "sklearn.linear_model.LogisticRegression", "model_params": {"C": 1.0}}
@@ -236,15 +241,16 @@ class TestAgentRecordedTraining(APIBaseTest):
         run = AutoresearchTrainingRun.objects.get(pk=run_id)
         assert run.summary["recommended_next"] == "try session recency"
 
-    def test_complete_with_no_iterations_writes_skeleton_summary(self):
+    def test_complete_with_no_iterations_is_refused(self):
+        # Completing an empty run used to mark it COMPLETED with no champion, stranding a
+        # BOOTSTRAPPING pipeline with nothing to score and no safety-net retry.
         run_id = self._open_run()
-        resp = self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json")
-        assert resp.status_code == status.HTTP_200_OK
-        summary = resp.json()["summary"]
-        assert summary["best_holdout_score"] is None
-        assert summary["champion_promoted"] is False
-        assert summary["kept_ladder"] == []
-        assert summary["dead_ends"] == []
+        run = AutoresearchTrainingRun.objects.get(pk=run_id)
+        with self.assertRaises(PromotionError):
+            complete_training_run(run)
+        run.refresh_from_db()
+        assert run.status == AutoresearchTrainingRun.Status.RUNNING
+        assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
 
     def test_signal_handler_uses_agent_recorded_path_when_iterations_exist(self):
         from unittest.mock import MagicMock

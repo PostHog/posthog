@@ -26,6 +26,7 @@ import json
 import math
 import hashlib
 import importlib
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -49,7 +50,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_target_condition,
     build_training_features_sql,
 )
-from products.autoresearch.backend.inference.sandbox import score_via_sandbox
+from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT, score_via_sandbox
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.training.recipe_validation import validate_model_class
 
@@ -71,6 +72,18 @@ _LABEL_COL = "__label"
 _FOLD_COL = "__fold"
 # Reserve fold == 0 as the holdout slice; folds 1..N-1 are training.
 _HOLDOUT_FOLD = 0
+
+
+class InferenceRunError(Exception):
+    """Raised when an inference run must fail (and be retried) rather than complete with wrong output."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class _ScoreEmitResult:
+    rows_emitted: int
+    score_distribution: dict[str, Any]
+    holdout_auc: float | None
+    emit_errors: int
 
 
 def run_inference_for_pipeline(
@@ -104,7 +117,7 @@ def run_inference_for_pipeline(
 
     try:
         team = pipeline.team
-        rows_scored, score_distribution, holdout_auc = _score_and_emit(
+        result = _score_and_emit(
             team=team,
             pipeline=pipeline,
             model=model,
@@ -112,12 +125,13 @@ def run_inference_for_pipeline(
         )
 
         run.status = AutoresearchRun.Status.COMPLETED
-        run.rows_scored = rows_scored
+        run.rows_scored = result.rows_emitted
         run.metrics = {
-            "score_distribution": score_distribution,
+            "score_distribution": result.score_distribution,
             "stub": (model.model_recipe or {}).get("stub", False),
             "sandbox": bool(model.artifact_prefix),
-            "holdout_auc": holdout_auc,
+            "holdout_auc": result.holdout_auc,
+            "emit_errors": result.emit_errors,
         }
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "metrics", "completed_at"])
@@ -129,7 +143,7 @@ def run_inference_for_pipeline(
             "autoresearch_inference_complete",
             pipeline_id=str(pipeline.pk),
             model_id=str(model.pk),
-            rows_scored=rows_scored,
+            rows_scored=result.rows_emitted,
         )
         return run
 
@@ -147,11 +161,8 @@ def _score_and_emit(
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
     prediction_date: date,
-) -> tuple[int, dict[str, Any], float | None]:
-    """
-    Fetch feature rows, compute scores, emit prediction events.
-    Returns (rows_scored, score_distribution_summary, holdout_auc).
-    """
+) -> _ScoreEmitResult:
+    """Fetch feature rows, compute scores, emit prediction events."""
     holdout_auc: float | None = None
 
     # Backfill vs live: a past prediction_date computes features as-of that day's
@@ -181,7 +192,7 @@ def _score_and_emit(
         # on training-fold rows only. Legacy recipes fall through to the
         # transductive path until they're regenerated.
         if _ANCHORS_PLACEHOLDER in feature_sql:
-            scored = _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe)
+            scored = _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe, cutoff_ts=cutoff_ts)
         else:
             feature_rows = _fetch_feature_rows(team=team, pipeline=pipeline, model=model)
             if not feature_rows:
@@ -190,7 +201,7 @@ def _score_and_emit(
                     pipeline_id=str(pipeline.pk),
                     team_id=team.pk,
                 )
-                return 0, {}, holdout_auc
+                return _ScoreEmitResult(rows_emitted=0, score_distribution={}, holdout_auc=holdout_auc, emit_errors=0)
             if recipe.get("stub"):
                 scored = _score_rows(feature_rows=feature_rows, recipe=recipe)
             else:
@@ -203,7 +214,7 @@ def _score_and_emit(
             pipeline_id=str(pipeline.pk),
             team_id=team.pk,
         )
-        return 0, {}, holdout_auc
+        return _ScoreEmitResult(rows_emitted=0, score_distribution={}, holdout_auc=holdout_auc, emit_errors=0)
 
     scores = [s["p_y"] for s in scored]
     score_distribution = _summarize_scores(scores)
@@ -278,8 +289,15 @@ def _score_and_emit(
             emitted=emitted,
             errors=errors,
         )
+    # Zero events out of a scored population means capture is down, not a data gap —
+    # fail so last_scored_at does not advance and the coordinator retries. Partial
+    # failures still complete, with the error count recorded in the run's metrics.
+    if emitted == 0:
+        raise InferenceRunError(f"All {errors} prediction event emits failed; failing the run so it is retried")
 
-    return emitted, score_distribution, holdout_auc
+    return _ScoreEmitResult(
+        rows_emitted=emitted, score_distribution=score_distribution, holdout_auc=holdout_auc, emit_errors=errors
+    )
 
 
 def _fetch_feature_rows(
@@ -342,7 +360,8 @@ def _fetch_feature_rows(
     # Apply inference population filter — restrict to users matching the pipeline's
     # defined scoring population (e.g. signed up in last 30 days) and, under the v1
     # identified-only scope, to identified users. _fetch_population_distinct_ids returns
-    # None (no restriction) when neither applies, so calling it unconditionally is cheap.
+    # None (no restriction) only when neither applies — a configured filter that fails
+    # to resolve raises instead, failing the run — so calling it unconditionally is cheap.
     lookback_days = max(30, pipeline.horizon_days * 4)
     allowed_ids = _fetch_population_distinct_ids(
         team=team,
@@ -377,7 +396,9 @@ def _fetch_population_distinct_ids(
     is consistent with the feature SQL lookback window — users with no recent
     events have no feature rows and wouldn't be scored anyway.
 
-    On query failure, returns None (fail open) rather than silently scoring zero.
+    When a restriction is configured and the lookup fails, raises InferenceRunError
+    (fail closed): a transient query failure must not widen scoring to everyone and
+    write person properties outside the configured population.
 
     Supports person and event property types with common operators (exact, is_not,
     icontains, not_icontains, gt/gte/lt/lte, is_set, is_not_set).
@@ -404,9 +425,11 @@ def _fetch_population_distinct_ids(
         if not result.results:
             return frozenset()
         return frozenset(str(row[0]) for row in result.results if row[0])
-    except Exception:
+    except Exception as exc:
         logger.exception("autoresearch_population_query_failed", team_id=team.pk)
-        return None
+        raise InferenceRunError(
+            "Population filter query failed; failing the run rather than scoring an unrestricted population"
+        ) from exc
 
 
 def _fetch_label_distinct_ids(
@@ -470,6 +493,7 @@ def _score_via_anchors(
     team: Team,
     pipeline: AutoresearchPipeline,
     recipe: dict[str, Any],
+    cutoff_ts: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Anchors-style scoring (the leak-free path).
@@ -478,7 +502,8 @@ def _score_via_anchors(
     `e.timestamp < fromUnixTimestamp(a.cutoff_ts)`. Same SQL runs against two
     different anchor tables:
       - training anchors: per-user random T0 + labels + fold (from labeling.py)
-      - inference anchors: (person_id, cutoff_ts = now()) for users to score
+      - inference anchors: (person_id, cutoff_ts = now(), or the backdated
+        ``cutoff_ts`` instant when backfilling) for users to score
 
     We fit on training rows where fold != 0, evaluate on fold == 0 for a
     real holdout AUC, then predict on the inference rows. Falls back to stub
@@ -496,7 +521,9 @@ def _score_via_anchors(
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(lookback_days))
 
     training_rows = _fetch_training_rows(team=team, pipeline=pipeline, feature_sql=feature_sql_resolved)
-    inference_rows = _fetch_inference_rows(team=team, pipeline=pipeline, feature_sql=feature_sql_resolved)
+    inference_rows = _fetch_inference_rows(
+        team=team, pipeline=pipeline, feature_sql=feature_sql_resolved, cutoff_ts=cutoff_ts
+    )
     if not inference_rows:
         logger.warning(
             "autoresearch_no_inference_rows",
@@ -516,6 +543,23 @@ def _score_via_anchors(
         recipe=recipe,
         pipeline_id=str(pipeline.pk),
     )
+
+
+def _bounded_sql(sql: str) -> str:
+    # Without an explicit LIMIT, HogQL silently caps results at 100 rows. Bound the
+    # composite anchors queries the same way the sandbox path bounds materialization.
+    return sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
+
+
+def _raise_if_truncated(rows: list[dict[str, Any]], what: str) -> None:
+    # A result that fills the bound is almost certainly truncated — scoring a partial
+    # population would silently skip users while last_scored_at advances. Pagination
+    # for larger populations is follow-up work; until then, fail loudly.
+    if len(rows) >= _MATERIALIZE_ROW_LIMIT:
+        raise InferenceRunError(
+            f"{what} query hit the {_MATERIALIZE_ROW_LIMIT}-row limit; "
+            "the population is likely truncated, refusing to score a partial population"
+        )
 
 
 def _fetch_training_rows(
@@ -541,7 +585,7 @@ def _fetch_training_rows(
     )
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=_bounded_sql(sql), values=values), team=team)
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not result.results or not result.columns:
             return []
@@ -550,13 +594,14 @@ def _fetch_training_rows(
         for r in rows:
             if r.get("distinct_id") is not None:
                 r["distinct_id"] = str(r["distinct_id"])
-        return rows
     except Exception:
         logger.exception(
             "autoresearch_training_features_query_failed",
             pipeline_id=str(pipeline.pk),
         )
         return []
+    _raise_if_truncated(rows, "training features")
+    return rows
 
 
 def _fetch_inference_rows(
@@ -564,10 +609,12 @@ def _fetch_inference_rows(
     team: Team,
     pipeline: AutoresearchPipeline,
     feature_sql: str,
+    cutoff_ts: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Run the inference-features SQL: substitute {anchors} in the agent's
-    feature_sql with the inference anchors (cutoff_ts = now() per user).
+    feature_sql with the inference anchors (cutoff_ts = now() per user, or the
+    backdated ``cutoff_ts`` instant when backfilling).
     Returns one row per eligible scoring user, no labels.
     """
     lookback_days = max(30, pipeline.horizon_days * 4)
@@ -575,10 +622,11 @@ def _fetch_inference_rows(
         feature_sql=feature_sql,
         lookback_days=lookback_days,
         inference_population=pipeline.inference_population,
+        cutoff_ts=cutoff_ts,
     )
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=_bounded_sql(sql), values=values), team=team)
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not result.results or not result.columns:
             return []
@@ -587,13 +635,14 @@ def _fetch_inference_rows(
         for r in rows:
             if r.get("distinct_id") is not None:
                 r["distinct_id"] = str(r["distinct_id"])
-        return rows
     except Exception:
         logger.exception(
             "autoresearch_inference_features_query_failed",
             pipeline_id=str(pipeline.pk),
         )
         return []
+    _raise_if_truncated(rows, "inference features")
+    return rows
 
 
 def _fit_on_training_predict_on_inference(

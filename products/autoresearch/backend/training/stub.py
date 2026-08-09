@@ -27,6 +27,8 @@ logger = structlog.get_logger(__name__)
 
 # Universal feature SQL template — compiled against the inference population at scoring time.
 # The {lookback_days} placeholder is filled from the pipeline's horizon_days * 4.
+# autoresearch_* events are the model's own output — counting them would feed each scoring
+# cadence's predictions back into the next one's features.
 STUB_FEATURE_SQL_TEMPLATE = """
 SELECT
     person_id AS distinct_id,
@@ -40,6 +42,7 @@ SELECT
 FROM events
 WHERE person_id IS NOT NULL
   AND timestamp >= now() - toIntervalDay({max_lookback})
+  AND event NOT LIKE 'autoresearch_%'
 GROUP BY person_id
 """.strip()
 

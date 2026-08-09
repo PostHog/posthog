@@ -4,6 +4,7 @@ import hashlib
 import binascii
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -72,7 +73,7 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.training import artifacts as artifact_store
-from products.autoresearch.backend.training.promotion import complete_training_run
+from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
 from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_feature_sql
 from products.autoresearch.backend.training.runner import run_training
 from products.tasks.backend.facade import api as tasks_facade
@@ -297,25 +298,37 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 response=AutoresearchTrainingRunSerializer,
                 description="The created training run. Poll status via the runs list endpoint.",
             ),
-            400: OpenApiResponse(description="Pipeline is not in a state that allows training to start."),
+            400: OpenApiResponse(description="Pipeline is archived, or a training run is already in progress for it."),
         },
         summary="Start a training run",
         description=(
-            "Trigger a training run for this pipeline. In production this creates a Task/TaskRun "
-            "sandbox and starts the autoresearch loop. In the stub implementation it synchronously "
-            "creates a hand-authored champion recipe and marks the run as completed."
+            "Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where "
+            "the autoresearch agent iterates on features and models, and returns the run immediately with "
+            "status 'running'. Poll the training run until it reaches a terminal status (completed or "
+            "failed); no champion model exists until the run completes and server-side promotion runs."
         ),
     )
     @action(detail=True, methods=["post"], url_path="train")
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         pipeline = self.get_object()
-        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-            raise ValidationError("Cannot start training on an archived pipeline.")
-
         data = request.validated_data  # type: ignore[attr-defined]
-        budget = data.get("iteration_budget") or pipeline.iteration_budget
 
-        training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=request.user.id)
+        # Mirror the scheduled coordinator's kickoff guard: lock the pipeline row so concurrent
+        # manual and scheduled starts serialize, and refuse to stack a second live run. run_training
+        # stays inside the lock so the new run row commits before a waiting request re-checks.
+        with transaction.atomic():
+            pipeline = AutoresearchPipeline.objects.select_for_update().get(pk=pipeline.pk)
+            if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+                raise ValidationError("Cannot start training on an archived pipeline.")
+            if AutoresearchTrainingRun.objects.filter(
+                pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING
+            ).exists():
+                raise ValidationError(
+                    "A training run is already in progress for this pipeline. "
+                    "Wait for it to finish, or check its status in the training runs list."
+                )
+            budget = data.get("iteration_budget") or pipeline.iteration_budget
+            training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=request.user.id)
         return Response(AutoresearchTrainingRunSerializer(training_run).data)
 
     @validated_request(
@@ -351,6 +364,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         return Response(AutoresearchRunSerializer(run).data)
 
     @extend_schema(
+        request=None,
         responses={
             200: OpenApiResponse(
                 response=AutoresearchRunSerializer(many=True),
@@ -371,7 +385,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             "Temporal validation workflow after inference runs."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="validate-online")
+    # pagination_class=None so the generated client types the response as a bare array of runs
+    # (matching what this returns) rather than a paginated envelope.
+    @action(detail=True, methods=["post"], url_path="validate-online", pagination_class=None)
     def run_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         pipeline = self.get_object()
         if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
@@ -381,6 +397,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         return Response(AutoresearchRunSerializer(runs, many=True).data)
 
     @extend_schema(
+        request=None,
         responses={
             200: OpenApiResponse(
                 response=AutoresearchPipelineSerializer,
@@ -398,6 +415,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         return Response(AutoresearchPipelineSerializer(pipeline).data)
 
     @extend_schema(
+        request=None,
         responses={
             200: OpenApiResponse(
                 response=AutoresearchPipelineSerializer,
@@ -415,6 +433,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         return Response(AutoresearchPipelineSerializer(pipeline).data)
 
     @extend_schema(
+        request=None,
         responses={
             200: OpenApiResponse(
                 response=AutoresearchPipelineSerializer,
@@ -655,7 +674,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         sandbox_id = self._resolve_run_sandbox_id(training_run)
         try:
             data = materialize_training_data(team=self.team, pipeline=training_run.pipeline, feature_sql=features_sql)
-        except SandboxInferenceError as exc:
+        except (SandboxInferenceError, RecipeValidationError) as exc:
             raise ValidationError(f"Feature materialization failed: {exc}")
         if not data.train_rows:
             raise ValidationError("features_sql produced no training rows.")
@@ -738,7 +757,9 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
                 response=AutoresearchTrainingRunSerializer,
                 description="The completed training run. Call autoresearch-models-list to see the resulting champion/challenger.",
             ),
-            400: OpenApiResponse(description="Run is already completed or failed."),
+            400: OpenApiResponse(
+                description="Run is already completed or failed, has no recorded iterations, or has no usable model artifact (no bundle and no feature SQL)."
+            ),
         },
         summary="Complete a training run",
         description=(
@@ -756,13 +777,16 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         ):
             raise ValidationError("Training run is already completed or failed.")
         data = request.validated_data  # type: ignore[attr-defined]
-        complete_training_run(
-            training_run,
-            best_iteration_id=data.get("best_iteration_id"),
-            model_explanation=data.get("model_explanation") or {},
-            recommended_next=data.get("recommended_next") or "",
-            distillation=data.get("distillation") or "",
-        )
+        try:
+            complete_training_run(
+                training_run,
+                best_iteration_id=data.get("best_iteration_id"),
+                model_explanation=data.get("model_explanation") or {},
+                recommended_next=data.get("recommended_next") or "",
+                distillation=data.get("distillation") or "",
+            )
+        except PromotionError as exc:
+            raise ValidationError(str(exc))
         training_run.refresh_from_db()
         return Response(AutoresearchTrainingRunSerializer(training_run).data)
 
@@ -868,18 +892,25 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
                 response=StoredArtifactSerializer,
                 description="The stored file's path, size, and content hash.",
             ),
-            400: OpenApiResponse(description="Invalid path, content is not base64, or file exceeds the size limit."),
+            400: OpenApiResponse(
+                description=(
+                    "Invalid path, content is not base64, file exceeds the size limit, or the run is no longer running."
+                )
+            ),
         },
         summary="Upload an artifact bundle file",
         description=(
             "Upload one file of this training run's artifact bundle. Send the file contents "
             "base64-encoded in content_base64. Re-uploading the same path overwrites it. "
-            "Use this — not curl/set_output — to author train.py, predict.py, and features.sql."
+            "Use this — not curl/set_output — to author train.py, predict.py, and features.sql. "
+            "The bundle is frozen once the run completes or fails."
         ),
     )
     @action(detail=True, methods=["post"], url_path="artifacts/upload")
     def upload_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         training_run = self.get_object()
+        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+            raise ValidationError("Can only upload artifacts on a running training run.")
         data = request.validated_data  # type: ignore[attr-defined]
         try:
             content = base64.b64decode(data["content_base64"], validate=True)
@@ -931,13 +962,19 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
                 response=ArtifactDeleteResultSerializer,
                 description="Whether a file existed at that path and was removed.",
             ),
+            400: OpenApiResponse(description="Invalid path, or the run is no longer running."),
         },
         summary="Delete an artifact bundle file",
-        description="Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op.",
+        description=(
+            "Remove one file from this training run's artifact bundle. Idempotent — deleting a missing "
+            "file is a no-op. The bundle is frozen once the run completes or fails."
+        ),
     )
     @action(detail=True, methods=["post"], url_path="artifacts/delete")
     def delete_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         training_run = self.get_object()
+        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+            raise ValidationError("Can only delete artifacts on a running training run.")
         path = request.validated_data["path"]  # type: ignore[attr-defined]
         try:
             deleted = artifact_store.delete_artifact(self._bundle_prefix(training_run), path)

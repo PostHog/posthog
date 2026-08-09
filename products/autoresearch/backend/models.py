@@ -13,8 +13,14 @@ class AutoresearchPipeline(UUIDModel):
         ARCHIVED = "archived", "Archived"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="autoresearch_pipelines")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    # db_constraint=False on team/user FKs: creating a real constraint takes a
+    # SHARE ROW EXCLUSIVE lock on the hot parent table (see /django-migrations).
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="autoresearch_pipelines", db_constraint=False
+    )
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, db_constraint=False
+    )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
 
@@ -225,7 +231,9 @@ class AutoresearchSuggestion(UUIDModel):
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="suggestions")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, db_constraint=False
+    )
 
     prompt = models.TextField(help_text="Free-text hypothesis or direction for the agent to explore")
     priority = models.CharField(

@@ -47,17 +47,14 @@ export const autoresearchCreateBodyNameMax = 255
 
 export const autoresearchCreateBodyTargetEventMax = 255
 
-export const autoresearchCreateBodyHorizonDaysMin = -2147483648
-export const autoresearchCreateBodyHorizonDaysMax = 2147483647
+export const autoresearchCreateBodyHorizonDaysMax = 365
 
-export const autoresearchCreateBodyTrainingLookbackDaysMin = -2147483648
-export const autoresearchCreateBodyTrainingLookbackDaysMax = 2147483647
+export const autoresearchCreateBodyTrainingLookbackDaysMin = 7
+export const autoresearchCreateBodyTrainingLookbackDaysMax = 730
 
-export const autoresearchCreateBodyCadenceDaysMin = -2147483648
-export const autoresearchCreateBodyCadenceDaysMax = 2147483647
+export const autoresearchCreateBodyCadenceDaysMax = 365
 
-export const autoresearchCreateBodyIterationBudgetMin = -2147483648
-export const autoresearchCreateBodyIterationBudgetMax = 2147483647
+export const autoresearchCreateBodyIterationBudgetMax = 500
 
 export const autoresearchCreateBodyPlateauIterationsMin = -2147483648
 export const autoresearchCreateBodyPlateauIterationsMax = 2147483647
@@ -77,20 +74,24 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
     target_definition: zod
         .looseObject({})
         .optional()
-        .describe('Full target definition. Can be left empty to use target_event alone.'),
+        .describe(
+            'Omit (or pass {\"type\": \"event\"}) to predict target_event; pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action. No other shapes are accepted.'
+        ),
     horizon_days: zod
         .number()
-        .min(autoresearchCreateBodyHorizonDaysMin)
+        .min(1)
         .max(autoresearchCreateBodyHorizonDaysMax)
         .optional()
-        .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
+        .describe(
+            'Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.'
+        ),
     training_lookback_days: zod
         .number()
         .min(autoresearchCreateBodyTrainingLookbackDaysMin)
         .max(autoresearchCreateBodyTrainingLookbackDaysMax)
         .optional()
         .describe(
-            'How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180.'
+            'How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.'
         ),
     training_population: zod
         .looseObject({})
@@ -102,16 +103,16 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .describe('Inference population filter. Defaults to training_population if not set.'),
     cadence_days: zod
         .number()
-        .min(autoresearchCreateBodyCadenceDaysMin)
+        .min(1)
         .max(autoresearchCreateBodyCadenceDaysMax)
         .optional()
-        .describe('Re-score the inference population every N days. Default: 1.'),
+        .describe('Re-score the inference population every N days (1-365). Default: 1.'),
     iteration_budget: zod
         .number()
-        .min(autoresearchCreateBodyIterationBudgetMin)
+        .min(1)
         .max(autoresearchCreateBodyIterationBudgetMax)
         .optional()
-        .describe('Total training iterations allowed for the autoresearch loop. Default: 50.'),
+        .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
     success_auc: zod
         .number()
         .nullish()
@@ -127,7 +128,7 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .max(autoresearchCreateBodyOutputPersonPropertyMax)
         .optional()
         .describe(
-            "Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'."
+            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines."
         ),
 })
 
@@ -348,7 +349,7 @@ export const AutoresearchTrainingRunsArtifactsRetrieveParams = /* @__PURE__ */ z
 })
 
 /**
- * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
  * @summary Delete an artifact bundle file
  */
 export const AutoresearchTrainingRunsArtifactsDeleteCreateParams = /* @__PURE__ */ zod.object({
@@ -398,7 +399,7 @@ export const AutoresearchTrainingRunsArtifactsGetCreateBody = /* @__PURE__ */ zo
     .describe('Input for fetching or deleting one bundle file by path.')
 
 /**
- * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql.
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql. The bundle is frozen once the run completes or fails.
  * @summary Upload an artifact bundle file
  */
 export const AutoresearchTrainingRunsArtifactsUploadCreateParams = /* @__PURE__ */ zod.object({
@@ -444,7 +445,10 @@ export const AutoresearchTrainingRunsCompleteCreateParams = /* @__PURE__ */ zod.
 })
 
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
+export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
+
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
+export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
 
 export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .object({
@@ -460,15 +464,17 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
             .describe('Global feature importance \/ directionality bundle for the champion model card.'),
         recommended_next: zod
             .string()
+            .max(autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax)
             .default(autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault)
             .describe(
-                'What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete.'
+                'What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.'
             ),
         distillation: zod
             .string()
+            .max(autoresearchTrainingRunsCompleteCreateBodyDistillationMax)
             .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
             .describe(
-                'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads.'
+                'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
             ),
     })
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
@@ -609,86 +615,6 @@ export const AutoresearchArchiveCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const autoresearchArchiveCreateBodyNameMax = 255
-
-export const autoresearchArchiveCreateBodyTargetEventMax = 255
-
-export const autoresearchArchiveCreateBodyHorizonDaysMin = -2147483648
-export const autoresearchArchiveCreateBodyHorizonDaysMax = 2147483647
-
-export const autoresearchArchiveCreateBodyTrainingLookbackDaysMin = -2147483648
-export const autoresearchArchiveCreateBodyTrainingLookbackDaysMax = 2147483647
-
-export const autoresearchArchiveCreateBodyCadenceDaysMin = -2147483648
-export const autoresearchArchiveCreateBodyCadenceDaysMax = 2147483647
-
-export const autoresearchArchiveCreateBodyIterationBudgetMin = -2147483648
-export const autoresearchArchiveCreateBodyIterationBudgetMax = 2147483647
-
-export const autoresearchArchiveCreateBodyPlateauIterationsMin = -2147483648
-export const autoresearchArchiveCreateBodyPlateauIterationsMax = 2147483647
-
-export const autoresearchArchiveCreateBodyOutputPersonPropertyMax = 255
-
-export const AutoresearchArchiveCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(autoresearchArchiveCreateBodyNameMax).describe('Display name for the pipeline.'),
-    description: zod.string().optional().describe('Optional free-text description.'),
-    target_event: zod
-        .string()
-        .max(autoresearchArchiveCreateBodyTargetEventMax)
-        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
-    target_definition: zod
-        .looseObject({})
-        .describe('Full target definition including event filters and positive-label conditions.'),
-    horizon_days: zod
-        .number()
-        .min(autoresearchArchiveCreateBodyHorizonDaysMin)
-        .max(autoresearchArchiveCreateBodyHorizonDaysMax)
-        .optional()
-        .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    training_lookback_days: zod
-        .number()
-        .min(autoresearchArchiveCreateBodyTrainingLookbackDaysMin)
-        .max(autoresearchArchiveCreateBodyTrainingLookbackDaysMax)
-        .optional()
-        .describe(
-            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
-        ),
-    training_population: zod
-        .looseObject({})
-        .describe('Population used for training. Defines which users can appear as training examples.'),
-    inference_population: zod
-        .looseObject({})
-        .describe('Population scored daily. Typically broader than the training population.'),
-    cadence_days: zod
-        .number()
-        .min(autoresearchArchiveCreateBodyCadenceDaysMin)
-        .max(autoresearchArchiveCreateBodyCadenceDaysMax)
-        .optional()
-        .describe('Re-score the inference population every N days.'),
-    iteration_budget: zod
-        .number()
-        .min(autoresearchArchiveCreateBodyIterationBudgetMin)
-        .max(autoresearchArchiveCreateBodyIterationBudgetMax)
-        .optional()
-        .describe('Total training iterations allowed for the autoresearch loop.'),
-    success_auc: zod
-        .number()
-        .nullish()
-        .describe('Target AUC threshold. Training stops early if this score is reached.'),
-    plateau_iterations: zod
-        .number()
-        .min(autoresearchArchiveCreateBodyPlateauIterationsMin)
-        .max(autoresearchArchiveCreateBodyPlateauIterationsMax)
-        .optional()
-        .describe('Stop training if no AUC improvement is seen in this many consecutive iterations.'),
-    output_person_property: zod
-        .string()
-        .max(autoresearchArchiveCreateBodyOutputPersonPropertyMax)
-        .optional()
-        .describe("Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'."),
-})
-
 /**
  * Pause daily scoring and training. The pipeline can be resumed later.
  * @summary Pause a pipeline
@@ -702,86 +628,6 @@ export const AutoresearchPauseCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const autoresearchPauseCreateBodyNameMax = 255
-
-export const autoresearchPauseCreateBodyTargetEventMax = 255
-
-export const autoresearchPauseCreateBodyHorizonDaysMin = -2147483648
-export const autoresearchPauseCreateBodyHorizonDaysMax = 2147483647
-
-export const autoresearchPauseCreateBodyTrainingLookbackDaysMin = -2147483648
-export const autoresearchPauseCreateBodyTrainingLookbackDaysMax = 2147483647
-
-export const autoresearchPauseCreateBodyCadenceDaysMin = -2147483648
-export const autoresearchPauseCreateBodyCadenceDaysMax = 2147483647
-
-export const autoresearchPauseCreateBodyIterationBudgetMin = -2147483648
-export const autoresearchPauseCreateBodyIterationBudgetMax = 2147483647
-
-export const autoresearchPauseCreateBodyPlateauIterationsMin = -2147483648
-export const autoresearchPauseCreateBodyPlateauIterationsMax = 2147483647
-
-export const autoresearchPauseCreateBodyOutputPersonPropertyMax = 255
-
-export const AutoresearchPauseCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(autoresearchPauseCreateBodyNameMax).describe('Display name for the pipeline.'),
-    description: zod.string().optional().describe('Optional free-text description.'),
-    target_event: zod
-        .string()
-        .max(autoresearchPauseCreateBodyTargetEventMax)
-        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
-    target_definition: zod
-        .looseObject({})
-        .describe('Full target definition including event filters and positive-label conditions.'),
-    horizon_days: zod
-        .number()
-        .min(autoresearchPauseCreateBodyHorizonDaysMin)
-        .max(autoresearchPauseCreateBodyHorizonDaysMax)
-        .optional()
-        .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    training_lookback_days: zod
-        .number()
-        .min(autoresearchPauseCreateBodyTrainingLookbackDaysMin)
-        .max(autoresearchPauseCreateBodyTrainingLookbackDaysMax)
-        .optional()
-        .describe(
-            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
-        ),
-    training_population: zod
-        .looseObject({})
-        .describe('Population used for training. Defines which users can appear as training examples.'),
-    inference_population: zod
-        .looseObject({})
-        .describe('Population scored daily. Typically broader than the training population.'),
-    cadence_days: zod
-        .number()
-        .min(autoresearchPauseCreateBodyCadenceDaysMin)
-        .max(autoresearchPauseCreateBodyCadenceDaysMax)
-        .optional()
-        .describe('Re-score the inference population every N days.'),
-    iteration_budget: zod
-        .number()
-        .min(autoresearchPauseCreateBodyIterationBudgetMin)
-        .max(autoresearchPauseCreateBodyIterationBudgetMax)
-        .optional()
-        .describe('Total training iterations allowed for the autoresearch loop.'),
-    success_auc: zod
-        .number()
-        .nullish()
-        .describe('Target AUC threshold. Training stops early if this score is reached.'),
-    plateau_iterations: zod
-        .number()
-        .min(autoresearchPauseCreateBodyPlateauIterationsMin)
-        .max(autoresearchPauseCreateBodyPlateauIterationsMax)
-        .optional()
-        .describe('Stop training if no AUC improvement is seen in this many consecutive iterations.'),
-    output_person_property: zod
-        .string()
-        .max(autoresearchPauseCreateBodyOutputPersonPropertyMax)
-        .optional()
-        .describe("Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'."),
-})
-
 /**
  * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.
  * @summary Resume a pipeline
@@ -793,86 +639,6 @@ export const AutoresearchResumeCreateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const autoresearchResumeCreateBodyNameMax = 255
-
-export const autoresearchResumeCreateBodyTargetEventMax = 255
-
-export const autoresearchResumeCreateBodyHorizonDaysMin = -2147483648
-export const autoresearchResumeCreateBodyHorizonDaysMax = 2147483647
-
-export const autoresearchResumeCreateBodyTrainingLookbackDaysMin = -2147483648
-export const autoresearchResumeCreateBodyTrainingLookbackDaysMax = 2147483647
-
-export const autoresearchResumeCreateBodyCadenceDaysMin = -2147483648
-export const autoresearchResumeCreateBodyCadenceDaysMax = 2147483647
-
-export const autoresearchResumeCreateBodyIterationBudgetMin = -2147483648
-export const autoresearchResumeCreateBodyIterationBudgetMax = 2147483647
-
-export const autoresearchResumeCreateBodyPlateauIterationsMin = -2147483648
-export const autoresearchResumeCreateBodyPlateauIterationsMax = 2147483647
-
-export const autoresearchResumeCreateBodyOutputPersonPropertyMax = 255
-
-export const AutoresearchResumeCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(autoresearchResumeCreateBodyNameMax).describe('Display name for the pipeline.'),
-    description: zod.string().optional().describe('Optional free-text description.'),
-    target_event: zod
-        .string()
-        .max(autoresearchResumeCreateBodyTargetEventMax)
-        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
-    target_definition: zod
-        .looseObject({})
-        .describe('Full target definition including event filters and positive-label conditions.'),
-    horizon_days: zod
-        .number()
-        .min(autoresearchResumeCreateBodyHorizonDaysMin)
-        .max(autoresearchResumeCreateBodyHorizonDaysMax)
-        .optional()
-        .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    training_lookback_days: zod
-        .number()
-        .min(autoresearchResumeCreateBodyTrainingLookbackDaysMin)
-        .max(autoresearchResumeCreateBodyTrainingLookbackDaysMax)
-        .optional()
-        .describe(
-            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
-        ),
-    training_population: zod
-        .looseObject({})
-        .describe('Population used for training. Defines which users can appear as training examples.'),
-    inference_population: zod
-        .looseObject({})
-        .describe('Population scored daily. Typically broader than the training population.'),
-    cadence_days: zod
-        .number()
-        .min(autoresearchResumeCreateBodyCadenceDaysMin)
-        .max(autoresearchResumeCreateBodyCadenceDaysMax)
-        .optional()
-        .describe('Re-score the inference population every N days.'),
-    iteration_budget: zod
-        .number()
-        .min(autoresearchResumeCreateBodyIterationBudgetMin)
-        .max(autoresearchResumeCreateBodyIterationBudgetMax)
-        .optional()
-        .describe('Total training iterations allowed for the autoresearch loop.'),
-    success_auc: zod
-        .number()
-        .nullish()
-        .describe('Target AUC threshold. Training stops early if this score is reached.'),
-    plateau_iterations: zod
-        .number()
-        .min(autoresearchResumeCreateBodyPlateauIterationsMin)
-        .max(autoresearchResumeCreateBodyPlateauIterationsMax)
-        .optional()
-        .describe('Stop training if no AUC improvement is seen in this many consecutive iterations.'),
-    output_person_property: zod
-        .string()
-        .max(autoresearchResumeCreateBodyOutputPersonPropertyMax)
-        .optional()
-        .describe("Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'."),
 })
 
 /**
@@ -889,7 +655,7 @@ export const AutoresearchScoreCreateParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Trigger a training run for this pipeline. In production this creates a Task/TaskRun sandbox and starts the autoresearch loop. In the stub implementation it synchronously creates a hand-authored champion recipe and marks the run as completed.
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed); no champion model exists until the run completes and server-side promotion runs.
  * @summary Start a training run
  */
 export const AutoresearchTrainCreateParams = /* @__PURE__ */ zod.object({
@@ -923,86 +689,6 @@ export const AutoresearchValidateOnlineCreateParams = /* @__PURE__ */ zod.object
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const autoresearchValidateOnlineCreateBodyNameMax = 255
-
-export const autoresearchValidateOnlineCreateBodyTargetEventMax = 255
-
-export const autoresearchValidateOnlineCreateBodyHorizonDaysMin = -2147483648
-export const autoresearchValidateOnlineCreateBodyHorizonDaysMax = 2147483647
-
-export const autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMin = -2147483648
-export const autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMax = 2147483647
-
-export const autoresearchValidateOnlineCreateBodyCadenceDaysMin = -2147483648
-export const autoresearchValidateOnlineCreateBodyCadenceDaysMax = 2147483647
-
-export const autoresearchValidateOnlineCreateBodyIterationBudgetMin = -2147483648
-export const autoresearchValidateOnlineCreateBodyIterationBudgetMax = 2147483647
-
-export const autoresearchValidateOnlineCreateBodyPlateauIterationsMin = -2147483648
-export const autoresearchValidateOnlineCreateBodyPlateauIterationsMax = 2147483647
-
-export const autoresearchValidateOnlineCreateBodyOutputPersonPropertyMax = 255
-
-export const AutoresearchValidateOnlineCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(autoresearchValidateOnlineCreateBodyNameMax).describe('Display name for the pipeline.'),
-    description: zod.string().optional().describe('Optional free-text description.'),
-    target_event: zod
-        .string()
-        .max(autoresearchValidateOnlineCreateBodyTargetEventMax)
-        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
-    target_definition: zod
-        .looseObject({})
-        .describe('Full target definition including event filters and positive-label conditions.'),
-    horizon_days: zod
-        .number()
-        .min(autoresearchValidateOnlineCreateBodyHorizonDaysMin)
-        .max(autoresearchValidateOnlineCreateBodyHorizonDaysMax)
-        .optional()
-        .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    training_lookback_days: zod
-        .number()
-        .min(autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMin)
-        .max(autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMax)
-        .optional()
-        .describe(
-            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
-        ),
-    training_population: zod
-        .looseObject({})
-        .describe('Population used for training. Defines which users can appear as training examples.'),
-    inference_population: zod
-        .looseObject({})
-        .describe('Population scored daily. Typically broader than the training population.'),
-    cadence_days: zod
-        .number()
-        .min(autoresearchValidateOnlineCreateBodyCadenceDaysMin)
-        .max(autoresearchValidateOnlineCreateBodyCadenceDaysMax)
-        .optional()
-        .describe('Re-score the inference population every N days.'),
-    iteration_budget: zod
-        .number()
-        .min(autoresearchValidateOnlineCreateBodyIterationBudgetMin)
-        .max(autoresearchValidateOnlineCreateBodyIterationBudgetMax)
-        .optional()
-        .describe('Total training iterations allowed for the autoresearch loop.'),
-    success_auc: zod
-        .number()
-        .nullish()
-        .describe('Target AUC threshold. Training stops early if this score is reached.'),
-    plateau_iterations: zod
-        .number()
-        .min(autoresearchValidateOnlineCreateBodyPlateauIterationsMin)
-        .max(autoresearchValidateOnlineCreateBodyPlateauIterationsMax)
-        .optional()
-        .describe('Stop training if no AUC improvement is seen in this many consecutive iterations.'),
-    output_person_property: zod
-        .string()
-        .max(autoresearchValidateOnlineCreateBodyOutputPersonPropertyMax)
-        .optional()
-        .describe("Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'."),
 })
 
 /**

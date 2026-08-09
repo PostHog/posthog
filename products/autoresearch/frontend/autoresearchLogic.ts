@@ -97,8 +97,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 return
             }
             try {
-                // The endpoint only flips status, but the generated client types a body — pass the record.
-                await autoresearchPauseCreate(String(values.currentTeamId), pipeline.id, pipeline)
+                await autoresearchPauseCreate(String(values.currentTeamId), pipeline.id)
                 lemonToast.success(`Paused "${pipeline.name}" — daily scoring is on hold`)
                 actions.loadPipelines()
             } catch (error: any) {
@@ -110,7 +109,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 return
             }
             try {
-                await autoresearchResumeCreate(String(values.currentTeamId), pipeline.id, pipeline)
+                await autoresearchResumeCreate(String(values.currentTeamId), pipeline.id)
                 lemonToast.success(`Resumed "${pipeline.name}"`)
                 actions.loadPipelines()
             } catch (error: any) {

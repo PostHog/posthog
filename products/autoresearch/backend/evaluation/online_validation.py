@@ -37,6 +37,10 @@ PREDICTION_EVENT_NAME = "autoresearch_prediction"
 VALIDATION_QUERY_LIMIT = 50_000
 
 
+class ValidationDataTruncatedError(Exception):
+    """The predictions query hit VALIDATION_QUERY_LIMIT, so the fetched set may be incomplete."""
+
+
 def run_online_validation_for_pipeline(pipeline: AutoresearchPipeline) -> list[AutoresearchRun]:
     """
     Find all matured, unvalidated prediction dates and validate each one.
@@ -123,6 +127,9 @@ def _validate_one_date(
     """
     Validate predictions made on prediction_date for all models (champion + challengers).
     Creates an AutoresearchRun record, computes metrics, and updates model records.
+
+    On any error the run is returned as FAILED (no metrics written), leaving the
+    date eligible for the next pass and other dates in the same pass unaffected.
     """
     now = django_timezone.now()
     run = AutoresearchRun.objects.create(
@@ -188,16 +195,19 @@ def _validate_one_date(
         )
         return run
 
-    except Exception:
+    except Exception as exc:
+        # A FAILED run is not counted by _find_mature_unvalidated_dates, so the date
+        # stays eligible and the next validation pass retries it.
         run.status = AutoresearchRun.Status.FAILED
         run.completed_at = django_timezone.now()
-        run.save(update_fields=["status", "completed_at"])
+        run.metrics["error"] = str(exc)
+        run.save(update_fields=["status", "completed_at", "metrics"])
         logger.exception(
             "autoresearch_validation_failed",
             pipeline_id=str(pipeline.pk),
             prediction_date=prediction_date.isoformat(),
         )
-        raise
+        return run
 
 
 def _fetch_predictions_by_model(
@@ -211,16 +221,24 @@ def _fetch_predictions_by_model(
     Keyed on person_id to match realized labels (also keyed on person_id). Predictions
     carry it as the $autoresearch_person_id property; we fall back to distinct_id for
     events emitted before that property existed (when distinct_id was str(person_id)).
+
+    Raises ValidationDataTruncatedError when the row count hits VALIDATION_QUERY_LIMIT:
+    an arbitrary subset would bias every realized metric, and the COMPLETED run would
+    permanently exclude the date from revalidation.
     """
+    # argMax picks the latest emission per (model, person), so a manual re-score of an
+    # already-scored date is validated deterministically instead of in ClickHouse
+    # return order.
     sql = (
         "SELECT"
         " coalesce(nullIf(properties['$autoresearch_person_id'], ''), distinct_id) AS person_id,"
         " properties['$autoresearch_model_id'] AS model_id,"
-        " toFloat(properties['$autoresearch_p_y']) AS p_y"
+        " argMax(toFloat(properties['$autoresearch_p_y']), timestamp) AS p_y"
         " FROM events"
         " WHERE event = {event_name}"
         " AND properties['$autoresearch_pipeline_id'] = {pipeline_id}"
         " AND properties['$autoresearch_prediction_date'] = {prediction_date}"
+        " GROUP BY person_id, model_id"
         " LIMIT {limit}"
     )
     values: dict[str, Any] = {
@@ -243,6 +261,12 @@ def _fetch_predictions_by_model(
             prediction_date=prediction_date.isoformat(),
         )
         return {}
+
+    if len(result.results) >= VALIDATION_QUERY_LIMIT:
+        raise ValidationDataTruncatedError(
+            f"Predictions for {prediction_date.isoformat()} hit the {VALIDATION_QUERY_LIMIT} row limit; "
+            "refusing to compute metrics from a truncated subset"
+        )
 
     model_predictions: dict[str, dict[str, float]] = {}
     for row in result.results:
@@ -289,20 +313,15 @@ def _fetch_realized_labels(
         **target_values,
     }
 
-    try:
-        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
-        result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-        if not result.results:
-            return frozenset()
-        return frozenset(str(row[0]) for row in result.results if row[0])
-    except Exception:
-        logger.exception(
-            "autoresearch_realized_labels_query_failed",
-            pipeline_id=str(pipeline.pk),
-            prediction_date=prediction_date.isoformat(),
-        )
+    # A query failure must propagate: returning an empty set here would make every
+    # prediction look negative, and the resulting COMPLETED run would permanently
+    # exclude this date from revalidation.
+    tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+    runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
+    result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    if not result.results:
         return frozenset()
+    return frozenset(str(row[0]) for row in result.results if row[0])
 
 
 def _compute_validation_metrics(

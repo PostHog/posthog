@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -38,15 +39,31 @@ class PromotionError(ValueError):
 
 def _select_best_iteration(
     training_run: AutoresearchTrainingRun, best_iteration_id: UUID | None
-) -> AutoresearchIteration | None:
+) -> AutoresearchIteration:
     iterations = AutoresearchIteration.objects.filter(training_run=training_run)
     if best_iteration_id is not None:
         chosen = iterations.filter(id=best_iteration_id).first()
         if chosen is None:
             raise PromotionError(f"Iteration {best_iteration_id} not found in this training run.")
-        return chosen
-    kept = iterations.filter(status=AutoresearchIteration.Status.KEPT).order_by("-holdout_score").first()
-    return kept or iterations.order_by("-holdout_score").first()
+        # A nominated champion must clear the same bar as server-side selection — an
+        # unscored or non-kept iteration cannot be promoted just because the agent named it.
+        if chosen.status == AutoresearchIteration.Status.KEPT and chosen.holdout_score is not None:
+            return chosen
+        logger.warning(
+            "autoresearch_nominated_iteration_ineligible",
+            training_run_id=str(training_run.id),
+            iteration_id=str(best_iteration_id),
+            iteration_status=chosen.status,
+            holdout_score=chosen.holdout_score,
+        )
+    # Postgres puts NULLs first on a bare DESC, which would rank an unscored iteration
+    # above every scored one.
+    ranked_by_score = F("holdout_score").desc(nulls_last=True)
+    kept = iterations.filter(status=AutoresearchIteration.Status.KEPT).order_by(ranked_by_score).first()
+    best = kept or iterations.order_by(ranked_by_score).first()
+    if best is None:
+        raise PromotionError("Training run has no recorded iterations to select a champion from.")
+    return best
 
 
 def _build_recipe(iteration: AutoresearchIteration) -> dict[str, Any]:
@@ -111,6 +128,10 @@ def _detect_uploaded_bundle(training_run: AutoresearchTrainingRun) -> str | None
     If the agent uploaded a complete artifact bundle (train.py, predict.py, features.sql)
     for this run, return its object-storage prefix. Returns None when no complete bundle is
     present (the legacy recipe-only path).
+
+    Only ``BundleNotFound`` means "no bundle". Any other storage failure propagates and
+    aborts completion so it can be retried — swallowing it would permanently pin the model
+    to the legacy recipe path on a transient storage blip.
     """
     pipeline = training_run.pipeline
     prefix = artifacts.bundle_prefix(
@@ -124,7 +145,7 @@ def _detect_uploaded_bundle(training_run: AutoresearchTrainingRun) -> str | None
         return None
     except Exception:
         logger.exception("autoresearch_bundle_read_failed", training_run_id=str(training_run.id), prefix=prefix)
-        return None
+        raise
     return prefix
 
 
@@ -138,64 +159,98 @@ def complete_training_run(
     distillation: str = "",
 ) -> dict[str, Any]:
     """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
+    # Re-fetch under lock and re-check status inside the transaction. Both callers (the
+    # complete API action and the TaskRun post_save safety net) guard on status outside
+    # it, so a retry racing the signal could otherwise finalize the same run twice —
+    # duplicate champion/challenger rows and duplicate on_commit fits.
+    training_run = (
+        AutoresearchTrainingRun.objects.select_for_update().select_related("pipeline").get(pk=training_run.pk)
+    )
+    if training_run.status not in (
+        AutoresearchTrainingRun.Status.RUNNING,
+        AutoresearchTrainingRun.Status.PENDING,
+    ):
+        logger.info(
+            "autoresearch_training_run_already_finalized",
+            training_run_id=str(training_run.id),
+            status=training_run.status,
+        )
+        return {
+            "promoted": False,
+            "model_id": None,
+            "role": None,
+            "iteration_count": training_run.iteration_count,
+            "best_holdout_score": training_run.best_holdout_score,
+        }
+
     pipeline = training_run.pipeline
     now = django_timezone.now()
 
-    best = _select_best_iteration(training_run, best_iteration_id)
     iterations = list(AutoresearchIteration.objects.filter(training_run=training_run))
     iteration_count = len(iterations)
+    if not iterations:
+        # Mirrors the "Agent recorded no iterations before the run ended." failure the
+        # TaskRun safety net produces — completing here would leave a BOOTSTRAPPING
+        # pipeline with no champion and no retry.
+        raise PromotionError("Agent recorded no iterations, so there is nothing to complete.")
+
+    best = _select_best_iteration(training_run, best_iteration_id)
 
     # If the agent uploaded a runnable bundle, the champion's artifact is that bundle
     # (inference runs train.py/predict.py in a sandbox).
     artifact_prefix = _detect_uploaded_bundle(training_run) or ""
+    best_feature_sql = str((best.recipe_snapshot or {}).get("feature_sql") or "")
+    if not artifact_prefix and not best_feature_sql.strip():
+        # Without a bundle the model takes the legacy in-process path, which scores by
+        # running the recorded feature_sql — an empty one would produce an unusable champion.
+        raise PromotionError(
+            "Cannot persist a model: no complete bundle was uploaded and the selected "
+            "iteration recorded no feature_sql for the legacy scoring path."
+        )
+
+    best_score = best.holdout_score
+    candidate_score = best.holdout_score or 0.0
+    current = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+    is_cold_start = current is None
+    beats_champion = (
+        current is not None and candidate_score >= (current.holdout_score or 0.0) + CHAMPION_PROMOTION_MARGIN
+    )
 
     promoted = False
-    model: AutoresearchModel | None = None
-    role: str | None = None
-    best_score: float | None = None
+    role: str
+    if is_cold_start or beats_champion:
+        if current is not None:
+            AutoresearchModel.objects.filter(pk=current.pk).update(
+                role=AutoresearchModel.Role.ARCHIVED, archived_at=now
+            )
+        role = AutoresearchModel.Role.CHAMPION
+        promoted = True
+    else:
+        role = AutoresearchModel.Role.CHALLENGER
 
-    if best is not None:
-        best_score = best.holdout_score
-        candidate_score = best.holdout_score or 0.0
-        current = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
-        is_cold_start = current is None
-        beats_champion = (
-            current is not None and candidate_score >= (current.holdout_score or 0.0) + CHAMPION_PROMOTION_MARGIN
-        )
-
-        if is_cold_start or beats_champion:
-            if current is not None:
-                AutoresearchModel.objects.filter(pk=current.pk).update(
-                    role=AutoresearchModel.Role.ARCHIVED, archived_at=now
-                )
-            role = AutoresearchModel.Role.CHAMPION
-            promoted = True
-        else:
-            role = AutoresearchModel.Role.CHALLENGER
-
-        # The recipe JSON (derived from the winning iteration's model_spec/snapshot) backs the
-        # legacy in-process path and the model card.
-        model_recipe = _build_recipe(best)
-        model = AutoresearchModel.objects.create(
-            pipeline=pipeline,
-            role=role,
-            recipe_hash=best.recipe_hash or "",
-            model_recipe=model_recipe,
-            artifact_prefix=artifact_prefix,
-            model_explanation=model_explanation or {},
-            holdout_score=candidate_score,
-            metrics={
-                "holdout_auc": candidate_score,
-                "source": "agent_recorded",
-                "artifact_bundle": bool(artifact_prefix),
-            },
-            source_training_run=training_run,
-            agent_description=best.agent_description,
-            trained_on_start=date.today(),
-            trained_on_end=date.today(),
-            is_preliminary=True,
-            promoted_at=now if promoted else None,
-        )
+    # The recipe JSON (derived from the winning iteration's model_spec/snapshot) backs the
+    # legacy in-process path and the model card.
+    model_recipe = _build_recipe(best)
+    model = AutoresearchModel.objects.create(
+        pipeline=pipeline,
+        role=role,
+        recipe_hash=best.recipe_hash or "",
+        model_recipe=model_recipe,
+        artifact_prefix=artifact_prefix,
+        model_explanation=model_explanation or {},
+        holdout_score=candidate_score,
+        metrics={
+            "holdout_auc": candidate_score,
+            "source": "agent_recorded",
+            "artifact_bundle": bool(artifact_prefix),
+        },
+        source_training_run=training_run,
+        agent_description=best.agent_description,
+        trained_on_start=date.today(),
+        trained_on_end=date.today(),
+        is_preliminary=True,
+        promoted_at=now if promoted else None,
+    )
 
     training_run.status = AutoresearchTrainingRun.Status.COMPLETED
     training_run.iteration_count = iteration_count
@@ -227,7 +282,7 @@ def complete_training_run(
     # write are side effects that must not run inside this atomic block, and we only fit once
     # the row is durably committed. A failure here is non-fatal: the predict run self-heals by
     # fitting on first score.
-    if model is not None and artifact_prefix:
+    if artifact_prefix:
         captured_pipeline = pipeline
         captured_prefix = artifact_prefix
         captured_run_id = str(training_run.id)
@@ -244,7 +299,7 @@ def complete_training_run(
 
     return {
         "promoted": promoted,
-        "model_id": str(model.pk) if model else None,
+        "model_id": str(model.pk),
         "role": role,
         "iteration_count": iteration_count,
         "best_holdout_score": best_score,

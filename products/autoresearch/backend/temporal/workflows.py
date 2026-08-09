@@ -10,7 +10,7 @@ for Django ORM + HogQL queries. Workflows are async and only orchestrate activit
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 
@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
 
     from django.db import transaction
     from django.db.models import F
+    from django.utils import timezone as django_timezone
 
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
@@ -309,9 +310,43 @@ class KickoffTrainingInput:
 
 
 @dataclass
+class PipelineRunOutcome:
+    pipeline_id: str
+    succeeded: bool
+    errors: list[str] = field(default_factory=list)
+
+
+def evaluate_pipeline_outcome(
+    pipeline_id: str,
+    inference: InferenceWorkflowResult | BaseException,
+    validation: ValidationWorkflowResult | BaseException,
+    kickoff: KickoffTrainingResult | BaseException,
+) -> PipelineRunOutcome:
+    """Classify one pipeline's step results, treating soft-failed activity results as failures too."""
+    errors: list[str] = []
+
+    if isinstance(inference, BaseException):
+        errors.append(f"inference: {inference}")
+    elif inference.status == "failed":
+        errors.append(f"inference: {inference.error or 'failed'}")
+
+    if isinstance(validation, BaseException):
+        errors.append(f"validation: {validation}")
+    elif validation.status == "failed":
+        errors.append(f"validation: {validation.error or 'failed'}")
+
+    if isinstance(kickoff, BaseException):
+        errors.append(f"training kickoff: {kickoff}")
+    elif kickoff.error:
+        errors.append(f"training kickoff ({kickoff.reason}): {kickoff.error}")
+
+    return PipelineRunOutcome(pipeline_id=pipeline_id, succeeded=not errors, errors=errors)
+
+
+@dataclass
 class KickoffTrainingResult:
     kicked_off: bool
-    reason: str  # "started" | "budget_exhausted" | "already_running" | "not_eligible" | "error"
+    reason: str  # "started" | "budget_exhausted" | "already_running" | "not_eligible" | "no_creator" | "error"
     error: Optional[str] = None
 
 
@@ -323,13 +358,17 @@ _KICKOFF_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seco
 
 @activity.defn(name="autoresearch-coordinator.load_active_pipelines")
 def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActivePipelinesResult:
-    """Return pipeline IDs for all pipelines eligible for daily scoring."""
-    pipeline_ids = list(
-        AutoresearchPipeline.objects.filter(
-            status__in=[AutoresearchPipeline.Status.RUNNING, AutoresearchPipeline.Status.CONVERGED]
-        ).values_list("id", flat=True)
-    )
-    return LoadActivePipelinesResult(pipeline_ids=[str(pk) for pk in pipeline_ids])
+    """Return pipeline IDs for active pipelines that are due for scoring per their cadence."""
+    now = django_timezone.now()
+    candidates = AutoresearchPipeline.objects.filter(
+        status__in=[AutoresearchPipeline.Status.RUNNING, AutoresearchPipeline.Status.CONVERGED]
+    ).values("id", "cadence_days", "last_scored_at")
+    due_ids = [
+        str(row["id"])
+        for row in candidates
+        if row["last_scored_at"] is None or row["last_scored_at"] + timedelta(days=row["cadence_days"]) <= now
+    ]
+    return LoadActivePipelinesResult(pipeline_ids=due_ids)
 
 
 @activity.defn(name="autoresearch-coordinator.kickoff_training")
@@ -352,11 +391,24 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             ).exists():
                 return KickoffTrainingResult(kicked_off=False, reason="already_running")
 
+            # Training runs in a Tasks sandbox that requires a real owning user. CLI-created
+            # pipelines have no creator, so fail before spending budget rather than launching
+            # a run that would crash in the tasks facade.
+            if pipeline.created_by_id is None:
+                error = (
+                    f"Pipeline {inp.pipeline_id} has no creator; training kickoff requires created_by to own the task"
+                )
+                logger.error(
+                    "autoresearch_kickoff_training_no_creator",
+                    pipeline_id=inp.pipeline_id,
+                )
+                return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
+
             daily_budget = min(10, pipeline.iteration_budget_remaining)
             pipeline.iteration_budget_remaining -= daily_budget
             pipeline.save(update_fields=["iteration_budget_remaining"])
 
-        run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=None)
+        run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=pipeline.created_by_id)
         return KickoffTrainingResult(kicked_off=True, reason="started")
 
     except Exception as exc:
@@ -378,13 +430,15 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
     for every active autoresearch pipeline.
 
     Triggered once per day by a Temporal schedule. For each pipeline whose status
-    is RUNNING or CONVERGED it starts:
+    is RUNNING or CONVERGED and whose cadence_days have elapsed since last_scored_at
+    it starts:
       - AutoresearchInferenceWorkflow  — scores users, emits prediction events
       - AutoresearchValidationWorkflow — validates predictions from horizon days ago
       - activity_kickoff_training      — starts a new agent training run if eligible
 
-    All three steps run concurrently. Per-pipeline errors are logged and counted
-    but do not prevent other pipelines from running.
+    All three steps run concurrently. Per-pipeline failures — raised exceptions and
+    activity results that report a soft failure — are logged and counted in
+    pipelines_errored, but do not prevent other pipelines from running.
     """
 
     inputs_cls = CoordinatorWorkflowInput
@@ -406,13 +460,13 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             workflow.logger.info("autoresearch_coordinator_no_active_pipelines")
             return CoordinatorWorkflowResult(pipelines_processed=0, pipelines_errored=0, status="completed")
 
-        results = await _asyncio.gather(
+        outcomes = await _asyncio.gather(
             *[self._run_pipeline(pid, run_date) for pid in active.pipeline_ids],
             return_exceptions=True,
         )
 
-        errored = sum(1 for r in results if isinstance(r, BaseException))
-        processed = len(results) - errored
+        errored = sum(1 for o in outcomes if isinstance(o, BaseException) or not o.succeeded)
+        processed = len(outcomes) - errored
 
         workflow.logger.info(
             "autoresearch_coordinator_complete",
@@ -427,9 +481,9 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             status="completed" if errored == 0 else "partial",
         )
 
-    async def _run_pipeline(self, pipeline_id: str, run_date: str) -> None:
+    async def _run_pipeline(self, pipeline_id: str, run_date: str) -> PipelineRunOutcome:
         """Run inference, validation, and training kickoff for one pipeline."""
-        results = await _asyncio.gather(
+        inference_result, validation_result, kickoff_result = await _asyncio.gather(
             workflow.execute_child_workflow(
                 AutoresearchInferenceWorkflow.run,
                 InferenceWorkflowInput(pipeline_id=pipeline_id, prediction_date=run_date),
@@ -450,10 +504,16 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             ),
             return_exceptions=True,
         )
-        failures = [r for r in results if isinstance(r, BaseException)]
-        for exc in failures:
+        outcome = evaluate_pipeline_outcome(
+            pipeline_id=pipeline_id,
+            inference=inference_result,
+            validation=validation_result,
+            kickoff=kickoff_result,
+        )
+        for error in outcome.errors:
             workflow.logger.warning(
                 "autoresearch_pipeline_step_failed",
                 pipeline_id=pipeline_id,
-                error=str(exc),
+                error=error,
             )
+        return outcome

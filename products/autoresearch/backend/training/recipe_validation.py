@@ -12,6 +12,9 @@ where it actually matters: the legacy in-process inference path
 and calls ``validate_model_class`` there before importing.
 """
 
+from collections.abc import Iterable, Mapping
+from typing import Any
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
@@ -53,6 +56,14 @@ def validate_feature_sql(feature_sql: str) -> None:
             'feature_sql must select person_id (e.g. "SELECT person_id AS distinct_id, ...") '
             "so each row keys one person."
         )
+    # The framework substitutes {anchors} with the per-user (person_id, cutoff_ts) table via a
+    # plain string replace, which is a silent no-op when the placeholder is absent — the SQL
+    # would then run with no per-user T0 cutoff and read the outcome window (target leakage).
+    if "{anchors}" not in feature_sql:
+        raise RecipeValidationError(
+            "feature_sql must read FROM the {anchors} placeholder table (columns person_id, "
+            "cutoff_ts) so features are cut off at each user's T0 and cannot leak the outcome window."
+        )
 
 
 def _selected_names(node: ast.SelectQuery) -> set[str]:
@@ -66,6 +77,33 @@ def _selected_names(node: ast.SelectQuery) -> set[str]:
         if isinstance(inner, ast.Field) and inner.chain:
             names.add(str(inner.chain[-1]))
     return names
+
+
+def validate_unique_distinct_ids(rows: Iterable[Mapping[str, Any]], *, source: str = "feature_sql") -> None:
+    """
+    Enforce the one-row-per-person contract on materialized feature rows.
+
+    Static SQL validation cannot prove row uniqueness — duplicate distinct_ids only become
+    visible at materialization time, where they would flow into training as extra labeled
+    examples for the duplicated persons.
+    """
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for row in rows:
+        distinct_id = row.get("distinct_id")
+        if distinct_id is None:
+            continue
+        key = str(distinct_id)
+        if key in seen:
+            duplicates.add(key)
+        seen.add(key)
+    if duplicates:
+        sample = ", ".join(sorted(duplicates)[:5])
+        raise RecipeValidationError(
+            f"{source} returned multiple rows for the same person ({len(duplicates)} duplicated "
+            f"distinct_ids, e.g. {sample}). Each person must aggregate to exactly one row — "
+            "check the GROUP BY."
+        )
 
 
 def validate_recipe(model_spec: dict, recipe_snapshot: dict) -> None:

@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
@@ -16,6 +17,27 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_recipe
 
+TARGET_EVENT_MAX_LENGTH = 255
+OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
+
+# The target event is interpolated into the sandboxed training agent's prompt brief, so reject
+# characters that could break out of it (control chars incl. newlines, backticks, template braces)
+# while keeping real event names ('$pageview', 'signed up', 'app.download-file') valid.
+_FORBIDDEN_TARGET_EVENT_CHARS = re.compile(r"[\x00-\x1f\x7f`{}]")
+
+_OUTPUT_PERSON_PROPERTY_RE = re.compile(r"^[A-Za-z0-9_$][A-Za-z0-9_$.\-]*$")
+
+
+def _validate_target_event_value(value: str, *, error_key: str) -> None:
+    if len(value) > TARGET_EVENT_MAX_LENGTH:
+        raise serializers.ValidationError(
+            {error_key: f"Target event names are limited to {TARGET_EVENT_MAX_LENGTH} characters."}
+        )
+    if _FORBIDDEN_TARGET_EVENT_CHARS.search(value):
+        raise serializers.ValidationError(
+            {error_key: "Target event names cannot contain control characters, backticks, or braces."}
+        )
+
 
 def resolve_target(
     *,
@@ -28,12 +50,19 @@ def resolve_target(
 
     Two shapes:
       - event target → target_event must be non-empty; the definition is normalized to
-        ``{"type": "event"}``.
+        ``{"type": "event"}``. Any other event-shaped definition (e.g. one carrying filters)
+        is rejected — the labeler only compiles the bare event and action shapes, so accepting
+        filters here would silently ignore them.
       - action target → ``{"type": "action", "action_id": N}``. The action must belong to
         ``team`` (IDOR guard). target_event is backfilled from the action name when not
         supplied, so display and output-person-property derivation keep working unchanged.
 
-    Raises serializers.ValidationError on a missing/foreign action or an empty event target.
+    The resolved event is bounded and charset-checked in both branches — an action name can be
+    longer (400 chars) and freer than target_event's field validation allows, and the value ends
+    up in the training agent's prompt brief.
+
+    Raises serializers.ValidationError on a missing/foreign action, an empty event target, an
+    unsupported definition shape, or an unsafe/oversized resolved event.
     """
     definition = target_definition or {}
     if definition.get("type") == "action":
@@ -47,13 +76,24 @@ def resolve_target(
                 {"target_definition": f"Action {action_id} was not found in this project."}
             )
         resolved_event = target_event or action.name or f"action_{action_id}"
+        _validate_target_event_value(resolved_event, error_key="target_event" if target_event else "target_definition")
         return resolved_event, {"type": "action", "action_id": int(action_id)}
 
     if not target_event:
         raise serializers.ValidationError(
             {"target_event": "Provide a target_event, or an action target via target_definition."}
         )
-    return target_event, ({"type": "event"} if not definition else definition)
+    if definition and (definition.get("type") != "event" or set(definition) != {"type"}):
+        raise serializers.ValidationError(
+            {
+                "target_definition": (
+                    'Unsupported target_definition. Pass {"type": "action", "action_id": N} to predict an action, '
+                    "or omit target_definition to predict target_event. Event filters are not supported."
+                )
+            }
+        )
+    _validate_target_event_value(target_event, error_key="target_event")
+    return target_event, {"type": "event"}
 
 
 # ── Typed schema wrappers for JSONField -----------------------------------
@@ -62,8 +102,11 @@ def resolve_target(
 @extend_schema_field(
     {
         "type": "object",
-        "description": "Full target definition. May include event filters, action IDs, and positive-label conditions.",
-        "example": {"event": "$pageview", "filters": []},
+        "description": (
+            'Target definition. Two supported shapes: {"type": "event"} (predict target_event; the default) '
+            'or {"type": "action", "action_id": N} (predict a PostHog action). Event filters are not supported.'
+        ),
+        "example": {"type": "event"},
     }
 )
 class TargetDefinitionField(serializers.JSONField):
@@ -124,7 +167,7 @@ class ModelExplanationField(serializers.JSONField):
 class AutoresearchPipelineSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     target_definition = TargetDefinitionField(
-        help_text="Full target definition including event filters and positive-label conditions."
+        help_text='Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.'
     )
     training_population = PopulationDefinitionField(
         help_text="Population used for training. Defines which users can appear as training examples."
@@ -216,7 +259,10 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
     target_definition = TargetDefinitionField(
         required=False,
         default=dict,
-        help_text="Full target definition. Can be left empty to use target_event alone.",
+        help_text=(
+            'Omit (or pass {"type": "event"}) to predict target_event; pass '
+            '{"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.'
+        ),
     )
     training_population = PopulationDefinitionField(
         required=False,
@@ -258,44 +304,133 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
                 ),
             },
             "horizon_days": {
-                "help_text": "Prediction horizon in days. The model predicts whether the target event occurs within this window."
+                "min_value": 1,
+                "max_value": 365,
+                "help_text": "Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.",
             },
             "training_lookback_days": {
-                "help_text": "How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180."
+                "min_value": 7,
+                "max_value": 730,
+                "help_text": "How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.",
             },
-            "cadence_days": {"help_text": "Re-score the inference population every N days. Default: 1."},
+            "cadence_days": {
+                "min_value": 1,
+                "max_value": 365,
+                "help_text": "Re-score the inference population every N days (1-365). Default: 1.",
+            },
             "iteration_budget": {
-                "help_text": "Total training iterations allowed for the autoresearch loop. Default: 50."
+                "min_value": 1,
+                "max_value": 500,
+                "help_text": "Total training iterations allowed for the autoresearch loop (1-500). Default: 50.",
             },
             "success_auc": {"help_text": "Target AUC threshold. Training stops early if reached. Default: 0.75."},
             "plateau_iterations": {
                 "help_text": "Stop training if no improvement in this many consecutive iterations. Default: 10."
             },
             "output_person_property": {
-                "help_text": "Person property name for the prediction score. Auto-derived from target_event if omitted, e.g. 'predicted_p_pageview'."
+                "help_text": (
+                    "Person property name for the prediction score, e.g. 'predicted_p_pageview'. "
+                    "Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; "
+                    "must be unique among this project's non-archived pipelines."
+                )
             },
         }
 
+    # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
+    # loading the trained artifact, so changing them would silently answer a different question.
+    MODEL_DEFINING_FIELDS = (
+        "target_event",
+        "target_definition",
+        "horizon_days",
+        "training_lookback_days",
+        "training_population",
+        "inference_population",
+    )
+
+    def validate_output_person_property(self, value: str) -> str:
+        if value and not _OUTPUT_PERSON_PROPERTY_RE.fullmatch(value):
+            raise serializers.ValidationError(
+                "Use only letters, digits, and _ $ . - characters, e.g. 'predicted_p_signup_7d'."
+            )
+        return value
+
+    def _validate_model_defining_fields_unchanged(self, data: dict[str, Any]) -> None:
+        instance = self.instance
+        assert isinstance(instance, AutoresearchPipeline)
+        if not instance.models.exists():
+            return
+        changed = []
+        for field in self.MODEL_DEFINING_FIELDS:
+            if field not in data:
+                continue
+            current, new = getattr(instance, field), data[field]
+            if field == "target_definition":
+                # An empty stored definition and the normalized {"type": "event"} mean the same thing.
+                current, new = current or {"type": "event"}, new or {"type": "event"}
+            if new != current:
+                changed.append(field)
+        if changed:
+            raise serializers.ValidationError(
+                dict.fromkeys(
+                    changed,
+                    "This field cannot be changed after a model has been trained for this pipeline. "
+                    "Create a new pipeline to predict a different target.",
+                )
+            )
+
+    def _derive_output_person_property(self, data: dict[str, Any]) -> str:
+        raw = data.get("target_event") or "target"
+        safe_name = re.sub(r"[^a-z0-9._-]+", "_", raw.lstrip("$").lower()) or "target"
+        # Include the horizon so two pipelines predicting the same target over different
+        # horizons don't $set the same person property and clobber each other's scores.
+        horizon = data.get("horizon_days") or 7
+        derived = f"predicted_p_{safe_name}_{horizon}d"
+        if len(derived) > OUTPUT_PERSON_PROPERTY_MAX_LENGTH:
+            raise serializers.ValidationError(
+                {
+                    "output_person_property": (
+                        "The auto-derived property name is too long for this target. "
+                        "Pass output_person_property explicitly."
+                    )
+                }
+            )
+        return derived
+
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        team = self.context["get_team"]()
         # On a partial update that doesn't touch the target, leave it untouched —
         # only resolve when creating or when a target field is actually supplied.
-        is_partial_update = self.instance is not None
+        is_update = self.instance is not None
         target_supplied = "target_event" in data or "target_definition" in data
-        if not is_partial_update or target_supplied:
+        if not is_update or target_supplied:
             target_event, target_definition = resolve_target(
-                team=self.context["get_team"](),
+                team=team,
                 target_event=data.get("target_event", ""),
                 target_definition=data.get("target_definition"),
             )
             data["target_event"] = target_event
             data["target_definition"] = target_definition
-        if not is_partial_update and not data.get("output_person_property"):
-            safe_name = data.get("target_event", "target").lstrip("$").replace(" ", "_").lower()
-            # Include the horizon so two pipelines predicting the same target over different
-            # horizons don't $set the same person property and clobber each other's scores.
-            horizon = data.get("horizon_days") or 7
-            data["output_person_property"] = f"predicted_p_{safe_name}_{horizon}d"
-        if not is_partial_update and not data.get("inference_population"):
+        if is_update:
+            self._validate_model_defining_fields_unchanged(data)
+        if not is_update and not data.get("output_person_property"):
+            data["output_person_property"] = self._derive_output_person_property(data)
+        output_person_property = data.get("output_person_property")
+        if output_person_property:
+            conflicts = AutoresearchPipeline.objects.filter(
+                team=team, output_person_property=output_person_property
+            ).exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+            if self.instance is not None:
+                conflicts = conflicts.exclude(pk=self.instance.pk)
+            if conflicts.exists():
+                raise serializers.ValidationError(
+                    {
+                        "output_person_property": (
+                            f"Another pipeline in this project already writes to '{output_person_property}'. "
+                            "Choose a different output_person_property."
+                        )
+                    }
+                )
+        if not is_update and not data.get("inference_population"):
             data["inference_population"] = data.get("training_population", {})
         return data
 
@@ -321,6 +456,7 @@ class AutoresearchModelSerializer(serializers.ModelSerializer):
             "realized_score",
             "calibration_error",
             "metrics",
+            "source_training_run",
             "agent_description",
             "trained_on_start",
             "trained_on_end",
@@ -330,7 +466,7 @@ class AutoresearchModelSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "recipe_hash", "created_at", "updated_at"]
+        read_only_fields = ["id", "recipe_hash", "source_training_run", "created_at", "updated_at"]
         extra_kwargs = {
             "id": {"help_text": "Unique UUID of this model version."},
             "pipeline": {"help_text": "Pipeline this model belongs to."},
@@ -351,6 +487,12 @@ class AutoresearchModelSerializer(serializers.ModelSerializer):
             },
             "metrics": {
                 "help_text": "Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts."
+            },
+            "source_training_run": {
+                "help_text": (
+                    "Training run that produced this model. Read that run's artifact bundle to reuse the "
+                    "champion's train.py and features.sql as a starting point. Null for legacy models."
+                )
             },
             "agent_description": {
                 "help_text": "The agent's own plain-English description of what this recipe does and why it was chosen."
@@ -837,18 +979,20 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         default="",
+        max_length=2000,
         help_text=(
             "What a future run should try next, given what this run learned. Stored in the run summary so the "
-            "next run reads it during orientation. Keep it short and concrete."
+            "next run reads it during orientation. Keep it short and concrete; max 2000 characters."
         ),
     )
     distillation = serializers.CharField(
         required=False,
         allow_blank=True,
         default="",
+        max_length=2000,
         help_text=(
             "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
-            "dead-ends. Stored in the run summary as the cheapest thing the next run reads."
+            "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
         ),
     )
 

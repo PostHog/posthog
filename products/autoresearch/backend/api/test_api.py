@@ -1,14 +1,19 @@
 import base64
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
+from products.autoresearch.backend.api.serializers import AutoresearchPipelineCreateSerializer
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.models import (
     AutoresearchModel,
@@ -232,33 +237,138 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
 
     def test_start_training(self):
         pipeline = self._make_pipeline()
-        training_run = AutoresearchTrainingRun.objects.create(
-            pipeline=pipeline,
-            status=AutoresearchTrainingRun.Status.RUNNING,
-            iteration_budget=50,
-        )
-        with patch("products.autoresearch.backend.api.views.run_training", return_value=training_run):
+
+        # The run must not exist before the call: the endpoint rejects pipelines that
+        # already have a live run, so the mock creates it the way run_training would.
+        def _fake_run_training(*, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any):
+            return AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.RUNNING,
+                iteration_budget=iteration_budget,
+            )
+
+        with patch("products.autoresearch.backend.api.views.run_training", side_effect=_fake_run_training):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
         assert data["status"] == "running"
 
-    # ─────────────────────────────────── nested resources ─────────────────────────────────────────
+    def test_start_training_with_live_run_returns_400(self):
+        pipeline = self._make_pipeline()
+        AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=50,
+        )
+        with patch("products.autoresearch.backend.api.views.run_training") as mock_run_training:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
-    def test_list_models_for_pipeline(self):
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        mock_run_training.assert_not_called()
+
+    # ──────────────────────────────────── update restrictions ─────────────────────────────────────
+
+    def _make_trained_pipeline(self) -> AutoresearchPipeline:
         pipeline = self._make_pipeline()
         AutoresearchModel.objects.create(
             pipeline=pipeline,
             role=AutoresearchModel.Role.CHAMPION,
             model_recipe={"stub": True},
             recipe_hash="abc123",
+        )
+        return pipeline
+
+    @parameterized.expand(
+        [
+            ("target_event", {"target_event": "other_event"}),
+            ("horizon_days", {"horizon_days": 30}),
+            ("training_lookback_days", {"training_lookback_days": 90}),
+            ("training_population", {"training_population": {"kind": "ever_performed_event"}}),
+            ("inference_population", {"inference_population": {"kind": "ever_performed_event"}}),
+        ]
+    )
+    def test_model_defining_fields_frozen_after_training(self, field: str, payload: dict):
+        pipeline = self._make_trained_pipeline()
+        resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", payload, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        pipeline.refresh_from_db()
+        assert getattr(pipeline, field) != payload[field]
+
+    def test_metadata_editable_after_training(self):
+        pipeline = self._make_trained_pipeline()
+        resp = self.client.patch(
+            f"{self.base_url}/{pipeline.id}/",
+            {"name": "Renamed", "cadence_days": 3, "iteration_budget": 20},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        pipeline.refresh_from_db()
+        assert pipeline.name == "Renamed"
+        assert pipeline.cadence_days == 3
+
+    def test_resubmitting_unchanged_target_after_training_is_allowed(self):
+        pipeline = self._make_trained_pipeline()
+        resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"target_event": "$pageview"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+
+    def test_target_editable_before_any_model_is_trained(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"horizon_days": 30}, format="json")
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        pipeline.refresh_from_db()
+        assert pipeline.horizon_days == 30
+
+    # ─────────────────────────────── output_person_property guards ────────────────────────────────
+
+    def test_output_person_property_collision_rejected(self):
+        self._make_pipeline(name="First", output_person_property="predicted_p_signup_7d")
+        resp = self.client.post(
+            f"{self.base_url}/",
+            {"name": "Second", "target_event": "other_event", "output_person_property": "predicted_p_signup_7d"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == "output_person_property"
+
+    def test_derived_output_person_property_collision_rejected(self):
+        self._make_pipeline(name="First", output_person_property="predicted_p_signup_14d")
+        # Same target + horizon derives the same property name.
+        resp = self.client.post(
+            f"{self.base_url}/",
+            {"name": "Second", "target_event": "$signup", "horizon_days": 14},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_oversized_action_name_target_rejected(self):
+        action = Action.objects.create(team=self.team, name="x" * 300, steps_json=[{"event": "uploaded_file"}])
+        resp = self.client.post(
+            f"{self.base_url}/",
+            {"name": "Oversized", "target_definition": {"type": "action", "action_id": action.id}},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    # ─────────────────────────────────── nested resources ─────────────────────────────────────────
+
+    def test_list_models_for_pipeline(self):
+        pipeline = self._make_pipeline()
+        training_run = AutoresearchTrainingRun.objects.create(pipeline=pipeline, status="completed")
+        AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="abc123",
             holdout_score=0.7,
+            source_training_run=training_run,
         )
         resp = self.client.get(f"{self.base_url}/{pipeline.id}/models/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
         assert resp.json()["results"][0]["role"] == "champion"
+        # The agent brief tells agents to look up a champion's bundle via source_training_run.
+        assert resp.json()["results"][0]["source_training_run"] == str(training_run.id)
 
     def test_list_training_runs_for_pipeline(self):
         pipeline = self._make_pipeline()
@@ -591,6 +701,21 @@ class TestAutoresearchArtifactAPI(APIBaseTest):
         resp = self.client.post(self._artifacts_url("/delete"), {"path": "train.py"}, format="json")
         assert resp.json()["deleted"] is False
 
+    def test_bundle_frozen_once_run_is_no_longer_running(self):
+        self._upload("train.py", b"print('train')")
+        self.training_run.status = AutoresearchTrainingRun.Status.COMPLETED
+        self.training_run.save(update_fields=["status"])
+
+        resp = self._upload("predict.py", b"print('predict')")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+        resp = self.client.post(self._artifacts_url("/delete"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+        # Reads stay open — inference and future runs still consume the frozen bundle.
+        resp = self.client.post(self._artifacts_url("/get"), {"path": "train.py"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+
     def test_get_missing_returns_404(self):
         resp = self.client.post(self._artifacts_url("/get"), {"path": "nope.py"}, format="json")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
@@ -617,3 +742,67 @@ class TestAutoresearchArtifactAPI(APIBaseTest):
         # The viewset filters by request team; another team's run is not reachable here.
         resp = self.client.get(f"{self.base_url}/{other_pipeline.id}/training_runs/{other_run.id}/artifacts")
         assert resp.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+
+class TestPipelineCreateSerializerValidation(SimpleTestCase):
+    # Field- and target-shape validation runs in memory, so these cases never need a DB.
+    # The endpoint wiring (bad body -> 400) is covered by the APIBaseTest create tests above.
+
+    def _serializer(self, **overrides: Any) -> AutoresearchPipelineCreateSerializer:
+        data: dict[str, Any] = {"name": "Pipeline", "target_event": "$pageview", **overrides}
+        return AutoresearchPipelineCreateSerializer(data=data, context={"get_team": lambda: None})
+
+    @parameterized.expand(
+        [
+            ("horizon_days_below_min", "horizon_days", 0),
+            ("horizon_days_above_max", "horizon_days", 366),
+            ("lookback_below_min", "training_lookback_days", 6),
+            ("lookback_above_max", "training_lookback_days", 731),
+            ("cadence_below_min", "cadence_days", 0),
+            ("cadence_above_max", "cadence_days", 366),
+            ("iteration_budget_below_min", "iteration_budget", 0),
+            ("iteration_budget_above_max", "iteration_budget", 501),
+        ]
+    )
+    def test_out_of_range_numeric_field_rejected(self, _name: str, field: str, value: int) -> None:
+        serializer = self._serializer(**{field: value})
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("newline", "signup\ncomplete"),
+            ("backtick", "signup`whoami`"),
+            ("template_braces", "signup {{instructions}}"),
+            ("control_char", "signup\x07"),
+        ]
+    )
+    def test_injection_shaped_target_event_rejected(self, _name: str, target_event: str) -> None:
+        serializer = self._serializer(target_event=target_event)
+        assert not serializer.is_valid()
+        assert "target_event" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("event_with_filters", {"type": "event", "filters": [{"key": "$current_url"}]}),
+            ("legacy_event_shape", {"event": "$pageview", "filters": []}),
+            ("unknown_type", {"type": "cohort", "cohort_id": 1}),
+        ]
+    )
+    def test_unsupported_event_target_definition_rejected(self, _name: str, definition: dict) -> None:
+        serializer = self._serializer(target_definition=definition)
+        assert not serializer.is_valid()
+        assert "target_definition" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("space", "predicted p"),
+            ("backtick", "predicted`p"),
+            ("braces", "predicted{p}"),
+            ("newline", "predicted\np"),
+        ]
+    )
+    def test_invalid_output_person_property_shape_rejected(self, _name: str, value: str) -> None:
+        serializer = self._serializer(output_person_property=value)
+        assert not serializer.is_valid()
+        assert "output_person_property" in serializer.errors

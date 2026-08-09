@@ -1,8 +1,18 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.autoresearch.backend.dataset.labeling import _build_population_conditions
-from products.autoresearch.backend.inference.scoring import _score_rows, run_inference_for_pipeline
+from products.autoresearch.backend.inference import scoring
+from products.autoresearch.backend.inference.scoring import (
+    InferenceRunError,
+    _fetch_inference_rows,
+    _fetch_population_distinct_ids,
+    _fetch_training_rows,
+    _score_rows,
+    run_inference_for_pipeline,
+)
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 
 
@@ -105,6 +115,42 @@ class TestRunInferencePipeline(BaseTest):
         assert run.rows_scored == 0
         mock_capture.assert_not_called()
 
+    @patch("products.autoresearch.backend.inference.scoring.capture_internal")
+    @patch("products.autoresearch.backend.inference.scoring._fetch_feature_rows")
+    def test_all_emit_failures_fail_the_run(self, mock_fetch: MagicMock, mock_capture: MagicMock):
+        # Rows were scored but every capture call failed: the run must fail so
+        # last_scored_at does not advance and the coordinator retries.
+        mock_fetch.return_value = [
+            {"distinct_id": "user-1", "events_total_30d": 50, "days_since_last_seen": 2},
+            {"distinct_id": "user-2", "events_total_30d": 10, "days_since_last_seen": 15},
+        ]
+        mock_capture.side_effect = Exception("capture unavailable")
+
+        pipeline, model = self._make_pipeline_and_model()
+        with self.assertRaises(InferenceRunError):
+            run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
+        assert run.status == AutoresearchRun.Status.FAILED
+        pipeline.refresh_from_db()
+        assert pipeline.last_scored_at is None
+
+    @patch("products.autoresearch.backend.inference.scoring.capture_internal")
+    @patch("products.autoresearch.backend.inference.scoring._fetch_feature_rows")
+    def test_partial_emit_failure_completes_with_error_count(self, mock_fetch: MagicMock, mock_capture: MagicMock):
+        mock_fetch.return_value = [
+            {"distinct_id": "user-1", "events_total_30d": 50, "days_since_last_seen": 2},
+            {"distinct_id": "user-2", "events_total_30d": 10, "days_since_last_seen": 15},
+        ]
+        mock_capture.side_effect = [MagicMock(), Exception("boom")]
+
+        pipeline, model = self._make_pipeline_and_model()
+        run = run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.rows_scored == 1
+        assert run.metrics["emit_errors"] == 1
+
 
 class TestBuildPopulationConditions(BaseTest):
     def test_empty_properties_returns_empty(self):
@@ -115,20 +161,22 @@ class TestBuildPopulationConditions(BaseTest):
     def test_is_set_operator(self):
         parts, values = _build_population_conditions([{"key": "email", "type": "person", "operator": "is_set"}])
         assert len(parts) == 1
-        assert "isNotNull(person.properties.email)" in parts[0]
-        assert values == {}
+        assert "isNotNull(person.properties[{pop_k_0}])" in parts[0]
+        assert values == {"pop_k_0": "email"}
 
     def test_is_not_set_operator(self):
         parts, values = _build_population_conditions([{"key": "email", "type": "person", "operator": "is_not_set"}])
         assert len(parts) == 1
-        assert "isNull(person.properties.email)" in parts[0]
+        assert "isNull(person.properties[{pop_k_0}])" in parts[0]
+        assert values == {"pop_k_0": "email"}
 
     def test_exact_scalar_value(self):
         parts, values = _build_population_conditions(
             [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]
         )
         assert len(parts) == 1
-        assert "person.properties.plan = {pop_0}" in parts[0]
+        assert "person.properties[{pop_k_0}] = {pop_0}" in parts[0]
+        assert values["pop_k_0"] == "plan"
         assert values["pop_0"] == "pro"
 
     def test_exact_list_value(self):
@@ -144,7 +192,7 @@ class TestBuildPopulationConditions(BaseTest):
         parts, values = _build_population_conditions(
             [{"key": "plan", "type": "person", "operator": "is_not", "value": "free"}]
         )
-        assert "person.properties.plan != {pop_0}" in parts[0]
+        assert "person.properties[{pop_k_0}] != {pop_0}" in parts[0]
         assert values["pop_0"] == "free"
 
     def test_icontains(self):
@@ -163,21 +211,23 @@ class TestBuildPopulationConditions(BaseTest):
 
     def test_gt_operator(self):
         parts, values = _build_population_conditions([{"key": "age", "type": "person", "operator": "gt", "value": 18}])
-        assert "toFloat64OrNull(person.properties.age) > {pop_0}" in parts[0]
+        assert "toFloat64OrNull(person.properties[{pop_k_0}]) > {pop_0}" in parts[0]
         assert values["pop_0"] == 18
 
     def test_event_type_uses_event_properties(self):
         parts, values = _build_population_conditions(
             [{"key": "plan", "type": "event", "operator": "exact", "value": "pro"}]
         )
-        assert "properties.plan" in parts[0]
+        assert "properties[{pop_k_0}]" in parts[0]
         assert "person.properties" not in parts[0]
 
-    def test_unsafe_key_skipped(self):
-        parts, values = _build_population_conditions(
-            [{"key": "'; DROP TABLE users; --", "type": "person", "operator": "is_set"}]
-        )
-        assert parts == []
+    def test_hostile_key_is_bound_not_interpolated(self):
+        # Keys are bound as HogQL values, so a hostile key must never reach the SQL text.
+        hostile_key = "'; DROP TABLE users; --"
+        parts, values = _build_population_conditions([{"key": hostile_key, "type": "person", "operator": "is_set"}])
+        assert len(parts) == 1
+        assert hostile_key not in parts[0]
+        assert values["pop_k_0"] == hostile_key
 
     def test_unsupported_prop_type_skipped(self):
         parts, values = _build_population_conditions(
@@ -265,31 +315,6 @@ class TestFetchFeatureRowsPopulationFilter(BaseTest):
         assert len(rows) == 2
         assert {r["distinct_id"] for r in rows} == {"user-1", "user-3"}
 
-    @patch("products.autoresearch.backend.inference.scoring._fetch_population_distinct_ids")
-    @patch("products.autoresearch.backend.inference.scoring.HogQLQueryRunner")
-    def test_population_query_failure_fails_open(self, mock_runner_cls: MagicMock, mock_pop: MagicMock):
-        pipeline = self._make_pipeline(
-            inference_population={
-                "properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]
-            }
-        )
-        model = self._make_model(pipeline)
-
-        mock_result = MagicMock()
-        mock_result.results = [("user-1",), ("user-2",)]
-        mock_result.columns = ["distinct_id"]
-        mock_runner_cls.return_value.run.return_value = mock_result
-
-        # Simulate population query failure (returns None = fail open)
-        mock_pop.return_value = None
-
-        from products.autoresearch.backend.inference.scoring import _fetch_feature_rows
-
-        rows = _fetch_feature_rows(team=self.team, pipeline=pipeline, model=model)
-
-        # All rows returned — fail open, not fail closed
-        assert len(rows) == 2
-
 
 class TestFetchPopulationDistinctIds(BaseTest):
     @patch("products.autoresearch.backend.inference.scoring.HogQLQueryRunner")
@@ -307,3 +332,66 @@ class TestFetchPopulationDistinctIds(BaseTest):
         assert allowed == frozenset({"person-1", "person-2"})
         sent_sql = mock_runner_cls.call_args.kwargs["query"].query
         assert "person.is_identified" in sent_sql
+
+    @patch("products.autoresearch.backend.inference.scoring.HogQLQueryRunner")
+    def test_population_query_failure_fails_closed(self, mock_runner_cls: MagicMock):
+        # A transient HogQL failure must fail the run — treating it as "no restriction"
+        # would score everyone and write person properties outside the population.
+        mock_runner_cls.return_value.run.side_effect = Exception("clickhouse timeout")
+
+        with self.assertRaises(InferenceRunError):
+            _fetch_population_distinct_ids(
+                team=self.team,
+                population={"properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]},
+                lookback_days=30,
+            )
+
+
+class TestAnchorsRecipeQueries(BaseTest):
+    _FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS events_total FROM {anchors} a GROUP BY a.person_id"
+
+    def _make_pipeline(self) -> AutoresearchPipeline:
+        return AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="anchors",
+            target_event="$pageview",
+            horizon_days=7,
+        )
+
+    def test_recipe_query_carries_explicit_limit(self):
+        # Without an explicit LIMIT, HogQL silently caps the composite query at 100 rows.
+        pipeline = self._make_pipeline()
+        with patch.object(scoring, "HogQLQueryRunner") as runner_cls:
+            runner_cls.return_value.run.return_value = MagicMock(results=[], columns=[])
+            _fetch_inference_rows(team=self.team, pipeline=pipeline, feature_sql=self._FEATURE_SQL)
+        sent_sql = runner_cls.call_args.kwargs["query"].query
+        assert sent_sql.rstrip().endswith(f"LIMIT {scoring._MATERIALIZE_ROW_LIMIT}")
+
+    @parameterized.expand([("training",), ("inference",)])
+    def test_recipe_query_hitting_row_limit_fails(self, kind: str):
+        # A result that fills the LIMIT is a truncated population — completing would
+        # silently skip the users past the cap while last_scored_at advances.
+        pipeline = self._make_pipeline()
+        fake_result = MagicMock(results=[(f"p{i}",) for i in range(3)], columns=["distinct_id"])
+        with (
+            patch.object(scoring, "_MATERIALIZE_ROW_LIMIT", 3),
+            patch.object(scoring, "HogQLQueryRunner") as runner_cls,
+        ):
+            runner_cls.return_value.run.return_value = fake_result
+            with self.assertRaises(InferenceRunError):
+                if kind == "training":
+                    _fetch_training_rows(team=self.team, pipeline=pipeline, feature_sql=self._FEATURE_SQL)
+                else:
+                    _fetch_inference_rows(team=self.team, pipeline=pipeline, feature_sql=self._FEATURE_SQL)
+
+    def test_inference_rows_thread_backfill_cutoff(self):
+        # Backdated scoring must compute features as of the backfill instant, not now().
+        pipeline = self._make_pipeline()
+        with patch.object(scoring, "HogQLQueryRunner") as runner_cls:
+            runner_cls.return_value.run.return_value = MagicMock(results=[], columns=[])
+            _fetch_inference_rows(
+                team=self.team, pipeline=pipeline, feature_sql=self._FEATURE_SQL, cutoff_ts=1_700_000_000
+            )
+        sent_query = runner_cls.call_args.kwargs["query"]
+        assert sent_query.values["cutoff_ts"] == 1_700_000_000

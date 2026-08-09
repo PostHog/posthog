@@ -76,5 +76,5 @@ The real-agent training path additionally needs Tasks access, since it runs in a
 
 ## Known gaps
 
-- **`iteration_count` on a training run is only written at completion**, while `AutoresearchIteration` rows now land live during the run. A run mid-flight shows `0/5` with rows already in the table.
+- **`iteration_count` on a training run is only written at completion**, while `AutoresearchIteration` rows land live during the run. The UI derives in-flight progress from the live iteration rows (`trainingRunProgress` in `frontend/autoresearchPipelineLogic.ts`), so only API consumers reading the persisted counter see `0` mid-run.
 - Older notes claim the UI has no create flow and that the "New prediction" button is disabled. That is out of date — `/autoresearch/new` is wired up and creates pipelines through the generated API. See `frontend/AGENTS.md`.

@@ -3,17 +3,14 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    AutoresearchArchiveCreateBody,
     AutoresearchArchiveCreateParams,
     AutoresearchCreateBody,
     AutoresearchListQueryParams,
     AutoresearchModelsListParams,
     AutoresearchModelsListQueryParams,
     AutoresearchModelsRetrieveParams,
-    AutoresearchPauseCreateBody,
     AutoresearchPauseCreateParams,
     AutoresearchResolveTemplateCreateBody,
-    AutoresearchResumeCreateBody,
     AutoresearchResumeCreateParams,
     AutoresearchRetrieveParams,
     AutoresearchRunsListParams,
@@ -49,15 +46,12 @@ import {
     AutoresearchTrainingRunsMaterializeFeaturesCreateBody,
     AutoresearchTrainingRunsMaterializeFeaturesCreateParams,
     AutoresearchValidateCreateBody,
-    AutoresearchValidateOnlineCreateBody,
     AutoresearchValidateOnlineCreateParams,
 } from '@/generated/autoresearch/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AutoresearchArchiveCreateSchema = AutoresearchArchiveCreateParams.omit({ project_id: true }).extend(
-    AutoresearchArchiveCreateBody.shape
-)
+const AutoresearchArchiveCreateSchema = AutoresearchArchiveCreateParams.omit({ project_id: true })
 
 const autoresearchArchiveCreate = (): ToolBase<
     typeof AutoresearchArchiveCreateSchema,
@@ -67,50 +61,9 @@ const autoresearchArchiveCreate = (): ToolBase<
     schema: AutoresearchArchiveCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AutoresearchArchiveCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.target_event !== undefined) {
-            body['target_event'] = params.target_event
-        }
-        if (params.target_definition !== undefined) {
-            body['target_definition'] = params.target_definition
-        }
-        if (params.horizon_days !== undefined) {
-            body['horizon_days'] = params.horizon_days
-        }
-        if (params.training_lookback_days !== undefined) {
-            body['training_lookback_days'] = params.training_lookback_days
-        }
-        if (params.training_population !== undefined) {
-            body['training_population'] = params.training_population
-        }
-        if (params.inference_population !== undefined) {
-            body['inference_population'] = params.inference_population
-        }
-        if (params.cadence_days !== undefined) {
-            body['cadence_days'] = params.cadence_days
-        }
-        if (params.iteration_budget !== undefined) {
-            body['iteration_budget'] = params.iteration_budget
-        }
-        if (params.success_auc !== undefined) {
-            body['success_auc'] = params.success_auc
-        }
-        if (params.plateau_iterations !== undefined) {
-            body['plateau_iterations'] = params.plateau_iterations
-        }
-        if (params.output_person_property !== undefined) {
-            body['output_person_property'] = params.output_person_property
-        }
         const result = await context.api.request<Schemas.AutoresearchPipeline>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/archive/`,
-            body,
         })
         return result
     },
@@ -301,59 +254,16 @@ const autoresearchModelsRetrieve = (): ToolBase<
     },
 })
 
-const AutoresearchPauseCreateSchema = AutoresearchPauseCreateParams.omit({ project_id: true }).extend(
-    AutoresearchPauseCreateBody.shape
-)
+const AutoresearchPauseCreateSchema = AutoresearchPauseCreateParams.omit({ project_id: true })
 
 const autoresearchPauseCreate = (): ToolBase<typeof AutoresearchPauseCreateSchema, Schemas.AutoresearchPipeline> => ({
     name: 'autoresearch-pause-create',
     schema: AutoresearchPauseCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AutoresearchPauseCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.target_event !== undefined) {
-            body['target_event'] = params.target_event
-        }
-        if (params.target_definition !== undefined) {
-            body['target_definition'] = params.target_definition
-        }
-        if (params.horizon_days !== undefined) {
-            body['horizon_days'] = params.horizon_days
-        }
-        if (params.training_lookback_days !== undefined) {
-            body['training_lookback_days'] = params.training_lookback_days
-        }
-        if (params.training_population !== undefined) {
-            body['training_population'] = params.training_population
-        }
-        if (params.inference_population !== undefined) {
-            body['inference_population'] = params.inference_population
-        }
-        if (params.cadence_days !== undefined) {
-            body['cadence_days'] = params.cadence_days
-        }
-        if (params.iteration_budget !== undefined) {
-            body['iteration_budget'] = params.iteration_budget
-        }
-        if (params.success_auc !== undefined) {
-            body['success_auc'] = params.success_auc
-        }
-        if (params.plateau_iterations !== undefined) {
-            body['plateau_iterations'] = params.plateau_iterations
-        }
-        if (params.output_person_property !== undefined) {
-            body['output_person_property'] = params.output_person_property
-        }
         const result = await context.api.request<Schemas.AutoresearchPipeline>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/pause/`,
-            body,
         })
         return result
     },
@@ -388,59 +298,16 @@ const autoresearchResolveTemplateCreate = (): ToolBase<
     },
 })
 
-const AutoresearchResumeCreateSchema = AutoresearchResumeCreateParams.omit({ project_id: true }).extend(
-    AutoresearchResumeCreateBody.shape
-)
+const AutoresearchResumeCreateSchema = AutoresearchResumeCreateParams.omit({ project_id: true })
 
 const autoresearchResumeCreate = (): ToolBase<typeof AutoresearchResumeCreateSchema, Schemas.AutoresearchPipeline> => ({
     name: 'autoresearch-resume-create',
     schema: AutoresearchResumeCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AutoresearchResumeCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.target_event !== undefined) {
-            body['target_event'] = params.target_event
-        }
-        if (params.target_definition !== undefined) {
-            body['target_definition'] = params.target_definition
-        }
-        if (params.horizon_days !== undefined) {
-            body['horizon_days'] = params.horizon_days
-        }
-        if (params.training_lookback_days !== undefined) {
-            body['training_lookback_days'] = params.training_lookback_days
-        }
-        if (params.training_population !== undefined) {
-            body['training_population'] = params.training_population
-        }
-        if (params.inference_population !== undefined) {
-            body['inference_population'] = params.inference_population
-        }
-        if (params.cadence_days !== undefined) {
-            body['cadence_days'] = params.cadence_days
-        }
-        if (params.iteration_budget !== undefined) {
-            body['iteration_budget'] = params.iteration_budget
-        }
-        if (params.success_auc !== undefined) {
-            body['success_auc'] = params.success_auc
-        }
-        if (params.plateau_iterations !== undefined) {
-            body['plateau_iterations'] = params.plateau_iterations
-        }
-        if (params.output_person_property !== undefined) {
-            body['output_person_property'] = params.output_person_property
-        }
         const result = await context.api.request<Schemas.AutoresearchPipeline>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/resume/`,
-            body,
         })
         return result
     },
@@ -1003,62 +870,19 @@ const autoresearchValidateCreate = (): ToolBase<
     },
 })
 
-const AutoresearchValidateOnlineCreateSchema = AutoresearchValidateOnlineCreateParams.omit({ project_id: true }).extend(
-    AutoresearchValidateOnlineCreateBody.shape
-)
+const AutoresearchValidateOnlineCreateSchema = AutoresearchValidateOnlineCreateParams.omit({ project_id: true })
 
 const autoresearchValidateOnlineCreate = (): ToolBase<
     typeof AutoresearchValidateOnlineCreateSchema,
-    Schemas.PaginatedAutoresearchRunList
+    Schemas.AutoresearchRun[]
 > => ({
     name: 'autoresearch-validate-online-create',
     schema: AutoresearchValidateOnlineCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AutoresearchValidateOnlineCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.target_event !== undefined) {
-            body['target_event'] = params.target_event
-        }
-        if (params.target_definition !== undefined) {
-            body['target_definition'] = params.target_definition
-        }
-        if (params.horizon_days !== undefined) {
-            body['horizon_days'] = params.horizon_days
-        }
-        if (params.training_lookback_days !== undefined) {
-            body['training_lookback_days'] = params.training_lookback_days
-        }
-        if (params.training_population !== undefined) {
-            body['training_population'] = params.training_population
-        }
-        if (params.inference_population !== undefined) {
-            body['inference_population'] = params.inference_population
-        }
-        if (params.cadence_days !== undefined) {
-            body['cadence_days'] = params.cadence_days
-        }
-        if (params.iteration_budget !== undefined) {
-            body['iteration_budget'] = params.iteration_budget
-        }
-        if (params.success_auc !== undefined) {
-            body['success_auc'] = params.success_auc
-        }
-        if (params.plateau_iterations !== undefined) {
-            body['plateau_iterations'] = params.plateau_iterations
-        }
-        if (params.output_person_property !== undefined) {
-            body['output_person_property'] = params.output_person_property
-        }
-        const result = await context.api.request<Schemas.PaginatedAutoresearchRunList>({
+        const result = await context.api.request<Schemas.AutoresearchRun[]>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/validate-online/`,
-            body,
         })
         return result
     },
