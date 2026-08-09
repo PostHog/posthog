@@ -44,7 +44,9 @@ refunds, or revenue reporting, use the appropriate billing/support workflow inst
 Only use this skill when the Billing read tools above are available. If the user asks
 about Billing usage and those tools are not available, do not continue with this
 workflow; briefly say that Billing usage investigation is not enabled for this
-organization or MCP session.
+organization or MCP session. If a Billing tool is available but returns a permission
+error, explain that the MCP session needs Billing access from an org admin or owner
+rather than saying the feature is unavailable.
 
 Some clients expose PostHog MCP tools through `mcp__posthog__exec` instead of direct
 `posthog:*` tool names. If the direct Billing tools are not visible, search for
@@ -151,7 +153,9 @@ prompts as shorthand for any alert direction unless the prompt clearly says incr
 ### Step 5. Drill down through customer-visible product surfaces
 
 Only drill deeper after you know the usage type, project, and time window to inspect.
-Use `references/usage-type-routing.md` to choose the product MCP surface.
+Before using product tools, verify that the MCP context is set to the Billing-attributed
+project/team or switch to it when the client exposes a project switcher. Use
+`references/usage-type-routing.md` to choose the product MCP surface.
 
 The deeper investigation must use data the customer can access in their own project:
 events, feature flags, Error Tracking, Surveys, Session Replay, Data Warehouse sources,
