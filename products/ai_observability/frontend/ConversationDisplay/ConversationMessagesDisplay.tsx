@@ -314,7 +314,7 @@ export function ConversationMessagesDisplay({
                 inputButtons={inputButtons}
                 outputButtons={showOutputSection ? outputButtons : undefined}
             />
-            {raisedError && errorData && (
+            {raisedError && (
                 <div className="mt-4">
                     <h4 className="flex items-center justify-between text-xs font-semibold mb-2">
                         <div className="flex items-center gap-x-1.5">
@@ -323,7 +323,9 @@ export function ConversationMessagesDisplay({
                         </div>
                     </h4>
                     <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
-                        {isObject(errorData) ? (
+                        {!errorData ? (
+                            <span className="italic">This generation errored, but no error details were captured.</span>
+                        ) : isObject(errorData) ? (
                             <HighlightedJSONViewer src={errorData} collapsed={4} searchQuery={searchQuery} />
                         ) : (
                             <span className="font-mono">

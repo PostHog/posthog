@@ -66,7 +66,7 @@ export interface LoadAIDataParams {
     timestamp?: string
 }
 
-function isUsableValue(value: unknown): boolean {
+export function isUsableValue(value: unknown): boolean {
     return value !== null && value !== undefined && value !== '' && value !== 'null'
 }
 
@@ -112,7 +112,7 @@ function hasLoadedAIData(data: AIData): boolean {
 }
 
 function hasInputAndOutput(data: AIData): boolean {
-    return data.input != null && data.output != null
+    return isUsableValue(data.input) && isUsableValue(data.output)
 }
 
 function mergeAIData(base: AIData, loaded: AIData | null): AIData {
@@ -184,7 +184,8 @@ async function loadAIDataAsync(params: LoadAIDataParams): Promise<AIData> {
 
     // Passthrough: caller already has both sides of the conversation (e.g. the trace page
     // hydrates rows from the TraceQuery that has heavy props merged back). No fetch needed.
-    if (input != null && output != null) {
+    // An empty string or the literal 'null' means the heavy prop was stripped, so it still needs a fetch.
+    if (isUsableValue(input) && isUsableValue(output)) {
         return { input, output, tools }
     }
 

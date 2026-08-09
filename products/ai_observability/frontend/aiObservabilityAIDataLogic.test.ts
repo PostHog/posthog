@@ -87,6 +87,43 @@ describe('aiObservabilityAIDataLogic', () => {
         expect(mockApi.query).not.toHaveBeenCalled()
     })
 
+    it.each([
+        ['empty string', ''],
+        ["literal 'null'", 'null'],
+    ])('fetches when output is a stripped %s even though input is present', async (_label, strippedOutput) => {
+        jest.spyOn(mockApi, 'queryHogQL').mockResolvedValue({
+            results: [
+                [null, null, JSON.stringify([{ role: 'assistant', content: 'fetched hello' }]), null, null, null],
+            ],
+        } as any)
+
+        const logic = aiObservabilityAIDataLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAIDataForEvent({
+                eventId: 'event-1',
+                input: [{ role: 'user', content: 'hi' }],
+                output: strippedOutput,
+                tools: undefined,
+                traceId: 'trace-1',
+                timestamp: '2026-04-30T10:00:00Z',
+            })
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                aiDataCache: {
+                    'event-1': {
+                        input: [{ role: 'user', content: 'hi' }],
+                        output: [{ role: 'assistant', content: 'fetched hello' }],
+                        tools: undefined,
+                    },
+                },
+            })
+
+        expect(mockApi.queryHogQL).toHaveBeenCalled()
+    })
+
     it('falls back to events when ai_events has no heavy props row', async () => {
         jest.spyOn(mockApi, 'queryHogQL')
             .mockResolvedValueOnce({ results: [] } as any)

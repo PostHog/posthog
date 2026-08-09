@@ -416,6 +416,24 @@ describe('ConversationMessagesDisplay', () => {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
     })
+
+    it.each([null, undefined, ''])(
+        'still shows the error card when the generation errored with empty error data (%p)',
+        (errorData) => {
+            render(
+                <Provider>
+                    <ConversationMessagesDisplay
+                        inputNormalized={inputNormalized}
+                        outputNormalized={[]}
+                        errorData={errorData}
+                        raisedError={true}
+                    />
+                </Provider>
+            )
+
+            expect(screen.getByText(/no error details were captured/i)).toBeInTheDocument()
+        }
+    )
 })
 
 describe('ImageMessageDisplay', () => {
