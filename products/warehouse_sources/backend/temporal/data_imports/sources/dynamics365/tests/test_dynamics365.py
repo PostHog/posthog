@@ -9,7 +9,7 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365 import (
     INVALID_ORGANIZATION_URL_ERROR,
     Dynamics365ConfigurationError,
