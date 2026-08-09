@@ -28,8 +28,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="replayscannerbackfill",
             name="window_end",
-            field=models.DateTimeField(
-                help_text="Exclusive upper bound of the window; clamped to now at creation."
-            ),
+            field=models.DateTimeField(help_text="Exclusive upper bound of the window; clamped to now at creation."),
         ),
     ]
