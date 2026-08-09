@@ -109,12 +109,47 @@ _BUCKET_SELECT = f"""
 """
 
 
+# One row per (repo, head_sha) push round. Each workflow anchors on its FIRST benign completion,
+# never its latest run: a flake re-run honestly stretches the wall to its recovery, while a label
+# re-firing workflows after the round already went green cannot stretch it retroactively. A round
+# that never fully passed is a non-sample, not a shorter one. Attribution is per round, not per
+# run: fork-PR runs land unassociated, so a per-run pr_number filter would read a fork push as
+# green in seconds; a round with any unattributed sibling is dropped instead of measured short.
 _TIME_TO_GREEN_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        {run_duration_percentile_expr(0.5)} AS p50_seconds
-    FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __RUN_SCOPE__
+        quantile(0.5)(wall_seconds) AS p50_seconds
+    FROM (
+        SELECT
+            repo_owner,
+            repo_name,
+            head_sha,
+            min(first_start) AS round_start,
+            dateDiff('second', min(first_start), max(first_green_end)) AS wall_seconds
+        FROM (
+            SELECT
+                repo_owner,
+                repo_name,
+                head_sha,
+                workflow_name,
+                min(pr_number > 0) AS attributed,
+                min(run_started_at) AS first_start,
+                min(if(
+                    status = 'completed' AND coalesce(conclusion, '') IN ('success', 'skipped', 'neutral'),
+                    updated_at, NULL
+                )) AS first_green_end,
+                countIf(status = 'completed' AND conclusion = 'success') > 0 AS has_success
+            FROM __RUNS_SOURCE__ AS r
+            WHERE run_started_at >= {{date_from}} __DATE_TO__
+              AND NOT r.is_merge_queue
+              AND r.head_branch NOT IN ('master', 'main')
+            GROUP BY repo_owner, repo_name, head_sha, workflow_name
+        )
+        GROUP BY repo_owner, repo_name, head_sha
+        HAVING min(attributed) = 1
+           AND countIf(first_green_end IS NULL) = 0
+           AND countIf(has_success) > 0
+    )
     GROUP BY bucket_start
     LIMIT {_BUCKET_LIMIT}
 """
@@ -127,21 +162,18 @@ def query_time_to_green_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[TimeToGreenBucket]:
-    """Median time-to-green per bucket across the window, oldest first: the p50 wall-clock duration of
-    successful, PR-attributed CI runs (default-branch runs excluded). Success-only + PR-scoped — the same
-    population workflow-health's percentiles use — so it answers "how long until CI passes on a PR", not
-    master build time. Empty buckets carry ``p50_seconds`` None (a gap, not instant CI)."""
+    """Median wall clock from a push round's first run start to all workflows first green, per
+    bucket, oldest first. Only fully green, fully attributed rounds count (see the template
+    comment); an empty bucket carries ``p50_seconds`` None (a gap, not instant CI)."""
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
-    run_scope_clause = run_scope_filter_clause(WorkflowHealthRunScope.PULL_REQUEST)
     sql = (
         _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
-        .replace("__RUN_SCOPE__", run_scope_clause)
-        .replace("__BUCKET_FN__", bucket_expr(granularity))
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "round_start"))
     )
     response = curated.run(sql, query_type="engineering_analytics.time_to_green_series", placeholders=placeholders)
     p50_by_bucket = {

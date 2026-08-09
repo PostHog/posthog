@@ -191,9 +191,8 @@ def query_ready_to_merge_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[ReadyToMergeBucket]:
-    """Median cycle time (per-PR ready_to_merge_seconds, SPEC §6) per bucket across the window,
-    oldest first, bots and drafts excluded. Empty when the issue-events table isn't synced, so
-    consumers can fall back to the open-to-merge series."""
+    """Median per-PR ready_to_merge_seconds (SPEC §6) per bucket, oldest first, bots and drafts
+    excluded. Empty when the issue-events table isn't synced."""
     window = curated.issue_events_window()
     ready_cte = curated.ready_by_pr_cte()
     if window is None or ready_cte is None:
@@ -277,7 +276,7 @@ def query_repo_series(
     date_from: datetime,
     date_to: datetime | None,
 ) -> RepoSeries:
-    """All chart series across the window — the one place their shared granularity is decided."""
+    """All chart series across the window: the one place their shared granularity is decided."""
     granularity = pick_granularity(date_from, date_to)
     return RepoSeries(
         granularity=granularity,

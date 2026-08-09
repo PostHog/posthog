@@ -269,8 +269,10 @@ class TimeToGreenBucketSerializer(DataclassSerializer):
                 "help_text": "Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday)."
             },
             "p50_seconds": {
-                "help_text": "Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. "
-                "Null when the bucket had no successful PR run (a gap, not instant CI).",
+                "help_text": "Median wall-clock seconds from a PR push round's first run start until every "
+                "workflow on that head SHA first completed benign, over rounds started in this bucket "
+                "(merge-queue gates and partially-attributed fork rounds excluded). Null when the bucket had "
+                "no fully green round (a gap, not instant CI).",
                 "allow_null": True,
             },
         }
@@ -330,9 +332,9 @@ class RepoOverviewSerializer(DataclassSerializer):
     )
     time_to_green_series = TimeToGreenBucketSerializer(
         many=True,
-        help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
-        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the "
-        "whole series is empty when include_series=false.",
+        help_text="Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket "
+        "across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry "
+        "null; the whole series is empty when include_series=false.",
     )
     success_rate_series = PassRateBucketSerializer(
         many=True,

@@ -27,6 +27,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _RUN_QUERY,
     _ago,
+    _ago_offset_with_duration,
     _ago_with_duration,
     _dt,
     _EndpointsWarehouseMixin,
@@ -216,9 +217,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
     def test_repo_overview_headlines_and_series_toggle(self) -> None:
         # The weekly digest's whole read path: headline aggregates with include_series=False must
-        # still carry every number the digest renders — merged counts over ALL merged PRs (bots
+        # still carry every number the digest renders: merged counts over ALL merged PRs (bots
         # included: the merge population that triggered the spend) while the median keeps the
-        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with every
+        # locked bots/drafts-excluded recipe, plus job-backed billable minutes, with every
         # chart series empty. The default call keeps the series for the UI.
         self._create_table(
             "github_pull_requests",
@@ -274,6 +275,176 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
         assert len(with_series.success_rate_series) > 0
+
+    def test_time_to_green_measures_push_rounds_not_runs(self) -> None:
+        # A per-run median would read this fixture as ~5 min; the round definition must read 900s.
+        # Each SHA below pins one exclusion rule.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(5), head_sha="green1")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                # green1: Lint flaked, re-ran green 30 min later; wall = first start to the
+                # recovery's completion = 2400s, not any single run's duration.
+                _run_row(
+                    9600,
+                    "CI",
+                    "green1",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(1, 600),
+                    pr_number=90,
+                    head_branch="feat/a",
+                ),
+                _run_row(
+                    9601,
+                    "Lint",
+                    "green1",
+                    "completed",
+                    "failure",
+                    *_ago_with_duration(1, 300),
+                    pr_number=90,
+                    head_branch="feat/a",
+                ),
+                _run_row(
+                    9602,
+                    "Lint",
+                    "green1",
+                    "completed",
+                    "success",
+                    *_ago_offset_with_duration(1, 1800, 600),
+                    pr_number=90,
+                    head_branch="feat/a",
+                ),
+                # green2: short green round (300s) with a benign skipped workflow.
+                _run_row(
+                    9610,
+                    "CI",
+                    "green2",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(1, 300),
+                    pr_number=91,
+                    head_branch="feat/b",
+                ),
+                _run_row(
+                    9611,
+                    "Docs",
+                    "green2",
+                    "completed",
+                    "skipped",
+                    *_ago_with_duration(1, 60),
+                    pr_number=91,
+                    head_branch="feat/b",
+                ),
+                # flip1: green at 900s, then a re-fire failed an hour later; the round still went
+                # green at 900s, so the late failure cannot stretch or void it.
+                _run_row(
+                    9615,
+                    "CI",
+                    "flip1",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(1, 900),
+                    pr_number=97,
+                    head_branch="feat/g",
+                ),
+                _run_row(
+                    9616,
+                    "CI",
+                    "flip1",
+                    "completed",
+                    "failure",
+                    *_ago_offset_with_duration(1, 3600, 300),
+                    pr_number=97,
+                    head_branch="feat/g",
+                ),
+                # red1: Lint never passed, round never went green.
+                _run_row(
+                    9620,
+                    "CI",
+                    "red1",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(1, 300),
+                    pr_number=92,
+                    head_branch="feat/c",
+                ),
+                _run_row(
+                    9621,
+                    "Lint",
+                    "red1",
+                    "completed",
+                    "failure",
+                    *_ago_with_duration(1, 300),
+                    pr_number=92,
+                    head_branch="feat/c",
+                ),
+                # pend1: still running.
+                _run_row(
+                    9630,
+                    "CI",
+                    "pend1",
+                    "in_progress",
+                    None,
+                    *_ago_with_duration(1, 0),
+                    pr_number=93,
+                    head_branch="feat/d",
+                ),
+                # canc1: Deploy only ever cancelled, not a green verdict.
+                _run_row(
+                    9640,
+                    "CI",
+                    "canc1",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(1, 300),
+                    pr_number=94,
+                    head_branch="feat/e",
+                ),
+                _run_row(
+                    9641,
+                    "Deploy",
+                    "canc1",
+                    "completed",
+                    "cancelled",
+                    *_ago_with_duration(1, 60),
+                    pr_number=94,
+                    head_branch="feat/e",
+                ),
+                # fork1: the unattributed sibling marks the round partially visible; without the
+                # guard the attributed 60s run alone would read as a green round.
+                _run_row(
+                    9650,
+                    "Housekeeping",
+                    "fork1",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(1, 60),
+                    pr_number=95,
+                    head_branch="feat/f",
+                ),
+                _run_row(9651, "CI", "fork1", "completed", "success", *_ago_with_duration(1, 60), head_branch="feat/f"),
+                # mq1: a green merge-queue gate round is CI spend, not a push round.
+                _run_row(
+                    9660,
+                    "CI",
+                    "mq1",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(1, 60),
+                    head_branch="trunk-merge/pr-96/abc",
+                ),
+            ],
+        )
+
+        overview = api.get_repo_overview(team=self.team)
+        observed = [b.p50_seconds for b in overview.time_to_green_series if b.p50_seconds is not None]
+        assert observed == [pytest.approx(900.0)]  # median of round walls {2400, 300, 900}
 
     def test_repo_overview_ready_to_merge_median_and_series(self) -> None:
         # Guards the overview's ready_by_pr join: the headline must anchor on the last ready
