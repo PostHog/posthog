@@ -300,6 +300,14 @@ export interface ListTicketsOptions {
     | "updated_at";
   search?: string;
   channelSource?: "email" | "slack" | "teams" | "widget";
+  /**
+   * A saved ticket view's `short_id` — never its UUID `id`, which 400s. The
+   * server resolves the view into its stored filters and then merges the
+   * explicit params above over the top, so a caller can refine a view without
+   * ever parsing its filters blob. Missing from the generated spec; sent as
+   * the `view` query key.
+   */
+  view?: string;
   limit?: number;
   offset?: number;
 }
@@ -6861,6 +6869,9 @@ export class PostHogAPIClient {
     if (options?.orderBy) query.order_by = options.orderBy;
     if (options?.search) query.search = options.search;
     if (options?.channelSource) query.channel_source = options.channelSource;
+    // Sent last only for readability; the server merges the explicit params
+    // over the view's own filters regardless of query order.
+    if (options?.view) query.view = options.view;
 
     return await this.api.get(
       "/api/projects/{project_id}/conversations/tickets/",
@@ -6988,7 +6999,8 @@ export class PostHogAPIClient {
         detail?: string;
       };
       throw new Error(
-        errorData.detail ?? `Failed to post ticket reply: ${response.statusText}`,
+        errorData.detail ??
+          `Failed to post ticket reply: ${response.statusText}`,
       );
     }
     return (await response.json()) as TicketMessage;

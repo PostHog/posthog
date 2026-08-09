@@ -15,13 +15,16 @@ import {
   Input,
   Spinner,
 } from "@posthog/quill";
+import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToSupportTicketDetail } from "@posthog/ui/router/navigationBridge";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSupportTickets } from "../hooks/useSupportTickets";
+import { useSupportTicketViews } from "../hooks/useSupportTicketViews";
 import { useSupportQueueStore } from "../supportQueueStore";
 import {
   applyQueueSort,
   EMPTY_QUEUE_FILTERS,
+  isUnknownSavedViewError,
   type QueueColumn,
   type QueueFilters,
   type QueueSort,
@@ -32,6 +35,7 @@ import {
 import { QueueDisplayMenu } from "./QueueDisplayMenu";
 import { QueueFilterChips } from "./QueueFilterChips";
 import { QueueFilterMenu } from "./QueueFilterMenu";
+import { QueueViewPicker } from "./QueueViewPicker";
 import { SectionLabel } from "./SectionLabel";
 import { TicketRow } from "./TicketRow";
 
@@ -68,9 +72,23 @@ export function SupportListView() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const { data, isPending, isError } = useSupportTickets(
+  const views = useSupportTicketViews();
+  const { data, isPending, isError, error } = useSupportTickets(
     queueListOptions(filters),
   );
+
+  // A view deleted or renamed elsewhere 400s on the next poll, which would
+  // otherwise park the queue on an error the user can't clear from here. Drop
+  // the view and say so — the retry runs unscoped and lands on all tickets.
+  // Guarded on `filters.view`, so clearing it also stops this firing again.
+  useEffect(() => {
+    if (!filters.view || !isUnknownSavedViewError(error)) return;
+    setFilters((current) => ({ ...current, view: null }));
+    toast.info("That saved view no longer exists", {
+      description: "Showing all tickets instead.",
+      id: "support-stale-view",
+    });
+  }, [error, filters.view]);
 
   // One clock per data refresh, shared by the ranking and every row's SLA
   // stripe, so no two rows disagree about "now" and the order stays stable
@@ -92,6 +110,13 @@ export function SupportListView() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-4 pb-3">
         <h2 className="font-semibold text-[18px]">Support</h2>
+        <QueueViewPicker
+          views={views.data}
+          isPending={views.isPending}
+          isError={views.isError}
+          activeShortId={filters.view}
+          onChange={(view) => applyFilters({ ...filters, view })}
+        />
         <QueueFilterMenu filters={filters} onChange={applyFilters} />
         <QueueDisplayMenu />
         <div className="relative ml-auto">
@@ -114,6 +139,7 @@ export function SupportListView() {
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2">
         <QueueFilterChips
           filters={filters}
+          views={views.data}
           onChange={applyFilters}
           onClearAll={() => applyFilters(EMPTY_QUEUE_FILTERS)}
         />
