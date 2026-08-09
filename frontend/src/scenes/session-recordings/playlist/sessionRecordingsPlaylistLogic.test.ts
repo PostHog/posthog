@@ -245,6 +245,51 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
         })
 
+        describe('opening a recording keeps the browsed list', () => {
+            it('does not reload and blank the list when a pinned recording is opened', async () => {
+                const pinnedRecording = { ...aRecording, id: 'pinned-1' }
+                const pinnedLogic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'pinned-tests',
+                    updateSearchParams: true,
+                    pinnedRecordings: [pinnedRecording],
+                })
+                pinnedLogic.mount()
+                pinnedLogic.actions.loadPinnedRecordings()
+
+                await expectLogic(pinnedLogic)
+                    .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess', 'loadPinnedRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: listOfSessionRecordings,
+                        recordings: [pinnedRecording, ...listOfSessionRecordings],
+                    })
+
+                // A pinned recording is never in `sessionRecordings`, so selecting one used to fire a
+                // directionless reload that reset the list to [] before the refetch returned.
+                pinnedLogic.actions.setSelectedRecordingId('pinned-1')
+                expect(pinnedLogic.values.sessionRecordings).toEqual(listOfSessionRecordings)
+            })
+
+            it('preserves the list while fetching a selected recording that is not loaded yet', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                // A plain reload (e.g. a filter change) resets the list to start fresh.
+                logic.actions.loadSessionRecordings()
+                expect(logic.values.sessionRecordings).toEqual([])
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                // A preserveList reload keeps the list on screen while the missing recording loads.
+                logic.actions.loadSessionRecordings(undefined, undefined, true)
+                expect(logic.values.sessionRecordings).toEqual(listOfSessionRecordings)
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            })
+        })
+
         describe('selectedRecordingOutsideFilters', () => {
             it('is false when no recording is selected', async () => {
                 await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({

@@ -648,10 +648,12 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     loadSessionRecordings: (
         direction?: 'newer' | 'older',
-        userModifiedFilters?: Record<string, any>
+        userModifiedFilters?: Record<string, any>,
+        preserveList?: boolean
     ) => {
         direction: 'newer' | 'older' | undefined
         userModifiedFilters: Record<string, any> | undefined
+        preserveList: boolean | undefined
     }
     loadSessionRecordingsFailure: (
         error: string,
@@ -684,6 +686,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         payload?: {
             direction: 'newer' | 'older' | undefined
             userModifiedFilters: Record<string, any> | undefined
+            preserveList: boolean | undefined
         }
     ) => {
         sessionRecordingsResponse: {
@@ -879,9 +882,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+        loadSessionRecordings: (
+            direction?: 'newer' | 'older',
+            userModifiedFilters?: Record<string, any>,
+            preserveList?: boolean
+        ) => ({
             direction,
             userModifiedFilters,
+            preserveList,
         }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
@@ -1139,9 +1147,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         sessionRecordings: [
             [] as SessionRecordingType[],
             {
-                loadSessionRecordings: (state, { direction }) => {
-                    // Reset if we are not paginating
-                    return direction ? state : []
+                loadSessionRecordings: (state, { direction, preserveList }) => {
+                    // Keep the current list when paginating, or when we only need to fetch a missing
+                    // selected recording (preserveList) - resetting to [] blanks the sidebar mid-fetch.
+                    return direction || preserveList ? state : []
                 },
 
                 loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse }) => {
@@ -1485,16 +1494,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     props.onRecordingSelected?.(id)
                 }
 
-                const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
+                // Look in the list the user actually sees (pinned + other), not just `sessionRecordings`.
+                // Pinned and collection recordings live in a separate loader, so checking only
+                // `sessionRecordings` reported them as missing and reloaded on every click.
+                const recordings = values.recordings
+                const recordingIndex = recordings.findIndex((s) => s.id === values.selectedRecordingId)
 
-                // If recording not found in current list, reload with the new selected recording
-                // The backend will automatically include it via session_recording_id parameter
-                if (recordingIndex === -1 && values.selectedRecordingId) {
-                    actions.loadSessionRecordings()
-                }
-
-                // If we are at the end of the list then try to load more
-                if (recordingIndex === values.sessionRecordings.length - 1) {
+                if (recordingIndex === -1) {
+                    // A deep-linked or shared recording that isn't loaded yet. Fetch it so the backend
+                    // includes it via session_recording_id, and preserve the list so it doesn't blank.
+                    if (values.selectedRecordingId) {
+                        actions.loadSessionRecordings(undefined, undefined, true)
+                    }
+                } else if (recordingIndex === recordings.length - 1) {
+                    // Selected the last loaded recording, so try to load more.
                     actions.maybeLoadSessionRecordings('older')
                 }
 
