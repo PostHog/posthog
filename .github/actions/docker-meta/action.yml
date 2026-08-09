@@ -38,6 +38,10 @@ inputs:
         required: false
         default: 'true'
         description: 'Whether to push to AWS ECR (and assume the AWS role). Set to false for images consumed only via GHCR (e.g. sandbox-host images Modal pulls directly). When false, the AWS configure-credentials + ECR-login steps are skipped, the ECR tag is omitted from the images list, and ecr-registry output is empty.'
+    generate-ordered-release-tag:
+        required: false
+        default: 'false'
+        description: 'Generate a source-ordered release tag for the default branch. Unshallowing registers origin as a promisor remote and marks the checkout as a partial clone; this is inert on ephemeral hosted runners but persists in self-hosted or reused checkouts.'
 
 outputs:
     tags:
@@ -52,6 +56,9 @@ outputs:
     ecr-registry:
         description: 'ECR registry URL'
         value: ${{ steps.aws-ecr.outputs.registry }}
+    ordered-release-tag:
+        description: 'Source-ordered release tag, or empty when disabled or unavailable.'
+        value: ${{ steps.ordered-release.outputs.tag }}
 
 runs:
     using: 'composite'
@@ -169,3 +176,70 @@ runs:
                 printf 'index:com.posthog.image.commit-timestamp=%s\n' "$TIMESTAMP"
                 echo "ANNOTATIONS_EOF"
               } >> "$GITHUB_OUTPUT"
+
+        - name: Fetch source history for ordered release tag
+          id: ordered-history
+          if: inputs.generate-ordered-release-tag == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+          continue-on-error: true
+          shell: bash
+          run: |
+              set -euo pipefail
+              # The runner supplies -e; expected failures are captured explicitly.
+              if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+                fetch_status=0
+                timeout --kill-after=5s 40s git fetch \
+                  --no-tags \
+                  --prune \
+                  --no-recurse-submodules \
+                  --unshallow \
+                  --filter=tree:0 \
+                  origin \
+                  "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
+                if [ "$fetch_status" -ne 0 ]; then
+                  echo "::warning::Source history for the ordered release tag could not be fetched (status $fetch_status). The ordered release tag will be skipped."
+                  exit 0
+                fi
+              fi
+
+        - name: Compute ordered release tag
+          id: ordered-release
+          if: inputs.generate-ordered-release-tag == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+          continue-on-error: true
+          shell: bash
+          env:
+              ORDERED_RELEASE_TAG_REGEX: ^r[0-9]{12}-[0-9a-f]{6}$
+          run: |
+              set -uo pipefail
+              echo "tag=" >> "$GITHUB_OUTPUT"
+
+              if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
+                echo "::warning::Skipping ordered release tag because complete source history is unavailable"
+                exit 0
+              fi
+
+              if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then
+                echo "::warning::Skipping ordered release tag because the checked-out revision does not match GITHUB_SHA"
+                exit 0
+              fi
+
+              if ! position="$(git rev-list --first-parent --count "$GITHUB_SHA")"; then
+                echo "::warning::Skipping ordered release tag because the source position could not be computed"
+                exit 0
+              fi
+
+              if ! [[ "$position" =~ ^[1-9][0-9]{0,11}$ ]]; then
+                echo "::warning::Skipping ordered release tag because the source position is out of range"
+                exit 0
+              fi
+
+              if ! printf -v tag 'r%012d-%.6s' "$position" "$GITHUB_SHA"; then
+                echo "::warning::Skipping ordered release tag because the source position could not be formatted"
+                exit 0
+              fi
+
+              if ! [[ "$tag" =~ $ORDERED_RELEASE_TAG_REGEX ]]; then
+                echo "::warning::Skipping ordered release tag because $tag does not match the required format"
+                exit 0
+              fi
+
+              echo "tag=${tag}" >> "$GITHUB_OUTPUT"

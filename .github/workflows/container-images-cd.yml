@@ -34,6 +34,11 @@ concurrency:
 jobs:
     posthog_build:
         name: Build and push PostHog
+        outputs:
+            ordered-release-tag-generation-enabled: ${{ env.ORDERED_RELEASE_TAG_GENERATION_ENABLED }}
+            ordered-release-tag: ${{ steps.docker-meta.outputs.ordered-release-tag }}
+            image-digest: ${{ steps.image.outputs.digest }}
+            ecr-registry: ${{ steps.docker-meta.outputs.ecr-registry }}
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-24.04
@@ -43,6 +48,8 @@ jobs:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
             packages: write # allow push to ghcr.io
+        env:
+            ORDERED_RELEASE_TAG_GENERATION_ENABLED: 'true'
 
         steps:
             - name: Check out
@@ -67,6 +74,7 @@ jobs:
                   # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
                   push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+                  generate-ordered-release-tag: ${{ env.ORDERED_RELEASE_TAG_GENERATION_ENABLED }}
                   aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
@@ -1151,3 +1159,113 @@ jobs:
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
+
+    ordered_image_alias:
+        name: Publish ordered image alias
+        needs: posthog_build
+        if: ${{ !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.posthog_build.outputs.ordered-release-tag-generation-enabled == 'true' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            id-token: write
+            contents: read
+
+        steps:
+            - name: Warn when ordered image alias tag is unavailable
+              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag == '' }}
+              continue-on-error: true
+              shell: bash
+              run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
+
+            - name: Warn when ordered image digest is unavailable
+              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest == '' }}
+              continue-on-error: true
+              shell: bash
+              run: echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
+
+            - name: Set up Docker Buildx for ordered image alias
+              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
+              continue-on-error: true
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+            - name: Configure AWS credentials for ordered image alias
+              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
+              continue-on-error: true
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Log in to Amazon ECR for ordered image alias
+              id: ordered-alias-ecr
+              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
+              continue-on-error: true
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Publish and read back ordered image alias
+              id: ordered-alias
+              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
+              continue-on-error: true
+              timeout-minutes: 2
+              shell: bash
+              env:
+                  ECR_REGISTRY: ${{ needs.posthog_build.outputs.ecr-registry }}
+                  ECR_REPO: posthog-cloud
+                  EXPECTED_DIGEST: ${{ needs.posthog_build.outputs.image-digest }}
+                  ORDERED_ALIAS: ${{ needs.posthog_build.outputs.ordered-release-tag }}
+              run: |
+                  set -uo pipefail
+                  # The runner supplies -e; expected failures are captured explicitly.
+
+                  SOURCE_IMAGE="${ECR_REGISTRY}/${ECR_REPO}@${EXPECTED_DIGEST}"
+                  TARGET_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
+
+                  publication_status=0
+                  timeout --kill-after=5s 40s docker buildx imagetools create \
+                      --prefer-index=false \
+                      --tag "$TARGET_IMAGE" \
+                      "$SOURCE_IMAGE" || publication_status=$?
+                  if [ "$publication_status" -ne 0 ]; then
+                      echo "::warning::Ordered alias publication exited with status $publication_status"
+                  fi
+
+                  readback_status=0
+                  resolved_digest="$(timeout --kill-after=5s 40s aws ecr batch-get-image \
+                      --repository-name "$ECR_REPO" \
+                      --image-ids imageTag="$ORDERED_ALIAS" \
+                      --accepted-media-types \
+                          "application/vnd.oci.image.index.v1+json" \
+                          "application/vnd.docker.distribution.manifest.list.v2+json" \
+                          "application/vnd.oci.image.manifest.v1+json" \
+                          "application/vnd.docker.distribution.manifest.v2+json" \
+                      --query 'images[0].imageId.imageDigest' \
+                      --output text)" || readback_status=$?
+
+                  if [ "$readback_status" -ne 0 ]; then
+                      result=unknown
+                  elif [ "$resolved_digest" = "None" ]; then
+                      result=absent
+                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]] && [ "$resolved_digest" = "$EXPECTED_DIGEST" ]; then
+                      result=present-at-expected-digest
+                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                      result=integrity-mismatch
+                  else
+                      result=unknown
+                  fi
+
+                  case "$result" in
+                      present-at-expected-digest)
+                          echo "::notice title=Ordered image alias present::The ordered image alias resolves to the expected image digest."
+                          ;;
+                      absent)
+                          echo "::warning title=Ordered image alias absent::The ordered image alias is absent after publication."
+                          ;;
+                      integrity-mismatch)
+                          echo "::error title=Ordered image alias integrity mismatch::The ordered image alias resolves to a different image digest."
+                          ;;
+                      unknown)
+                          echo "::error title=Ordered image alias read-back unavailable::The ordered image alias could not be read back from ECR."
+                          ;;
+                  esac
+
+                  echo "result=$result" >> "$GITHUB_OUTPUT"
