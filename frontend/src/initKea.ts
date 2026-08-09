@@ -65,6 +65,14 @@ issues. 500 is intentionally excluded: those are genuine backend exceptions wort
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
+/*
+Lapsed-2FA gates: `two_factor_session.py` raises a 403 with one of these codes on essentially
+every API call once session verification expires, so all in-flight loaders reject at once.
+apiStatusLogic shows its own re-authentication toast for them, so reporting them to error
+tracking only fragments one expected event into many exception issues to triage.
+*/
+const HANDLED_TWO_FACTOR_CODES = ['two_factor_setup_required', 'two_factor_verification_required']
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -149,8 +157,7 @@ export function initKea({
                     !isAccessDenied
                 ) {
                     let errorMessage = error.detail || error.statusText
-                    const isTwoFactorError =
-                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
+                    const isTwoFactorError = HANDLED_TWO_FACTOR_CODES.includes(error.code)
                     const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
                     // Only the 403 access-block gets the dedicated toast in apiStatusLogic; a 400
                     // with this code is form validation (e.g. inviting an outside-domain email)
@@ -189,7 +196,10 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // A lapsed-2FA 403 is expected and handled by apiStatusLogic; skip the capture tail
+                // that the toast guard above already suppresses, so it stops minting exception issues.
+                const isHandledTwoFactorError = error?.status === 403 && HANDLED_TWO_FACTOR_CODES.includes(error?.code)
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isHandledTwoFactorError) {
                     posthog.captureException(error)
                 }
             },
