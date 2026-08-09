@@ -3,6 +3,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { TWO_FACTOR_GATE_TOAST_ID } from 'lib/auth/twoFactorGate'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -125,6 +126,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                     },
                                 },
                                 autoClose: false,
+                                toastId: TWO_FACTOR_GATE_TOAST_ID,
                             }
                         )
                     } else if (

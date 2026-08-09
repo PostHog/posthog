@@ -3,6 +3,7 @@ import { toast, type ToastOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
+import { isTwoFactorGateDetail, TWO_FACTOR_GATE_TOAST_ID } from 'lib/auth/twoFactorGate'
 import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatus'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils/strings'
@@ -186,6 +187,12 @@ export const lemonToast = {
         return id
     },
     error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
+        // The 2FA enforcement gate has its own UI (setup modal / re-auth toast) in apiStatusLogic.
+        // Call sites that catch the 403 and toast the raw `detail` would only add a stale, contradictory
+        // red toast that keeps reappearing, so drop it here rather than in each call site.
+        if (isTwoFactorGateDetail(message)) {
+            return TWO_FACTOR_GATE_TOAST_ID
+        }
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {

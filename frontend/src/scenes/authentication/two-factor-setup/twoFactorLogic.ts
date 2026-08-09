@@ -6,6 +6,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { TWO_FACTOR_GATE_TOAST_ID } from 'lib/auth/twoFactorGate'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -375,6 +376,8 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     })),
     listeners(({ props, actions }) => ({
         submitTokenSuccess: () => {
+            // Clear any outstanding 2FA gate toast so it can't sit next to the success message.
+            lemonToast.dismiss(TWO_FACTOR_GATE_TOAST_ID)
             lemonToast.success('2FA method added successfully')
             actions.loadStatus()
             props.onSuccess?.()
