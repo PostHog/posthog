@@ -98,7 +98,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             name=SchemaExternalDataSourceType.MY_SQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
-            keywords=["sql", "mariadb"],
+            keywords=["sql", "mariadb", "rds", "aws rds", "amazon rds", "aurora"],
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",
@@ -349,7 +349,18 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # "Can't create a new thread" (MySQL error 1135) is the same class of transient host-capacity
         # condition — the server hit its OS thread/process limit rather than `max_connections` — and is
         # retried in-process the same way (see `_is_transient_cant_create_thread`).
-        return {"Lost connection to MySQL server during query", "Too many connections", "Can't create a new thread"}
+        #
+        # A Vitess/PlanetScale shard mid-reparent (see `_is_transient_vitess_reparent`) shares the same
+        # contract too: `_retry_on_transient_tablet_unavailable` already retries it in-process during
+        # metadata discovery, but a reparent can outlast that bounded in-process budget, so match the
+        # stable phrase here as a backstop — Temporal's own activity retry lands on the newly promoted
+        # primary once the reparent completes.
+        return {
+            "Lost connection to MySQL server during query",
+            "Too many connections",
+            "Can't create a new thread",
+            "reparent operation in progress",
+        }
 
     def reconcile_schema_metadata(
         self,

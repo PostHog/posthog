@@ -93,7 +93,7 @@
         "model": "~moonshotai/kimi-latest",
         "cost": {
             "default": {
-                "prompt_token": 0.0000029,
+                "prompt_token": 0.0000025,
                 "completion_token": 0.000014,
                 "cache_read_token": 2.9e-7
             }
@@ -1970,6 +1970,11 @@
                 "prompt_token": 1.4e-7,
                 "completion_token": 2.8e-7,
                 "cache_read_token": 2.8e-9
+            },
+            "digitalocean": {
+                "prompt_token": 1.4e-7,
+                "completion_token": 2.8e-7,
+                "cache_read_token": 2.8e-8
             },
             "fireworks": {
                 "prompt_token": 1.4e-7,
@@ -5091,9 +5096,9 @@
         "model": "moonshotai/kimi-k2.6",
         "cost": {
             "default": {
-                "prompt_token": 5.7e-7,
-                "completion_token": 0.0000024,
-                "cache_read_token": 9.6e-8
+                "prompt_token": 5.89e-7,
+                "completion_token": 0.00000248,
+                "cache_read_token": 9.92e-8
             },
             "atlas-cloud-int4": {
                 "prompt_token": 9.5e-7,
@@ -5346,7 +5351,7 @@
                 "cache_read_token": 3e-7
             },
             "morph": {
-                "prompt_token": 0.0000029,
+                "prompt_token": 0.0000025,
                 "completion_token": 0.000014,
                 "cache_read_token": 2.9e-7
             },
@@ -5539,8 +5544,8 @@
         "model": "nvidia/nemotron-3-super-120b-a12b",
         "cost": {
             "default": {
-                "prompt_token": 8.5e-8,
-                "completion_token": 4e-7
+                "prompt_token": 3e-7,
+                "completion_token": 9e-7
             },
             "deepinfra-bf16": {
                 "prompt_token": 8.5e-8,
@@ -7580,7 +7585,7 @@
                 "cache_read_token": 7.5e-8
             },
             "mancer-fp8": {
-                "prompt_token": 1e-7,
+                "prompt_token": 9e-8,
                 "completion_token": 5e-7
             },
             "mara": {
@@ -8744,8 +8749,8 @@
         "model": "qwen/qwen3-vl-235b-a22b-thinking",
         "cost": {
             "default": {
-                "prompt_token": 9.8e-7,
-                "completion_token": 0.00000395
+                "prompt_token": 4e-7,
+                "completion_token": 0.000004
             },
             "alibaba-fp8": {
                 "prompt_token": 4e-7,
@@ -8847,8 +8852,8 @@
         "model": "qwen/qwen3.5-122b-a10b",
         "cost": {
             "default": {
-                "prompt_token": 2.6e-7,
-                "completion_token": 0.00000208
+                "prompt_token": 2.9e-7,
+                "completion_token": 0.0000024
             },
             "alibaba-fp8": {
                 "prompt_token": 2.6e-7,
@@ -9617,7 +9622,7 @@
         "model": "thinkingmachines/inkling-small",
         "cost": {
             "default": {
-                "prompt_token": 5e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 1e-7
             },
@@ -10335,9 +10340,9 @@
         "model": "z-ai/glm-5.2",
         "cost": {
             "default": {
-                "prompt_token": 5.46e-7,
-                "completion_token": 0.000001716,
-                "cache_read_token": 1.014e-7
+                "prompt_token": 7.6e-7,
+                "completion_token": 0.00000242,
+                "cache_read_token": 1.4e-7
             },
             "akashml-fp8": {
                 "prompt_token": 0.0000014,
@@ -10455,9 +10460,9 @@
                 "cache_read_token": 2.6e-7
             },
             "phala": {
-                "prompt_token": 0.00000126,
-                "completion_token": 0.00000396,
-                "cache_read_token": 2.34e-7
+                "prompt_token": 0.000001134,
+                "completion_token": 0.000003564,
+                "cache_read_token": 2.106e-7
             },
             "sail-research-fp8": {
                 "prompt_token": 9e-7,

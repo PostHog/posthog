@@ -6,7 +6,7 @@ Also home to the two queries that read observations back across scanner origins,
 appears once instead of at every reading call site."""
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
@@ -67,3 +67,13 @@ def readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> li
         ReplayScanner.objects.filter(team_id=team.id, id__in=valid_ids)
     )
     return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
+
+
+def selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
+    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`.
+
+    Shared so the API and the Max tools authorize an action against the same set. A summary fans in
+    observations from every scanner named here, so access to the bound one is not access to the report.
+    """
+    configured = (selection or {}).get("scanner_ids") or []
+    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
