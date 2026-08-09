@@ -213,8 +213,9 @@ def _iter_pages(
     logger: FilteringBoundLogger,
     url: str,
     params: dict[str, Any] | None,
-) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
-    """Walk a JSON:API collection, yielding each page's rows plus the next-page URL (``None`` at the end).
+) -> Iterator[tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]]:
+    """Walk a JSON:API collection, yielding each page's ``data`` and ``included`` resources plus the
+    next-page URL (``None`` at the end).
 
     ``params is None`` means ``url`` is already a fully-formed ``links.next`` — re-sending params there
     would duplicate the limit and cursor query args.
@@ -225,7 +226,9 @@ def _iter_pages(
     while True:
         body = _get(session, url, token_provider=token_provider, logger=logger, params=page_params).json()
         data = body.get("data") if isinstance(body, dict) else None
-        rows = [_flatten_resource(resource) for resource in (data or []) if isinstance(resource, dict)]
+        included = body.get("included") if isinstance(body, dict) else None
+        resources = [resource for resource in (data or []) if isinstance(resource, dict)]
+        included_resources = [resource for resource in (included or []) if isinstance(resource, dict)]
 
         links = body.get("links") if isinstance(body, dict) else None
         next_url = links.get("next") if isinstance(links, dict) else None
@@ -235,13 +238,50 @@ def _iter_pages(
             logger.warning(f"App Store Connect: page cap reached, truncating collection. url={url}, pages={pages}")
             next_url = None
 
-        yield rows, next_url
+        yield resources, included_resources, next_url
 
         if not next_url:
             return
 
         url = next_url
         page_params = None
+
+
+def _page_rows(
+    config: AppStoreConnectEndpointConfig,
+    resources: list[dict[str, Any]],
+    included: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Rows for one page: the flattened ``data`` resources, or, for endpoints configured to read a
+    related resource off another collection's pages, the flattened ``included`` resources of that type.
+    """
+    if config.rows_from_included_type is None:
+        return [_flatten_resource(resource) for resource in resources]
+
+    # JSON:API full linkage guarantees every included resource is referenced from a primary
+    # resource's relationship linkage; that linkage is where each row's parent id comes from.
+    parent_ids: dict[str, str] = {}
+    for resource in resources:
+        relationships = resource.get("relationships")
+        if not isinstance(relationships, dict) or resource.get("id") is None:
+            continue
+        for relationship in relationships.values():
+            linkage = relationship.get("data") if isinstance(relationship, dict) else None
+            if (
+                isinstance(linkage, dict)
+                and linkage.get("type") == config.rows_from_included_type
+                and linkage.get("id") is not None
+            ):
+                parent_ids[str(linkage["id"])] = str(resource["id"])
+
+    rows: list[dict[str, Any]] = []
+    for resource in included:
+        if resource.get("type") != config.rows_from_included_type:
+            continue
+        row = _flatten_resource(resource)
+        row[config.included_parent_column] = parent_ids.get(str(resource.get("id")))
+        rows.append(row)
+    return rows
 
 
 def _load_resume(
@@ -256,8 +296,8 @@ def _list_app_ids(
     logger: FilteringBoundLogger,
 ) -> list[str]:
     app_ids: list[str] = []
-    for rows, _ in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
-        app_ids.extend(str(row["id"]) for row in rows if row.get("id"))
+    for resources, _, _ in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
+        app_ids.extend(str(resource["id"]) for resource in resources if resource.get("id"))
     return app_ids
 
 
@@ -274,7 +314,8 @@ def _get_collection(
     url = resumed_url or f"{BASE_URL}{config.path}"
     params: dict[str, Any] | None = None if resumed_url else dict(config.params)
 
-    for rows, next_url in _iter_pages(session, token_provider, logger, url, params):
+    for resources, included, next_url in _iter_pages(session, token_provider, logger, url, params):
+        rows = _page_rows(config, resources, included)
         if rows:
             yield rows
         # Save AFTER yielding so a crash re-fetches the page we just emitted rather than skipping it;
@@ -311,7 +352,8 @@ def _get_app_fanout(
             url = f"{BASE_URL}{config.path.format(app_id=app_id)}"
             params = dict(config.params)
 
-        for rows, next_url in _iter_pages(session, token_provider, logger, url, params):
+        for resources, included, next_url in _iter_pages(session, token_provider, logger, url, params):
+            rows = _page_rows(config, resources, included)
             if rows:
                 for row in rows:
                     row["app_id"] = app_id
