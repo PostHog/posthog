@@ -1,10 +1,23 @@
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
+  Textarea,
+} from "@posthog/quill";
 import type {
   SignalReport,
   SignalReportRefundReason,
 } from "@posthog/shared/types";
-import { Button } from "@posthog/ui/primitives/Button";
-import { Dialog, Flex, RadioGroup, Text, TextArea } from "@radix-ui/themes";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 const REFUND_REASON_OPTIONS: {
   value: SignalReportRefundReason;
@@ -38,23 +51,22 @@ export function RefundReportDialog({
   onConfirm,
 }: RefundReportDialogProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content
-        maxWidth="480px"
-        onPointerDownOutside={() => {
-          if (!isSubmitting) onOpenChange(false);
-        }}
-        onEscapeKeyDown={() => {
-          if (!isSubmitting) onOpenChange(false);
-        }}
-      >
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Don't let an Esc / backdrop dismiss abandon an in-flight refund.
+        if (!next && isSubmitting) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className="sm:max-w-md" showCloseButton={!isSubmitting}>
         <RefundReportDialogBody
           report={report}
           isSubmitting={isSubmitting}
           onConfirm={onConfirm}
         />
-      </Dialog.Content>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -65,68 +77,70 @@ function RefundReportDialogBody({
 }: Omit<RefundReportDialogProps, "open" | "onOpenChange">) {
   const [reason, setReason] = useState<SignalReportRefundReason | null>(null);
   const [note, setNote] = useState("");
+  const fieldId = useId();
 
   const title = report.title?.trim() ? report.title : "Untitled report";
 
   return (
     <>
-      <Dialog.Title>
-        <Text className="text-balance font-bold text-lg">
-          Refund the PR for "{title}"?
-        </Text>
-      </Dialog.Title>
-      <Dialog.Description className="text-gray-10 text-sm">
-        You won't pay for this PR and it won't count toward your included PRs.
-        The report is archived as part of the refund and can't be restored.
-      </Dialog.Description>
+      <DialogHeader>
+        <DialogTitle>Refund the PR for "{title}"?</DialogTitle>
+        <DialogDescription>
+          You won't pay for this PR and it won't count toward your included PRs.
+          The report is archived as part of the refund and can't be restored.
+        </DialogDescription>
+      </DialogHeader>
 
-      <Flex direction="column" gap="4" mt="4">
-        <RadioGroup.Root
-          size="1"
-          value={reason ?? ""}
-          onValueChange={(value) =>
-            setReason(value as SignalReportRefundReason)
+      <DialogBody>
+        <div className="flex flex-col gap-4">
+          <RadioGroup
+            value={reason ?? ""}
+            onValueChange={(value) =>
+              setReason(value as SignalReportRefundReason)
+            }
+          >
+            {REFUND_REASON_OPTIONS.map((option) => {
+              const id = `${fieldId}-${option.value}`;
+              return (
+                <div key={option.value} className="flex items-center gap-2">
+                  <RadioGroupItem value={option.value} id={id} />
+                  <Label htmlFor={id} className="font-normal">
+                    {option.label}
+                  </Label>
+                </div>
+              );
+            })}
+          </RadioGroup>
+
+          <Textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Optional: helps us review refunds"
+            rows={3}
+            maxLength={4000}
+            disabled={isSubmitting}
+          />
+        </div>
+      </DialogBody>
+
+      <DialogFooter>
+        <DialogClose
+          render={
+            <Button variant="outline" size="sm" disabled={isSubmitting} />
           }
         >
-          <Flex direction="column" gap="2">
-            {REFUND_REASON_OPTIONS.map((option) => (
-              <Text key={option.value} as="label" size="2">
-                <Flex gap="2" align="center">
-                  <RadioGroup.Item value={option.value} />
-                  {option.label}
-                </Flex>
-              </Text>
-            ))}
-          </Flex>
-        </RadioGroup.Root>
-
-        <TextArea
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Optional: helps us review refunds"
-          size="1"
-          rows={3}
-          maxLength={4000}
-          disabled={isSubmitting}
-        />
-      </Flex>
-
-      <Flex gap="3" mt="4" justify="end">
-        <Dialog.Close>
-          <Button variant="soft" color="gray">
-            Cancel
-          </Button>
-        </Dialog.Close>
+          Cancel
+        </DialogClose>
         <Button
-          variant="solid"
+          variant="primary"
+          size="sm"
           disabled={!reason || isSubmitting}
-          disabledReason={!reason ? "you haven't picked a reason" : null}
-          onClick={() => reason && onConfirm({ reason, note: note.trim() })}
           loading={isSubmitting}
+          onClick={() => reason && onConfirm({ reason, note: note.trim() })}
         >
           Refund
         </Button>
-      </Flex>
+      </DialogFooter>
     </>
   );
 }
