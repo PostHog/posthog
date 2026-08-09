@@ -1,1 +1,1 @@
-1296_backfill_cimd_verification_token_url
+1297_add_mercado_pago_integration_kind

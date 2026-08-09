@@ -4667,6 +4667,7 @@ export const IntegrationKindApi = {
     Github: 'github',
     Gitlab: 'gitlab',
     MetaAds: 'meta-ads',
+    MercadoPago: 'mercado-pago',
     Clickup: 'clickup',
     RedditAds: 'reddit-ads',
     Databricks: 'databricks',
