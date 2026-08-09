@@ -937,10 +937,7 @@ export function MenuFilterCombobox({
                     // the menu panel that renders this trigger, so it needs
                     // its own exemption — otherwise picking a category
                     // dismisses the enclosing popover.
-                    className={cn(
-                        'w-max min-w-(--anchor-width) max-w-(--available-width)',
-                        CLICK_OUTSIDE_BLOCK_CLASS
-                    )}
+                    className={cn('w-max min-w-(--anchor-width) max-w-(--available-width)', CLICK_OUTSIDE_BLOCK_CLASS)}
                 >
                     <SelectGroup>
                         {categoryOptions.map((o) => (
