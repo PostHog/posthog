@@ -95,8 +95,7 @@ describe("CanvasSelectionCommentAction", () => {
       useCommentNavigationStore.getState().focusByTask["task-1"],
     ).toMatchObject({
       threadId: "comment-1",
-      scrollToAnchor: false,
-      scrollToThread: false,
+      scrollTo: "none",
     });
   });
 });

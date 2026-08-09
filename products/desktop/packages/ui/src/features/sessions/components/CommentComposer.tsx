@@ -3,7 +3,7 @@ import { InputGroupAddon, InputGroupButton } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionComposer";
 import { useMentionsDisabledReason } from "@posthog/ui/features/sessions/mentionAvailability";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { mentionIdsFromContent } from "./commentMentions";
 
 export function CommentComposer({
@@ -34,7 +34,9 @@ export function CommentComposer({
   const mentionMembers = mentionsDisabledReason ? [] : members;
   const showMentionsDisabled = !!mentionsDisabledReason && value.includes("@");
   const currentValue = useRef(value);
-  currentValue.current = value;
+  useEffect(() => {
+    currentValue.current = value;
+  }, [value]);
   const handleValueChange = (nextValue: string) => {
     currentValue.current = nextValue;
     onValueChange(nextValue);

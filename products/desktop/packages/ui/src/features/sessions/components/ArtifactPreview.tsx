@@ -229,7 +229,7 @@ export function ArtifactPreview({
   const [locateRequest, setLocateRequest] =
     useState<CommentLocateRequest | null>(null);
   useEffect(() => {
-    if (!focus || !focusedThreadId || focus.scrollToAnchor === false) return;
+    if (!focus || !focusedThreadId || focus.scrollTo) return;
     if (!threads.some((thread) => thread.root.id === focusedThreadId)) return;
     setLocateRequest((current) =>
       current?.nonce === focus.nonce
@@ -240,9 +240,7 @@ export function ArtifactPreview({
 
   const activateThread = useCallback(
     (id: string) =>
-      requestCommentFocus(taskId, commentTarget, id, {
-        scrollToAnchor: false,
-      }),
+      requestCommentFocus(taskId, commentTarget, id, { scrollTo: "thread" }),
     [requestCommentFocus, taskId, commentTarget],
   );
   const onResolutionsChange = useCallback(
@@ -258,8 +256,7 @@ export function ArtifactPreview({
         mentions,
       });
       requestCommentFocus(taskId, commentTarget, created.id, {
-        scrollToAnchor: false,
-        scrollToThread: false,
+        scrollTo: "none",
       });
     },
     [commentTarget, createComment, requestCommentFocus, taskId],

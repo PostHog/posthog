@@ -469,7 +469,7 @@ describe("TaskCommentsList", () => {
           "task-1",
           { scope: "task_artifact", itemId: "a" },
           "comment-1",
-          { scrollToAnchor: false },
+          { scrollTo: "thread" },
         );
     });
 
@@ -801,8 +801,7 @@ describe("TaskCommentsList", () => {
     ).toMatchObject({
       target: { scope: "task", itemId: "task-1" },
       threadId: "created-comment",
-      scrollToAnchor: false,
-      scrollToThread: false,
+      scrollTo: "none",
     });
   });
 

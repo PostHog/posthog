@@ -12,8 +12,7 @@ type CommentFocus = {
   /** Bumped on every request so re-picking the same thread scrolls again. */
   nonce: number;
   openCommentsTab: boolean;
-  scrollToAnchor?: boolean;
-  scrollToThread?: boolean;
+  scrollTo?: "thread" | "none";
 };
 
 interface CommentNavigationStoreState {
@@ -28,7 +27,7 @@ interface CommentNavigationStoreActions {
     taskId: string,
     target: CommentTarget,
     threadId: string,
-    options?: { scrollToAnchor?: boolean; scrollToThread?: boolean },
+    options?: { scrollTo?: "thread" | "none" },
   ) => void;
   setCommentResolutions: (
     target: CommentTarget,
@@ -77,12 +76,7 @@ export const useCommentNavigationStore = create<CommentNavigationStore>()(
             threadId,
             nonce,
             openCommentsTab: true,
-            ...(options?.scrollToAnchor === false
-              ? { scrollToAnchor: false }
-              : {}),
-            ...(options?.scrollToThread === false
-              ? { scrollToThread: false }
-              : {}),
+            ...(options?.scrollTo ? { scrollTo: options.scrollTo } : {}),
           },
         },
       }));

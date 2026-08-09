@@ -654,8 +654,7 @@ describe("ArtifactPreview", () => {
       useCommentNavigationStore.getState().focusByTask["task-1"],
     ).toMatchObject({
       threadId: "created-comment",
-      scrollToAnchor: false,
-      scrollToThread: false,
+      scrollTo: "none",
     });
   });
 
@@ -867,7 +866,7 @@ describe("ArtifactPreview", () => {
         threadId: "comment-1",
         nonce: expect.any(Number),
         openCommentsTab: true,
-        scrollToAnchor: false,
+        scrollTo: "thread",
       });
       expect(scrollIntoView).not.toHaveBeenCalled();
     });
