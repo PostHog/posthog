@@ -1,15 +1,29 @@
-import type { Ticket } from "@posthog/api-client/posthog-client";
+import type { Ticket, TicketMessage } from "@posthog/api-client/posthog-client";
+import {
+  type ClassifiedTicket,
+  SLA_AT_RISK_WINDOW_MS,
+} from "@posthog/core/support/attention";
 import { describe, expect, it } from "vitest";
 import {
+  applyQueueSort,
   assigneeDisplay,
   channelLabel,
+  customerTicketHistory,
+  EMPTY_QUEUE_FILTERS,
   hasPriority,
   priorityLabel,
+  type QueueFilters,
+  type QueueSortField,
+  queueFilterChips,
+  queueListOptions,
   requesterLabel,
-  slaState,
+  slaCountdownLabel,
+  slaTone,
   snoozePresets,
   statusLabel,
+  ticketActivityEntries,
   ticketPreview,
+  visibleQueueColumns,
 } from "./ticketPresentation";
 
 function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
@@ -128,33 +142,6 @@ describe("channelLabel", () => {
   });
 });
 
-describe("slaState", () => {
-  const now = new Date("2026-07-15T12:00:00Z");
-
-  it("is none without a due date", () => {
-    expect(slaState(null, now)).toEqual({ kind: "none" });
-    expect(slaState(undefined, now)).toEqual({ kind: "none" });
-  });
-
-  it("is due when the deadline is ahead", () => {
-    const state = slaState("2026-07-15T13:00:00Z", now);
-    expect(state.kind).toBe("due");
-  });
-
-  it("is breached when the deadline has passed", () => {
-    const state = slaState("2026-07-15T11:00:00Z", now);
-    expect(state.kind).toBe("breached");
-  });
-
-  it("treats an exactly-due deadline as due, not breached", () => {
-    expect(slaState(now.toISOString(), now).kind).toBe("due");
-  });
-
-  it("is none for an unparseable date", () => {
-    expect(slaState("not-a-date", now)).toEqual({ kind: "none" });
-  });
-});
-
 describe("requesterLabel", () => {
   it("prefers the identified person", () => {
     const ticket = makeTicket({
@@ -220,5 +207,311 @@ describe("snoozePresets", () => {
     for (const preset of snoozePresets(now)) {
       expect(preset.until.getTime()).toBeGreaterThan(now.getTime());
     }
+  });
+});
+
+describe("slaTone", () => {
+  const now = new Date("2026-07-15T12:00:00Z");
+  const at = (offsetMs: number) =>
+    new Date(now.getTime() + offsetMs).toISOString();
+
+  // The stripe colour and the queue tier must agree: if the at-risk band ever
+  // drifts from SLA_AT_RISK_WINDOW_MS, rows get ranked as urgent while showing
+  // a calm green stripe (or the reverse).
+  it.each([
+    ["no due date", null, "none"],
+    ["unparseable", "not-a-date", "none"],
+    ["past due", at(-1), "breached"],
+    ["exactly due", at(0), "at-risk"],
+    [
+      "one ms inside the at-risk window",
+      at(SLA_AT_RISK_WINDOW_MS - 1),
+      "at-risk",
+    ],
+    ["exactly at the window edge", at(SLA_AT_RISK_WINDOW_MS), "at-risk"],
+    ["one ms outside the window", at(SLA_AT_RISK_WINDOW_MS + 1), "on-track"],
+  ] as const)("is %s → %s", (_case, dueAt, expected) => {
+    expect(slaTone(dueAt, now)).toBe(expected);
+  });
+});
+
+describe("slaCountdownLabel", () => {
+  const now = new Date("2026-07-15T12:00:00Z");
+  const at = (offsetMs: number) =>
+    new Date(now.getTime() + offsetMs).toISOString();
+
+  it.each([
+    [30 * 60_000, "30m left"],
+    [-30 * 60_000, "30m overdue"],
+    [3 * 60 * 60_000, "3h left"],
+    // The label must roll over to days before "72h" shows up.
+    [72 * 60 * 60_000, "3d left"],
+  ])("labels a %sms offset as %s", (offset, expected) => {
+    expect(slaCountdownLabel(at(offset), now)).toBe(expected);
+  });
+
+  it("has no label without a due date", () => {
+    expect(slaCountdownLabel(null, now)).toBeNull();
+  });
+});
+
+describe("visibleQueueColumns", () => {
+  it("always includes the customer column, whatever is stored", () => {
+    expect(visibleQueueColumns([]).map((c) => c.id)).toEqual(["customer"]);
+  });
+
+  // Stored ids accumulate in toggle order; the list must still render in the
+  // canonical order or the header and the cells drift apart.
+  it("returns canonical order regardless of toggle order", () => {
+    expect(
+      visibleQueueColumns(["updated", "number", "sla"]).map((c) => c.id),
+    ).toEqual(["number", "customer", "sla", "updated"]);
+  });
+});
+
+describe("applyQueueSort", () => {
+  const ranked = (tickets: Ticket[]): ClassifiedTicket[] =>
+    tickets.map((ticket) => ({ ticket, state: "in-progress" as const }));
+
+  const numbers = (rows: ClassifiedTicket[]) =>
+    rows.map((row) => row.ticket.ticket_number);
+
+  it("keeps the attention ranking when no column sort is set", () => {
+    const rows = ranked([
+      makeTicket({ ticket_number: 3, priority: "low" }),
+      makeTicket({ ticket_number: 1, priority: "high" }),
+    ]);
+    expect(numbers(applyQueueSort(rows, null))).toEqual([3, 1]);
+  });
+
+  // Untriaged is unknown urgency, not the bottom of the scale — a plain
+  // enum ordering would bury triage debt below every "low" ticket.
+  it.each([
+    [false, [2, 4, 3, 1]],
+    [true, [1, 3, 4, 2]],
+  ])("orders unset priority above low (desc=%s)", (desc, expected) => {
+    const rows = ranked([
+      makeTicket({ ticket_number: 1, priority: "high" }),
+      makeTicket({ ticket_number: 2, priority: "low" }),
+      makeTicket({ ticket_number: 3, priority: "medium" }),
+      makeTicket({ ticket_number: 4, priority: null }),
+    ]);
+    expect(numbers(applyQueueSort(rows, { field: "priority", desc }))).toEqual(
+      expected,
+    );
+  });
+
+  // Absent values are not "the largest value": flipping direction must not
+  // float tickets with no deadline (or no owner) to the top of the queue.
+  it.each([
+    ["sla_due_at", { sla_due_at: "2026-07-15T10:00:00Z" }, {}],
+    [
+      "assignee",
+      {
+        assignee: {
+          id: "a",
+          type: "user",
+          user: { first_name: "Ada" },
+          role: null,
+        },
+      },
+      {},
+    ],
+  ] as const)(
+    "keeps missing %s at the end in both directions",
+    (field, present, absent) => {
+      const rows = ranked([
+        makeTicket({ ticket_number: 1, ...absent, assignee: undefined }),
+        makeTicket({ ticket_number: 2, ...present }),
+      ]);
+      for (const desc of [false, true]) {
+        const sorted = applyQueueSort(rows, {
+          field: field as QueueSortField,
+          desc,
+        });
+        expect(numbers(sorted).at(-1)).toBe(1);
+      }
+    },
+  );
+
+  it("leaves rows that tie on the sorted column in attention order", () => {
+    const rows = ranked([
+      makeTicket({ ticket_number: 9, priority: "high" }),
+      makeTicket({ ticket_number: 2, priority: "high" }),
+    ]);
+    expect(
+      numbers(applyQueueSort(rows, { field: "priority", desc: true })),
+    ).toEqual([9, 2]);
+  });
+});
+
+describe("queueFilterChips", () => {
+  const filters: QueueFilters = {
+    status: "open",
+    priority: "high",
+    channel: "slack",
+    sla: "breached",
+    assignee: "unassigned",
+    search: "  billing  ",
+  };
+
+  it("labels every applied filter", () => {
+    expect(queueFilterChips(filters).map((chip) => chip.label)).toEqual([
+      "Status: Open",
+      "Priority: High",
+      "Channel: Slack",
+      "SLA: Breached",
+      "Assignee: Unassigned",
+      "Search: billing",
+    ]);
+  });
+
+  // Removing one chip must clear exactly that filter — the bug this catches is
+  // a chip that resets the whole filter set (or the wrong key).
+  it.each(["status", "priority", "channel", "sla", "assignee", "search"])(
+    "removing the %s chip clears only that filter",
+    (id) => {
+      const chip = queueFilterChips(filters).find((c) => c.id === id);
+      const next = chip?.next as QueueFilters;
+      expect(queueFilterChips(next).map((c) => c.id)).toEqual(
+        queueFilterChips(filters)
+          .map((c) => c.id)
+          .filter((other) => other !== id),
+      );
+    },
+  );
+
+  it("ignores a whitespace-only search", () => {
+    expect(queueFilterChips({ ...EMPTY_QUEUE_FILTERS, search: "   " })).toEqual(
+      [],
+    );
+  });
+});
+
+describe("queueListOptions", () => {
+  it("sends only the filters that are set", () => {
+    expect(queueListOptions(EMPTY_QUEUE_FILTERS)).toEqual({
+      orderBy: "-updated_at",
+    });
+  });
+
+  it("maps every chip onto its endpoint parameter", () => {
+    expect(
+      queueListOptions({
+        status: "pending",
+        priority: "medium",
+        channel: "email",
+        sla: "at-risk",
+        assignee: "me",
+        search: " refund ",
+      }),
+    ).toEqual({
+      orderBy: "-updated_at",
+      status: "pending",
+      priority: "medium",
+      channelSource: "email",
+      sla: "at-risk",
+      assignee: "me",
+      search: "refund",
+    });
+  });
+});
+
+describe("ticketActivityEntries", () => {
+  const message = (overrides: Partial<TicketMessage>): TicketMessage => ({
+    id: "m-1",
+    content: "hi",
+    rich_content: null,
+    author_type: "customer",
+    author_name: "Grace",
+    is_private: false,
+    created_at: "2026-07-02T00:00:00Z",
+    ...overrides,
+  });
+
+  it("reports the newest event first and tells a note from a public reply", () => {
+    const entries = ticketActivityEntries(
+      makeTicket({ created_at: "2026-07-01T00:00:00Z", email_from: "g@x.com" }),
+      [
+        message({ id: "m-1", created_at: "2026-07-02T00:00:00Z" }),
+        message({
+          id: "m-2",
+          author_type: "agent",
+          author_name: "Ada",
+          created_at: "2026-07-03T00:00:00Z",
+        }),
+        message({
+          id: "m-3",
+          author_type: "agent",
+          author_name: "Ada",
+          is_private: true,
+          created_at: "2026-07-04T00:00:00Z",
+        }),
+      ],
+    );
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "internal-note",
+      "team-replied",
+      "customer-wrote",
+      "opened",
+    ]);
+  });
+
+  it("reports the opening event alone while the thread is still loading", () => {
+    expect(ticketActivityEntries(makeTicket(), undefined)).toHaveLength(1);
+  });
+});
+
+describe("customerTicketHistory", () => {
+  const current = makeTicket({
+    id: "current",
+    ticket_number: 1,
+    email_from: "Grace@Example.com",
+    updated_at: "2026-07-02T00:00:00Z",
+  });
+
+  // The search that backs this card can page the open ticket out; without the
+  // merge the card reads as if the ticket you're looking at doesn't exist.
+  it("includes the current ticket when the fetched page omits it", () => {
+    const { entries } = customerTicketHistory(
+      [
+        makeTicket({
+          id: "older",
+          ticket_number: 2,
+          email_from: "grace@example.com",
+          updated_at: "2026-07-01T00:00:00Z",
+        }),
+      ],
+      current,
+      10,
+    );
+    expect(entries.map((entry) => entry.ticket.id)).toEqual([
+      "current",
+      "older",
+    ]);
+    expect(entries[0].isCurrent).toBe(true);
+  });
+
+  it("drops tickets that belong to someone else", () => {
+    const { entries } = customerTicketHistory(
+      [makeTicket({ id: "other", email_from: "someone@else.com" })],
+      current,
+      10,
+    );
+    expect(entries.map((entry) => entry.ticket.id)).toEqual(["current"]);
+  });
+
+  it("caps the list and reports how many are hidden", () => {
+    const others = Array.from({ length: 4 }, (_, index) =>
+      makeTicket({
+        id: `t-${index}`,
+        ticket_number: index + 10,
+        email_from: "grace@example.com",
+        updated_at: `2026-07-0${index + 3}T00:00:00Z`,
+      }),
+    );
+    const { entries, extra } = customerTicketHistory(others, current, 2);
+    expect(entries).toHaveLength(2);
+    expect(extra).toBe(3);
   });
 });

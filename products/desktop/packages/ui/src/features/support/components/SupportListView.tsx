@@ -1,4 +1,10 @@
-import { LifebuoyIcon } from "@phosphor-icons/react";
+import {
+  ArrowDownIcon,
+  ArrowsDownUpIcon,
+  ArrowUpIcon,
+  LifebuoyIcon,
+  MagnifyingGlassIcon,
+} from "@phosphor-icons/react";
 import { rankQueue } from "@posthog/core/support/attention";
 import {
   Empty,
@@ -6,53 +12,135 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Input,
   Spinner,
 } from "@posthog/quill";
 import { navigateToSupportTicketDetail } from "@posthog/ui/router/navigationBridge";
-import { useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSupportTickets } from "../hooks/useSupportTickets";
+import { useSupportQueueStore } from "../supportQueueStore";
+import {
+  applyQueueSort,
+  EMPTY_QUEUE_FILTERS,
+  type QueueColumn,
+  type QueueFilters,
+  type QueueSort,
+  type QueueSortField,
+  queueListOptions,
+  visibleQueueColumns,
+} from "../ticketPresentation";
+import { QueueDisplayMenu } from "./QueueDisplayMenu";
+import { QueueFilterChips } from "./QueueFilterChips";
+import { QueueFilterMenu } from "./QueueFilterMenu";
+import { SectionLabel } from "./SectionLabel";
 import { TicketRow } from "./TicketRow";
+
+// Long enough that a typed word costs one request, short enough to feel live.
+const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * The attention queue: tickets ranked by what needs attention now, every row
  * carrying the reason for its rank. Ranking is pure core logic
- * (@posthog/core/support/attention); this view just fetches and renders.
+ * (@posthog/core/support/attention); a column sort layers on top of it as an
+ * explicit, resettable override.
  */
 export function SupportListView() {
-  const { data, isPending, isError } = useSupportTickets({
-    orderBy: "-updated_at",
-  });
-  // One clock per data refresh keeps classification consistent across rows
-  // and the order stable between renders.
-  const ranked = useMemo(
-    () => rankQueue(data?.results ?? [], new Date()),
-    [data],
+  const [filters, setFilters] = useState<QueueFilters>(EMPTY_QUEUE_FILTERS);
+  const [searchInput, setSearchInput] = useState("");
+  const sort = useSupportQueueStore((state) => state.sort);
+  const toggleSort = useSupportQueueStore((state) => state.toggleSort);
+  const clearSort = useSupportQueueStore((state) => state.clearSort);
+  const visibleColumnIds = useSupportQueueStore(
+    (state) => state.visibleColumnIds,
   );
+  const columns = useMemo(
+    () => visibleQueueColumns(visibleColumnIds),
+    [visibleColumnIds],
+  );
+
+  // Typing stays instant; only the settled term reaches the query key, so a
+  // burst of keystrokes is one request rather than one per character.
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setFilters((current) => ({ ...current, search: searchInput })),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const { data, isPending, isError } = useSupportTickets(
+    queueListOptions(filters),
+  );
+
+  // One clock per data refresh, shared by the ranking and every row's SLA
+  // stripe, so no two rows disagree about "now" and the order stays stable
+  // between renders.
+  const { now, rows } = useMemo(() => {
+    const at = new Date();
+    return {
+      now: at,
+      rows: applyQueueSort(rankQueue(data?.results ?? [], at), sort),
+    };
+  }, [data, sort]);
+
+  const applyFilters = (next: QueueFilters) => {
+    setFilters(next);
+    setSearchInput(next.search);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-4 pt-4 pb-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-4 pb-3">
         <h2 className="font-semibold text-[18px]">Support</h2>
-        {data && (
-          <span className="text-(--gray-10) text-[12px]">
-            {ranked.length} open
-          </span>
+        <QueueFilterMenu filters={filters} onChange={applyFilters} />
+        <QueueDisplayMenu />
+        <div className="relative ml-auto">
+          <MagnifyingGlassIcon
+            size={14}
+            className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search tickets…"
+            aria-label="Search tickets"
+            maxLength={200}
+            className="w-64 pl-8"
+          />
+        </div>
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2">
+        <QueueFilterChips
+          filters={filters}
+          onChange={applyFilters}
+          onClearAll={() => applyFilters(EMPTY_QUEUE_FILTERS)}
+        />
+        {sort && (
+          <button
+            type="button"
+            onClick={clearSort}
+            className="ml-auto cursor-pointer text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Sorted by column — back to attention order
+          </button>
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-        {isPending && (
-          <Empty className="h-full border-0">
-            <EmptyHeader>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+        <div className="overflow-hidden rounded-lg border border-border">
+          <ListHeader columns={columns} sort={sort} onToggle={toggleSort} />
+          {isPending && (
+            <QueueState>
               <EmptyMedia variant="icon">
                 <Spinner />
               </EmptyMedia>
               <EmptyTitle>Loading tickets</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-        )}
-        {isError && (
-          <Empty className="h-full border-0">
-            <EmptyHeader>
+            </QueueState>
+          )}
+          {isError && (
+            <QueueState>
               <EmptyMedia variant="icon">
                 <LifebuoyIcon size={20} />
               </EmptyMedia>
@@ -61,12 +149,10 @@ export function SupportListView() {
                 Check that Conversations is enabled for this project, then try
                 again.
               </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        )}
-        {!isPending && !isError && ranked.length === 0 && (
-          <Empty className="h-full border-0">
-            <EmptyHeader>
+            </QueueState>
+          )}
+          {!isPending && !isError && rows.length === 0 && (
+            <QueueState>
               <EmptyMedia variant="icon">
                 <LifebuoyIcon size={20} />
               </EmptyMedia>
@@ -74,18 +160,105 @@ export function SupportListView() {
               <EmptyDescription>
                 Customer tickets from Conversations will show up here.
               </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+            </QueueState>
+          )}
+          {rows.length > 0 && (
+            <ul className="divide-y divide-border">
+              {rows.map(({ ticket, state }) => (
+                <TicketRow
+                  key={ticket.id}
+                  ticket={ticket}
+                  state={state}
+                  columns={columns}
+                  now={now}
+                  onClick={() => navigateToSupportTicketDetail(ticket.id)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+        {data && (
+          <div className="pt-2 text-[11px] text-muted-foreground">
+            {rows.length === 0
+              ? "No tickets need attention"
+              : `${rows.length} of ${data.count} tickets need attention`}
+          </div>
         )}
-        {ranked.map(({ ticket, state }) => (
-          <TicketRow
-            key={ticket.id}
-            ticket={ticket}
-            state={state}
-            onClick={() => navigateToSupportTicketDetail(ticket.id)}
-          />
-        ))}
       </div>
     </div>
+  );
+}
+
+function QueueState({ children }: { children: ReactNode }) {
+  return (
+    <Empty className="border-0 bg-card py-8">
+      <EmptyHeader>{children}</EmptyHeader>
+    </Empty>
+  );
+}
+
+function ListHeader({
+  columns,
+  sort,
+  onToggle,
+}: {
+  columns: readonly QueueColumn[];
+  sort: QueueSort | null;
+  onToggle: (field: QueueSortField) => void;
+}) {
+  return (
+    <div className="flex items-center border-border border-b bg-muted/50">
+      {/* Matches each row's SLA stripe so header and cells line up. */}
+      <span aria-hidden className="w-1 shrink-0" />
+      <SectionLabel
+        size="xs"
+        className="flex flex-1 items-center gap-3 py-2 pr-4 pl-3"
+      >
+        {columns.map((column) =>
+          column.sortField ? (
+            <SortHeader
+              key={column.id}
+              column={column}
+              sort={sort}
+              onToggle={onToggle}
+            />
+          ) : (
+            <div key={column.id} className={column.className}>
+              {column.label}
+            </div>
+          ),
+        )}
+      </SectionLabel>
+    </div>
+  );
+}
+
+function SortHeader({
+  column,
+  sort,
+  onToggle,
+}: {
+  column: QueueColumn;
+  sort: QueueSort | null;
+  onToggle: (field: QueueSortField) => void;
+}) {
+  const field = column.sortField as QueueSortField;
+  const isActive = sort?.field === field;
+  const SortIcon = !isActive
+    ? ArrowsDownUpIcon
+    : sort.desc
+      ? ArrowDownIcon
+      : ArrowUpIcon;
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(field)}
+      className={`inline-flex cursor-pointer items-center gap-1 hover:text-foreground ${
+        isActive ? "text-foreground" : ""
+      } ${column.className} ${column.id === "updated" ? "justify-end" : ""}`}
+    >
+      <span>{column.label}</span>
+      <SortIcon size={10} />
+    </button>
   );
 }

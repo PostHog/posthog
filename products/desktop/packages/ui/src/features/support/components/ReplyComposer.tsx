@@ -29,7 +29,7 @@ export function ReplyComposer({ ticketId }: { ticketId: string }) {
   };
 
   return (
-    <div className="shrink-0 border-(--gray-4) border-t px-4 py-3">
+    <div className="shrink-0 border-border border-t px-4 py-3">
       <Textarea
         value={message}
         onChange={(event) => setMessage(event.target.value)}
@@ -54,7 +54,7 @@ export function ReplyComposer({ ticketId }: { ticketId: string }) {
         />
         <label
           htmlFor="support-reply-internal"
-          className="cursor-pointer text-(--gray-11) text-[12px]"
+          className="cursor-pointer text-[12px] text-muted-foreground"
         >
           Internal note
         </label>
