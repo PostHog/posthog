@@ -12,16 +12,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -52,16 +58,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -92,16 +104,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC'))))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -132,16 +150,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC'))))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -172,16 +196,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               '' AS relevant_property_values,
-               lagInFrame('') OVER (
-                                    ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  '' AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -212,16 +242,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               '' AS relevant_property_values,
-               lagInFrame('') OVER (
-                                    ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  '' AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -252,16 +288,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -292,16 +334,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -332,16 +380,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -372,16 +426,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -412,16 +472,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 01:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 01:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -452,16 +518,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 01:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 01:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -492,16 +564,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-31 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-31 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -532,16 +610,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-31 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-31 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -572,16 +656,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-09 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-09 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -612,16 +702,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-09 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-09 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -652,16 +748,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -692,16 +794,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -732,16 +840,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -772,16 +886,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -812,16 +932,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'foo'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'foo'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                                                                                                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'foo'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -852,16 +978,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.foo), 'Array'), startsWith(dynamicType(events.person_properties.foo), 'Map'), startsWith(dynamicType(events.person_properties.foo), 'Tuple')), toJSONString(events.person_properties.foo), toString(events.person_properties.foo))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.foo), 'Array'), startsWith(dynamicType(events.person_properties.foo), 'Map'), startsWith(dynamicType(events.person_properties.foo), 'Tuple')), toJSONString(events.person_properties.foo), toString(events.person_properties.foo)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.foo), 'Array'), startsWith(dynamicType(events.person_properties.foo), 'Map'), startsWith(dynamicType(events.person_properties.foo), 'Tuple')), toJSONString(events.person_properties.foo), toString(events.person_properties.foo))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -892,16 +1024,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.person_properties AS properties,
-               toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'foo'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values,
-               lagInFrame(toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'foo'), ''), 'null'), '^"|"$', '')))) OVER (
-                                                                                                                                                                                                                                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.person_properties AS properties,
+                  toString(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'bar'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'foo'), ''), 'null'), '^"|"$', ''))) AS relevant_property_values
+           FROM events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC
@@ -932,16 +1070,22 @@
             leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
                                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
      FROM
-       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
-               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.foo), 'Array'), startsWith(dynamicType(events.person_properties.foo), 'Map'), startsWith(dynamicType(events.person_properties.foo), 'Tuple')), toJSONString(events.person_properties.foo), toString(events.person_properties.foo))))))) AS relevant_property_values,
-               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.foo), 'Array'), startsWith(dynamicType(events.person_properties.foo), 'Map'), startsWith(dynamicType(events.person_properties.foo), 'Tuple')), toJSONString(events.person_properties.foo), toString(events.person_properties.foo)))))))) OVER (
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+       (SELECT timestamp AS timestamp,
+               properties AS properties,
+               relevant_property_values AS relevant_property_values,
+               lagInFrame(relevant_property_values) OVER (
+                                                          ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
                row_number() OVER (
-                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+                                  ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
-        FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+        FROM
+          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}') AS properties,
+                  toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.bar), 'Array'), startsWith(dynamicType(events.person_properties.bar), 'Map'), startsWith(dynamicType(events.person_properties.bar), 'Tuple')), toJSONString(events.person_properties.bar), toString(events.person_properties.bar))))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.foo), 'Array'), startsWith(dynamicType(events.person_properties.foo), 'Map'), startsWith(dynamicType(events.person_properties.foo), 'Tuple')), toJSONString(events.person_properties.foo), toString(events.person_properties.foo))))))) AS relevant_property_values
+           FROM events_json AS events
+           WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview'))
+           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+           LIMIT 10000))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
   ORDER BY timestamp ASC

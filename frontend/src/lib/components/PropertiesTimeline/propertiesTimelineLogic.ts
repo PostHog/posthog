@@ -1,8 +1,12 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import {
+    convertPropertyGroupToProperties,
+    isPersonPropertyFilter,
+    isPropertyGroup,
+} from 'lib/components/PropertyFilters/utils'
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
@@ -85,6 +89,31 @@ export type propertiesTimelineLogicType = MakeLogicType<
     propertiesTimelineLogicMeta
 >
 
+// Mirror the backend crucial-property-key extraction: only person-scoped property filters and a
+// person breakdown feed the timeline. Query-based insights hand the modal a URL without the legacy
+// events/actions/properties params, so the reconstructed filter has none of these and the backend
+// returns an empty timeline after a full person event scan. Detect that case up front and skip the
+// request — the component already shows "No key person properties" and the raw properties table.
+function hasCrucialPersonProperties(filter: PropertiesTimelineFilterType): boolean {
+    if (filter.aggregation_group_type_index !== undefined) {
+        return false
+    }
+    const propertySources = [
+        filter.properties,
+        ...(filter.events ?? []).map((entity) => entity.properties),
+        ...(filter.actions ?? []).map((entity) => entity.properties),
+    ]
+    const hasPersonProperty = propertySources.some((properties) => {
+        const list = Array.isArray(properties)
+            ? properties
+            : isPropertyGroup(properties)
+              ? convertPropertyGroupToProperties(properties)
+              : []
+        return (list ?? []).some(isPersonPropertyFilter)
+    })
+    return hasPersonProperty || (filter.breakdown_type === 'person' && !!filter.breakdown)
+}
+
 export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
     path(['lib', 'components', 'PropertiesTimeline', 'propertiesTimelineLogic']),
     props({} as PropertiesTimelineProps),
@@ -114,22 +143,11 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             {
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
-                        const response = await api.get<RawPropertiesTimelineResult>(
+                        return await api.get<RawPropertiesTimelineResult>(
                             `api/environments/${values.currentTeamId}/persons/${
                                 props.actor.id
                             }/properties_timeline/?${toParams(props.filter)}`
                         )
-                        if (response.points.length === 0) {
-                            // It should not be possible for a properties timeline to have zero points, as all actors
-                            // shown in the actors modal must have at least one relevant event in the period
-                            posthog.captureException(new Error('Properties Timeline returned no points'), {
-                                tags: { 'team.id': values.currentTeamId },
-                                extra: {
-                                    params: props.filter,
-                                },
-                            })
-                        }
-                        return response
                     }
                     throw new Error("Properties Timeline doesn't support groups-on-events yet")
                 },
@@ -164,7 +182,9 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                 ],
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.loadResult()
+    afterMount(({ actions, props }) => {
+        if (hasCrucialPersonProperties(props.filter)) {
+            actions.loadResult()
+        }
     }),
 ])

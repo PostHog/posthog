@@ -35,6 +35,12 @@ class PropertiesTimelineResult(TypedDict):
     effective_date_to: str
 
 
+# A person with no entity filter can match every event in the window, so the innermost scan that
+# feeds the window functions is capped. The cap bounds the earliest events in the range; a normal
+# timeline stays well under it, so results are unchanged unless the scan would otherwise be unbounded.
+PROPERTIES_TIMELINE_MAX_EVENTS = 10_000
+
+
 # relevant_event_count of each point is the number of events between consecutive changes of the
 # crucial property values. We detect changes with lagInFrame over the ordered event stream, keep only
 # the change points, then use leadInFrame (defaulting to total_events + 1 for the last segment) to
@@ -55,17 +61,25 @@ FROM (
     FROM (
         SELECT
             timestamp,
-            {actor_properties} AS properties,
-            {crucial_properties} AS relevant_property_values,
-            lagInFrame({crucial_properties}) OVER (
+            properties,
+            relevant_property_values,
+            lagInFrame(relevant_property_values) OVER (
                 ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
             ) AS previous_relevant_property_values,
             row_number() OVER (
                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
             ) AS start_event_number,
             count() OVER () AS total_events
-        FROM events
-        WHERE {where}
+        FROM (
+            SELECT
+                timestamp,
+                {actor_properties} AS properties,
+                {crucial_properties} AS relevant_property_values
+            FROM events
+            WHERE {where}
+            ORDER BY timestamp ASC
+            LIMIT {max_events}
+        )
     )
     WHERE start_event_number = 1 OR relevant_property_values != previous_relevant_property_values
 )
@@ -182,6 +196,7 @@ class PropertiesTimeline:
                 "actor_properties": ast.Field(chain=actor_properties_chain),
                 "crucial_properties": crucial_properties,
                 "where": ast.And(exprs=where_exprs),
+                "max_events": ast.Constant(value=PROPERTIES_TIMELINE_MAX_EVENTS),
             },
         )
 
