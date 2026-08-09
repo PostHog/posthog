@@ -1,9 +1,12 @@
 import os
 import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1187,6 +1190,38 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         response = self._make_logs_api_request(query_params)
         self.assertGreater(len(response["results"]), 0)
+
+    def test_query_with_non_dict_query_rejected_with_400(self):
+        """A non-object `query` (e.g. a plain string) used to crash with an unhandled
+        AttributeError ('str' object has no attribute 'get') instead of a 400."""
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": "not-an-object"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestGetQueryBody(SimpleTestCase):
+    def test_missing_query_required(self):
+        from products.logs.backend.presentation.views.api import LogsViewSet
+
+        result = LogsViewSet._get_query_body(SimpleNamespace(data={}), required=True)
+        self.assertEqual(result.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_query_not_required_defaults_to_empty_dict(self):
+        from products.logs.backend.presentation.views.api import LogsViewSet
+
+        self.assertEqual(LogsViewSet._get_query_body(SimpleNamespace(data={}), required=False), {})
+
+    @parameterized.expand([("not-an-object",), (["a", "list"],), (123,)])
+    def test_non_dict_query_rejected(self, query_value):
+        from products.logs.backend.presentation.views.api import LogsViewSet
+
+        result = LogsViewSet._get_query_body(SimpleNamespace(data={"query": query_value}))
+        self.assertEqual(result.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_dict_query_returned_as_is(self):
+        from products.logs.backend.presentation.views.api import LogsViewSet
+
+        query = {"searchTerm": "timeout"}
+        self.assertEqual(LogsViewSet._get_query_body(SimpleNamespace(data={"query": query})), query)
 
 
 class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):

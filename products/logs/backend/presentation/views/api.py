@@ -1149,6 +1149,24 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return filter_group
         return {"type": "AND", "values": []}
 
+    @staticmethod
+    def _get_query_body(request: Request, *, required: bool = False) -> dict | Response:
+        """Parse the `query` object from the request body.
+
+        Returns `{}` when `query` is omitted and not required. Returns a 400 Response when
+        `query` is missing while required, or present but not a JSON object — callers that
+        called `.get()` straight off `request.data.get("query", ...)` would otherwise crash
+        with an AttributeError on a non-dict `query` (e.g. a plain string).
+        """
+        query_data = request.data.get("query", None)
+        if query_data is None:
+            if required:
+                return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+            return {}
+        if not isinstance(query_data, dict):
+            return Response({"error": "query must be an object"}, status=status.HTTP_400_BAD_REQUEST)
+        return query_data
+
     def _filtered_logs_query(self, query_data: dict) -> LogsQuery:
         """The shared date-range + filters subset of LogsQuery used by aggregation actions."""
         date_range_data = query_data.get("dateRange")
@@ -1166,9 +1184,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", None)
-        if query_data is None:
-            return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+        query_data = self._get_query_body(request, required=True)
+        if isinstance(query_data, Response):
+            return query_data
 
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
         after_cursor = query_data.get("after", None)
@@ -1298,7 +1316,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
@@ -1342,7 +1362,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def facet_values(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         facet_field = query_data.get("facetField")
         facet_resource_attribute = query_data.get("facetResourceAttribute")
@@ -1383,7 +1405,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def count(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
@@ -1425,7 +1449,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="count-ranges")
     def count_ranges(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
@@ -1467,7 +1493,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def services(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
@@ -1505,7 +1533,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def patterns(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         query = self._filtered_logs_query(query_data)
 
@@ -1538,7 +1568,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="patterns_diff")
     def patterns_diff(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         query = self._filtered_logs_query(query_data)
         baseline_date_range = (
@@ -1570,7 +1602,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="group-by")
     def group_by(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._get_query_body(request)
+        if isinstance(query_data, Response):
+            return query_data
 
         query = self._filtered_logs_query(query_data)
 
@@ -1776,9 +1810,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def export(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", None)
-        if query_data is None:
-            return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+        query_data = self._get_query_body(request, required=True)
+        if isinstance(query_data, Response):
+            return query_data
 
         custom_columns = query_data.get("customColumns") or []
         if len(custom_columns) > MAX_CUSTOM_COLUMNS:
