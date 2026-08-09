@@ -6,6 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("replay_vision", "0063_replayobservation_backfill_index"),
+        ("replay_vision", "0062_replayscanner_experiment_targeting"),
     ]
 
     operations = [
@@ -27,6 +28,8 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="replayscannerbackfill",
             name="window_end",
-            field=models.DateTimeField(help_text="Exclusive upper bound of the window; clamped to now at creation."),
+            field=models.DateTimeField(
+                help_text="Exclusive upper bound of the window; clamped to now at creation."
+            ),
         ),
     ]

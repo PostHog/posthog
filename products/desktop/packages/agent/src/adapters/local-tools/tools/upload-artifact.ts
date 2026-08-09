@@ -17,8 +17,8 @@ export const uploadArtifactTool = defineLocalTool({
     "Deliver a file you created to the user as a downloadable task artifact. " +
     "Call this for every non-code deliverable (reports, images, archives, data files, and similar output) " +
     "before your final response. The file must be inside the session workspace. Repository changes belong in git and should not be uploaded. " +
-    "To revise a file you already delivered, upload it again under the same name: the app shows the newest version " +
-    "and keeps the earlier ones available. " +
+    "To revise a file you already delivered, read its current latest version first because the user may have edited it, " +
+    "then upload your revision under the same name. The app shows the newest version and keeps the earlier ones available. " +
     "On success the result includes a download URL for the uploaded file, which you can reference in your final response.",
   schema: {
     path: z

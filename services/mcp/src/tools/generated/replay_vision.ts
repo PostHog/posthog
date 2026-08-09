@@ -449,6 +449,9 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
         if (params.emits_signals !== undefined) {
             body['emits_signals'] = params.emits_signals
         }
+        if (params.experiment_targeting !== undefined) {
+            body['experiment_targeting'] = params.experiment_targeting
+        }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
@@ -598,6 +601,7 @@ const visionScannersList = (): ToolBase<
                 created_by: params.created_by,
                 emits_signals: params.emits_signals,
                 enabled: params.enabled,
+                experiment_id: params.experiment_id,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
@@ -879,6 +883,9 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
         }
         if (params.emits_signals !== undefined) {
             body['emits_signals'] = params.emits_signals
+        }
+        if (params.experiment_targeting !== undefined) {
+            body['experiment_targeting'] = params.experiment_targeting
         }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'PATCH',

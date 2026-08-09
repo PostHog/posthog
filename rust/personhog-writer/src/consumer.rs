@@ -188,6 +188,18 @@ impl ConsumerTask {
                         Err(e) => {
                             counter!("personhog_writer_kafka_errors_total").increment(1);
                             warn!(error = %e, "Kafka recv error");
+                            // A non-fatal error is librdkafka riding out a
+                            // blip and needs nothing from us. A fatal
+                            // client state never recovers: left here, the
+                            // loop re-polls a dead client forever while
+                            // the pod reports healthy and its partitions'
+                            // records go unwritten.
+                            if let Some((code, reason)) = self.consumer.fatal_error() {
+                                self.handle.signal_failure(format!(
+                                    "Kafka client entered a fatal state ({code:?}): {reason}"
+                                ));
+                                return;
+                            }
                         }
                     }
                 }

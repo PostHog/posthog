@@ -1415,6 +1415,17 @@ export interface TaskRunArtifactMetadataApi {
     schema_version: number
 }
 
+/**
+ * * `agent` - agent
+ * * `user` - user
+ */
+export type UploadedByEnumApi = (typeof UploadedByEnumApi)[keyof typeof UploadedByEnumApi]
+
+export const UploadedByEnumApi = {
+    Agent: 'agent',
+    User: 'user',
+} as const
+
 export interface TaskRunArtifactResponseApi {
     /** Stable identifier for the artifact within this run */
     id?: string
@@ -1434,6 +1445,13 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
+    /** Whether the artifact version was uploaded by the task agent or an interactive user.
+     *
+     * * `agent` - agent
+     * * `user` - user */
+    uploaded_by?: UploadedByEnumApi
+    /** User id for an interactive user upload. Absent for agent uploads and legacy entries. */
+    uploaded_by_user_id?: number
     /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
     dismissed_at?: string
     /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
