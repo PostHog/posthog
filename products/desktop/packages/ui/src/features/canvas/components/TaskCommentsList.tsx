@@ -557,6 +557,7 @@ export function TaskCommentsList({
     );
     setPulseThreadId(focus.threadId);
     openThread(focused, false);
+    if (focus.scrollToComment === false) return;
     requestAnimationFrame(() => {
       document
         .querySelector(
@@ -740,10 +741,9 @@ export function TaskCommentsList({
               mentions,
             });
             setDraft("");
-            // Show the thread that was just opened. The list is ordered by when
-            // a thread started, so a new one lands at the top, away from the
-            // composer — focusing it clears the filters hiding it and scrolls.
-            requestCommentFocus(task.id, composerTarget, created.id);
+            requestCommentFocus(task.id, composerTarget, created.id, {
+              scrollToComment: false,
+            });
           }}
           members={members}
           placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}

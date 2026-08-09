@@ -650,6 +650,12 @@ describe("ArtifactPreview", () => {
       },
       mentions: [],
     });
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"],
+    ).toMatchObject({
+      threadId: "created-comment",
+      scrollToComment: false,
+    });
   });
 
   it("dismisses the Markdown comment action when clicking away", async () => {
@@ -860,7 +866,9 @@ describe("ArtifactPreview", () => {
         threadId: "comment-1",
         nonce: expect.any(Number),
         openCommentsTab: true,
+        scrollToComment: false,
       });
+      expect(scrollIntoView).not.toHaveBeenCalled();
     });
 
     it("scrolls to the anchor the list asks for", async () => {

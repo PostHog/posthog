@@ -1,4 +1,5 @@
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
@@ -41,6 +42,10 @@ describe("CanvasSelectionCommentAction", () => {
   beforeEach(() => {
     mutateAsync.mockReset();
     useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
+    useCommentNavigationStore.setState({
+      focusByTask: {},
+      resolutionsByTarget: {},
+    });
   });
 
   it("creates the text-anchored comment and opens the comments tab", async () => {
@@ -85,6 +90,12 @@ describe("CanvasSelectionCommentAction", () => {
         collapsed: false,
         tab: "comments",
       });
+    });
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"],
+    ).toMatchObject({
+      threadId: "comment-1",
+      scrollToComment: false,
     });
   });
 });

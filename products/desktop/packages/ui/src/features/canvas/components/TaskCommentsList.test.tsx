@@ -448,6 +448,36 @@ describe("TaskCommentsList", () => {
     });
   });
 
+  it("does not scroll when an artifact selects its thread", () => {
+    const animationFrame = vi
+      .spyOn(globalThis, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0);
+        return 0;
+      });
+    render(<TaskCommentsList task={task} timeline={[]} />);
+    const thread = screen
+      .getByText("Tighten this summary")
+      .closest("[data-comment-thread-id]");
+    expect(thread).not.toBeNull();
+    const scrollIntoView = vi.spyOn(thread as HTMLElement, "scrollIntoView");
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "task_artifact", itemId: "a" },
+          "comment-1",
+          { scrollToComment: false },
+        );
+    });
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    scrollIntoView.mockRestore();
+    animationFrame.mockRestore();
+  });
+
   it("opens the saved canvas version when activity requests its thread", () => {
     const onCanvasCommentOpen = vi.fn();
     mocks.comments = [
@@ -745,7 +775,7 @@ describe("TaskCommentsList", () => {
   });
 
   // Not every comment belongs to a deliverable; some are about the work.
-  it("posts a comment on the task itself", async () => {
+  it("posts a comment on the task itself without scrolling", async () => {
     render(<TaskCommentsList task={task} timeline={[]} />);
 
     await act(async () => {
@@ -762,13 +792,12 @@ describe("TaskCommentsList", () => {
         context: { anchor: { kind: "document" } },
       }),
     );
-    // The list is ordered by when a thread started, so the new one lands at the
-    // top, away from the composer it was written in.
     expect(
       useCommentNavigationStore.getState().focusByTask["task-1"],
     ).toMatchObject({
       target: { scope: "task", itemId: "task-1" },
       threadId: "created-comment",
+      scrollToComment: false,
     });
   });
 

@@ -73,7 +73,9 @@ export function CanvasSelectionCommentAction({
         openComments();
         useCommentNavigationStore
           .getState()
-          .requestCommentFocus(taskId, target, comment.id);
+          .requestCommentFocus(taskId, target, comment.id, {
+            scrollToComment: false,
+          });
       }}
     />
   );
