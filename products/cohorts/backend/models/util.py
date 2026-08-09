@@ -19,6 +19,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -86,6 +87,7 @@ class CohortErrorCode(StrEnum):
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
+    INVALID_QUERY = "invalid_query"
     UNKNOWN = "unknown"
 
 
@@ -104,13 +106,18 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+    CohortErrorCode.INVALID_QUERY: "This cohort has an invalid query. Fix it in your matching criteria.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
 
-def get_friendly_error_message(error_code: str | None) -> str | None:
+def get_friendly_error_message(error_code: str | None, error_detail: str | None = None) -> str | None:
     if error_code is None:
         return None
+    if error_code == CohortErrorCode.INVALID_QUERY and error_detail:
+        # ExposedHogQLError messages are safe to show the owner (unlike internal ones), so surface the
+        # detail. It names what is wrong with the query they wrote, instead of a generic message.
+        return f"This cohort has an invalid query: {error_detail.rstrip('.')}. Fix it in your matching criteria."
     return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
 
 
@@ -139,6 +146,11 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
+        case ExposedHogQLError():
+            # A malformed cohort definition (e.g. a free-text HogQL filter) rejected by the HogQL
+            # printer or resolver. Without this case it falls through to UNKNOWN, so the owner only
+            # sees the generic message and the cohort silently stops updating on every recalculation.
+            return CohortErrorCode.INVALID_QUERY
 
     code_name = getattr(e, "code_name", "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:

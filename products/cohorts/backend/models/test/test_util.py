@@ -11,6 +11,10 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.hogql.errors import (
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
@@ -1207,6 +1211,8 @@ class TestParseErrorCode(BaseTest):
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
+            ("hogql_query_error", "QueryError", CohortErrorCode.INVALID_QUERY),
+            ("hogql_syntax_error", "HogQLSyntaxError", CohortErrorCode.INVALID_QUERY),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
         ]
     )
@@ -1225,6 +1231,8 @@ class TestParseErrorCode(BaseTest):
             "DRFValidationError": DRFValidationError,
             "ValueError": ValueError,
             "Exception": Exception,
+            "QueryError": QueryError,
+            "HogQLSyntaxError": HogQLSyntaxError,
         }
 
         if exception_type in simple_exceptions:
@@ -1271,6 +1279,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
             (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
             (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
+            (CohortErrorCode.INVALID_QUERY, "invalid query"),
             (CohortErrorCode.UNKNOWN, "an error occurred"),
         ]
     )
@@ -1278,6 +1287,21 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message(error_code)
         assert message is not None
         self.assertIn(expected_substring, message.lower())
+
+    def test_invalid_query_message_surfaces_the_hogql_detail(self):
+        # The owner can only fix the filter if the HogQL error itself reaches them, rather than the
+        # generic message. Trailing punctuation on the detail must not produce a double period.
+        message = get_friendly_error_message(
+            CohortErrorCode.INVALID_QUERY, "Comparison 'greaterOrEquals' requires exactly two arguments."
+        )
+        assert message is not None
+        self.assertIn("Comparison 'greaterOrEquals' requires exactly two arguments", message)
+        self.assertNotIn("arguments..", message)
+
+    def test_invalid_query_message_falls_back_without_detail(self):
+        message = get_friendly_error_message(CohortErrorCode.INVALID_QUERY)
+        assert message is not None
+        self.assertIn("invalid query", message.lower())
 
     def test_get_friendly_error_message_none(self):
         self.assertIsNone(get_friendly_error_message(None))

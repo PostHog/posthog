@@ -5686,6 +5686,39 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("too much memory", response.json()["last_error_message"].lower())
 
+    def test_invalid_query_surfaces_hogql_detail_on_retrieve_but_not_list(self):
+        # An invalid HogQL filter must tell the owner what is wrong so they can fix it. The retrieve
+        # view carries the underlying HogQL message; the list view keeps the concise message so the
+        # per-row detail subquery stays off the hot path.
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="Comparison 'greaterOrEquals' requires exactly two arguments",
+            error_code=CohortErrorCode.INVALID_QUERY,
+        )
+
+        retrieve = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+        self.assertEqual(retrieve.status_code, status.HTTP_200_OK)
+        self.assertIn("greaterOrEquals", retrieve.json()["last_error_message"])
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        cohort_data = next(c for c in list_response.json()["results"] if c["id"] == cohort.id)
+        self.assertIn("invalid query", cohort_data["last_error_message"].lower())
+        self.assertNotIn("greaterOrEquals", cohort_data["last_error_message"])
+
 
 class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
     def _create_flag_referencing_cohort_transitively(self) -> tuple[int, int]:
