@@ -52,6 +52,9 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
     } = useActions(inviteLogic)
 
     const invite = invitesToSend[inviteIndex]
+    if (!invite) {
+        return <></>
+    }
     const selectedProjects = invite.private_project_access || []
 
     // Check if organization level is admin or owner (which will override project access)
@@ -242,7 +245,7 @@ export function InviteRow({
                         <LemonInput
                             placeholder={name}
                             className="flex-1"
-                            value={invitesToSend[index].first_name}
+                            value={invitesToSend[index]?.first_name}
                             onChange={(v) => {
                                 updateInviteAtIndex({ first_name: v }, index)
                             }}
@@ -261,7 +264,7 @@ export function InviteRow({
                             fullWidth
                             data-attr="invite-row-org-member-level"
                             options={allowedLevelsOptions}
-                            value={invitesToSend[index].level || allowedLevels[0]}
+                            value={invitesToSend[index]?.level || allowedLevels[0]}
                             onChange={(v) => {
                                 updateInviteAtIndex({ level: v }, index)
                             }}
@@ -273,7 +276,7 @@ export function InviteRow({
                         <LemonButton
                             type="primary"
                             className="flex-1"
-                            disabled={!isEmail(invitesToSend[index].target_email)}
+                            disabled={!isEmail(invitesToSend[index]?.target_email || '')}
                             onClick={() => {
                                 inviteTeamMembers()
                             }}
@@ -338,11 +341,11 @@ export function InviteTeamMatesComponent({
                     {areInvitesDeletable && <b className="w-12" />}
                 </div>
 
-                {invitesToSend.map((_, index) => (
+                {invitesToSend.map((invite, index) => (
                     <InviteRow
                         hideProjectAccessSelector={hideProjectAccessSelector}
                         index={index}
-                        key={index.toString()}
+                        key={invite.id}
                         isDeletable={areInvitesDeletable}
                     />
                 ))}
