@@ -654,6 +654,10 @@ export const teamLogic = kea<teamLogicType>([
                 },
                 icon: <IconSwapHoriz />,
             })
+            // Clear the flag so a later remount of this logic does not re-announce the same switch.
+            if (appContext) {
+                appContext.switched_team = null
+            }
         }
 
         if (currentTeam) {

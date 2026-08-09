@@ -77,6 +77,24 @@ export function removeProjectIdIfPresent(path: string): string {
 }
 
 /**
+ * Rewrite a numeric `/project/<id>` prefix to the loaded team's id when the two disagree.
+ * A single SPA instance stays on one team for its lifetime, and intentional project switches
+ * do a full page load, so a client-side path with a foreign project id is a stale link rather
+ * than a real switch. Realign it so the address bar and the loaded scene name one project.
+ * Paths without a numeric project id (including `/project/phc_...`) are returned untouched.
+ */
+export function realignProjectIdToTeam(path: string, teamId?: TeamType['id']): string {
+    if (teamId == null) {
+        return path
+    }
+    const match = path.match(/^\/project\/(\d+)(?=\/|$)/)
+    if (!match || Number(match[1]) === teamId) {
+        return path
+    }
+    return `/project/${teamId}${path.slice(match[0].length)}`
+}
+
+/**
  * kea-router runs `decodeURI(pathname)` while matching routes. A stray `%` that isn't a valid
  * escape (e.g. a distinct id like `50%off` in `/person/50%off`) makes `decodeURI` throw
  * `URIError` synchronously inside the router, before any scene loads, crashing the whole app.

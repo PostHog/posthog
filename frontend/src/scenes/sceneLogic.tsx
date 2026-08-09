@@ -24,7 +24,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import {
+    addProjectIdIfMissing,
+    realignProjectIdToTeam,
+    removeProjectIdIfPresent,
+    stripTrailingSlash,
+} from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -680,10 +685,14 @@ export const sceneLogic = kea<sceneLogicType>([
         locationChanged: ({ pathname, search, hash }) => {
             pathname = addProjectIdIfMissing(pathname)
 
+            // Realign a foreign project id to the loaded team so the address bar, sidebar, and
+            // scene data cannot drift onto different projects.
+            const realigned = realignProjectIdToTeam(pathname, teamLogic.values.currentTeamId ?? undefined)
+
             // Remove trailing slash from the address bar. Route matching itself is handled
             // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
             // before this replace runs.
-            const stripped = stripTrailingSlash(pathname)
+            const stripped = stripTrailingSlash(realigned)
             if (stripped !== pathname) {
                 router.actions.replace(stripped, search, hash)
             }
