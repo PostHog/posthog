@@ -218,6 +218,9 @@ export const VariableInput = ({
                 )}
                 <LemonButton
                     type="primary"
+                    // Without this the button stretches to the tallest sibling, which for a date
+                    // variable is the whole calendar.
+                    className="self-start"
                     onClick={() => {
                         onChange(
                             variable.id,
