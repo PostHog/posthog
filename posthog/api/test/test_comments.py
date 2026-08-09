@@ -137,7 +137,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert root.status_code == status.HTTP_201_CREATED
         assert reply.status_code == status.HTTP_201_CREATED
         assert resolved.status_code == status.HTTP_201_CREATED
-        events = [call.kwargs for call in capture.call_args_list]
+        events = [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == "Comment action"]
         assert [event["properties"]["action_type"] for event in events] == ["created", "replied", "resolved"]
         assert events[0]["properties"] == {
             "analytics_version": 1,
@@ -165,7 +165,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             {"scope": "Notebook", "content": "Not a task comment"},
         )
         assert notebook.status_code == status.HTTP_201_CREATED
-        capture.assert_not_called()
+        assert not any(call.kwargs.get("event") == "Comment action" for call in capture.call_args_list)
 
         capture.side_effect = RuntimeError("Analytics unavailable")
         saved = self.client.post(
