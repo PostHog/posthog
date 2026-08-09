@@ -44,8 +44,11 @@ describe('webhookTabLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(sourceSettingsLogic.findMounted({ id: 'source-1' })).toBeTruthy()
+        const settingsLogic = sourceSettingsLogic.findMounted({ id: 'source-1' })
+        expect(settingsLogic).toBeTruthy()
         expect(logic.values.source?.id).toEqual('source-1')
         expect(logic.values.sourceConfig?.name).toEqual('Stripe')
+        // Shared state through connect, not a copy read off the store.
+        expect(logic.values.source).toBe(settingsLogic!.values.source)
     })
 })
