@@ -1084,10 +1084,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Check for auto-approval. Skipped when the request omits a required scope:
         # auto-approving would mint a grant below the app's required floor, so fall
         # through to the consent screen, which displays and grants the full required set.
+        # Also skipped when the client asks for fresh consent via OIDC `prompt=consent`,
+        # so an explicit consent request is honored rather than silently auto-approved.
         required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
-        if request.query_params.get(
-            "approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT
-        ) == "auto" and required_resource_scopes <= set(scope_str.split()):
+        wants_fresh_consent = "consent" in (request.query_params.get("prompt") or "").split()
+        if (
+            not wants_fresh_consent
+            and request.query_params.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT) == "auto"
+            and required_resource_scopes <= set(scope_str.split())
+        ):
             try:
                 tokens = OAuthAccessToken.objects.filter(
                     user=request.user, application=application, expires__gt=timezone.now()
@@ -1104,6 +1109,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         # matched token's scope through — the precise check lives in the POST path.
                         if block := _impersonation_ai_processing_block(request):
                             return block
+                        # Carry the matched token's scoping into the new grant. Without it the
+                        # GET path has no `scoped_teams`/`scoped_organizations` source (the POST
+                        # path injects them from the form) and grant creation raises, so the
+                        # returning client gets an error redirect instead of the promised code.
+                        credentials["scoped_teams"] = token.scoped_teams
+                        credentials["scoped_organizations"] = token.scoped_organizations
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )

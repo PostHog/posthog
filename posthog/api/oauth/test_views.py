@@ -2964,7 +2964,8 @@ class TestOAuthAPI(APIBaseTest):
     def test_auto_approval_reached_when_request_omits_approval_prompt(self):
         # `approval_prompt` defaults to "auto" (REQUEST_APPROVAL_PROMPT), so a returning client
         # that omits the param and already holds a token covering the scopes skips consent and
-        # is redirected with a code, instead of being sent back to the approval screen.
+        # is redirected with a code, instead of being sent back to the approval screen. The new
+        # grant must inherit the matched token's team/org scoping, not lose it.
         OAuthAccessToken.objects.create(
             application=self.confidential_application,
             user=self.user,
@@ -2976,7 +2977,29 @@ class TestOAuthAPI(APIBaseTest):
         )
         response = self.client.get(f"{self.base_authorization_url}&scope=openid")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("code=", response["Location"])
+        location = response["Location"]
+        self.assertIn("code=", location)
+        code = parse_qs(urlparse(location).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(grant.scoped_teams, [self.team.id])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_auto_approval_skipped_when_prompt_requests_consent(self):
+        # OIDC `prompt=consent` asks for fresh consent, so even a covering token must not
+        # auto-approve; the consent screen renders instead.
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="at_prompt_consent",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid",
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
+            response = self.client.get(f"{self.base_authorization_url}&scope=openid&prompt=consent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_render.assert_called_once()
 
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])
