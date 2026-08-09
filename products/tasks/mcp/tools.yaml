@@ -450,9 +450,15 @@ tools:
     tasks-runs-artifacts-download-create:
         operation: tasks_runs_artifacts_download_create
         enabled: false
+    tasks-runs-artifacts-download-retrieve:
+        operation: tasks_runs_artifacts_download_retrieve
+        enabled: false
     tasks-runs-artifacts-finalize-upload-create:
         operation: tasks_runs_artifacts_finalize_upload_create
         enabled: false
+        description: >
+            Finalize a task run artifact uploaded through a prepared form. Before revising a file under the same name,
+            read its latest version because an interactive user may have edited it since the agent's last upload.
     tasks-runs-artifacts-prepare-upload-create:
         operation: tasks_runs_artifacts_prepare_upload_create
         enabled: false

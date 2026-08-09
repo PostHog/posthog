@@ -117,7 +117,11 @@ export function TaskDetail({
       }
       void runArchive().catch(() => undefined);
     },
-    { scopes: ["taskDetail"] },
+    {
+      scopes: ["taskDetail"],
+      enableOnContentEditable: true,
+      enableOnFormTags: true,
+    },
     [task, taskId, taskSession, runtime, isPiGenerating, runArchive],
   );
 

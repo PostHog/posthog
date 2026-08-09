@@ -488,7 +488,7 @@ class TestStatsCardGating:
             "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
             return_value=is_admin,
         ):
-            handle_app_home_opened({"user": SLACK_USER}, WORKSPACE)
+            handle_app_home_opened({"user": SLACK_USER}, WORKSPACE, integration=slack_integration)
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
         assert ("Workspace activity" in str(view)) is expected_visible
