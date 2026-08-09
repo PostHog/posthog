@@ -5755,7 +5755,9 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
 
 def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
     """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
-    Emits a ``channel_created`` feed message the first time a channel is created."""
+    Emits a ``channel_created`` feed message the first time a channel is created, and stars
+    the channel for whoever created it. Resolving a channel that already exists leaves the
+    requester's star alone — only creation stars."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
@@ -5774,7 +5776,14 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
         )
     if created:
         _emit_channel_created(channel, user_id)
-    return _channel_to_dto(channel)
+    starred = False
+    if user_id is not None:
+        if created:
+            ChannelStar.objects.get_or_create(channel_id=channel.id, user_id=user_id, defaults={"team_id": team_id})
+            starred = True
+        else:
+            starred = ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).exists()
+    return _channel_to_dto(channel, starred=starred)
 
 
 def update_channel(
