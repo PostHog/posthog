@@ -3,8 +3,32 @@ from unittest.mock import MagicMock
 from django.test import SimpleTestCase
 
 import posthoganalytics
+from parameterized import parameterized
 
-from posthog.ph_client import ScopedCapture, get_client
+from posthog.ph_client import PH_US_API_KEY, PH_US_HOST, ScopedCapture, get_client
+
+
+class TestCaptureClientRegion(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("EU", "EU"),
+            (None, "US"),
+        ]
+    )
+    def test_event_region_does_not_change_the_destination(
+        self, event_region: str | None, expected_event_region: str
+    ) -> None:
+        client = get_client(
+            region="US",
+            event_region=event_region,
+            send=False,
+            enable_local_evaluation=False,
+        )
+        self.addCleanup(client.shutdown)
+
+        self.assertEqual(client.api_key, PH_US_API_KEY)
+        self.assertEqual(client.host, PH_US_HOST)
+        self.assertEqual(client.super_properties, {"region": expected_event_region})
 
 
 class TestAILaneOptIn(SimpleTestCase):

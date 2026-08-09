@@ -61,6 +61,10 @@ def get_regional_ph_client(**kwargs: Any):
     return get_client(region, **kwargs)
 
 
+def _get_internal_analytics_client() -> Any:
+    return get_client(event_region=get_instance_region() or "US")
+
+
 class ScopedCapture:
     """The callable `ph_scoped_capture` yields: enqueues events, and exposes `flush()`.
 
@@ -108,7 +112,7 @@ def ph_scoped_capture():
         with ph_scoped_capture() as capture:
             capture(distinct_id="...", event="my_event", properties={...})
     """
-    ph_client = get_client()
+    ph_client = _get_internal_analytics_client()
 
     # Flush even when the caller's block raises — events already captured
     # before the exception shouldn't be dropped with the buffer.
@@ -135,7 +139,7 @@ def ph_background_capture() -> ScopedCapture:
     if _background_client is None:
         with _background_client_lock:
             if _background_client is None:
-                _background_client = get_client()
+                _background_client = _get_internal_analytics_client()
                 # The SDK's own atexit hook only joins the consumer mid-batch without
                 # draining the queue. atexit is LIFO, so this flush (registered after
                 # the client's hook) runs first and drains what a graceful shutdown
@@ -145,7 +149,7 @@ def ph_background_capture() -> ScopedCapture:
     return ScopedCapture(_background_client)
 
 
-def get_client(region: str = "US", **kwargs: Any):
+def get_client(region: str = "US", *, event_region: str | None = None, **kwargs: Any):
     from posthoganalytics import Posthog
 
     api_key = None
@@ -162,7 +166,7 @@ def get_client(region: str = "US", **kwargs: Any):
     return Posthog(
         api_key,
         host=host,
-        super_properties={"region": region},
+        super_properties={"region": event_region or region},
         _use_ai_lane=True,
         _enable_multimodal_capture=True,
         **kwargs,
