@@ -72,7 +72,12 @@ FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
 
 # Stamped on a run the loader abandoned: its extraction ended without a final batch, so nothing
 # finalized it and there is no failed queue batch for the failed-run reconcile to key on.
-STRANDED_RUN_ERROR = "run abandoned before completion (no loader progress; reconciled from queue)"
+# Shown to the customer verbatim as latest_error, so keep it plain and reassuring rather than
+# describing the internal queue mechanics.
+STRANDED_RUN_ERROR = (
+    "This sync run stopped before it finished, so it did not complete. "
+    "The next scheduled sync retries automatically. No action is needed."
+)
 
 # Errors that fail identically on every attempt. Substring-matched because they
 # surface as generic exceptions; keep entries specific so transients can't match.
