@@ -333,6 +333,33 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_retrieve_includes_passive_slack_thread_references(self):
+        task = self.create_task()
+        task.state = {
+            "slack_thread_references": [
+                {
+                    "channel": "C123",
+                    "thread_ts": "1234.5678",
+                    "created_at": "2026-08-09T10:00:00+00:00",
+                }
+            ]
+        }
+        task.save(update_fields=["state"])
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["slack_thread_references"],
+            [
+                {
+                    "url": "https://slack.com/archives/C123/p12345678",
+                    "channel": "C123",
+                    "created_at": "2026-08-09T10:00:00+00:00",
+                }
+            ],
+        )
+
     def test_retrieve_signal_report_task_owned_by_another_user_is_visible(self):
         # Signals-generated tasks are team-scoped artifacts; the pipeline picks
         # a system user as `created_by` purely to mint an OAuth token. Any team

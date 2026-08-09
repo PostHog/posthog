@@ -406,6 +406,25 @@ class _LatestRunUnset:
 _LATEST_RUN_UNSET = _LatestRunUnset()
 
 
+def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadReferenceDTO]:
+    references: list[contracts.SlackThreadReferenceDTO] = []
+    for item in (task.state or {}).get("slack_thread_references", []):
+        if not isinstance(item, dict):
+            continue
+        channel = item.get("channel")
+        thread_ts = item.get("thread_ts")
+        if not isinstance(channel, str) or not isinstance(thread_ts, str):
+            continue
+        references.append(
+            contracts.SlackThreadReferenceDTO(
+                url=f"https://slack.com/archives/{channel}/p{thread_ts.replace('.', '')}",
+                channel=channel,
+                created_at=item.get("created_at") if isinstance(item.get("created_at"), str) else None,
+            )
+        )
+    return references
+
+
 def _task_detail_to_dto(
     task: Task,
     *,
@@ -447,6 +466,7 @@ def _task_detail_to_dto(
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
+        slack_thread_references=_task_slack_thread_references(task),
     )
 
 

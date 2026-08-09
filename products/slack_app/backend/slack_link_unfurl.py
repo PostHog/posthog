@@ -1,4 +1,4 @@
-"""Slack link unfurling for PostHog insight, dashboard, and support ticket URLs (metadata only)."""
+"""Slack link unfurling for PostHog resource URLs (metadata only)."""
 
 from __future__ import annotations
 
@@ -7,17 +7,22 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.user_integration import UserIntegration
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
+from products.tasks.backend.models import Task
+from products.tasks.backend.visibility import task_visibility_q
 
 logger = structlog.get_logger(__name__)
 
@@ -63,7 +68,9 @@ def _truncate(text: str, max_len: int) -> str:
     return text[: max_len - 1] + "…"
 
 
-def parse_posthog_resource_link(url: str) -> tuple[Literal["insight", "dashboard", "ticket"], str | int] | None:
+def parse_posthog_resource_link(
+    url: str,
+) -> tuple[Literal["insight", "dashboard", "ticket", "task"], str | int] | None:
     """
     Parse a PostHog app URL into (resource kind, reference id).
 
@@ -109,6 +116,13 @@ def parse_posthog_resource_link(url: str) -> tuple[Literal["insight", "dashboard
         if ref == "new":
             return None
         return ("ticket", ref)
+
+    if len(parts) > idx and parts[idx] == "tasks" and len(parts) > idx + 1:
+        try:
+            task_id = UUID(parts[idx + 1])
+        except ValueError:
+            return None
+        return ("task", str(task_id))
 
     return None
 
@@ -250,9 +264,91 @@ def _ticket_unfurl_payload(*, url: str, ticket: Ticket, requester: str, opening_
     return {"blocks": blocks}
 
 
+def _is_normal_public_channel(slack: SlackIntegration, channel: str) -> bool:
+    try:
+        conversation = slack.client.conversations_info(channel=channel).get("channel") or {}
+    except Exception:
+        logger.exception("slack_task_reference_channel_lookup_failed", channel=channel)
+        return False
+    return bool(
+        conversation.get("is_channel")
+        and not conversation.get("is_private")
+        and not conversation.get("is_shared")
+        and not conversation.get("is_ext_shared")
+        and not conversation.get("is_org_shared")
+    )
+
+
+def _task_owner_can_view_public_slack_channel(slack: SlackIntegration, integration: Integration, task: Task) -> bool:
+    if task.created_by_id is None:
+        return False
+    owner_link = (
+        UserIntegration.objects.filter(
+            user_id=task.created_by_id,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            config__slack_team_id=integration.integration_id,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if owner_link is None:
+        return False
+    try:
+        owner = slack.client.users_info(user=owner_link.integration_id).get("user") or {}
+    except Exception:
+        logger.exception("slack_task_reference_owner_lookup_failed", task_id=str(task.id))
+        return False
+    return bool(not owner.get("deleted") and not owner.get("is_restricted") and not owner.get("is_ultra_restricted"))
+
+
+def _attach_public_slack_thread_reference(
+    *,
+    slack: SlackIntegration,
+    integration: Integration,
+    task: Task,
+    event: dict,
+    shared_by_slack_user_id: str,
+) -> None:
+    if event.get("source") != "conversations_history":
+        return
+    channel = event.get("channel")
+    message_ts = event.get("message_ts")
+    if not isinstance(channel, str) or not isinstance(message_ts, str):
+        return
+    if not _is_normal_public_channel(slack, channel):
+        return
+    if not _task_owner_can_view_public_slack_channel(slack, integration, task):
+        return
+
+    thread_ts = event.get("thread_ts") if isinstance(event.get("thread_ts"), str) else message_ts
+    reference = {
+        "slack_workspace_id": integration.integration_id,
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "shared_by_slack_user_id": shared_by_slack_user_id,
+        "created_at": timezone.now().isoformat(),
+    }
+    with transaction.atomic():
+        locked_task = Task.objects.select_for_update().get(id=task.id, team_id=integration.team_id)
+        state = dict(locked_task.state or {})
+        references = list(state.get("slack_thread_references") or [])
+        if any(
+            item.get("slack_workspace_id") == integration.integration_id
+            and item.get("channel") == channel
+            and item.get("thread_ts") == thread_ts
+            for item in references
+            if isinstance(item, dict)
+        ):
+            return
+        references.append(reference)
+        state["slack_thread_references"] = references
+        locked_task.state = state
+        locked_task.save(update_fields=["state", "updated_at"])
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
-    Unfurl PostHog insight, dashboard, and support ticket links with title and description.
+    Unfurl supported PostHog resource links with metadata.
 
     Scope is always the Slack-connected project (`integration.team`); `resolve_slack_user` enforces
     that the sharer can access it. Insights, dashboards, and tickets add a per-resource
@@ -347,6 +443,32 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 requester=_escape_mrkdwn(_ticket_requester(team, ticket)),
                 opening_message=_ticket_opening_message(team.pk, ticket.id),
             )
+        elif kind == "task":
+            if not isinstance(ref, str):
+                continue
+            url_team_id = _url_team_id(raw_url)
+            if url_team_id is not None and url_team_id != team.pk:
+                continue
+            task = (
+                Task.objects.filter(task_visibility_q(user.id), id=ref, team_id=team.pk, deleted=False, internal=False)
+                .select_related("created_by")
+                .first()
+            )
+            if task is None:
+                continue
+            latest_run = task.runs.order_by("-created_at").only("status").first()
+            label = "Task" if latest_run is None else f"Task · {latest_run.get_status_display()}"
+            unfurls[raw_url] = _unfurl_payload(resource_label=label, title=task.title, description=None)
+            try:
+                _attach_public_slack_thread_reference(
+                    slack=slack,
+                    integration=integration,
+                    task=task,
+                    event=event,
+                    shared_by_slack_user_id=slack_user_id,
+                )
+            except Exception:
+                logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
 
     if not unfurls:
         return
