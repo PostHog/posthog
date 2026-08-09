@@ -9,6 +9,12 @@ import api from 'lib/api'
 import { HealthIssueKind, KIND_LABELS } from 'scenes/health/healthCategories'
 import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
 import {
+    captureHogFunctionTestInvocation,
+    detectSlackErrorCode,
+    getApiErrorMessage,
+    getTestInvocationFailureMessage,
+} from 'scenes/hog-functions/hog-function-utils'
+import {
     HOG_FUNCTION_SUB_TEMPLATES,
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
 } from 'scenes/hog-functions/sub-templates/sub-templates'
@@ -732,16 +738,33 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             try {
-                await api.hogFunctions.createTestInvocation('new', {
+                const res = await api.hogFunctions.createTestInvocation('new', {
                     configuration,
                     globals,
                     mock_async_functions: false,
                 })
                 breakpoint()
-                lemonToast.success('Test invocation sent')
+                captureHogFunctionTestInvocation({
+                    product: 'error_tracking_alerts',
+                    destination: destinationKey,
+                    outcome: res.status,
+                    slack_error_code: detectSlackErrorCode(res),
+                })
+                if (res.status === 'error') {
+                    lemonToast.error(getTestInvocationFailureMessage(res) ?? 'Test invocation failed.')
+                } else if (res.status === 'skipped') {
+                    lemonToast.warning('The test event did not match the alert filters, so nothing was sent.')
+                } else {
+                    lemonToast.success('Test invocation sent.')
+                }
             } catch (e: any) {
                 breakpoint()
-                lemonToast.error(e.detail || 'Test invocation failed')
+                captureHogFunctionTestInvocation({
+                    product: 'error_tracking_alerts',
+                    destination: destinationKey,
+                    outcome: 'exception',
+                })
+                lemonToast.error(getApiErrorMessage(e) ?? 'Test invocation failed.')
             }
 
             actions.testConfigurationComplete()

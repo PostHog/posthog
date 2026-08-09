@@ -8,6 +8,7 @@ import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/Inte
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { getTestInvocationFailureMessage } from 'scenes/hog-functions/hog-function-utils'
 import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import { SurveyResponseFilters } from 'scenes/surveys/components/SurveyResponseFilters'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
@@ -57,7 +58,7 @@ function TestResultPanel({
             ? 'Test notification sent.'
             : result?.status === 'skipped'
               ? 'Test was skipped — the event did not match the notification filters.'
-              : 'Test failed.'
+              : (getTestInvocationFailureMessage(result) ?? 'Test failed.')
 
     return (
         <LemonBanner type={bannerType} className="flex flex-col gap-2">

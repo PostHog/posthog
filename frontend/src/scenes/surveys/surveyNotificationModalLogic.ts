@@ -9,6 +9,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { convertToHogFunctionInvocationGlobals } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import {
+    captureHogFunctionTestInvocation,
+    detectSlackErrorCode,
+    getTestInvocationFailureMessage,
+} from 'scenes/hog-functions/hog-function-utils'
 import { DESTINATION_OPTIONS, DestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import {
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -1353,13 +1358,24 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
             )
         },
         sendTestNotificationSuccess: ({ testResult }) => {
+            captureHogFunctionTestInvocation({
+                product: 'survey_notifications',
+                destination: values.notificationForm.destination,
+                outcome: testResult?.status ?? 'error',
+                slack_error_code: testResult ? detectSlackErrorCode(testResult) : null,
+            })
             if (testResult?.status === 'success') {
                 lemonToast.success('Test notification sent.')
             } else if (testResult?.status === 'error') {
-                lemonToast.error('Test notification failed — see logs below.')
+                lemonToast.error(getTestInvocationFailureMessage(testResult) ?? 'Test notification failed.')
             }
         },
         sendTestNotificationFailure: ({ error }) => {
+            captureHogFunctionTestInvocation({
+                product: 'survey_notifications',
+                destination: values.notificationForm.destination,
+                outcome: 'exception',
+            })
             lemonToast.error(error || 'Failed to send test notification.')
         },
         setPendingDeepLink: ({ target }) => {
