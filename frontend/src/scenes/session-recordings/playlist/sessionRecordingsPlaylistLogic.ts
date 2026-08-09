@@ -652,8 +652,8 @@ export interface sessionRecordingsPlaylistLogicActions {
         preserveList?: boolean
     ) => {
         direction: 'newer' | 'older' | undefined
-        userModifiedFilters: Record<string, any> | undefined
         preserveList: boolean | undefined
+        userModifiedFilters: Record<string, any> | undefined
     }
     loadSessionRecordingsFailure: (
         error: string,
@@ -685,8 +685,8 @@ export interface sessionRecordingsPlaylistLogicActions {
         },
         payload?: {
             direction: 'newer' | 'older' | undefined
-            userModifiedFilters: Record<string, any> | undefined
             preserveList: boolean | undefined
+            userModifiedFilters: Record<string, any> | undefined
         }
     ) => {
         sessionRecordingsResponse: {
@@ -711,6 +711,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         }
         payload?: {
             direction: 'newer' | 'older' | undefined
+            preserveList: boolean | undefined
             userModifiedFilters: Record<string, any> | undefined
         }
     }
