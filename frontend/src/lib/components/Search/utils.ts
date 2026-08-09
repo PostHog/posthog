@@ -58,6 +58,7 @@ export function rotateToExactMatch<T extends ExactMatchCandidate>(items: T[], qu
             item.name.trim().toLowerCase() === normalizedQuery ||
             item.displayName?.trim().toLowerCase() === normalizedQuery
     )
+    // -1 means no exact match; 0 means it's already first. Either way, there's nothing to rotate.
     if (matchIndex <= 0) {
         return items
     }

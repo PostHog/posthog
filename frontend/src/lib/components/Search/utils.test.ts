@@ -110,8 +110,6 @@ describe('filterSearchItems', () => {
 describe('rotateToExactMatch', () => {
     const results = [makeItem('Evaluations'), makeItem('Error tracking'), makeItem('Actions'), makeItem('Annotations')]
 
-    const names = (items: typeof results): string[] => items.map((i) => i.name)
-
     it('starts the order on the exact match and wraps the results above it round to the end', () => {
         expect(names(rotateToExactMatch(results, 'actions'))).toEqual([
             'Actions',
