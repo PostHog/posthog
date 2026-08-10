@@ -30,6 +30,7 @@ use sqlx::postgres::PgPool;
 use tonic::Status;
 use uuid::Uuid;
 
+use personhog_common::grpc::semantic_refusal;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
@@ -69,6 +70,9 @@ pub enum LeaderCall {
     Fold {
         target_person_id: i64,
         snapshot_versions: Vec<i64>,
+        /// The max-merged `last_seen_at` of the folded document, recorded
+        /// so tests can pin the seal → snapshot → fold carry.
+        folded_last_seen_at: Option<i64>,
     },
     ReleaseCommitted {
         person_id: i64,
@@ -119,6 +123,9 @@ pub struct SimLeader {
     /// be ahead of Postgres, which is exactly what the seal-time re-check
     /// exists for.
     sealed_identified: Mutex<HashMap<i64, bool>>,
+    /// `last_seen_at` per person: leader-side state with no Postgres
+    /// column, so tests inject it here and the fence seals it.
+    last_seen: Mutex<HashMap<i64, i64>>,
 }
 
 impl SimLeader {
@@ -130,6 +137,7 @@ impl SimLeader {
             deaths: Mutex::new(HashMap::new()),
             scripted: Mutex::new(HashMap::new()),
             sealed_identified: Mutex::new(HashMap::new()),
+            last_seen: Mutex::new(HashMap::new()),
         }
     }
 
@@ -154,6 +162,10 @@ impl SimLeader {
             .lock()
             .unwrap()
             .insert(person_id, identified);
+    }
+
+    pub fn set_last_seen(&self, person_id: i64, epoch: i64) {
+        self.last_seen.lock().unwrap().insert(person_id, epoch);
     }
 
     pub fn fence_for(&self, person_id: i64) -> Option<Fence> {
@@ -216,6 +228,7 @@ impl SimLeader {
                 created_at: created_at.timestamp(),
                 version,
                 is_identified,
+                last_seen_at: self.last_seen.lock().unwrap().get(&person_id).copied(),
                 ..Default::default()
             },
         )
@@ -234,6 +247,26 @@ impl SimLeader {
         .fetch_optional(&self.pool)
         .await
         .expect("mark lookup")
+    }
+
+    /// The target-mark row the real leader consults before folding
+    /// (personhog-leader/src/fence.rs `target_mark_status`).
+    async fn target_mark_status(
+        &self,
+        op_id: Uuid,
+        team_id: i64,
+        person_id: i64,
+    ) -> Option<String> {
+        sqlx::query_scalar(
+            "SELECT status FROM lifecycle_op_person \
+             WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
+        )
+        .bind(op_id)
+        .bind(team_id as i32)
+        .bind(person_id)
+        .fetch_optional(&self.pool)
+        .await
+        .expect("target mark lookup")
     }
 
     fn record(&self, call: LeaderCall) {
@@ -348,9 +381,12 @@ impl LifecycleLeader for SimLeader {
                         return Ok(ReleaseFenceResponse {});
                     }
                     _ => {
-                        return Err(Status::failed_precondition(
+                        // Mirrors the real leader: a fail-closed verification
+                        // rejection is a semantic refusal, not a bounce.
+                        return Err(semantic_refusal(
                             "op holds no live mark for this person; \
                              refusing to produce a death document",
+                            "release-unverified",
                         ));
                     }
                 }
@@ -358,8 +394,9 @@ impl LifecycleLeader for SimLeader {
                 let current = self.live_person(request.team_id, request.person_id).await;
                 if let Some(person) = &current {
                     if person.uuid != request.person_uuid {
-                        return Err(Status::failed_precondition(
+                        return Err(semantic_refusal(
                             "person_uuid does not match the person being released",
+                            "uuid-mismatch",
                         ));
                     }
                 }
@@ -406,15 +443,33 @@ impl LifecycleLeader for SimLeader {
         let Some(target) = self.live_person(request.team_id, request.person_id).await else {
             return Err(Status::not_found("person is destroyed"));
         };
+        // The real leader's fail-closed target verification: the op must
+        // hold a live target mark or the fold is refused (mirrors
+        // `target_mark_status` in personhog-leader/src/service.rs).
+        match self
+            .target_mark_status(op_id, request.team_id, request.person_id)
+            .await
+            .as_deref()
+        {
+            Some("marked") => {}
+            _ => {
+                return Err(semantic_refusal(
+                    "op holds no live target mark for this person; refusing to fold",
+                    "fold-unverified",
+                ));
+            }
+        }
         // The real fold: the target wins every key it has, snapshots fill
         // still-absent keys in ordinal order (the leader sorts, not the
         // caller), then the merge event's $set overrides and $set_once
-        // fills.
+        // fills; `last_seen_at` max-merges across the target and every
+        // snapshot.
         let mut folded: serde_json::Map<String, serde_json::Value> =
             serde_json::from_slice(&target.properties).unwrap();
         let mut created_at = target.created_at;
         let mut max_sealed = 0;
         let mut snapshot_versions = Vec::new();
+        let mut last_seen_at = target.last_seen_at;
         let mut ordered = request.sealed_snapshots.clone();
         ordered.sort_by_key(|snapshot| snapshot.ordinal);
         for snapshot in &ordered {
@@ -432,6 +487,7 @@ impl LifecycleLeader for SimLeader {
             }
             max_sealed = max_sealed.max(person.version);
             snapshot_versions.push(person.version);
+            last_seen_at = last_seen_at.max(person.last_seen_at);
         }
         if !request.event_set.is_empty() {
             let event_set: serde_json::Map<String, serde_json::Value> =
@@ -450,6 +506,7 @@ impl LifecycleLeader for SimLeader {
         self.record(LeaderCall::Fold {
             target_person_id: request.person_id,
             snapshot_versions,
+            folded_last_seen_at: last_seen_at,
         });
         Ok(FoldPersonDocumentResponse {
             person: Some(Person {
@@ -457,6 +514,7 @@ impl LifecycleLeader for SimLeader {
                 created_at,
                 version: target.version.max(max_sealed) + 1,
                 is_identified: true,
+                last_seen_at,
                 ..target
             }),
         })

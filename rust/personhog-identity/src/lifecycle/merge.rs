@@ -1,9 +1,10 @@
 //! The merge saga's step handlers.
 //!
 //! Steps run in order: `started → claimed → sources_sealed →
-//! document_folded → flipped → completed`. `aborted` is reachable only
-//! from the claim and seal handlers, which run before anything has been
-//! mutated.
+//! document_folded → flipped → completed`. `aborted` is reachable from
+//! every handler up to and including the fold; the flip is the point of
+//! no return, after which the op can only complete (or park on a
+//! definitive leader refusal).
 //!
 //! Two rules make every step safe to re-run (the engine's lease is a
 //! throttle, not a lock, so any step may execute more than once):
@@ -52,7 +53,7 @@ use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
-use tonic::Code;
+use tonic::{Code, Status};
 use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::{
@@ -118,9 +119,10 @@ pub struct MergeRequest {
     /// does not.
     #[serde(default)]
     pub allow_identified_sources: bool,
-    /// Per-source distinct-id count guard. Absent = unlimited.
-    #[serde(default)]
-    pub move_limit: Option<i64>,
+    /// Per-source distinct-id count guard. Required because an unlimited
+    /// merge would make the flip's repoint an unbounded statement, a
+    /// wedge under statement_timeout rather than a supported mode.
+    pub move_limit: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,12 +288,21 @@ impl OpDriver for MergeDriver {
 }
 
 fn parse_request(op: &OpRow) -> Result<MergeRequest, SagaError> {
-    serde_json::from_value(op.request.clone()).map_err(|e| {
+    let request: MergeRequest = serde_json::from_value(op.request.clone()).map_err(|e| {
         SagaError::CorruptState(format!(
             "merge op {} has a malformed request: {e}",
             op.op_id
         ))
-    })
+    })?;
+    // A non-positive limit would silently skip every source; refuse the
+    // frozen request instead.
+    if request.move_limit < 1 {
+        return Err(SagaError::CorruptState(format!(
+            "merge op {} has a non-positive move_limit ({})",
+            op.op_id, request.move_limit
+        )));
+    }
+    Ok(request)
 }
 
 /// A did's resolution on the primary: the live person its live mapping row
@@ -464,35 +475,41 @@ impl MergeDriver {
         }
 
         // The move-limit guard: a source with more distinct ids than the
-        // caller's limit is skipped, not chunked — the caller applies its
-        // merge-mode policy to the skip.
-        if let Some(limit) = request.move_limit {
-            let candidate_ids: Vec<i64> = claim_persons.iter().map(|(id, _, _)| *id).collect();
-            let counts = sqlx::query!(
-                r#"
-                SELECT person_id as "person_id!", count(*) as "count!"
-                FROM posthog_persondistinctid
-                WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
-                GROUP BY person_id
-                "#,
-                team_id,
-                &candidate_ids,
-            )
-            .fetch_all(&mut *tx)
-            .await?;
-            let over: Vec<i64> = counts
-                .iter()
-                .filter(|c| c.count > limit)
-                .map(|c| c.person_id)
-                .collect();
-            if !over.is_empty() {
-                claim_persons.retain(|(id, _, _)| !over.contains(id));
-                for d in dispositions.iter_mut() {
-                    if d.decision == DECISION_PENDING_MERGE
-                        && d.person_id.is_some_and(|id| over.contains(&id))
-                    {
-                        d.decision = OUTCOME_SKIPPED_MOVE_LIMIT.to_string();
-                    }
+        // caller's limit is skipped, not chunked; the caller applies its
+        // merge-mode policy to the skip. The inner LIMIT lets Postgres
+        // stop each candidate's scan at limit+1 rows, so the oversized
+        // person this check exists to skip cannot itself blow the claim
+        // transaction's statement timeout.
+        let candidate_ids: Vec<i64> = claim_persons.iter().map(|(id, _, _)| *id).collect();
+        let over: Vec<i64> = sqlx::query_scalar!(
+            r#"
+            SELECT c.person_id AS "person_id!"
+            FROM unnest($2::bigint[]) AS c(person_id)
+            WHERE (
+                SELECT count(*)
+                FROM (
+                    SELECT 1
+                    FROM posthog_persondistinctid d
+                    WHERE d.team_id = $1
+                      AND d.person_id = c.person_id
+                      AND d.is_deleted = false
+                    LIMIT $3::bigint + 1
+                ) capped
+            ) > $3::bigint
+            "#,
+            team_id,
+            &candidate_ids,
+            request.move_limit,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !over.is_empty() {
+            claim_persons.retain(|(id, _, _)| !over.contains(id));
+            for d in dispositions.iter_mut() {
+                if d.decision == DECISION_PENDING_MERGE
+                    && d.person_id.is_some_and(|id| over.contains(&id))
+                {
+                    d.decision = OUTCOME_SKIPPED_MOVE_LIMIT.to_string();
                 }
             }
         }
@@ -784,9 +801,16 @@ impl MergeDriver {
                 Err(status) => {
                     // Fenced-by-another-op can only be a ghost fence (a
                     // real foreign op would need a live mark we hold); the
-                    // leader's healer clears it on observation. Every
-                    // failure here retries the step.
-                    return Err(SagaError::Leader(Box::new(status)));
+                    // leader's healer clears it on observation. Transient
+                    // failures retry the step; a definitive refusal backs
+                    // the op out, because pre-flip refusals never park.
+                    return match SagaError::leader(status) {
+                        SagaError::LeaderRefused(status) => {
+                            self.abort_refused(pool, op, MergeStep::Claimed, &status)
+                                .await
+                        }
+                        err => Err(err),
+                    };
                 }
             }
         }
@@ -902,6 +926,80 @@ impl MergeDriver {
         Ok(())
     }
 
+    /// Back the op out after a definitive leader refusal on a pre-flip
+    /// step: release every live source's fence (the aborted release
+    /// verifies no marks, so it cannot itself be refused), settle the
+    /// marks, and complete the op as aborted. Before the flip nothing
+    /// irreversible has happened and the refused call wrote nothing, so
+    /// unwinding is safe: sources unfreeze and the caller gets a terminal
+    /// aborted outcome. A refused committed release after the flip has no
+    /// undo and parks instead.
+    async fn abort_refused(
+        &self,
+        pool: &PgPool,
+        op: &OpRow,
+        from_step: MergeStep,
+        status: &Status,
+    ) -> Result<(), SagaError> {
+        let live = sqlx::query!(
+            r#"
+            SELECT person_id, person_uuid FROM lifecycle_op_person
+            WHERE op_id = $1 AND role = $2 AND status IN ('marked', 'sealed')
+            "#,
+            op.op_id,
+            ROLE_SOURCE,
+        )
+        .fetch_all(pool)
+        .await?;
+        let pairs: Vec<(i64, Uuid)> = live.iter().map(|s| (s.person_id, s.person_uuid)).collect();
+        self.release_fences(op, &pairs).await?;
+
+        let mut tx = pool.begin().await?;
+        sqlx::query!(
+            r#"
+            UPDATE lifecycle_op_person SET status = $2
+            WHERE op_id = $1 AND role = $3 AND status IN ('marked', 'sealed')
+            "#,
+            op.op_id,
+            STATUS_ABORTED,
+            ROLE_SOURCE,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND role = $3",
+            op.op_id,
+            STATUS_CLEARED,
+            ROLE_TARGET,
+        )
+        .execute(&mut *tx)
+        .await?;
+        let outcome = build_outcome(&mut tx, op, true).await?;
+        if !complete_op_in_tx(
+            &mut tx,
+            op.op_id,
+            from_step.as_str(),
+            STEP_ABORTED,
+            &outcome,
+        )
+        .await?
+        {
+            tx.rollback().await?;
+            return Ok(());
+        }
+        tx.commit().await?;
+        tracing::error!(
+            op_id = %op.op_id,
+            step = %from_step.as_str(),
+            reason = %personhog_common::grpc::semantic_refusal_reason(status).unwrap_or("unknown"),
+            message = %status.message(),
+            "leader definitively refused a pre-flip merge step; op aborted and fences released"
+        );
+        record_transition(from_step.as_str(), STEP_ABORTED);
+        record_outcomes(&outcome);
+        Ok(())
+    }
+
     /// Release fences with outcome `aborted` for the given persons,
     /// bounded-concurrently. Releasing a never-fenced person is a no-op at
     /// the leader, so callers pass every candidate rather than tracking
@@ -928,7 +1026,7 @@ impl MergeDriver {
             .collect()
             .await;
         for result in results {
-            result.map_err(|status| SagaError::Leader(Box::new(status)))?;
+            result.map_err(SagaError::leader)?;
         }
         Ok(())
     }
@@ -1057,7 +1155,7 @@ impl MergeDriver {
             });
         }
 
-        let response = self
+        let response = match self
             .leader
             .fold_person_document(FoldPersonDocumentRequest {
                 team_id: op.team_id,
@@ -1068,7 +1166,21 @@ impl MergeDriver {
                 op_id: op.op_id.to_string(),
             })
             .await
-            .map_err(|status| SagaError::Leader(Box::new(status)))?;
+        {
+            Ok(response) => response,
+            Err(status) => {
+                return match SagaError::leader(status) {
+                    // The fold is pre-flip and the refused call wrote
+                    // nothing, so a definitive refusal backs the whole op
+                    // out instead of parking it.
+                    SagaError::LeaderRefused(status) => {
+                        self.abort_refused(pool, op, MergeStep::SourcesSealed, &status)
+                            .await
+                    }
+                    err => Err(err),
+                };
+            }
+        };
         let folded = response.person.ok_or_else(|| {
             SagaError::CorruptState(format!(
                 "fold response for merge op {} carries no document",
@@ -1433,7 +1545,7 @@ impl MergeDriver {
                         })
                         .await
                         .map(|_| ())
-                        .map_err(|status| SagaError::Leader(Box::new(status)));
+                        .map_err(SagaError::leader);
                     (person_id, result)
                 }
             })

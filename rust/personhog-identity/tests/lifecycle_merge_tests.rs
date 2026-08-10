@@ -16,6 +16,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
+use personhog_common::grpc::semantic_refusal;
 use serde_json::json;
 use sqlx::postgres::PgPool;
 use tonic::{Code, Status};
@@ -77,7 +78,9 @@ impl MergeHarness {
 
     /// Run exactly one saga step and return the reloaded row.
     async fn step(&self, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.engine.step_once(&self.driver, op_id).await
+        self.engine
+            .step_once(&self.driver, op_id, self.ctx.team_id)
+            .await
     }
 
     /// Adds another distinct id mapping to an existing person.
@@ -240,7 +243,7 @@ fn merge_request(target: &str, sources: &[&str]) -> MergeRequest {
         event_set: json!({}),
         event_set_once: json!({}),
         allow_identified_sources: false,
-        move_limit: None,
+        move_limit: 1_000,
     }
 }
 
@@ -283,6 +286,10 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
         .await
         .unwrap();
     }
+
+    // The source was seen after the target: the fold must carry the max.
+    h.leader.set_last_seen(target, 1_000);
+    h.leader.set_last_seen(source, 2_000);
 
     let op_id = Uuid::now_v7();
     let mut request = merge_request("merge-target", &["merge-source"]);
@@ -357,6 +364,9 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
             LeaderCall::Fold {
                 target_person_id: target,
                 snapshot_versions: vec![7],
+                // The source's later last_seen_at survived the frozen
+                // snapshot round-trip and won the max-merge.
+                folded_last_seen_at: Some(2_000),
             },
             LeaderCall::ReleaseCommitted {
                 person_id: source,
@@ -752,6 +762,10 @@ async fn a_partial_release_failure_retries_to_one_death_document_each() {
     // the retry's death document.
     assert_eq!(h.op_person_status(op_id, a).await, "sealed");
     assert_eq!(h.op_person_status(op_id, b).await, "sealed");
+    assert!(
+        !parked_state(&h.ctx.pool, op_id).await.0,
+        "a transient failure leaves the op to the sweeper instead of parking it"
+    );
 
     let outcome = h.execute(op_id, &request).await.expect("retry completes");
     assert!(!outcome.aborted);
@@ -791,6 +805,280 @@ async fn a_partial_release_failure_retries_to_one_death_document_each() {
 }
 
 #[tokio::test]
+async fn a_leader_refusal_at_release_parks_the_op_until_an_explicit_retry() {
+    let h = MergeHarness::new().await;
+    let source = h.ctx.insert_person_with_distinct_id("park-source").await;
+    h.ctx.insert_person_with_distinct_id("park-target").await;
+    h.set_person(source, r#"{"s": "s"}"#, 2, false).await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("park-target", &["park-source"]);
+    // A definitive verification refusal in the real leader's
+    // release-unverified shape, marker metadata included.
+    h.leader.fail_next(
+        Rpc::Release,
+        source,
+        semantic_refusal("injected verification refusal", "release-unverified"),
+    );
+
+    let err = h
+        .execute(op_id, &request)
+        .await
+        .expect_err("the refusal surfaces");
+    assert!(matches!(err, SagaError::LeaderRefused(_)));
+    let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(
+        step, "flipped",
+        "the flip committed; the refused release did not"
+    );
+    assert!(!completed);
+    let (parked, reason) = parked_state(&h.ctx.pool, op_id).await;
+    assert!(parked, "a definitive refusal parks the op");
+    assert_eq!(reason.as_deref(), Some("release-unverified"));
+
+    // The refusal was scripted once, so it is gone: an explicit retry
+    // with the same op_id un-parks, re-drives, and completes.
+    let outcome = h.execute(op_id, &request).await.expect("retry completes");
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([("park-source".to_string(), OUTCOME_MERGED.to_string())])
+    );
+    assert!(
+        !parked_state(&h.ctx.pool, op_id).await.0,
+        "claiming un-parks"
+    );
+    assert_eq!(h.leader.death_documents().len(), 1);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_leader_refusal_at_fold_aborts_and_releases_the_fences() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let source = h.ctx.insert_person_with_distinct_id("fabort-source").await;
+    let target = h.ctx.insert_person_with_distinct_id("fabort-target").await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("fabort-target", &["fabort-source"]);
+    // The real leader's fold-unverified shape (the fold matches on the
+    // target's id).
+    h.leader.fail_next(
+        Rpc::Fold,
+        target,
+        semantic_refusal("injected fold refusal", "fold-unverified"),
+    );
+
+    // Pre-flip the refused call wrote nothing, so the op backs out
+    // instead of parking: a terminal aborted outcome, not an error.
+    let outcome = h
+        .execute(op_id, &request)
+        .await
+        .expect("the refusal aborts the op cleanly");
+    assert!(outcome.aborted);
+    let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(step, STEP_ABORTED);
+    assert!(completed);
+    assert!(
+        !parked_state(&h.ctx.pool, op_id).await.0,
+        "a pre-flip refusal aborts; it never parks"
+    );
+
+    // The unwind is complete: fence released, marks settled, both persons
+    // untouched and writable again.
+    assert!(h.leader.fence_for(source).is_none());
+    h.leader
+        .admit_write(team, source)
+        .await
+        .expect("the source unfroze");
+    assert_eq!(h.op_person_status(op_id, source).await, "aborted");
+    assert_eq!(h.op_person_status(op_id, target).await, "cleared");
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(!source_deleted, "no person was destroyed");
+    assert_eq!(h.pdi_state("fabort-source").await.0, source);
+    assert!(h.leader.death_documents().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// An abandoned merge op is driven through `sweep()`/`resume()` to a
+/// merged outcome, while a parked op sitting next to it is skipped.
+///
+/// Isolation: this is the suite's single sweep call (see the engine
+/// tests' header). Its one-hour lease keeps concurrent tests' fresh
+/// NULL-lease ops outside the "never claimed" window, and the only
+/// expired-lease rows in the suite are seeded here.
+#[tokio::test]
+async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
+    let h = MergeHarness::new().await;
+    let source = h.ctx.insert_person_with_distinct_id("sweep-source").await;
+    h.ctx.insert_person_with_distinct_id("sweep-target").await;
+
+    // Created but never driven: the RPC died right after create-or-attach.
+    let op_id = Uuid::now_v7();
+    let request = merge_request("sweep-target", &["sweep-source"]);
+    h.create(op_id, &request).await;
+    sqlx::query("UPDATE lifecycle_op SET created_at = now() - interval '2 hours' WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("backdate the abandoned op");
+
+    // A parked op that would otherwise be prime sweeper bait (expired
+    // lease): a definitive leader refusal means automatic retry cannot
+    // succeed, so the sweep must leave it alone.
+    let parked_op_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO lifecycle_op
+            (op_id, op_type, team_id, step, request, lease_expires_at, parked_at, parked_reason)
+        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() - interval '1 minute', now(), 'test-refusal')
+        "#,
+    )
+    .bind(parked_op_id)
+    .bind(h.ctx.team_id as i32)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("insert parked op");
+
+    let sweep_engine = Engine::new(
+        h.ctx.pool.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(3600),
+            execute_timeout: std::time::Duration::from_secs(10),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+        },
+    );
+    let resumed = sweep_engine.sweep(&[&h.driver]).await.expect("sweep runs");
+    assert!(resumed >= 1, "the abandoned merge was resumed");
+
+    let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(step, STEP_COMPLETED);
+    assert!(completed);
+    let outcome: MergeOutcome = serde_json::from_value(
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT outcome FROM lifecycle_op WHERE op_id = $1",
+        )
+        .bind(op_id)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .expect("outcome recorded"),
+    )
+    .expect("outcome parses");
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([("sweep-source".to_string(), OUTCOME_MERGED.to_string())])
+    );
+    // Full-protocol effects, scoped to this test's persons because the
+    // sweep's scan is global and may also touch rows other tests seeded.
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(source_deleted);
+    assert_eq!(h.pdi_state("sweep-source").await.1, false);
+    assert_eq!(
+        h.leader
+            .death_documents()
+            .iter()
+            .filter(|d| d.person_id == source)
+            .count(),
+        1
+    );
+    assert!(h.leader.fence_for(source).is_none());
+
+    let (step, completed) = op_row_state(&h.ctx.pool, parked_op_id).await;
+    assert_eq!(step, "started", "the sweep skipped the parked op");
+    assert!(!completed);
+    assert!(parked_state(&h.ctx.pool, parked_op_id).await.0);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_fold_without_a_live_target_mark_is_refused_and_the_op_aborts() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let source = h.ctx.insert_person_with_distinct_id("tmark-source").await;
+    h.ctx.insert_person_with_distinct_id("tmark-target").await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("tmark-target", &["tmark-source"]);
+    h.create(op_id, &request).await;
+    let row = h.step(op_id).await.expect("claim");
+    assert_eq!(row.step, "claimed");
+    let row = h.step(op_id).await.expect("seal");
+    assert_eq!(row.step, "sources_sealed");
+
+    // The target mark vanishes under a live op (manual surgery, a settle
+    // bug). Unlike a scripted status, this refusal comes from the sim's
+    // own verification, the same check the real leader runs.
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1 AND role = 'target'",
+    )
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("clear the target mark");
+
+    let row = h
+        .step(op_id)
+        .await
+        .expect("the refused fold aborts cleanly");
+    assert_eq!(row.step, STEP_ABORTED);
+    assert!(row.completed_at.is_some());
+    assert!(!parked_state(&h.ctx.pool, op_id).await.0);
+    assert!(
+        h.leader.fence_for(source).is_none(),
+        "the abort released the fence"
+    );
+    h.leader
+        .admit_write(team, source)
+        .await
+        .expect("the source unfroze");
+    assert!(h.leader.death_documents().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_leader_refusal_at_fence_aborts_instead_of_parking() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let source_a = h.ctx.insert_person_with_distinct_id("sabort-a").await;
+    let source_b = h.ctx.insert_person_with_distinct_id("sabort-b").await;
+    h.ctx.insert_person_with_distinct_id("sabort-target").await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("sabort-target", &["sabort-a", "sabort-b"]);
+    // FencePerson has no refusals of its own (this one is scripted);
+    // pins the policy that any pre-flip refusal backs the op out.
+    h.leader.fail_next(
+        Rpc::Fence,
+        source_b,
+        semantic_refusal("injected fence refusal", "test-refusal"),
+    );
+
+    let outcome = h
+        .execute(op_id, &request)
+        .await
+        .expect("the refusal aborts the op cleanly");
+    assert!(outcome.aborted);
+    assert!(!parked_state(&h.ctx.pool, op_id).await.0);
+    // The sibling's fence from the same fan-out was released by the
+    // unwind; the refused source never had one.
+    assert!(h.leader.fence_for(source_a).is_none());
+    assert!(h.leader.fence_for(source_b).is_none());
+    h.leader
+        .admit_write(team, source_a)
+        .await
+        .expect("the fenced sibling unfroze");
+    assert!(h.leader.death_documents().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn claim_classification_settles_each_source_without_touching_it() {
     let h = MergeHarness::new().await;
     let target = h.ctx.insert_person_with_distinct_id("cls-target").await;
@@ -812,7 +1100,7 @@ async fn claim_classification_settles_each_source_without_touching_it() {
             "cls-mergeable",
         ],
     );
-    request.move_limit = Some(2);
+    request.move_limit = 2;
     let outcome = h
         .execute(Uuid::now_v7(), &request)
         .await
@@ -1037,4 +1325,14 @@ async fn op_row_state(pool: &PgPool, op_id: Uuid) -> (String, bool) {
             .await
             .expect("op row exists");
     (row.0, row.1.is_some())
+}
+
+async fn parked_state(pool: &PgPool, op_id: Uuid) -> (bool, Option<String>) {
+    let row: (Option<chrono::DateTime<Utc>>, Option<String>) =
+        sqlx::query_as("SELECT parked_at, parked_reason FROM lifecycle_op WHERE op_id = $1")
+            .bind(op_id)
+            .fetch_one(pool)
+            .await
+            .expect("op row exists");
+    (row.0.is_some(), row.1)
 }
