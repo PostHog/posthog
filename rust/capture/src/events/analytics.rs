@@ -21,7 +21,6 @@ use limiters::overflow::OverflowLimiter;
 
 use crate::{
     api::CaptureError,
-    config::AiRouting,
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
@@ -120,7 +119,7 @@ fn create_heatmap_redirect(
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
 ///
-/// `route_ai_events` is the per-batch `AiRouting` decision (see
+/// `route_ai_events` is the deployment's `CaptureMode::routes_ai_events` (see
 /// `process_events`); when set, `$ai_*` events classify as
 /// `DataType::AiEvents` instead of the analytics main/historical lanes.
 #[instrument(skip_all, fields(event_name, request_id))]
@@ -231,8 +230,8 @@ pub fn process_single_event(
 /// Process a batch of analytics events.
 ///
 /// All routing policy lives here: token dropping, `$ai_*` lane assignment
-/// (per the deployment-level [`AiRouting`] policy, resolved into
-/// `DataType::AiEvents` at classification time), event restrictions, global
+/// (per `CaptureMode::routes_ai_events`, resolved into `DataType::AiEvents`
+/// at classification time), event restrictions, global
 /// rate limiting (per `token:distinct_id`), historical rerouting, and
 /// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
@@ -253,7 +252,6 @@ pub async fn process_events(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-    ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -274,7 +272,6 @@ pub async fn process_events(
         overflow_limiter,
         ai_events_overflow_limiter,
         ingestion_warning_emitter,
-        ai_routing,
         events,
         context,
     )
@@ -296,7 +293,6 @@ async fn process_events_inner(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-    ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -324,11 +320,11 @@ async fn process_events_inner(
         return Ok(());
     }
 
-    // A request carries a single token, so the `$ai_*` lane decision is per
-    // batch, mirroring v1's `process_batch`. The flag feeds
+    // Whether `$ai_*` events divert to the dedicated AI topic is a deployment
+    // property, mirroring v1's `process_batch`. The flag feeds
     // `DataType::from_event_name` via `process_single_event`; the kafka sink
     // maps the resulting `DataType::AiEvents` to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`.
-    let route_ai_events = ai_routing.routes_to_secondary(&context.token);
+    let route_ai_events = context.capture_mode.routes_ai_events();
 
     // Build the processed batch one raw event at a time so we can split a
     // heatmap-carrying event into a stripped original + a `$$heatmap`
@@ -674,6 +670,53 @@ mod tests {
         }
     }
 
+    /// Named-field collaborators for `process_events`; tests override only
+    /// the ones they exercise and take the rest from `Default`.
+    struct PipelineOptions {
+        dropper: Arc<TokenDropper>,
+        restriction_service: Option<EventRestrictionService>,
+        historical_cfg: router::HistoricalConfig,
+        global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+        overflow_limiter: Option<Arc<OverflowLimiter>>,
+        ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+        ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    }
+
+    impl Default for PipelineOptions {
+        fn default() -> Self {
+            Self {
+                dropper: Arc::new(TokenDropper::default()),
+                restriction_service: None,
+                historical_cfg: router::HistoricalConfig::new(false, 1),
+                global_rate_limiter: None,
+                overflow_limiter: None,
+                ai_events_overflow_limiter: None,
+                ingestion_warning_emitter: None,
+            }
+        }
+    }
+
+    async fn run_pipeline(
+        sink: Arc<dyn sinks::Event + Send + Sync>,
+        events: Vec<RawEvent>,
+        context: &ProcessingContext,
+        options: PipelineOptions,
+    ) -> Result<(), CaptureError> {
+        process_events(
+            sink,
+            options.dropper,
+            options.restriction_service,
+            options.historical_cfg,
+            options.global_rate_limiter,
+            options.overflow_limiter,
+            options.ai_events_overflow_limiter,
+            options.ingestion_warning_emitter,
+            events,
+            context,
+        )
+        .await
+    }
+
     #[test]
     fn test_server_assigned_uuid_encodes_event_timestamp() {
         // Ingestion clock is in 2023, but the event's own timestamp is back in 2020.
@@ -696,8 +739,13 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let processed = process_single_event(&event, historical_cfg, false, &context).unwrap();
+        let processed = process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            false,
+            &context,
+        )
+        .unwrap();
 
         let expected_millis = processed
             .metadata
@@ -732,8 +780,13 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let processed = process_single_event(&event, historical_cfg, false, &context).unwrap();
+        let processed = process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            false,
+            &context,
+        )
+        .unwrap();
 
         // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
         assert!(
@@ -755,8 +808,12 @@ mod tests {
 
         let context = create_test_context(now, None);
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result = process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            false,
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -781,8 +838,12 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:59:55Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result = process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            false,
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -805,8 +866,12 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, Some(true));
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result = process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            false,
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -828,8 +893,12 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result = process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            false,
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -849,8 +918,12 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result = process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            false,
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -881,8 +954,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with DropEvent
         let service =
@@ -899,18 +970,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -932,8 +999,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with ForceOverflow
         let service =
@@ -950,18 +1015,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -984,8 +1045,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with SkipPersonProcessing
         let service =
@@ -1002,18 +1061,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1036,8 +1091,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with RedirectToDlq
         let service =
@@ -1054,18 +1107,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1088,8 +1137,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with multiple restrictions
         let service =
@@ -1113,18 +1160,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1148,24 +1191,9 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // No restriction service
-        let result = process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await;
+        let result = run_pipeline(sink.clone(), events, &context, PipelineOptions::default()).await;
 
         assert!(result.is_ok());
         let captured = sink.get_events();
@@ -1189,8 +1217,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction that only applies to different event name
         let service =
@@ -1209,18 +1235,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1243,8 +1265,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1260,18 +1280,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1284,31 +1300,56 @@ mod tests {
         );
     }
 
-    /// The `$ai_*` lane assignment is decided once per batch from the request
-    /// token: `secondary` diverts every `$ai_*` event, an allowlist diverts
-    /// only listed tokens, and `primary` never diverts. Non-AI events stay on
-    /// their normal route in every mode. The topic itself is resolved in the
-    /// kafka sink from `DataType::AiEvents`, not here.
+    /// The `$ai_*` lane assignment holds across capture modes: `Events` and
+    /// `Import` both divert every `$ai_*` event (only the AI lane has AI
+    /// processing, so imports must divert too), winning over historical.
+    /// Non-AI events stay on their normal route in every mode. The topic
+    /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
+    /// here.
+    struct AiLaneInput {
+        capture_mode: crate::config::CaptureMode,
+        // Import mode drops non-historical batches before classification, so
+        // its case must arrive flagged historical.
+        historical_migration: bool,
+    }
+
+    struct AiLaneExpected {
+        ai_data_type: DataType,
+        pageview_data_type: DataType,
+    }
+
     #[rstest]
-    #[case::secondary(AiRouting::Secondary, true)]
-    #[case::allowlisted_token(
-        AiRouting::SecondaryAllowlist(["test_token".to_string()].into_iter().collect()),
-        true
+    #[case::events_mode(
+        AiLaneInput {
+            capture_mode: crate::config::CaptureMode::Events,
+            historical_migration: false,
+        },
+        AiLaneExpected {
+            ai_data_type: DataType::AiEvents,
+            pageview_data_type: DataType::AnalyticsMain,
+        }
     )]
-    #[case::unlisted_token(
-        AiRouting::SecondaryAllowlist(["other_token".to_string()].into_iter().collect()),
-        false
+    #[case::import_mode(
+        AiLaneInput {
+            capture_mode: crate::config::CaptureMode::Import,
+            historical_migration: true,
+        },
+        AiLaneExpected {
+            ai_data_type: DataType::AiEvents,
+            pageview_data_type: DataType::AnalyticsHistorical,
+        }
     )]
-    #[case::primary(AiRouting::Primary, false)]
     #[tokio::test]
     async fn test_process_events_ai_lane_assignment(
-        #[case] routing: AiRouting,
-        #[case] expect_diverted: bool,
+        #[case] input: AiLaneInput,
+        #[case] expected: AiLaneExpected,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let context = create_test_context(now, None);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = input.capture_mode;
+        context.historical_migration = input.historical_migration;
         let events = vec![
             create_test_event_with_name(
                 "$ai_generation",
@@ -1325,24 +1366,10 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &routing,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2);
@@ -1350,12 +1377,7 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$ai_generation")
             .unwrap();
-        let expected = if expect_diverted {
-            DataType::AiEvents
-        } else {
-            DataType::AnalyticsMain
-        };
-        assert_eq!(ai_event.metadata.data_type, expected);
+        assert_eq!(ai_event.metadata.data_type, expected.ai_data_type);
         // Lane assignment must not leak into the restriction-driven redirect
         // mechanism; the sink resolves the AI topic from the data type alone.
         assert_eq!(ai_event.metadata.redirect_to_topic, None);
@@ -1363,7 +1385,7 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$pageview")
             .unwrap();
-        assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(pageview.metadata.data_type, expected.pageview_data_type);
         assert_eq!(pageview.metadata.redirect_to_topic, None);
     }
 
@@ -1371,13 +1393,23 @@ mod tests {
     /// same slice the dedicated AI endpoints consult), not analytics ones:
     /// an ai-scoped DropEvent drops it, an analytics-scoped one must not
     /// cross pipelines into the AI lane.
+    struct AiDropScopeCase {
+        restriction_pipeline: Pipeline,
+        expect_dropped: bool,
+    }
+
     #[rstest]
-    #[case::ai_scoped_drop_applies(Pipeline::Ai, true)]
-    #[case::analytics_scoped_drop_does_not_cross(Pipeline::Analytics, false)]
+    #[case::ai_scoped_drop_applies(AiDropScopeCase {
+        restriction_pipeline: Pipeline::Ai,
+        expect_dropped: true,
+    })]
+    #[case::analytics_scoped_drop_does_not_cross(AiDropScopeCase {
+        restriction_pipeline: Pipeline::Analytics,
+        expect_dropped: false,
+    })]
     #[tokio::test]
     async fn test_process_events_drop_restriction_on_diverted_ai_events(
-        #[case] restriction_pipeline: Pipeline,
-        #[case] expect_dropped: bool,
+        #[case] case: AiDropScopeCase,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1391,8 +1423,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service = EventRestrictionService::new(
             vec![Pipeline::Analytics, Pipeline::Ai],
@@ -1400,7 +1430,7 @@ mod tests {
         );
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(
-            restriction_pipeline,
+            case.restriction_pipeline,
             "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
@@ -1410,24 +1440,20 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Secondary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         let captured = sink.get_events();
-        if expect_dropped {
+        if case.expect_dropped {
             assert!(captured.is_empty());
         } else {
             assert_eq!(captured.len(), 1);
@@ -1454,8 +1480,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service = EventRestrictionService::new(
             vec![Pipeline::Analytics, Pipeline::Ai],
@@ -1473,18 +1497,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Secondary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1518,8 +1538,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1535,18 +1553,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1582,8 +1596,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1611,18 +1623,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1665,8 +1673,6 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Single service serving both pipelines, with a DropEvent restriction
         // attached only to the errortracking pipeline.
@@ -1686,18 +1692,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1737,8 +1739,6 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service = EventRestrictionService::new(
             vec![Pipeline::Analytics, Pipeline::ErrorTracking],
@@ -1756,18 +1756,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1801,8 +1797,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1818,18 +1812,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1871,24 +1861,10 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None, // no overflow limiter
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -1908,23 +1884,17 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // test_token is in the reroute list -> ForceLimited
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1937,18 +1907,26 @@ mod tests {
         );
     }
 
+    struct AiValveCase {
+        ai_limiter_present: bool,
+        expected_reason: Option<OverflowReason>,
+    }
+
     /// End-to-end gate for the AI overflow valve: a diverted `$ai_*` event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
     /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.
     #[rstest]
-    #[case::limiter_present(true, Some(OverflowReason::ForceLimited))]
-    #[case::limiter_absent(false, None)]
+    #[case::limiter_present(AiValveCase {
+        ai_limiter_present: true,
+        expected_reason: Some(OverflowReason::ForceLimited),
+    })]
+    #[case::limiter_absent(AiValveCase {
+        ai_limiter_present: false,
+        expected_reason: None,
+    })]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(
-        #[case] ai_limiter_present: bool,
-        #[case] expected_reason: Option<OverflowReason>,
-    ) {
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiValveCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -1961,23 +1939,18 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let ai_limiter = ai_limiter_present
+        let ai_limiter = case
+            .ai_limiter_present
             .then(|| build_limiter(10, 10, Some("test_token".to_string()), false));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            ai_limiter,
-            None,
-            &AiRouting::Secondary,
             events,
             &context,
+            PipelineOptions {
+                ai_events_overflow_limiter: ai_limiter,
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1985,7 +1958,7 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
-        assert_eq!(captured[0].metadata.overflow_reason, expected_reason);
+        assert_eq!(captured[0].metadata.overflow_reason, case.expected_reason);
     }
 
     #[tokio::test]
@@ -2000,23 +1973,17 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst of 1 -> first event passes, second event rate-limited
         let limiter = build_limiter(1, 1, None, true);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2044,22 +2011,16 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let limiter = build_limiter(1, 1, None, false);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2089,8 +2050,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // Even with a limiter that would flag this token, force_overflow wins.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
@@ -2108,18 +2067,15 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2146,22 +2102,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2194,8 +2144,6 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Global RL: limits (test_token, test_user) -> key `test_token:test_user`.
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
@@ -2204,18 +2152,15 @@ mod tests {
         // stamped RateLimited{preserve_locality: true}.
         let overflow_limiter = build_limiter(1, 1, None, true);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            Some(overflow_limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                overflow_limiter: Some(overflow_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2266,22 +2211,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None, // no overflow limiter -- isolate global RL behavior
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2297,30 +2236,36 @@ mod tests {
         );
     }
 
+    struct SdkWarningCase {
+        attribution: Option<SdkAttribution>,
+        expected_lib: &'static str,
+        expected_lib_version: &'static str,
+    }
+
     // The legacy path carries the bulk of rate-limited traffic, and it's the one
     // whose SDK attribution has to survive a snapshot taken back at batch
     // construction — by this stage the events are serialized.
     #[rstest::rstest]
-    #[case::sdk_reported(
-        Some(SdkAttribution {
+    #[case::sdk_reported(SdkWarningCase {
+        attribution: Some(SdkAttribution {
             lib: Some("web".to_string()),
             lib_version: Some("1.2.3".to_string()),
         }),
-        "web",
-        "1.2.3"
-    )]
-    #[case::sdk_absent(None, "unknown", "unknown")]
+        expected_lib: "web",
+        expected_lib_version: "1.2.3",
+    })]
+    #[case::sdk_absent(SdkWarningCase {
+        attribution: None,
+        expected_lib: "unknown",
+        expected_lib_version: "unknown",
+    })]
     #[tokio::test]
-    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(
-        #[case] attribution: Option<SdkAttribution>,
-        #[case] expected_lib: &str,
-        #[case] expected_lib_version: &str,
-    ) {
+    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(#[case] case: SdkWarningCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
-        if let Some(attribution) = attribution {
+        if let Some(attribution) = case.attribution {
             context.sdk_attribution = attribution;
         }
         let events = vec![create_test_event(
@@ -2330,23 +2275,18 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
         let collector = Arc::new(CollectingEmitter::new());
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2363,10 +2303,10 @@ mod tests {
             serde_json::json!("test_user")
         );
         assert_eq!(w.extra_details["distinctIdCount"], serde_json::json!(1));
-        assert_eq!(w.extra_details["lib"], serde_json::json!(expected_lib));
+        assert_eq!(w.extra_details["lib"], serde_json::json!(case.expected_lib));
         assert_eq!(
             w.extra_details["libVersion"],
-            serde_json::json!(expected_lib_version)
+            serde_json::json!(case.expected_lib_version)
         );
         assert_eq!(w.extra_details["path"], serde_json::json!("/e/"));
     }
@@ -2387,18 +2327,14 @@ mod tests {
         let sink = Arc::new(MockSink::new());
         let collector = Arc::new(CollectingEmitter::new());
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            Arc::new(limiters::token_dropper::TokenDropper::default()),
-            None,
-            router::HistoricalConfig::new(false, 1),
-            None,
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -2444,18 +2380,14 @@ mod tests {
 
         let collector = Arc::new(CollectingEmitter::new());
 
-        let result = process_events(
+        let result = run_pipeline(
             Arc::new(RejectingSink),
-            Arc::new(limiters::token_dropper::TokenDropper::default()),
-            None,
-            router::HistoricalConfig::new(false, 1),
-            None,
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -2479,8 +2411,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
         let collector = Arc::new(CollectingEmitter::new());
 
@@ -2498,18 +2428,16 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            Some(global_limiter),
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                global_rate_limiter: Some(global_limiter),
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2541,22 +2469,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None, // no overflow limiter -- isolate global RL behavior
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2592,24 +2514,10 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         assert_eq!(
             sink.get_events().len(),
@@ -2634,24 +2542,10 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -2680,22 +2574,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2734,23 +2622,17 @@ mod tests {
             producer.clone(),
             test_topics(),
         ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // test_token in reroute list -> ForceLimited stamped in pipeline.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
-        process_events(
+        run_pipeline(
             sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2796,23 +2678,17 @@ mod tests {
             producer.clone(),
             test_topics(),
         ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst=1 => event[1] stamped RateLimited { preserve_locality }.
         let limiter = build_limiter(1, 1, None, preserve_locality);
 
-        process_events(
+        run_pipeline(
             sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2903,20 +2779,40 @@ mod tests {
         }
     }
 
+    struct HeatmapDataCase {
+        property_keys: &'static [&'static str],
+        expect_has_heatmap_data: bool,
+    }
+
     #[rstest]
-    #[case::heatmap_data_present(&["$heatmap_data"], true)]
-    #[case::scroll_depth_pair(&["$prev_pageview_pathname", "$current_url"], true)]
-    #[case::heatmap_data_with_scroll_depth(
-        &["$heatmap_data", "$prev_pageview_pathname", "$current_url"],
-        true,
-    )]
-    #[case::only_prev_pageview_pathname(&["$prev_pageview_pathname"], false)]
-    #[case::only_current_url(&["$current_url"], false)]
-    #[case::no_heatmap_properties(&[], false)]
-    fn test_has_heatmap_data(#[case] property_keys: &[&str], #[case] expected: bool) {
+    #[case::heatmap_data_present(HeatmapDataCase {
+        property_keys: &["$heatmap_data"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::scroll_depth_pair(HeatmapDataCase {
+        property_keys: &["$prev_pageview_pathname", "$current_url"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::heatmap_data_with_scroll_depth(HeatmapDataCase {
+        property_keys: &["$heatmap_data", "$prev_pageview_pathname", "$current_url"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::only_prev_pageview_pathname(HeatmapDataCase {
+        property_keys: &["$prev_pageview_pathname"],
+        expect_has_heatmap_data: false,
+    })]
+    #[case::only_current_url(HeatmapDataCase {
+        property_keys: &["$current_url"],
+        expect_has_heatmap_data: false,
+    })]
+    #[case::no_heatmap_properties(HeatmapDataCase {
+        property_keys: &[],
+        expect_has_heatmap_data: false,
+    })]
+    fn test_has_heatmap_data(#[case] case: HeatmapDataCase) {
         let mut properties = HashMap::new();
         properties.insert("distinct_id".to_string(), json!("test_user"));
-        for key in property_keys {
+        for key in case.property_keys {
             properties.insert((*key).to_string(), json!("anything"));
         }
 
@@ -2932,7 +2828,7 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        assert_eq!(has_heatmap_data(&event), expected);
+        assert_eq!(has_heatmap_data(&event), case.expect_has_heatmap_data);
     }
 
     #[test]
@@ -2940,11 +2836,11 @@ mod tests {
         let now = Utc::now();
         let context = create_test_context(now, None);
         let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
-            .unwrap()
-            .expect("redirect should be created when distinct_id is resolvable");
+        let redirect =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap()
+                .expect("redirect should be created when distinct_id is resolvable");
 
         assert_eq!(redirect.metadata.data_type, DataType::HeatmapMain);
         assert_eq!(redirect.metadata.event_name, "$$heatmap");
@@ -2990,11 +2886,11 @@ mod tests {
         event
             .properties
             .insert("$cookieless_mode".to_string(), json!(true));
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
-            .unwrap()
-            .expect("redirect should be created");
+        let redirect =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap()
+                .expect("redirect should be created");
 
         let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
         for key in [
@@ -3024,9 +2920,10 @@ mod tests {
         let mut event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
         event.distinct_id = None;
         event.properties.remove("distinct_id");
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let result = create_heatmap_redirect(&event, historical_cfg, &context).unwrap();
+        let result =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
         assert!(result.is_none());
     }
 
@@ -3037,11 +2934,11 @@ mod tests {
         let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
         // Carrier event has distinct_id only in properties (top-level is None).
         assert!(event.distinct_id.is_none());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
-            .unwrap()
-            .expect("redirect should fall back to properties for distinct_id");
+        let redirect =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap()
+                .expect("redirect should fall back to properties for distinct_id");
 
         let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
         assert_eq!(data.distinct_id, Some(json!("test_user")));
@@ -3057,24 +2954,10 @@ mod tests {
         let events = vec![build_heatmap_carrier_event(shape)];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2, "should produce original + redirect");
@@ -3108,24 +2991,10 @@ mod tests {
         let events = vec![event];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(
@@ -3148,24 +3017,10 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -3196,24 +3051,10 @@ mod tests {
             producer.clone(),
             test_topics(),
         ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink, events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let records = producer.get_records();
         assert_eq!(
@@ -3419,18 +3260,15 @@ mod tests {
         let context = create_test_context(now, None);
         let collector = Arc::new(CollectingEmitter::new());
 
-        let result = process_events(
+        let result = run_pipeline(
             sink,
-            dropper,
-            None,
-            router::HistoricalConfig::new(false, 1),
-            None,
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                dropper,
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await;
 

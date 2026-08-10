@@ -580,6 +580,7 @@ from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .imf_data.source import ImfDataSource
 from .impact.source import ImpactSource
+from .impact_partner.source import ImpactPartnerSource
 from .imperva.source import ImpervaSource
 from .incident_io.source import IncidentIoSource
 from .infisical.source import InfisicalSource
