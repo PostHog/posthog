@@ -777,6 +777,30 @@ class TestUserAPI(APIBaseTest):
                 "beta@example.com",
             )
 
+    def test_email_change_rejected_when_new_email_is_plus_addressed(self):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "alpha+alias@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "plus_addressing_not_allowed"
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+
+    def test_email_change_allowed_when_current_plus_addressed_email_is_unchanged(self):
+        """Grandfathers legacy plus-addressed accounts: resubmitting the current email unchanged must not be blocked."""
+        self.user.email = "alpha+legacy@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "alpha+legacy@example.com", "first_name": "Newname"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha+legacy@example.com"
+        assert self.user.first_name == "Newname"
+
     @parameterized.expand(
         [
             ("single_google", [("google-oauth2", "google-sub-1")]),
