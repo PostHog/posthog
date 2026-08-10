@@ -976,7 +976,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     // sweep's scan is global and may also touch rows other tests seeded.
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(source_deleted);
-    assert_eq!(h.pdi_state("sweep-source").await.1, false);
+    assert!(!h.pdi_state("sweep-source").await.1);
     assert_eq!(
         h.leader
             .death_documents()
