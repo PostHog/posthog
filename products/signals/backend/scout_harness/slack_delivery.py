@@ -25,20 +25,27 @@ logger = structlog.get_logger(__name__)
 _PERMANENT_SLACK_ERROR_CODES = frozenset(
     {
         "account_inactive",
+        "cannot_dm_bot",
         "channel_not_found",
         "ekm_access_denied",
         "invalid_auth",
         "is_archived",
+        "messages_tab_disabled",
         "missing_scope",
         "not_authed",
         "not_in_channel",
         "org_login_required",
         "restricted_action",
         "token_revoked",
+        "user_not_found",
     }
 )
 
 ScoutSlackOutputType = Literal["finding", "report"]
+
+# Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
+# doesn't request), so this bounds the per-output Slack API fan-out.
+MAX_SCOUT_SLACK_DM_TARGETS = 5
 
 # Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
 _SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
@@ -47,7 +54,10 @@ _SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and 
 @dataclass(frozen=True)
 class ScoutSlackDestination:
     integration_id: int
-    channel: str
+    # Conversation targets in the picker's `id|name` composite form: a single channel (`C…|#name`)
+    # or one or more members to DM individually (`U…|@name`) — Slack's chat.postMessage accepts
+    # either id as its `channel` argument, opening the DM for a member id.
+    targets: tuple[str, ...]
 
 
 class ScoutSlackPermanentDeliveryError(RuntimeError):
@@ -64,12 +74,18 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
     if not isinstance(slack, dict):
         return None
     integration_id = slack.get("integration_id")
-    channel = slack.get("channel")
     if not isinstance(integration_id, int) or isinstance(integration_id, bool) or integration_id < 1:
         return None
-    if not isinstance(channel, str) or not channel.strip():
+    channel = slack.get("channel")
+    if isinstance(channel, str) and channel.strip():
+        return ScoutSlackDestination(integration_id=integration_id, targets=(channel.strip(),))
+    users = slack.get("users")
+    if not isinstance(users, list):
         return None
-    return ScoutSlackDestination(integration_id=integration_id, channel=channel.strip())
+    targets = tuple(dict.fromkeys(user.strip() for user in users if isinstance(user, str) and user.strip()))
+    if not targets:
+        return None
+    return ScoutSlackDestination(integration_id=integration_id, targets=targets[:MAX_SCOUT_SLACK_DM_TARGETS])
 
 
 def slack_api_error_code(exc: SlackApiError) -> str | None:

@@ -1918,6 +1918,94 @@ class TestIntegrationAPIKeyAccess:
         data = response.json()
         assert [channel["id"] for channel in data["channels"]] == expected_ids
 
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_lists_sorted_searched_and_paginated(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_users.return_value = [
+            {"id": "U2", "name": "robbie", "real_name": "Robbie C", "profile": {"display_name": "robbie"}},
+            # Empty display name falls back to real_name, which also sorts this member first.
+            {"id": "U1", "name": "andy.m", "real_name": "Andy Maguire", "profile": {"display_name": ""}},
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/"
+
+        response = client.get(base_url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["users"] == [
+            {"id": "U1", "name": "andy.m", "display_name": "Andy Maguire"},
+            {"id": "U2", "name": "robbie", "display_name": "robbie"},
+        ]
+        assert data["has_more"] is False
+
+        response = client.get(f"{base_url}?search=rob", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+        assert [member["id"] for member in response.json()["users"]] == ["U2"]
+
+        response = client.get(f"{base_url}?limit=1", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [member["id"] for member in data["users"]] == ["U1"]
+        assert data["has_more"] is True
+
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_direct_lookup_and_kind_guard(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_LOOKUP",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_user_by_id.return_value = {
+            "id": "U42",
+            "name": "andy.m",
+            "real_name": "Andy Maguire",
+            "profile": {"display_name": "andy"},
+        }
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_lookup"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?user_id=U42",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["users"] == [{"id": "U42", "name": "andy.m", "display_name": "andy"}]
+        mock_slack_instance.get_user_by_id.assert_called_once_with("U42")
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/users/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Slack" in response.json()["detail"]
+
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(
             team=self.team,

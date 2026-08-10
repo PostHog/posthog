@@ -196,6 +196,7 @@ import {
     SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
+    SlackUserType,
     SubscriptionType,
     Survey,
     SurveyStatsResponse,
@@ -1579,6 +1580,18 @@ export class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('channels')
             .withQueryString({ channel_id: channelId })
+    }
+
+    public integrationSlackUsers(
+        id: IntegrationType['id'],
+        forceRefresh: boolean,
+        params?: { search?: string; limit?: number; offset?: number },
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('users')
+            .withQueryString({ force_refresh: forceRefresh, ...params })
     }
 
     public integrationTwilioPhoneNumbers(
@@ -6309,6 +6322,13 @@ const api = {
             channelId: string
         ): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
+        },
+        async slackUsers(
+            id: IntegrationType['id'],
+            forceRefresh: boolean,
+            params?: { search?: string; limit?: number; offset?: number }
+        ): Promise<{ users: SlackUserType[]; lastRefreshedAt: string; has_more?: boolean }> {
+            return await new ApiRequest().integrationSlackUsers(id, forceRefresh, params).get()
         },
         async twilioPhoneNumbers(
             id: IntegrationType['id'],

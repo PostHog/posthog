@@ -408,6 +408,49 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
+class SlackUserSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Slack member ID (e.g. U0123ABC) — post to it to open a direct message.")
+    name = serializers.CharField(help_text="Slack username (handle) without the leading '@'.")
+    display_name = serializers.CharField(
+        help_text="Name to show in pickers: the member's display name, falling back to their real name or handle."
+    )
+
+
+class SlackUsersQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive member name or ID search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=200,
+        help_text="Maximum number of members to return per request (max 200).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of members to skip before returning results.",
+    )
+
+
+class SlackUsersResponseSerializer(serializers.Serializer):
+    users = SlackUserSerializer(many=True, help_text="Human Slack workspace members the PostHog Slack app can DM.")
+    lastRefreshedAt = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).",
+    )
+    has_more = serializers.BooleanField(
+        required=False,
+        help_text="Whether more members match the current search beyond this page.",
+    )
+
+
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=Integration.IntegrationKind.choices,
@@ -1015,6 +1058,7 @@ class IntegrationViewSet(
         "list",
         "retrieve",
         "channels",
+        "users",
         "github_repos",
         "github_branches",
         "github_teams",
@@ -1302,6 +1346,98 @@ class IntegrationViewSet(
         return Response(
             {
                 "channels": page,
+                "lastRefreshedAt": data.get("lastRefreshedAt"),
+                "has_more": has_more,
+            }
+        )
+
+    @staticmethod
+    def _serialize_slack_user(member: dict) -> dict:
+        profile = member.get("profile") or {}
+        return {
+            "id": member["id"],
+            "name": member.get("name", ""),
+            "display_name": profile.get("display_name") or member.get("real_name") or member.get("name", ""),
+        }
+
+    @staticmethod
+    def _filter_slack_users_for_search(users: list[dict], search: str) -> list[dict]:
+        query = search.strip()
+        if not query:
+            return users
+        # Fuzzy-rank by display name and handle, then union in any member whose id contains the query
+        # so pasting an id still resolves.
+        ranked = fuzzy_filter(query, users, key=lambda member: f"{member['display_name']} {member['name']}")
+        ranked_ids = {member["id"] for member in ranked}
+        id_matches = [
+            member for member in users if query.lower() in member["id"].lower() and member["id"] not in ranked_ids
+        ]
+        return ranked + id_matches
+
+    @extend_schema(
+        parameters=[SlackUsersQuerySerializer],
+        responses={200: SlackUsersResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="users")
+    def users(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind not in SLACK_INTEGRATION_KINDS:
+            raise ValidationError("users endpoint is only supported for Slack integrations")
+        slack = SlackIntegration(instance)
+        # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
+        # callers always read through the 1h cache so an agent loop can't bypass it.
+        is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+        force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
+
+        # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
+        # integration_id (the Slack workspace id, shared across teams).
+        key = f"slack/{instance.id}/users"
+
+        user_id = request.query_params.get("user_id")
+        if user_id:
+            data = cache.get(key)
+            if data is not None:
+                for member in data["users"]:
+                    if member["id"] == user_id:
+                        return Response({"users": [member]})
+            try:
+                member = slack.get_user_by_id(user_id)
+            except SlackApiError as e:
+                _reraise_slack_api_error(e)
+            if member:
+                return Response({"users": [self._serialize_slack_user(member)]})
+            return Response({"users": []})
+
+        query_serializer = SlackUsersQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
+        data = cache.get(key)
+
+        if data is None or force_refresh:
+            try:
+                members = slack.list_users()
+            except SlackApiError as e:
+                _reraise_slack_api_error(e)
+            serialized = sorted(
+                (self._serialize_slack_user(member) for member in members),
+                key=lambda member: member["display_name"].lower(),
+            )
+            data = {
+                "users": serialized,
+                "lastRefreshedAt": timezone.now().isoformat(),
+            }
+            cache.set(key, data, 60 * 60)  # one hour
+
+        filtered_users = self._filter_slack_users_for_search(data["users"], search)
+        page = filtered_users[offset : offset + limit]
+        has_more = offset + limit < len(filtered_users)
+
+        return Response(
+            {
+                "users": page,
                 "lastRefreshedAt": data.get("lastRefreshedAt"),
                 "has_more": has_more,
             }

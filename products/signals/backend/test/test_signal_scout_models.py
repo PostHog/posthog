@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.apps import apps
 from django.db import IntegrityError
@@ -120,6 +120,57 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             integration_id=17,
             channel="CSCOUTS|#scout-findings",
         )
+
+    def test_record_emit_enqueues_dm_destination_per_recipient(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-errors",
+            output_destinations={"slack": {"integration_id": 17, "users": ["U1|@andy", "U2|@robbie"]}},
+        )
+        run = SignalScoutRun.objects.create(
+            task_run=self._make_task_run(),
+            team=self.team,
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+        )
+
+        with patch(
+            "products.signals.backend.scout_harness.slack_delivery_queue.enqueue_scout_slack_delivery"
+        ) as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                _record_emit(
+                    run_id=run.id,
+                    finding_id="finding-1",
+                    description="A finding",
+                    weight=1.0,
+                    confidence=0.8,
+                    severity="P1",
+                    source_id=f"run:{run.id}:finding:finding-1",
+                    tags=["checkout"],
+                )
+
+        emission = run.emissions.get(finding_id="finding-1")
+        assert enqueue.call_args_list == [
+            call(
+                team_id=self.team.id,
+                output_type="finding",
+                output_id=str(emission.id),
+                run_id=str(run.id),
+                delivery_id=str(emission.id),
+                integration_id=17,
+                channel="U1|@andy",
+            ),
+            call(
+                team_id=self.team.id,
+                output_type="finding",
+                output_id=str(emission.id),
+                run_id=str(run.id),
+                delivery_id=f"{emission.id}:1",
+                integration_id=17,
+                channel="U2|@robbie",
+            ),
+        ]
 
     def test_enabling_scout_logs_activity(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

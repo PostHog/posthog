@@ -2112,6 +2112,36 @@ class SlackIntegration:
                 return None
             raise
 
+    def list_users(self) -> list[dict]:
+        """Human workspace members the bot can DM, as raw Slack member payloads."""
+        max_page = SLACK_CHANNELS_MAX_PAGES
+        users: list[dict] = []
+        cursor = None
+
+        while max_page > 0:
+            max_page -= 1
+            res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
+            users.extend(member for member in res["members"] if self._is_dmable_user(member))
+            cursor = res["response_metadata"]["next_cursor"]
+            if not cursor:
+                break
+
+        return users
+
+    def get_user_by_id(self, user_id: str) -> dict | None:
+        try:
+            response = self.client.users_info(user=user_id)
+            member = response["user"]
+            return member if self._is_dmable_user(member) else None
+        except SlackApiError as e:
+            if e.response["error"] == "user_not_found":
+                return None
+            raise
+
+    @staticmethod
+    def _is_dmable_user(member: dict) -> bool:
+        return not member.get("deleted") and not member.get("is_bot") and member.get("id") != "USLACKBOT"
+
     def _list_channels_by_type(
         self,
         type: Literal["public_channel", "private_channel"],

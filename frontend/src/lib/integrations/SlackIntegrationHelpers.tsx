@@ -18,7 +18,7 @@ import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { IntegrationType, SlackChannelType } from '~/types'
+import { IntegrationType, SlackChannelType, SlackUserType } from '~/types'
 
 import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
@@ -85,6 +85,110 @@ const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): Lemo
               }
           })
         : null
+}
+
+const getSlackUserOptions = (slackUsers: SlackUserType[]): LemonInputSelectOption[] => {
+    return slackUsers.map((user) => ({
+        key: `${user.id}|@${user.display_name}`,
+        label: `@${user.display_name}`,
+    }))
+}
+
+export type SlackUserPickerProps = {
+    integration: IntegrationType
+    /** Selected members in the `member_id|@display-name` composite format. */
+    values?: string[]
+    onChange?: (values: string[]) => void
+    disabled?: boolean
+    maxUsers?: number
+}
+
+export function SlackUserPicker({
+    onChange,
+    values,
+    integration,
+    disabled,
+    maxUsers,
+}: SlackUserPickerProps): JSX.Element {
+    const logic = slackIntegrationLogic({ id: integration.id })
+    const { slackUsers, allSlackUsers, allSlackUsersLoading, slackIntegrationInactiveMessage } = useValues(logic)
+    const { loadAllSlackUsers } = useActions(logic)
+    // Gates the empty-val recovery reload, mirroring SlackChannelPicker: LemonInputSelect clears its
+    // input on blur/select, which must not re-trigger a full search round-trip every focus cycle.
+    const hasActiveSearchRef = useRef(false)
+
+    useEffect(() => {
+        // Read live logic values rather than the render closure: sibling pickers can mount within
+        // the same commit, before the first one's dispatch is reflected in a re-render.
+        if (!disabled && !logic.values.slackUsers.length && !logic.values.allSlackUsersLoading) {
+            loadAllSlackUsers()
+        }
+    }, [logic, loadAllSlackUsers, disabled])
+
+    // Re-key saved values onto the freshly listed member so a stale saved display name still matches
+    // its option, keeping selection and options in sync by member id.
+    const selectedValues = useMemo(
+        () =>
+            (values ?? []).map((value) => {
+                const memberId = value.split('|')[0]
+                const match = slackUsers.find((user: SlackUserType) => user.id === memberId)
+                return match ? `${match.id}|@${match.display_name}` : value
+            }),
+        [values, slackUsers]
+    )
+
+    const listedOptions = getSlackUserOptions(slackUsers)
+    // Saved members missing from the current list (e.g. filtered out by an active search) still need
+    // an option so their chips keep a readable label.
+    const fallbackOptions = selectedValues
+        .filter((value) => !listedOptions.some((option) => option.key === value))
+        .map((value) => ({ key: value, label: value.includes('|') ? value.split('|')[1] : 'Slack member' }))
+    const options = [...listedOptions, ...fallbackOptions]
+    const atLimit = maxUsers !== undefined && selectedValues.length >= maxUsers
+
+    return (
+        <>
+            <LemonInputSelect
+                onChange={(vals) => onChange?.(vals)}
+                onInputChange={(val) => {
+                    if (val) {
+                        loadAllSlackUsers(false, val)
+                        hasActiveSearchRef.current = true
+                    } else if (hasActiveSearchRef.current) {
+                        loadAllSlackUsers()
+                        hasActiveSearchRef.current = false
+                    }
+                }}
+                value={selectedValues}
+                onFocus={() => !slackUsers.length && !allSlackUsersLoading && loadAllSlackUsers()}
+                disabled={disabled}
+                mode="multiple"
+                data-attr="select-slack-users"
+                placeholder={atLimit ? undefined : 'Select people...'}
+                options={atLimit ? options.filter((option) => selectedValues.includes(option.key)) : options}
+                loading={allSlackUsersLoading}
+                emptyStateComponent={
+                    <p className="text-secondary italic p-1 max-w-sm">
+                        {atLimit
+                            ? 'Recipient limit reached. Remove someone to add another person.'
+                            : 'No members found.'}
+                    </p>
+                }
+            />
+
+            {slackIntegrationInactiveMessage ? (
+                <LemonBanner type="warning" className="mt-1">
+                    {slackIntegrationInactiveMessage}
+                </LemonBanner>
+            ) : null}
+
+            {allSlackUsers?.has_more && !allSlackUsersLoading ? (
+                <p className="text-secondary text-xs mt-1 mb-0">
+                    Only the first page of members is shown. Type to search for a specific person.
+                </p>
+            ) : null}
+        </>
+    )
 }
 
 export type SlackChannelPickerProps = {

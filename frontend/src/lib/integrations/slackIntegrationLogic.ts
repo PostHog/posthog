@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { getRecentSlackChannelIds, slackChannelId } from 'lib/integrations/slackChannel'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
-import { SlackChannelType } from '~/types'
+import { SlackChannelType, SlackUserType } from '~/types'
 
 import type { PreflightStatus } from '../../types'
 
@@ -31,6 +31,13 @@ export interface slackIntegrationLogicValues {
         lastRefreshedAt: string
     } | null
     allSlackChannelsLoading: boolean
+    allSlackUsers: {
+        users: SlackUserType[]
+        has_more?: boolean
+        lastRefreshedAt: string
+    } | null
+    allSlackUsersLoading: boolean
+    slackUsers: SlackUserType[]
     getChannelRefreshButtonDisabledReason: () => string
     isMemberOfSlackChannel: (channel: string) => boolean | null
     isPrivateChannelWithoutAccess: (channel: string) => boolean
@@ -71,6 +78,41 @@ export interface slackIntegrationLogicActions {
     ) => {
         allSlackChannels: {
             channels: SlackChannelType[]
+            has_more?: boolean | undefined
+            lastRefreshedAt: string
+        } | null
+        payload?: {
+            forceRefresh: boolean
+            search: string
+        }
+    }
+    loadAllSlackUsers: (
+        forceRefresh?: boolean,
+        search?: string
+    ) => {
+        forceRefresh: boolean
+        search: string
+    }
+    loadAllSlackUsersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAllSlackUsersSuccess: (
+        allSlackUsers: {
+            users: SlackUserType[]
+            has_more?: boolean | undefined
+            lastRefreshedAt: string
+        } | null,
+        payload?: {
+            forceRefresh: boolean
+            search: string
+        }
+    ) => {
+        allSlackUsers: {
+            users: SlackUserType[]
             has_more?: boolean | undefined
             lastRefreshedAt: string
         } | null
@@ -121,6 +163,13 @@ export interface slackIntegrationLogicMeta {
             _fetchedSlackChannels: SlackChannelType[],
             _fetchedSlackChannelById: SlackChannelType | null
         ) => SlackChannelType[]
+        slackUsers: (
+            allSlackUsers: {
+                users: SlackUserType[]
+                has_more?: boolean
+                lastRefreshedAt: string
+            } | null
+        ) => SlackUserType[]
         slackChannelsForPicker: (
             slackChannels: SlackChannelType[],
             recentlySubscribedChannelIds: string[]
@@ -153,6 +202,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     })),
     actions({
         loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
+        loadAllSlackUsers: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
         setRecentlySubscribedChannelIds: (channelIds: string[]) => ({ channelIds }),
         setSlackIntegrationInactive: (message: string | null) => ({ message }),
@@ -174,6 +224,25 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                             // so kea-loaders doesn't fire its generic failure toast on every retry.
                             actions.setSlackIntegrationInactive(e.detail ?? SLACK_INTEGRATION_INACTIVE_FALLBACK_MESSAGE)
                             return values.allSlackChannels
+                        }
+                        throw e
+                    }
+                },
+            },
+        ],
+        allSlackUsers: [
+            null as { users: SlackUserType[]; lastRefreshedAt: string; has_more?: boolean } | null,
+            {
+                loadAllSlackUsers: async ({ forceRefresh, search }, breakpoint) => {
+                    if (search) {
+                        await breakpoint(300)
+                    }
+                    try {
+                        return await api.integrations.slackUsers(props.id, forceRefresh, { search })
+                    } catch (e: any) {
+                        if (e?.code === SLACK_INTEGRATION_INACTIVE_ERROR_CODE) {
+                            actions.setSlackIntegrationInactive(e.detail ?? SLACK_INTEGRATION_INACTIVE_FALLBACK_MESSAGE)
+                            return values.allSlackUsers
                         }
                         throw e
                     }
@@ -226,6 +295,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             {
                 // Cleared on each fresh fetch attempt so a later success (e.g. after reconnecting) hides the banner.
                 loadAllSlackChannels: () => null,
+                loadAllSlackUsers: () => null,
                 loadSlackChannelById: () => null,
                 setSlackIntegrationInactive: (_, { message }) => message,
             },
@@ -251,6 +321,11 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 }
                 return channels
             },
+        ],
+        slackUsers: [
+            (s) => [s.allSlackUsers],
+            (allSlackUsers: { users: SlackUserType[]; lastRefreshedAt: string; has_more?: boolean } | null) =>
+                allSlackUsers?.users ?? [],
         ],
         slackChannelsForPicker: [
             (s) => [s.slackChannels, s.recentlySubscribedChannelIds],

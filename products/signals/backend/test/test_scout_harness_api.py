@@ -41,7 +41,10 @@ from products.signals.backend.scout_harness.derived_metadata import DERIVED_META
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
-from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
+from products.signals.backend.scout_harness.serializers import (
+    SignalScoutConfigUpdateSerializer,
+    SignalScoutSlackDestinationSerializer,
+)
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
@@ -2083,7 +2086,24 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["output_destinations"] == destination
+        assert response.json()["output_destinations"] == {"slack": {**destination["slack"], "users": None}}
+        config.refresh_from_db()
+        assert config.output_destinations == destination
+
+    def test_partial_update_slack_dm_destination_round_trips(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "users": ["U0123ABC456|@andy"]}}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Reads render both target keys, null when unset; the stored JSON keeps only what was sent.
+        assert response.json()["output_destinations"] == {"slack": {**destination["slack"], "channel": None}}
         config.refresh_from_db()
         assert config.output_destinations == destination
 
@@ -3123,3 +3143,25 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         metadata = response.json()["metadata"]
         assert metadata["model"] == "some-model"
         assert metadata[DERIVED_METADATA_KEY]["has_emit_report"] is False
+
+
+class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both_channel_and_users", {"integration_id": 1, "channel": "C1|#alerts", "users": ["U0123ABC|@a"]}),
+            ("not_a_member_id", {"integration_id": 1, "users": ["andy"]}),
+            ("channel_id_in_users", {"integration_id": 1, "users": ["C0123ABC456|#alerts"]}),
+            ("lowercase_member_id", {"integration_id": 1, "users": ["u0123abc456|@a"]}),
+            ("too_many_users", {"integration_id": 1, "users": [f"U0{index}ABCDE|@u{index}" for index in range(6)]}),
+        ]
+    )
+    def test_rejects_invalid_dm_destinations(self, _name: str, data: dict) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_dedupes_users_by_member_id(self) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(
+            data={"integration_id": 1, "users": ["U0123ABC|@a", "U0123ABC", "W0456DEF|@b"]}
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]

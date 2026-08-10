@@ -395,6 +395,27 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface SlackUserApi {
+    /** Slack member ID (e.g. U0123ABC) — post to it to open a direct message. */
+    id: string
+    /** Slack username (handle) without the leading '@'. */
+    name: string
+    /** Name to show in pickers: the member's display name, falling back to their real name or handle. */
+    display_name: string
+}
+
+export interface SlackUsersResponseApi {
+    /** Human Slack workspace members the PostHog Slack app can DM. */
+    users: SlackUserApi[]
+    /**
+     * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).
+     * @nullable
+     */
+    lastRefreshedAt?: string | null
+    /** Whether more members match the current search beyond this page. */
+    has_more?: boolean
+}
+
 export interface GitHubAvailableInstallationApi {
     /** GitHub installation ID to pass to github/link_existing when linking this installation. */
     installation_id: string
@@ -803,6 +824,24 @@ export type IntegrationsGithubTeamsRetrieveParams = {
     offset?: number
     /**
      * Optional case-insensitive team name or slug search query.
+     */
+    search?: string
+}
+
+export type IntegrationsUsersRetrieveParams = {
+    /**
+     * Maximum number of members to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of members to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive member name or ID search query.
      */
     search?: string
 }

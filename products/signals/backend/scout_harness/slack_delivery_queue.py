@@ -35,19 +35,22 @@ def queue_configured_scout_slack_delivery(
         if destination is None:
             return
 
-        transaction.on_commit(
-            partial(
-                enqueue_scout_slack_delivery,
-                team_id=run.team_id,
-                output_type=output_type,
-                output_id=output_id,
-                run_id=str(run.id),
-                delivery_id=delivery_id or str(uuid.uuid4()),
-                integration_id=destination.integration_id,
-                channel=destination.channel,
-            ),
-            robust=True,
-        )
+        base_delivery_id = delivery_id or str(uuid.uuid4())
+        for index, target in enumerate(destination.targets):
+            transaction.on_commit(
+                partial(
+                    enqueue_scout_slack_delivery,
+                    team_id=run.team_id,
+                    output_type=output_type,
+                    output_id=output_id,
+                    run_id=str(run.id),
+                    # Suffix extra DM recipients so each Slack message keeps a distinct client_msg_id.
+                    delivery_id=base_delivery_id if index == 0 else f"{base_delivery_id}:{index}",
+                    integration_id=destination.integration_id,
+                    channel=target,
+                ),
+                robust=True,
+            )
     except Exception as exc:
         capture_exception(
             exc,

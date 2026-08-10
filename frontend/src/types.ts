@@ -5567,6 +5567,14 @@ export interface SlackChannelType {
     is_private_without_access?: boolean
 }
 
+export interface SlackUserType {
+    id: string
+    /** Slack username (handle) without the leading '@'. */
+    name: string
+    /** Display name, falling back to real name or handle. */
+    display_name: string
+}
+
 export interface TwilioPhoneNumberType {
     sid: string
     phone_number: string

@@ -4,8 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.test import SimpleTestCase
 
 from celery.exceptions import Retry
+from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team
@@ -13,7 +15,10 @@ from posthog.models.integration import Integration
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
+    MAX_SCOUT_SLACK_DM_TARGETS,
+    ScoutSlackDestination,
     ScoutSlackPermanentDeliveryError,
+    get_scout_slack_destination,
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -24,6 +29,42 @@ class FakeSlackResponse(dict):
     def __init__(self, data: dict, headers: dict | None = None) -> None:
         super().__init__(data)
         self.headers = headers or {}
+
+
+class TestGetScoutSlackDestination(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("channel", {"integration_id": 5, "channel": "C123|#alerts"}, ("C123|#alerts",)),
+            ("single_user", {"integration_id": 5, "users": ["U123|@andy"]}, ("U123|@andy",)),
+            ("multiple_users", {"integration_id": 5, "users": ["U1|@a", "U2|@b"]}, ("U1|@a", "U2|@b")),
+            ("channel_wins_over_users", {"integration_id": 5, "channel": "C1|#a", "users": ["U1|@a"]}, ("C1|#a",)),
+            (
+                "users_deduped_and_garbage_filtered",
+                {"integration_id": 5, "users": ["U1|@a", " ", None, "U1|@a", 7]},
+                ("U1|@a",),
+            ),
+        ]
+    )
+    def test_parses_active_destination(self, _name: str, slack: dict, expected_targets: tuple[str, ...]) -> None:
+        destination = get_scout_slack_destination({"slack": slack})
+        assert destination == ScoutSlackDestination(integration_id=5, targets=expected_targets)
+
+    @parameterized.expand(
+        [
+            ("no_target", {"integration_id": 5}),
+            ("empty_users", {"integration_id": 5, "users": []}),
+            ("users_not_a_list", {"integration_id": 5, "users": "U1|@a"}),
+            ("bad_integration_id", {"integration_id": True, "users": ["U1|@a"]}),
+        ]
+    )
+    def test_returns_none_for_inactive_or_malformed(self, _name: str, slack: dict) -> None:
+        assert get_scout_slack_destination({"slack": slack}) is None
+
+    def test_caps_dm_targets(self) -> None:
+        users = [f"U{index}|@user{index}" for index in range(MAX_SCOUT_SLACK_DM_TARGETS + 3)]
+        destination = get_scout_slack_destination({"slack": {"integration_id": 5, "users": users}})
+        assert destination is not None
+        assert destination.targets == tuple(users[:MAX_SCOUT_SLACK_DM_TARGETS])
 
 
 class TestScoutSlackDelivery(BaseTest):
