@@ -196,6 +196,7 @@ export const integrationsUsersRetrieveQueryOffsetDefault = 0
 export const integrationsUsersRetrieveQueryOffsetMin = 0
 
 export const integrationsUsersRetrieveQuerySearchDefault = ``
+export const integrationsUsersRetrieveQueryUserIdDefault = ``
 
 export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
     force_refresh: zod
@@ -221,7 +222,7 @@ export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Optional case-insensitive member name or ID search query.'),
     user_id: zod
         .string()
-        .nullish()
+        .default(integrationsUsersRetrieveQueryUserIdDefault)
         .describe(
             'Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.'
         ),

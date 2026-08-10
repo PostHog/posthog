@@ -36,6 +36,9 @@ export interface slackIntegrationLogicValues {
     allSlackChannelsLoading: boolean
     allSlackUsers: SlackUsersResponseApi | null
     allSlackUsersLoading: boolean
+    slackUserById: SlackUserApi | null
+    slackUserByIdLoading: boolean
+    _fetchedSlackUsersById: Record<string, SlackUserApi>
     slackUsers: SlackUserApi[]
     getUsersRefreshButtonDisabledReason: () => string
     getChannelRefreshButtonDisabledReason: () => string
@@ -113,6 +116,27 @@ export interface slackIntegrationLogicActions {
             search: string
         }
     }
+    loadSlackUserById: (userId: string) => {
+        userId: string
+    }
+    loadSlackUserByIdFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSlackUserByIdSuccess: (
+        slackUserById: SlackUserApi | null,
+        payload?: {
+            userId: string
+        }
+    ) => {
+        slackUserById: SlackUserApi | null
+        payload?: {
+            userId: string
+        }
+    }
     loadSlackChannelById: (channelId: string) => {
         channelId: string
     }
@@ -155,7 +179,10 @@ export interface slackIntegrationLogicMeta {
             _fetchedSlackChannels: SlackChannelType[],
             _fetchedSlackChannelById: SlackChannelType | null
         ) => SlackChannelType[]
-        slackUsers: (allSlackUsers: SlackUsersResponseApi | null) => SlackUserApi[]
+        slackUsers: (
+            allSlackUsers: SlackUsersResponseApi | null,
+            _fetchedSlackUsersById: Record<string, SlackUserApi>
+        ) => SlackUserApi[]
         getUsersRefreshButtonDisabledReason: (allSlackUsers: SlackUsersResponseApi | null) => () => string
         slackChannelsForPicker: (
             slackChannels: SlackChannelType[],
@@ -190,6 +217,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     actions({
         loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadAllSlackUsers: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
+        loadSlackUserById: (userId: string) => ({ userId }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
         setRecentlySubscribedChannelIds: (channelIds: string[]) => ({ channelIds }),
         setSlackIntegrationInactive: (message: string | null) => ({ message }),
@@ -246,6 +274,27 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 },
             },
         ],
+        slackUserById: [
+            null as SlackUserApi | null,
+            {
+                loadSlackUserById: async ({ userId }) => {
+                    try {
+                        const response = await integrationsUsersRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            props.id,
+                            { user_id: userId }
+                        )
+                        return response.users[0] ?? null
+                    } catch (e: any) {
+                        if (e?.code === SLACK_INTEGRATION_INACTIVE_ERROR_CODE) {
+                            actions.setSlackIntegrationInactive(e.detail ?? SLACK_INTEGRATION_INACTIVE_FALLBACK_MESSAGE)
+                            return values.slackUserById
+                        }
+                        throw e
+                    }
+                },
+            },
+        ],
         slackChannelById: [
             null as SlackChannelType | null,
             {
@@ -279,6 +328,13 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             null as SlackChannelType | null,
             {
                 loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
+            },
+        ],
+        _fetchedSlackUsersById: [
+            {} as Record<string, SlackUserApi>,
+            {
+                loadSlackUserByIdSuccess: (state, { slackUserById, payload }) =>
+                    slackUserById && payload ? { ...state, [payload.userId]: slackUserById } : state,
             },
         ],
         recentlySubscribedChannelIds: [
@@ -320,8 +376,17 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             },
         ],
         slackUsers: [
-            (s) => [s.allSlackUsers],
-            (allSlackUsers: SlackUsersResponseApi | null) => allSlackUsers?.users ?? [],
+            (s) => [s.allSlackUsers, s._fetchedSlackUsersById],
+            (
+                allSlackUsers: SlackUsersResponseApi | null,
+                _fetchedSlackUsersById: Record<string, SlackUserApi>
+            ): SlackUserApi[] => {
+                const listed = allSlackUsers?.users ?? []
+                const listedIds = new Set(listed.map((user) => user.id))
+                // Members resolved by direct lookup (saved recipients beyond the listed page, or
+                // bare ids saved over the API) join the pool so their chips render a name.
+                return [...listed, ...Object.values(_fetchedSlackUsersById).filter((user) => !listedIds.has(user.id))]
+            },
         ],
         getUsersRefreshButtonDisabledReason: [
             (s) => [s.allSlackUsers],

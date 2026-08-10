@@ -162,10 +162,13 @@ export function SlackUserPicker({
         slackIntegrationInactiveMessage,
         getUsersRefreshButtonDisabledReason,
     } = useValues(logic)
-    const { loadAllSlackUsers } = useActions(logic)
+    const { loadAllSlackUsers, loadSlackUserById } = useActions(logic)
     // Gates the empty-val recovery reload, mirroring SlackChannelPicker: LemonInputSelect clears its
     // input on blur/select, which must not re-trigger a full search round-trip every focus cycle.
     const hasActiveSearchRef = useRef(false)
+    // One direct lookup per unresolved saved id, ever — resolution merges into slackUsers, and an
+    // id Slack doesn't know must not be re-probed on every render.
+    const requestedIdsRef = useRef(new Set<string>())
 
     const usersRefreshButtonDisabledReason = getUsersRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender.
@@ -178,6 +181,25 @@ export function SlackUserPicker({
             loadAllSlackUsers()
         }
     }, [logic, loadAllSlackUsers, disabled])
+
+    // Saved recipients absent from the loaded list (bare ids stored over the API, or members beyond
+    // the first page) get a direct lookup so their chips render a name instead of a raw id.
+    useEffect(() => {
+        if (disabled || allSlackUsersLoading || !slackUsers.length) {
+            return
+        }
+        for (const value of values ?? []) {
+            const memberId = value.split('|')[0]
+            if (
+                memberId &&
+                !slackUsers.some((user: SlackUserApi) => user.id === memberId) &&
+                !requestedIdsRef.current.has(memberId)
+            ) {
+                requestedIdsRef.current.add(memberId)
+                loadSlackUserById(memberId)
+            }
+        }
+    }, [values, slackUsers, allSlackUsersLoading, disabled, loadSlackUserById])
 
     // Re-key saved values onto the freshly listed member so a stale saved display name still matches
     // its option, keeping selection and options in sync by member id.
@@ -196,7 +218,9 @@ export function SlackUserPicker({
     // an option so their chips keep a readable label.
     const fallbackOptions = selectedValues
         .filter((value) => !listedOptions.some((option) => option.key === value))
-        .map((value) => ({ key: value, label: value.includes('|') ? value.split('|')[1] : 'Slack member' }))
+        // A bare id keeps rendering as the id itself, which still identifies the recipient while
+        // (or if) the direct lookup resolves a name for it.
+        .map((value) => ({ key: value, label: value.includes('|') ? value.split('|')[1] : value }))
     const options = [...listedOptions, ...fallbackOptions]
     const atLimit = maxUsers !== undefined && selectedValues.length >= maxUsers
 
@@ -222,7 +246,9 @@ export function SlackUserPicker({
                 action={{
                     children: <span className="Link">Refresh members</span>,
                     onClick: () => loadAllSlackUsers(true),
-                    disabledReason: usersRefreshButtonDisabledReason,
+                    // Also held while a load is in flight, so mashing the action can't stack
+                    // concurrent full member enumerations against Slack.
+                    disabledReason: allSlackUsersLoading ? 'Refreshing members…' : usersRefreshButtonDisabledReason,
                 }}
                 options={atLimit ? options.filter((option) => selectedValues.includes(option.key)) : options}
                 loading={allSlackUsersLoading}

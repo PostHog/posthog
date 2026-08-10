@@ -12,6 +12,7 @@ from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
@@ -416,6 +417,10 @@ class SlackUserSerializer(serializers.Serializer):
     )
 
 
+# Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
+SLACK_USERS_MIN_REFRESH_SECONDS = 30
+
+
 class SlackUsersQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
@@ -436,10 +441,12 @@ class SlackUsersQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of members to skip before returning results.",
     )
+    # Deliberately not nullable: generated clients serialize an explicit null as the literal
+    # query string "user_id=null", which would then be looked up as a member id. Omit to skip.
     user_id = serializers.CharField(
         required=False,
-        allow_null=True,
-        default=None,
+        default="",
+        allow_blank=True,
         help_text=(
             "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and "
             "`offset` are ignored and the response holds at most that member."
@@ -1438,6 +1445,16 @@ class IntegrationViewSet(
         offset = query_serializer.validated_data["offset"]
 
         data = cache.get(key)
+
+        if data is not None and force_refresh:
+            # Server-side floor under the picker's cooldown: a session user mashing refresh must
+            # not spend up to ten Slack API pages per click.
+            last_refreshed = parse_datetime(data.get("lastRefreshedAt") or "")
+            if (
+                last_refreshed is not None
+                and (timezone.now() - last_refreshed).total_seconds() < SLACK_USERS_MIN_REFRESH_SECONDS
+            ):
+                force_refresh = False
 
         if data is None or force_refresh:
             try:

@@ -1922,6 +1922,9 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_empty=False,
+        # `allow_empty` alone doesn't reach the OpenAPI schema; `min_length` emits `minItems: 1` so
+        # generated MCP/Zod clients can't construct an empty list the API would 400.
+        min_length=1,
         max_length=MAX_SCOUT_SLACK_DM_TARGETS,
         help_text=(
             "Slack members to send output to as direct messages, each in `member_id|@display-name` format "

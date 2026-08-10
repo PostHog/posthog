@@ -2140,7 +2140,15 @@ class SlackIntegration:
 
     @staticmethod
     def _is_dmable_user(member: dict) -> bool:
-        return not member.get("deleted") and not member.get("is_bot") and member.get("id") != "USLACKBOT"
+        # Guests (single/multi-channel, often external people) are excluded like bots: DM surfaces
+        # deliver internal content, matching the slack_app onboarding and unfurl eligibility rules.
+        return (
+            not member.get("deleted")
+            and not member.get("is_bot")
+            and not member.get("is_restricted")
+            and not member.get("is_ultra_restricted")
+            and member.get("id") != "USLACKBOT"
+        )
 
     def _list_channels_by_type(
         self,

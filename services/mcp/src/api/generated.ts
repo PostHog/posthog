@@ -57744,6 +57744,7 @@ export namespace Schemas {
       channel?: string | null;
       /**
          * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+         * @minItems 1
          * @maxItems 5
          * @nullable
          * @items.maxLength 255
@@ -84761,9 +84762,8 @@ export namespace Schemas {
     search?: string;
     /**
      * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
-     * @nullable
      */
-    user_id?: string | null;
+    user_id?: string;
     };
 
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };

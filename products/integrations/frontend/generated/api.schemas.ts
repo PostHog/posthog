@@ -850,7 +850,6 @@ export type IntegrationsUsersRetrieveParams = {
     search?: string
     /**
      * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
-     * @nullable
      */
-    user_id?: string | null
+    user_id?: string
 }

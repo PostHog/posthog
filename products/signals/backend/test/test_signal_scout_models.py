@@ -1,3 +1,4 @@
+import uuid
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
@@ -166,7 +167,8 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                 output_type="finding",
                 output_id=str(emission.id),
                 run_id=str(run.id),
-                delivery_id=f"{emission.id}:1",
+                # Extra recipients get a derived-but-valid UUID: Slack rejects non-UUID client_msg_ids.
+                delivery_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{emission.id}:1")),
                 integration_id=17,
                 channel="U2|@robbie",
             ),

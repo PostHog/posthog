@@ -41,9 +41,10 @@ export function ScoutSlackDestination({
     const hasUsers = Boolean(destination?.users?.length)
     const hasTarget = hasChannel || hasUsers
 
-    // The saved destination decides the mode; local state only carries the toggle while nothing is saved yet.
-    const [pendingMode, setPendingMode] = useState<SlackTargetMode>('channel')
-    const mode: SlackTargetMode = hasUsers ? 'dm' : hasChannel ? 'channel' : pendingMode
+    // The toggle is view state only: switching it must never write, or an exploratory click would
+    // wipe a live destination. The saved target is replaced only when a new target is picked.
+    const [pendingMode, setPendingMode] = useState<SlackTargetMode | null>(null)
+    const mode: SlackTargetMode = pendingMode ?? (hasUsers ? 'dm' : 'channel')
 
     const selectWorkspace = (integrationId: number): void => {
         // Switching workspace clears the target, so pin the toggle to the mode the user was in.
@@ -53,10 +54,6 @@ export function ScoutSlackDestination({
 
     const selectMode = (nextMode: SlackTargetMode): void => {
         setPendingMode(nextMode)
-        if (hasTarget && selectedIntegration) {
-            // Switching mode drops the other mode's target so exactly one is ever active.
-            onChange({ slack: { integration_id: selectedIntegration.id, channel: null } })
-        }
     }
 
     const selectChannel = (channel: string | null): void => {
@@ -169,14 +166,18 @@ export function ScoutSlackDestination({
                         <span className="text-[11.5px] text-muted">
                             {hasChannel
                                 ? 'PostHog must be in the channel. Invite it with '
-                                : 'Pick a channel to turn notifications on. PostHog must be in the channel. Invite it with '}
+                                : hasUsers
+                                  ? 'Direct messages stay on until you pick a channel to replace them. PostHog must be in the channel. Invite it with '
+                                  : 'Pick a channel to turn notifications on. PostHog must be in the channel. Invite it with '}
                             <code>/invite @PostHog</code>.
                         </span>
                     ) : (
                         <span className="text-[11.5px] text-muted">
                             {hasUsers
                                 ? `Each person gets their own direct message from the PostHog app (up to ${MAX_DM_RECIPIENTS} people).`
-                                : `Pick up to ${MAX_DM_RECIPIENTS} people to turn notifications on. Each person gets their own direct message from the PostHog app.`}
+                                : hasChannel
+                                  ? `The channel stays on until you pick up to ${MAX_DM_RECIPIENTS} people to replace it. Each person gets their own direct message from the PostHog app.`
+                                  : `Pick up to ${MAX_DM_RECIPIENTS} people to turn notifications on. Each person gets their own direct message from the PostHog app.`}
                         </span>
                     )}
                 </div>

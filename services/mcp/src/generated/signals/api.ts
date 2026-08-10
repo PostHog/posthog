@@ -514,6 +514,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                                     signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax
                                                 )
                                         )
+                                        .min(1)
                                         .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax)
                                         .nullish()
                                         .describe(
@@ -668,6 +669,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                         .string()
                                         .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemMax)
                                 )
+                                .min(1)
                                 .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax)
                                 .nullish()
                                 .describe(
@@ -813,6 +815,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                         .string()
                                         .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemMax)
                                 )
+                                .min(1)
                                 .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax)
                                 .nullish()
                                 .describe(

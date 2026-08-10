@@ -1836,6 +1836,7 @@ export interface SignalScoutSlackDestinationApi {
     channel?: string | null
     /**
      * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+     * @minItems 1
      * @maxItems 5
      * @nullable
      * @items.maxLength 255

@@ -119,6 +119,28 @@ class TestSlackIntegration:
         assert channels[3]["name"] == "d_private_channel"
 
     @patch("posthog.models.integration.WebClient")
+    def test_list_users_excludes_bots_deleted_and_guests(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.users_list.return_value = {
+            "members": [
+                {"id": "U1", "name": "member"},
+                {"id": "U2", "name": "deleted", "deleted": True},
+                {"id": "U3", "name": "bot", "is_bot": True},
+                {"id": "USLACKBOT", "name": "slackbot"},
+                # Guests are often external people; scout output must not be DM-able to them.
+                {"id": "U4", "name": "guest", "is_restricted": True},
+                {"id": "U5", "name": "single-channel-guest", "is_ultra_restricted": True},
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+
+        slack = SlackIntegration(self.integration)
+
+        assert [member["id"] for member in slack.list_users()] == ["U1"]
+
+    @patch("posthog.models.integration.WebClient")
     def test_list_channels_without_access(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client

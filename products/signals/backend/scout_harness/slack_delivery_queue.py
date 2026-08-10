@@ -44,8 +44,13 @@ def queue_configured_scout_slack_delivery(
                     output_type=output_type,
                     output_id=output_id,
                     run_id=str(run.id),
-                    # Suffix extra DM recipients so each Slack message keeps a distinct client_msg_id.
-                    delivery_id=base_delivery_id if index == 0 else f"{base_delivery_id}:{index}",
+                    # Extra DM recipients get their own derived id so each Slack message keeps a
+                    # distinct client_msg_id — a UUID, since Slack rejects non-UUID values there.
+                    delivery_id=(
+                        base_delivery_id
+                        if index == 0
+                        else str(uuid.uuid5(uuid.NAMESPACE_OID, f"{base_delivery_id}:{index}"))
+                    ),
                     integration_id=destination.integration_id,
                     channel=target,
                 ),
