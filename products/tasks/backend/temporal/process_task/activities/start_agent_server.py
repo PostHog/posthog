@@ -73,7 +73,7 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
 
     The task's working branch is normally the PR base it was started from, so protecting it is correct.
     But when the working branch itself heads an open PR — e.g. a quick action started on an existing
-    posthog-code/* branch the agent is meant to update — the agent must commit *to* that branch, so the
+    posthog/* branch the agent is meant to update — the agent must commit *to* that branch, so the
     protected base is the PR's own base instead. Without this the signed-commit guard refuses the very
     branch the run needs to update. Best-effort: any failure falls back to the working branch.
     """
