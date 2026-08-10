@@ -843,6 +843,22 @@ class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
         assert account.name == "New"
         assert account.external_id == "acme-1"
 
+    @patch.object(facade.current_app, "send_task")
+    def test_update_account_enqueues_meeting_rematch_when_matching_changes(self, mock_send_task: MagicMock) -> None:
+        account = create_account(team_id=self.team.pk, created_by=self.user, name="Acme")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            facade.update_account(
+                account,
+                properties={"known_emails": ["jane@acme.com"]},
+                allow_matching_updates=True,
+            )
+
+        mock_send_task.assert_called_once_with(
+            "customer_analytics.rematch_account_meetings",
+            kwargs={"team_id": self.team.pk, "account_id": str(account.id)},
+        )
+
 
 class AccountCapToFieldLengthTest(SimpleTestCase):
     @parameterized.expand([("name",), ("external_id",)])
