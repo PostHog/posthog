@@ -617,7 +617,7 @@ class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
-def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> bool:
+def pause_batch_export(temporal: Client, batch_export_id: str | UUID, note: str | None = None) -> bool:
     """Pause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule.
@@ -625,6 +625,10 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
     Returns:
         `True` if the batch export was paused, `False` if it was already paused.
     """
+    # Coerce to str: callers like delete_batch_export pass a UUID instance, which the
+    # Temporal protobuf schedule_id field rejects with a TypeError.
+    batch_export_id = str(batch_export_id)
+
     try:
         # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
@@ -635,9 +639,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         return False
 
     try:
-        # Coerce to str: callers like delete_batch_export pass a UUID instance, which the
-        # Temporal protobuf schedule_id field rejects with a TypeError.
-        pause_schedule(temporal, schedule_id=str(batch_export_id), note=note)
+        pause_schedule(temporal, schedule_id=batch_export_id, note=note)
     except Exception as exc:
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
@@ -648,7 +650,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
     return True
 
 
-async def apause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> bool:
+async def apause_batch_export(temporal: Client, batch_export_id: str | UUID, note: str | None = None) -> bool:
     """Pause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule.
@@ -656,6 +658,10 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
     Returns:
         `True` if the batch export was paused, `False` if it was already paused.
     """
+    # Coerce to str: callers like delete_batch_export pass a UUID instance, which the
+    # Temporal protobuf schedule_id field rejects with a TypeError.
+    batch_export_id = str(batch_export_id)
+
     try:
         # nosemgrep: idor-lookup-without-team (internal service called from Temporal, not user-facing)
         batch_export = await BatchExport.objects.aget(id=batch_export_id)
@@ -666,9 +672,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         return False
 
     try:
-        # Coerce to str: callers like delete_batch_export pass a UUID instance, which the
-        # Temporal protobuf schedule_id field rejects with a TypeError.
-        await a_pause_schedule(temporal, schedule_id=str(batch_export_id), note=note)
+        await a_pause_schedule(temporal, schedule_id=batch_export_id, note=note)
     except Exception as exc:
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
