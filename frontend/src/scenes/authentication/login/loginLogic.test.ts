@@ -303,6 +303,42 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('precheck email plausibility', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let precheckHandler: jest.Mock
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger, isolate precheck
+            precheckHandler = jest.fn(() => [200, { saml_available: false }])
+            useMocks({ post: { '/api/login/precheck': precheckHandler } })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('skips the request for a half-typed address and leaves the precheck pending', async () => {
+            logic.actions.precheck({ email: 'user@' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+            expect(precheckHandler).not.toHaveBeenCalled()
+            expect(logic.values.precheckResponse).toEqual({ status: 'pending' })
+        })
+
+        it('still prechecks a dotless self-hosted domain', async () => {
+            logic.actions.precheck({ email: 'admin@localhost' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+            expect(precheckHandler).toHaveBeenCalledTimes(1)
+            expect(logic.values.precheckResponse).toMatchObject({ status: 'completed' })
+        })
+    })
+
     describe('available login methods', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckResponse: Record<string, any>

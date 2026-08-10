@@ -221,8 +221,10 @@ export function InviteRow({
                         type="email"
                         className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
                         onChange={(v) => {
+                            // Require a TLD so a dotless domain is caught here rather than by the
+                            // server, which would reject it with a raw "Enter a valid email address".
                             let isValid = true
-                            if (v && !isEmail(v)) {
+                            if (v && !isEmail(v, { requireTLD: true })) {
                                 isValid = false
                             }
                             updateInviteAtIndex({ target_email: v, isValid }, index)
@@ -273,7 +275,7 @@ export function InviteRow({
                         <LemonButton
                             type="primary"
                             className="flex-1"
-                            disabled={!isEmail(invitesToSend[index].target_email)}
+                            disabled={!isEmail(invitesToSend[index].target_email, { requireTLD: true })}
                             onClick={() => {
                                 inviteTeamMembers()
                             }}

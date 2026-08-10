@@ -13,7 +13,7 @@ import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginU
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
-import { getRelativeNextPath } from 'lib/utils/url'
+import { getRelativeNextPath, isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -410,7 +410,12 @@ export const loginLogic = kea<loginLogicType>([
                     },
                     breakpoint
                 ) => {
-                    if (!email) {
+                    // The precheck fires on blur and Enter, so it often sees a half-typed address.
+                    // Skip the request until the value looks like an email, so we do not ask the
+                    // server to reject it with a 400. The check has no required TLD, so a dotless
+                    // self-hosted domain (e.g. admin@localhost) still prechecks and reveals the
+                    // password field.
+                    if (!email || !isEmail(email)) {
                         return { status: 'pending' }
                     }
 

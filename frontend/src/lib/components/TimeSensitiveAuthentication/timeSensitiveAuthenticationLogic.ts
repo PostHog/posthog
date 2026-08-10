@@ -243,8 +243,15 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             null as PrecheckResponseType | null,
             {
                 precheck: async () => {
-                    const response = await api.create('api/login/precheck', { email: values.user!.email })
-                    return { status: 'completed', ...response }
+                    try {
+                        const response = await api.create('api/login/precheck', { email: values.user!.email })
+                        return { status: 'completed', ...response }
+                    } catch {
+                        // A failed precheck (a transient network error or a rate limit) must not lock
+                        // the user out of re-authenticating. Fall back to the password path instead of
+                        // letting the error bubble into error tracking as noise.
+                        return { status: 'completed', saml_available: false }
+                    }
                 },
             },
         ],
