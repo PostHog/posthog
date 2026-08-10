@@ -27,6 +27,12 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
 } from "@posthog/shared";
+import {
+  buildPosthogPropertiesHeaderLines,
+  buildPosthogPropertiesHeaderRecord,
+  buildPosthogScopedPropertyHeaderLines,
+  buildPosthogScopedPropertyHeaderRecord,
+} from "@posthog/shared/posthog-property-headers";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -91,14 +97,7 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
-import {
-  buildGatewayPropertiesHeader,
-  buildGatewayPropertiesHeaderRecord,
-  buildGatewayScopedPropertyHeaderRecord,
-  buildGatewayScopedPropertyHeaders,
-  resolveGatewayProduct,
-  resolveGatewayTarget,
-} from "../utils/gateway";
+import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -4072,16 +4071,16 @@ ${commonInstructions}
         ai_product: aiProduct,
         team_id: projectId,
       };
-      customHeaders = buildGatewayPropertiesHeader(properties);
-      openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
+      customHeaders = buildPosthogPropertiesHeaderLines(properties);
+      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = buildGatewayScopedPropertyHeaders(
+      customHeaders = buildPosthogScopedPropertyHeaderLines(
         gatewayProperties,
         projectId,
       );
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildGatewayScopedPropertyHeaderRecord(
+      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
         {
           ...gatewayProperties,
           team_id: projectId,
