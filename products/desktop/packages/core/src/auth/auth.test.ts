@@ -910,6 +910,35 @@ describe("AuthService", () => {
     });
   });
 
+  it("uses a project from the server-selected organization after app restart", async () => {
+    seedStoredSession({ selectedProjectId: 11 });
+    oauthFlow.refreshToken.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+    );
+    stubAuthFetch({
+      currentOrgId: "org-2",
+      orgs: {
+        "org-1": {
+          name: "Org 1",
+          projects: [{ id: 11, name: "Project 11" }],
+        },
+        "org-2": {
+          name: "Org 2",
+          projects: [{ id: 22, name: "Project 22" }],
+        },
+      },
+    });
+
+    await service.initialize();
+
+    expect(service.getState()).toMatchObject({
+      status: "authenticated",
+      currentOrgId: "org-2",
+      currentProjectId: 22,
+    });
+    expect(sessionPort.getCurrent()?.selectedProjectId).toBe(22);
+  });
+
   describe("lifecycle: connectivity recovery", () => {
     it("recovers session when connectivity changes to online", async () => {
       seedStoredSession({ selectedProjectId: 42 });
