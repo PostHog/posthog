@@ -704,6 +704,53 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(rows) == len(set(rows))
         assert ("Paid Search", "google") in rows
 
+    def test_campaign_drill_down_surfaces_campaigns_with_no_ad_spend(self):
+        """A campaign that exists only in UTM tags — a newsletter, an organic post, any channel
+        nobody buys ads for — has no row on the cost side. Under a LEFT JOIN from campaign_costs it
+        vanished from the table entirely, so the campaign level only ever showed paid campaigns.
+        Channel and source levels already outer-join and never had this hole."""
+        session_id = str(uuid7("2023-01-15"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=session_id,
+            timestamp="2023-01-15",
+            properties={
+                "$session_id": session_id,
+                "utm_source": "newsletter",
+                "utm_campaign": "fall_sale_newsletter",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=session_id,
+            timestamp="2023-01-16",
+            properties={
+                "$session_id": session_id,
+                "utm_source": "newsletter",
+                "utm_campaign": "fall_sale_newsletter",
+            },
+        )
+        flush_persons_and_events()
+
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+            draftConversionGoal=self._create_test_conversion_goal(goal_id="no_spend_campaign_goal"),
+        )
+        result = self._create_query_runner(query).calculate()
+
+        assert result.columns is not None
+        campaign_idx = result.columns.index(MarketingAnalyticsBaseColumns.CAMPAIGN)
+        source_idx = result.columns.index(MarketingAnalyticsBaseColumns.SOURCE)
+        rows = {(row[campaign_idx].value, row[source_idx].value) for row in result.results}
+
+        assert ("fall_sale_newsletter", "newsletter") in rows
+
     def test_channel_source_drill_down_emits_both_channel_and_source_columns(self):
         """The whole point of the composite level: Source survives as a column (it's excluded at
         CHANNEL). Losing it would silently turn the table back into a flat channel breakdown."""

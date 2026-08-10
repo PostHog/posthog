@@ -126,18 +126,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
 
-    def _build_flexible_source_join_condition(self) -> ast.Expr:
-        """
-        Build source join condition.
-        Source normalization happens in conversion_goal_processor._normalize_source_field,
-        so we can use simple equality here.
-        """
-        return ast.CompareOperation(
-            left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
-        )
-
     def _get_compare_pivot_keys(self) -> list[str]:
         """Columns that uniquely identify a row at the current drill-down level.
 
@@ -328,56 +316,36 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         # Add single unified conversion goals join if we have conversion goals
         # (skip at ad-group / ad levels — no event attribution possible there).
         if conversion_aggregator and not skip_conversion_goals_join:
-            if level in (
-                MarketingAnalyticsDrillDownLevel.CHANNEL,
-                MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
-                MarketingAnalyticsDrillDownLevel.SOURCE,
-            ):
-                join_type = "FULL OUTER JOIN"
-                # The grouping key is the join key. CHANNEL_SOURCE groups by two columns,
-                # so both have to match or a channel's sources would fan out.
+            join_type = "FULL OUTER JOIN"
+            # The grouping key is the join key. CHANNEL_SOURCE groups by two columns,
+            # so both have to match or a channel's sources would fan out. CAMPAIGN keys
+            # off match_key — the campaign_name_mappings-normalized identifier that both
+            # sides emit — plus source, since campaign names only need to be unique per source.
+            if level == MarketingAnalyticsDrillDownLevel.CAMPAIGN:
+                join_fields = [self.config.match_key_field, self.config.source_field]
+            else:
                 join_fields = [self.config.campaign_field]
                 if level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
                     join_fields.append(self.config.source_field)
-                key_comparisons: list[ast.Expr] = [
-                    ast.CompareOperation(
-                        left=ast.Field(chain=self.config.get_campaign_cost_field_chain(join_field)),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=self.config.get_unified_conversion_field_chain(join_field)),
-                    )
-                    for join_field in join_fields
-                ]
-                join_constraint = ast.JoinConstraint(
-                    expr=key_comparisons[0] if len(key_comparisons) == 1 else ast.And(exprs=key_comparisons),
-                    constraint_type="ON",
+            key_comparisons: list[ast.Expr] = [
+                ast.CompareOperation(
+                    left=ast.Field(chain=self.config.get_campaign_cost_field_chain(join_field)),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Field(chain=self.config.get_unified_conversion_field_chain(join_field)),
                 )
-                # Replace grouping columns with COALESCE to handle NULLs from FULL OUTER JOIN
-                coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
-                for key, coalesce_col in coalesce_columns.items():
-                    conversion_columns_mapping[key] = coalesce_col
+                for join_field in join_fields
+            ]
+            join_constraint = ast.JoinConstraint(
+                expr=key_comparisons[0] if len(key_comparisons) == 1 else ast.And(exprs=key_comparisons),
+                constraint_type="ON",
+            )
+            # Replace grouping columns with COALESCE to handle NULLs from FULL OUTER JOIN
+            coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
+            for key, coalesce_col in coalesce_columns.items():
+                conversion_columns_mapping[key] = coalesce_col
 
-                # Leave campaign_costs metric columns as NULL for conversion-only rows
-                # so the frontend displays "-" instead of 0 for cost/clicks/impressions etc.
-            else:
-                # Campaign level — LEFT JOIN on match_key + source
-                join_type = "LEFT JOIN"
-                join_constraint = ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
-                                ),
-                            ),
-                            self._build_flexible_source_join_condition(),
-                        ]
-                    ),
-                    constraint_type="ON",
-                )
+            # Leave campaign_costs metric columns as NULL for conversion-only rows
+            # so the frontend displays "-" instead of 0 for cost/clicks/impressions etc.
 
             unified_join = ast.JoinExpr(
                 join_type=join_type,
