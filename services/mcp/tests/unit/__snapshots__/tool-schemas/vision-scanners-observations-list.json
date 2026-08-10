@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "backfill_id": {
+            "description": "Only observations dispatched by this backfill.",
+            "type": "string"
+        },
         "date_from": {
             "description": "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.",
             "type": "string"
@@ -45,7 +49,7 @@
             "type": "string"
         },
         "triggered_by": {
-            "description": "Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.",
+            "description": "Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
             "type": "string"
         },
         "verdict": {
