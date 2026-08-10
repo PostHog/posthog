@@ -108,6 +108,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _rls_active_from_conn,
     _role_subject_to_rls,
     _safe_close_connection,
+    _schema_discovery_timeout_error,
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
     _tunnel_with_handshake_translation,
@@ -878,6 +879,22 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Read-replica timeout error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw activity-level message (what `sync_new_schemas_activity` sees via str(e)) — no
+            # class name. Raised by `_schemas_from_conn` when the column-listing catalog scan
+            # itself exhausts the raised METADATA_STATEMENT_TIMEOUT_MS.
+            str(_schema_discovery_timeout_error()),
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            f"QueryTimeoutException: {_schema_discovery_timeout_error()}",
+        ],
+    )
+    def test_schema_discovery_catalog_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Schema discovery catalog timeout should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1664,6 +1681,15 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EAUTHQUERY) auth_query secret check timed out"
+            ),
+            # Supavisor's own credential fetch fails repeatedly and trips its internal circuit
+            # breaker, rejecting new connects with a bare OperationalError carrying its
+            # "(ECIRCUITBREAKER)" code. Same transient pooler-bookkeeping class as EAUTHQUERY —
+            # recovers once the breaker resets — so the reconnect must catch it.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) failed to retrieve database credentials after multiple "
+                "attempts, new connections are temporarily blocked"
             ),
             # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
             # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
@@ -6089,6 +6115,49 @@ class TestGetTable:
         )
         column_query_idx = next(i for i, q in enumerate(conn.executed) if "information_schema.columns" in q)
         assert set_timeout_idx < column_query_idx
+
+    @pytest.mark.django_db
+    def test_schemas_from_conn_catalog_scan_timeout_is_non_retryable(self):
+        # A catalog wide enough that the column-listing query itself exhausts the raised
+        # METADATA_STATEMENT_TIMEOUT_MS: retrying re-runs the same futile scan, so it must be
+        # converted to the non-retryable QueryTimeoutException instead of the raw, retried QueryCanceled.
+        cursor = MagicMock()
+        cursor.execute.side_effect = [
+            None,  # SET statement_timeout
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),  # catalog scan
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+            return_value=({"big_table": (None, "public", "big_table")}, False),
+        ):
+            with pytest.raises(QueryTimeoutException) as exc_info:
+                _schemas_from_conn(cast(Any, connection), "public", None)
+
+        assert str(exc_info.value) == str(_schema_discovery_timeout_error())
+
+    @pytest.mark.django_db
+    def test_schemas_from_conn_recovery_conflict_stays_retryable(self):
+        # A hot-standby recovery conflict during the catalog scan is also a QueryCanceled, but it's
+        # transient and already retried by `get_schemas`'s outer `_retry_on_connection_dropped` (via
+        # `_is_recovery_conflict_error`). It must propagate unconverted, not get mapped to the
+        # non-retryable timeout error meant for a genuinely oversized catalog.
+        cursor = MagicMock()
+        cursor.execute.side_effect = [
+            None,  # SET statement_timeout
+            psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"),
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+            return_value=({"big_table": (None, "public", "big_table")}, False),
+        ):
+            with pytest.raises(psycopg.errors.QueryCanceled, match="conflict with recovery"):
+                _schemas_from_conn(cast(Any, connection), "public", None)
 
     @pytest.mark.django_db
     def test_regular_table(self):
