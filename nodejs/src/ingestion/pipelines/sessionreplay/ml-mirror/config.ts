@@ -146,10 +146,8 @@ export function resolveMlAnonymizeMaxConcurrency(
 }
 
 /**
- * The mirror's own session-recording Redis connection, or `null` to stay on the shared cluster.
- *
  * A host of whitespace counts as unset: chart values render to an empty string when the underlying
- * secret key is missing, and connecting to `""` would fail every command rather than fall back.
+ * secret key is missing, and connecting to `""` would fail every command rather than return `null`.
  */
 export function resolveMlMirrorRedisConnection(
     config: Pick<MlMirrorConfig, 'SESSION_RECORDING_ML_REDIS_HOST' | 'SESSION_RECORDING_ML_REDIS_PORT'> & {
