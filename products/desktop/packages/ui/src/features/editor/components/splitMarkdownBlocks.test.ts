@@ -23,6 +23,12 @@ describe("splitMarkdownBlocks", () => {
     expect(splitMarkdownBlocks("a\n\nb\n\nc")).toEqual(["a\n\n", "b\n\n", "c"]);
   });
 
+  it("keeps an ordered list with repeated markers in one block", () => {
+    const markdown = "1. First step\n\n1. Second step";
+
+    expect(splitMarkdownBlocks(markdown)).toEqual([markdown]);
+  });
+
   it("keeps a fenced code block (with blank lines inside) as one block", () => {
     const md = "```\nline1\n\nline2\n```\n\nafter";
     expect(splitMarkdownBlocks(md)).toEqual([
