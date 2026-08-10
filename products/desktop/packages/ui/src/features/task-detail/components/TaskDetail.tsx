@@ -25,7 +25,6 @@ import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
 import { PanelLayout } from "../../panels/components/PanelLayout";
-import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
 import { useArchivingTasksStore } from "../../sidebar/archivingTasksStore";
 import { ArchiveRunningTaskDialog } from "../../sidebar/components/ArchiveRunningTaskDialog";
@@ -70,7 +69,6 @@ export function TaskDetail({
     (state) => state.sessions[taskId]?.status?.isStreaming ?? false,
   );
   const runtime = task.runtime === "pi" ? "pi" : "acp";
-  const selectedTaskRunId = task.latest_run?.id;
 
   const effectiveRepoPath = useCwd(taskId);
 
@@ -119,7 +117,11 @@ export function TaskDetail({
       }
       void runArchive().catch(() => undefined);
     },
-    { scopes: ["taskDetail"] },
+    {
+      scopes: ["taskDetail"],
+      enableOnContentEditable: true,
+      enableOnFormTags: true,
+    },
     [task, taskId, taskSession, runtime, isPiGenerating, runArchive],
   );
 
@@ -321,15 +323,7 @@ export function TaskDetail({
     <Box data-task-detail-id={taskId} height="100%" ref={containerRef}>
       <Flex height="100%">
         <Box className={`min-w-0 flex-1 ${isExpanded ? "hidden" : ""}`}>
-          {runtime === "pi" && (
-            <PiSessionView
-              key={taskId}
-              taskId={taskId}
-              taskRunId={selectedTaskRunId}
-              isCloud={isCloud}
-            />
-          )}
-          {runtime === "acp" && <PanelLayout taskId={taskId} task={task} />}
+          <PanelLayout taskId={taskId} task={task} />
         </Box>
 
         {isReviewOpen && !isExpanded && (

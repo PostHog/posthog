@@ -117,6 +117,7 @@ function TaskRow({
       isPinned={task.isPinned}
       needsPermission={task.needsPermission}
       taskRunStatus={task.taskRunStatus}
+      runMode={task.runMode}
       originProduct={task.originProduct}
       slackThreadUrl={task.slackThreadUrl}
       prState={prState}

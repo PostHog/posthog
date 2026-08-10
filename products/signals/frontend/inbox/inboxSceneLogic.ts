@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,6 +26,7 @@ import {
 } from './inboxAnalytics'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
+import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
 import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import {
@@ -37,12 +39,34 @@ import {
     SignalScoutRunStatus,
     SignalScoutRunSummary,
 } from './types'
+import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
 // Newest-first scout runs to pull for the Runs tab. The scout-runs endpoint caps at 100 server-side.
 const SCOUT_RUNS_LIMIT = 100
+
 // Signal-pipeline tasks to pull. Bounded symmetrically with the scout side (the tasks endpoint caps
 // at 100); passed explicitly so the cap is visible rather than relying on the server default.
 const SIGNAL_TASKS_LIMIT = 100
+
+/** Strips `#createScout=` from the URL so a refresh can't re-trigger it, then opens the modal. */
+function consumeScoutTemplateHash(
+    actions: { setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => void },
+    hashParams: Record<string, any> | undefined
+): void {
+    const raw = hashParams?.['createScout']
+    if (raw === undefined) {
+        return
+    }
+    const { createScout: _consumed, ...remainingHashParams } = hashParams ?? {}
+    router.actions.replace(router.values.location.pathname, router.values.searchParams, remainingHashParams)
+    const draft = decodeScoutCreateTemplate(raw)
+    if (draft) {
+        actions.setScoutTemplateDraft(draft)
+    } else {
+        lemonToast.error("Couldn't read the scout template from this link")
+    }
+}
+
 // How often the Runs tab refetches while it's open, so live runs update in place.
 const RUNS_POLL_INTERVAL_MS = 5000
 
@@ -198,6 +222,7 @@ export interface inboxSceneLogicValues {
     isRunningSessionAnalysis: boolean
     isScratchpadOpen: boolean
     isStaff: boolean
+    scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
     selectedReportId: string | null
     selectedReportLoading: boolean
@@ -240,12 +265,12 @@ export interface inboxSceneLogicActions {
         errorObject?: any
     }
     loadSelectedReportSuccess: (
-        selectedReportResponse: SignalReport,
+        selectedReportResponse: SignalReport | null,
         payload?: {
             id: string
         }
     ) => {
-        selectedReportResponse: SignalReport
+        selectedReportResponse: SignalReport | null
         payload?: {
             id: string
         }
@@ -267,6 +292,9 @@ export interface inboxSceneLogicActions {
     }
     setFindingsOpen: (open: boolean) => {
         open: boolean
+    }
+    setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
+        draft: ScoutCreateInitialValues | null
     }
     setScratchpadOpen: (open: boolean) => {
         open: boolean
@@ -346,6 +374,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
+        // A decoded `#createScout=` payload, prefilling the create modal. The user still submits it.
+        setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 
     loaders(() => ({
@@ -385,8 +415,24 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         selectedReportResponse: [
             null as SignalReport | null,
             {
-                loadSelectedReport: async ({ id }: { id: string }) => {
-                    return await api.signalReports.get(id)
+                loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
+                    try {
+                        const report = await api.signalReports.get(id)
+                        breakpoint()
+                        return report
+                    } catch (error) {
+                        // Discard a superseded load so a slow response for a report the user already
+                        // navigated away from can't overwrite the current one (e.g. a stale 404
+                        // blanking a valid report that resolved first).
+                        breakpoint()
+                        // An unresolvable id (a stale deep link, or the onboarding sample card) 404s.
+                        // Return null so the scene shows a "not found" empty state instead of the
+                        // global raw error toast. Let every other failure surface as before.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -435,6 +481,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSelectedReportId: (state, { id }) => (id ? false : state),
                 setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
                 setScratchpadOpen: (state, { open }) => (open ? false : state),
+            },
+        ],
+        scoutTemplateDraft: [
+            null as ScoutCreateInitialValues | null,
+            {
+                setScoutTemplateDraft: (_, { draft }) => draft,
             },
         ],
         // The finding deep-linked within the selected scout, if any. Cleared whenever a scout is
@@ -685,8 +737,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setFindingsOpen(true)
             }
         },
-        [urls.inbox()]: () => {
+        [urls.inbox()]: (_, __, hashParams) => {
             cache.inboxListVisited = true
+            consumeScoutTemplateHash(actions, hashParams)
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
             }
@@ -700,7 +753,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setFindingsOpen(false)
             }
         },
-        [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
+        [urls.inbox(':tab')]: ({ tab }: { tab?: string }, _, hashParams) => {
             // A bare report deep-link `/inbox/<reportId>`  redirected to report form. Mark the list as
             // visited only when we're actually staying on a list view — otherwise the redirected report
             // would be misclassified as an in-app click instead of a deep-link.
@@ -713,6 +766,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return
             }
             cache.inboxListVisited = true
+            consumeScoutTemplateHash(actions, hashParams)
             // Staff-only tabs (Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')

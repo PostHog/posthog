@@ -12,6 +12,7 @@
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
@@ -21,6 +22,7 @@ export const DataModelingJobStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
 } as const
 
 export interface DataModelingJobApi {
@@ -469,6 +471,18 @@ export interface InsightVariableApi {
     readonly code_name: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface PaginatedInsightVariableListApi {
@@ -512,6 +526,18 @@ export interface PatchedInsightVariableApi {
     readonly code_name?: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface QueryTabStateApi {
@@ -795,6 +821,79 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface DataWarehouseExpressionApi {
+    readonly id: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
+}
+
+export interface PaginatedDataWarehouseExpressionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseExpressionApi[]
+}
+
+export interface PatchedDataWarehouseExpressionApi {
+    readonly id?: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name?: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name?: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression?: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
 }
 
 export interface DataWarehouseModelPathApi {
@@ -2648,6 +2747,7 @@ export interface CredentialApi {
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
  * * `Motion` - Motion
+ * * `ImpactPartner` - ImpactPartner
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3935,6 +4035,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Wix: 'Wix',
     Sevalla: 'Sevalla',
     Motion: 'Motion',
+    ImpactPartner: 'ImpactPartner',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -4339,6 +4440,21 @@ export type WarehouseColumnStatisticsListParams = {
      * Only return statistics for this data warehouse table.
      */
     table_id?: string
+}
+
+export type WarehouseExpressionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type WarehouseModelPathsListParams = {
