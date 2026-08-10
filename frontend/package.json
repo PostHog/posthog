@@ -88,6 +88,7 @@
         "@posthog/products-apm": "workspace:*",
         "@posthog/products-batch-exports": "workspace:*",
         "@posthog/products-business-knowledge": "workspace:*",
+        "@posthog/products-canvas": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",
         "@posthog/products-customer-analytics": "workspace:*",
