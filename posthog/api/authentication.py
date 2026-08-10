@@ -160,7 +160,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         request.session.flush()
     # Re-auth keeps the session: the user is already signed in, and flushing here would sign them out
     # before the IdP is even contacted, so any hiccup in the round trip would strand them at /login.
-    # `social_reauth` completes the step-up on the way back in.
+    # `social_reauth_complete` grants the step-up on the way back in.
 
     try:
         return auth(request, backend)
@@ -1275,6 +1275,18 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
 password_reset_token_generator = PasswordResetTokenGenerator()
 
 
+def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
+    """The request behind a step-up re-auth of an already signed-in session, or None if it isn't one."""
+    if strategy.session_get("reauth") != "true":
+        return None
+
+    request = strategy.request
+    if not request or not request.user.is_authenticated:
+        return None
+
+    return request
+
+
 def social_reauth(
     strategy: DjangoStrategy,
     backend,
@@ -1283,36 +1295,46 @@ def social_reauth(
     social: Any = None,
     **kwargs,
 ) -> None:
-    """Complete a step-up re-auth that kept its session.
+    """Turn away a step-up re-auth that isn't the signed-in user.
 
     Runs right after `social_user`, so a mismatched identity is rejected before `associate_user` can
-    link it to the signed-in account or `social_create_user` can provision anything.
-
-    `sso_login` doesn't flush the session for a re-auth, which means `do_complete` takes its
-    already-authenticated path and never calls `login()` - so the freshness stamp and the audit entry
-    that `login()` would have triggered have to happen here, or the modal would reopen forever.
+    link it to the signed-in account or `social_create_user` can provision anything. The step-up
+    itself is granted at the end of the pipeline, by `social_reauth_complete`.
     """
-    if strategy.session_get("reauth") != "true":
-        return
-
-    request = strategy.request
-    if not request or not request.user.is_authenticated:
+    request = _sso_reauth_request(strategy)
+    if not request:
         return
 
     # An identity that isn't associated with anyone yet resolves to whoever is signed in, so without
     # an email check `associate_user` would silently link a stranger's IdP account to this account.
-    identity_email = (details or {}).get("email") or ""
-    identity_is_signed_in_user = user is not None and user.pk == request.user.pk
-    if social is None:
-        identity_is_signed_in_user = identity_is_signed_in_user and identity_email.lower() == request.user.email.lower()
+    identity_email = ((details or {}).get("email") or "").lower()
+    identity_is_signed_in_user = (
+        user is not None and user.pk == request.user.pk and (social is not None or identity_email == user.email.lower())
+    )
 
-    if user is None or not identity_is_signed_in_user:
+    if not identity_is_signed_in_user:
         logger.warning(
             "SSO re-authentication identity mismatch",
             backend=getattr(backend, "name", ""),
             session_user_id=request.user.pk,
         )
         raise AuthFailed(backend, "reauth_user_mismatch")
+
+
+def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:
+    """Grant the step-up, once every other pipeline step has accepted the flow.
+
+    `sso_login` doesn't flush the session for a re-auth, which means `do_complete` takes its
+    already-authenticated path and never calls `login()` - so the freshness stamp and the audit entry
+    that `login()` would have triggered have to happen here, or the modal would reopen forever.
+
+    This runs last because a step that returns a response aborts the pipeline - domain enforcement in
+    `social_create_user` does exactly that - and a refused re-auth must not leave a fresh window, a
+    cleared step-up flag, or a `logged_in` entry behind.
+    """
+    request = _sso_reauth_request(strategy)
+    if not request or user is None or user.pk != request.user.pk:
+        return
 
     # Rotate the key the way `login()` would on a fresh sign-in. A step-up window is exactly what a
     # copied session cookie wants, so the identifier that existed before it has to stop working. The

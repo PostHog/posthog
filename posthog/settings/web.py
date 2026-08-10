@@ -294,6 +294,9 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
     "posthog.api.authentication.social_login_notification",
+    # Must stay last: it grants the step-up window, so every step that can still refuse the re-auth
+    # has to have run first
+    "posthog.api.authentication.social_reauth_complete",
 )
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"

@@ -12,6 +12,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.shortcuts import redirect
 from django.test import override_settings
 from django.utils import timezone
 
@@ -379,6 +380,40 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertNotEqual(self.client.session.session_key, session_key_before)
         self.client.cookies[settings.SESSION_COOKIE_NAME] = cast(str, session_key_before)
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_sso_reauth_refused_later_in_the_pipeline_grants_nothing(self, mock_request):
+        # A pipeline step that returns a response aborts the flow - domain enforcement in
+        # `social_create_user` does this for a member no organization admits any more. The step-up
+        # must not already have been granted by then.
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+        session = self.client.session
+        session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        session.save()
+        last_reauth_at_before = session[settings.SESSION_LAST_REAUTH_AT_KEY]
+        session_key_before = session.session_key
+        activity_count_before = ActivityLog.objects.filter(scope="User", activity="logged_in").count()
+
+        with (
+            self.settings(**GOOGLE_MOCK_SETTINGS),
+            patch(
+                "posthog.api.signup.social_create_user",
+                return_value=redirect("/login?error_code=verified_domain_required"),
+            ),
+        ):
+            state = self._begin_google_reauth()
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email,
+                "sub": "google-sub-123",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, "/login?error_code=verified_domain_required", fetch_redirect_response=False)
+        self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        self.assertTrue(self.client.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY))
+        self.assertEqual(self.client.session.session_key, session_key_before)
+        self.assertEqual(ActivityLog.objects.filter(scope="User", activity="logged_in").count(), activity_count_before)
 
     @patch("social_core.backends.base.BaseAuth.request")
     def test_sso_reauth_with_a_different_identity_is_rejected_without_signing_out(self, mock_request):
