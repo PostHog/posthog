@@ -20,8 +20,8 @@ whose cause is invisible in randomization or exposure-event configuration.
 
 This has been observed in production: a customer used a dynamic cohort in exposure criteria to
 exclude a group of users, and the imbalance grew steadily between cohort recalculations until it
-tripped a sample ratio mismatch. Static cohorts don't have this gap — their membership is fixed
-at creation, so both reads agree.
+tripped a sample ratio mismatch. Static cohorts don't have this gap, since their membership is
+fixed at creation and both reads agree.
 
 ## What we surface
 
@@ -32,15 +32,22 @@ Two warnings, one detection:
   them, and hands `{id, name, is_static}` to the pure evaluator
   `analysis_health.evaluate_dynamic_cohort_risk`, which returns a `DynamicCohortExposureRisk`
   naming the dynamic cohorts (or `None`). The risk rides on `ExperimentExposureQueryResponse` and
-  `DynamicCohortWarning.tsx` renders it as a banner on the metrics tab — so experiments configured
+  `DynamicCohortWarning.tsx` renders it as a banner on the metrics tab, so experiments configured
   before the warning shipped still get caught.
 - **Editor-time.** `ExposureCriteria.tsx` checks the in-flight criteria against `cohortsModel`
   (`getExposureCriteriaCohortIds` + `is_static`) and shows an inline warning the moment a dynamic
   cohort is attached, before anything is saved or queried.
 
-The warning is structural, not empirical: it fires on any dynamic cohort in exposure criteria
-regardless of population size or observed imbalance, because the SRM is the late symptom and a
-quiet warning at configuration time is cheaper than an investigation later.
+The view-time detection also reads `team.test_account_filters` when `filterTestAccounts` is on:
+`build_test_accounts_filter` ANDs those entries into the exposure query, and a cohort is one of the
+allowed filter types there, so a dynamic cohort in that list carries the same gap. Editor-time
+doesn't cover it: test-account filters are team settings edited elsewhere, so the exposure criteria
+modal isn't where anyone would act on the warning.
+
+The warning fires on any dynamic cohort in exposure criteria, regardless of population size or
+observed imbalance. This departs from `bias_risk`, which waits for observed evidence. The gap here
+is a property of the configuration rather than of the data, and the SRM only appears once the drift
+is large enough to trip it, by which point the investigation cost is already paid.
 
 ## The remedy we recommend
 
