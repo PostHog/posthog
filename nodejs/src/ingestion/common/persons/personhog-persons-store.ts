@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
+import { v5 as uuidv5 } from 'uuid'
 
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogPropertiesSizeError } from '~/common/personhog/persons'
@@ -8,7 +9,6 @@ import { PersonMessage } from '~/common/persons/person-message'
 import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
-import { generateKafkaPersonUpdateMessage } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { Properties } from '~/plugin-scaffold'
@@ -43,6 +43,13 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
 
 const CALLER_TAG = 'ingestion/personhog-store'
 
+/**
+ * Namespace for deterministic delete op ids: uuidv5 over the delete's
+ * identity (team + sorted person ids) makes retries attach to the same
+ * lifecycle operation instead of starting a fresh one.
+ */
+const DELETE_OP_NAMESPACE = 'f1bc1c46-64f0-4b4f-9126-b0d8375a8a03'
+
 /** The event name stamped on creation calls; per-event names are consumed at fold time. */
 const CREATE_EVENT_NAME = '$create_person'
 
@@ -66,15 +73,6 @@ interface OpsLaneEntry {
     teamId: number
     personId: string
     distinctId: string
-    /**
-     * The person's version when the lane opened. Flush publishes the
-     * ClickHouse row when the final version cleared this floor even if
-     * the last response reported no change — a retried call whose first
-     * attempt landed but whose response was lost replays into the
-     * leader's no-change fast path, and the version is what still tells
-     * the truth.
-     */
-    baseVersion: number
     /**
      * Folded ops in arrival order. Almost always one segment; a new one
      * starts only when foldOps reports a composition the ops vocabulary
@@ -133,24 +131,41 @@ export class PersonhogPersonsStore {
         return new BatchBoundPersonhogStore(this, batchId)
     }
 
+    /**
+     * Checking reads resolve through identity (primary-backed) and use
+     * the resolved person directly: writer-applied state is within this
+     * read class's eventual contract, and it saves the leader hop.
+     */
     async fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         const cached = this.lookupMemo(teamId, distinctId, batchId)
         if (cached !== undefined) {
             return cached
         }
-        const results = await this.repository.fetchPersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
-        return this.recordFetch(teamId, distinctId, results[0] ?? null, batchId)
+        const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
+        return this.recordFetch(teamId, distinctId, resolved?.person ?? null, batchId)
     }
 
+    /**
+     * Update reads split resolution from state: identity resolves the
+     * distinct id on the primary, then the person's state comes from the
+     * partition leader — the write-path authority, which the primary
+     * lags by writer apply lag. The projection this feeds enriches the
+     * batch's events, so the baseline must be the leader's.
+     */
     async fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         const cached = this.lookupMemo(teamId, distinctId, batchId)
         if (cached !== undefined) {
             return cached
         }
-        const results = await this.repository.fetchPersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG, {
-            consistency: 'strong',
-        })
-        return this.recordFetch(teamId, distinctId, results[0] ?? null, batchId)
+        const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
+        if (!resolved?.person) {
+            return this.recordFetch(teamId, distinctId, null, batchId)
+        }
+        // A null here means the person vanished between resolve and read
+        // (merged or deleted mid-flight); record the resolution miss and
+        // let the caller's create path re-resolve authoritatively.
+        const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
+        return this.recordFetch(teamId, distinctId, person, batchId)
     }
 
     async fetchPersonsForUpdateByDistinctIds(
@@ -158,18 +173,31 @@ export class PersonhogPersonsStore {
         distinctIds: string[],
         batchId: number
     ): Promise<InternalPersonWithDistinctId[]> {
-        const results = await this.repository.fetchPersonsByDistinctIds(
+        const resolved = await this.repository.resolvePersonsByDistinctIds(
             distinctIds.map((distinctId) => ({ teamId, distinctId })),
-            CALLER_TAG,
-            { consistency: 'strong' }
+            CALLER_TAG
         )
-        // Pending projections win over fetched state here too, so the
-        // merge planner reads the same pre-flush view the update path
-        // does.
-        return results.map((person) => {
-            const recorded = this.recordFetch(teamId, person.distinct_id, person, batchId)
-            return { ...(recorded as InternalPerson), distinct_id: person.distinct_id } as InternalPersonWithDistinctId
-        })
+        const limit = pLimit(this.options.maxConcurrentUpdates)
+        const fetched = await Promise.all(
+            resolved.map((entry) =>
+                limit(async () => {
+                    if (!entry.person) {
+                        this.recordFetch(teamId, entry.distinctId, null, batchId)
+                        return null
+                    }
+                    const person = await this.repository.fetchPersonById(teamId, entry.person.id, CALLER_TAG)
+                    // Pending projections win over fetched state here
+                    // too, so the merge planner reads the same pre-flush
+                    // view the update path does.
+                    const recorded = this.recordFetch(teamId, entry.distinctId, person, batchId)
+                    if (!recorded) {
+                        return null
+                    }
+                    return { ...recorded, distinct_id: entry.distinctId } as InternalPersonWithDistinctId
+                })
+            )
+        )
+        return fetched.filter((person): person is InternalPersonWithDistinctId => person !== null)
     }
 
     /** Resolves a distinct id through the batch memos, undefined on miss. */
@@ -198,8 +226,14 @@ export class PersonhogPersonsStore {
     ): InternalPerson | null {
         const resolutions = this.resolutionMemo(batchId)
         if (fetched === null) {
-            resolutions.set(`${teamId}:${distinctId}`, null)
-            return null
+            // Never downgrade a live mapping: a stale prefetch response
+            // can land after the batch created or resolved this person,
+            // and absence must not overwrite presence.
+            const existing = resolutions.get(`${teamId}:${distinctId}`)
+            if (existing === undefined || existing === null) {
+                resolutions.set(`${teamId}:${distinctId}`, null)
+            }
+            return existing != null ? (this.personStateMemo(batchId).get(existing) ?? null) : null
         }
         const personKey = `${teamId}:${fetched.id}`
         resolutions.set(`${teamId}:${distinctId}`, personKey)
@@ -270,7 +304,6 @@ export class PersonhogPersonsStore {
                 teamId: person.team_id,
                 personId: person.id,
                 distinctId,
-                baseVersion: person.version,
                 segments: [ops],
             })
         } else {
@@ -303,20 +336,58 @@ export class PersonhogPersonsStore {
     }
 
     /**
-     * Deletion pends leader-mediated support: the service's DeletePersons
-     * RPC routes to the replica — a direct Postgres write the leader's
-     * cache and changelog never observe, which is exactly the
-     * resurrection hazard this world exists to close.
+     * Deletion runs the lifecycle saga on the identity server: sync-plane
+     * work committed and the owning leaders' death documents produced
+     * before the RPC returns — the changelog carries the deletion to
+     * every downstream, ClickHouse included, so no message is emitted
+     * here. The op id derives deterministically from the delete's
+     * identity, so a retry after a timeout or a mixed-outcome throw
+     * attaches to the same operation and observes its recorded outcome
+     * instead of starting a fresh one (a recreated person has a new row
+     * id, so re-deletes never collide with a completed operation). A
+     * person held by another live lifecycle operation fails the batch so
+     * redelivery retries after that operation finishes.
      */
-    deletePersons(persons: InternalPerson[], _distinctId: string): Promise<PersonMessage[]> {
+    async deletePersons(persons: InternalPerson[], _distinctId: string, batchId?: number): Promise<PersonMessage[]> {
         if (persons.length === 0) {
-            return Promise.resolve([])
+            return []
         }
-        throw new PersonhogPendingRpcError('deletePersons', 'a leader-mediated delete')
+        const teamId = persons[0].team_id
+        const sortedIds = persons.map((person) => person.id).sort()
+        const opId = uuidv5(`${teamId}:${sortedIds.join(',')}`, DELETE_OP_NAMESPACE)
+        const outcomes = await this.repository.deletePersons(teamId, sortedIds, opId, CALLER_TAG)
+        for (const person of persons) {
+            const outcome = outcomes.get(person.id)
+            if (outcome === undefined) {
+                throw new Error(`lifecycle delete returned no outcome for person ${person.id}; refusing to guess`)
+            }
+            if (outcome === 'skipped_conflict') {
+                throw new Error(
+                    `person ${person.id} is held by another live lifecycle operation; retry after it finishes`
+                )
+            }
+            // deleted or not_found: the person is gone either way. Purge
+            // the batch's view of it so a later fetch cannot serve the
+            // deleted person from memo, and drop any pending fold lane —
+            // flushing it would manufacture a guaranteed not_found, and
+            // that counter means "bug" while merges are gated.
+            if (batchId !== undefined) {
+                const personKey = `${person.team_id}:${person.id}`
+                this.personStateMemo(batchId).delete(personKey)
+                const resolutions = this.resolutionMemo(batchId)
+                for (const [key, value] of resolutions) {
+                    if (value === personKey) {
+                        resolutions.delete(key)
+                    }
+                }
+                this.lanes.get(batchId)?.delete(personKey)
+            }
+        }
+        return []
     }
 
-    deletePerson(person: InternalPerson, distinctId: string): Promise<PersonMessage[]> {
-        return this.deletePersons([person], distinctId)
+    deletePerson(person: InternalPerson, distinctId: string, batchId?: number): Promise<PersonMessage[]> {
+        return this.deletePersons([person], distinctId, batchId)
     }
 
     /**
@@ -341,7 +412,7 @@ export class PersonhogPersonsStore {
                 `UpdatePersonProperties fields for ${unsupported.join(', ')}`
             )
         }
-        const { person: updated, updated: didUpdate } = await this.repository.updatePersonProperties(
+        const { person: updated } = await this.repository.updatePersonProperties(
             {
                 teamId: person.team_id,
                 personId: person.id,
@@ -357,7 +428,9 @@ export class PersonhogPersonsStore {
         if (!updated) {
             return [person, [], false]
         }
-        return [updated, didUpdate ? [generateKafkaPersonUpdateMessage(updated)] : [], false]
+        // No ClickHouse message: the leader's changelog is this world's
+        // person feed, so emitting here would double-publish.
+        return [updated, [], false]
     }
 
     /**
@@ -389,9 +462,48 @@ export class PersonhogPersonsStore {
         }
     }
 
-    prefetchPersons(_teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
-        // A warming hint only; resolution memoizes on first touch instead.
-        return Promise.resolve()
+    /**
+     * One identity batch resolve for the batch's distinct ids, then
+     * leader state reads for the hits — the same two-step the update
+     * fetch does singly, done once up front so per-event processing hits
+     * the memo. Best-effort: a failed prefetch leaves resolution to
+     * first touch.
+     */
+    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
+        const seen = new Set<string>()
+        const unresolved = teamDistinctIds.filter((entry) => {
+            const key = `${entry.teamId}:${entry.distinctId}:${entry.batchId}`
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return this.lookupMemo(entry.teamId, entry.distinctId, entry.batchId) === undefined
+        })
+        if (unresolved.length === 0) {
+            return
+        }
+        try {
+            const resolved = await this.repository.resolvePersonsByDistinctIds(
+                unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId })),
+                CALLER_TAG
+            )
+            const limit = pLimit(this.options.maxConcurrentUpdates)
+            await Promise.all(
+                resolved.map((entry, i) =>
+                    limit(async () => {
+                        const { batchId } = unresolved[i]
+                        if (!entry.person) {
+                            this.recordFetch(entry.teamId, entry.distinctId, null, batchId)
+                            return
+                        }
+                        const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
+                        this.recordFetch(entry.teamId, entry.distinctId, person, batchId)
+                    })
+                )
+            )
+        } catch (error) {
+            logger.warn('personhog prefetch failed; resolution falls back to first touch', { error })
+        }
     }
 
     /**
@@ -475,17 +587,10 @@ export class PersonhogPersonsStore {
                             throw error
                         }
                     }
-                    if (!finalPerson || finalPerson.version <= entry.baseVersion) {
-                        return []
-                    }
-                    return [
-                        {
-                            messages: [generateKafkaPersonUpdateMessage(finalPerson)],
-                            teamId: entry.teamId,
-                            distinctId: entry.distinctId,
-                            uuid: finalPerson.uuid,
-                        },
-                    ]
+                    // No FlushResult: the leader's changelog is the
+                    // ClickHouse person feed, so a flush publishes
+                    // nothing — shipping the segments is the whole job.
+                    return []
                 })
             )
         )
@@ -598,7 +703,7 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
     }
 
     deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]> {
-        return this.store.deletePersons(persons, distinctId)
+        return this.store.deletePersons(persons, distinctId, this.batchId)
     }
 
     deletePerson(
@@ -606,7 +711,7 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
         distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
-        return this.store.deletePerson(person, distinctId)
+        return this.store.deletePerson(person, distinctId, this.batchId)
     }
 
     inTransaction<T>(

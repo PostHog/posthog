@@ -40,16 +40,18 @@ describe('PersonhogPersonsStore', () => {
             last_seen_at: null,
         }
         repository = {
-            fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
+            resolvePersonsByDistinctIds: jest.fn().mockResolvedValue([]),
+            fetchPersonById: jest.fn().mockResolvedValue(null),
             // An applied write bumps the version, as the leader does.
             updatePersonProperties: jest.fn().mockResolvedValue({ person: { ...person, version: 2 }, updated: true }),
             getDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             getOrCreatePersonByDistinctId: jest.fn().mockResolvedValue({ person, created: true }),
+            deletePersons: jest.fn().mockResolvedValue(new Map()),
         } as unknown as jest.Mocked<PersonHogPersonWriteRepository>
         store = new PersonhogPersonsStore(repository)
     })
 
-    it('folds a batch of ops into one leader call per person and returns its message', async () => {
+    it('folds a batch of ops into one leader call per person and publishes nothing', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' }, $set_once: { first: 'x' } }), 'd1')
         await bound.applyEventOps(person, ops({ $set: { a: '2', first: 'shadowed' } }), 'd1')
@@ -63,8 +65,9 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.setProperties).toEqual({ a: '2', first: 'shadowed' })
         expect(sent.setOnceProperties).toEqual({})
         expect(sent.unsetProperties).toEqual(['gone'])
-        expect(results).toHaveLength(1)
-        expect(results[0].messages).toHaveLength(1)
+        // The changelog is this world's ClickHouse feed: a flush ships
+        // segments and publishes nothing.
+        expect(results).toEqual([])
     })
 
     it('returns a locally projected person while the leader stays authoritative at flush', async () => {
@@ -104,13 +107,133 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.setProperties).toEqual({})
     })
 
-    it('memoizes strong fetches per batch', async () => {
-        repository.fetchPersonsByDistinctIds.mockResolvedValue([{ ...person, distinct_id: 'd1' }])
+    it('memoizes update fetches per batch, resolving once and reading state once', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
         const bound = store.forBatch(0)
         await bound.fetchForUpdate(1, 'd1')
         await bound.fetchForUpdate(1, 'd1')
-        expect(repository.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
-        expect(repository.fetchPersonsByDistinctIds.mock.calls[0][2]).toEqual({ consistency: 'strong' })
+        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
+    })
+
+    it('update fetches take state from the leader, not the resolution', async () => {
+        // The identity resolve returns writer-applied state; the leader's
+        // is fresher and must win as the projection baseline.
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([
+            { teamId: 1, distinctId: 'd1', person: { ...person, properties: { plan: 'stale' } } },
+        ])
+        repository.fetchPersonById.mockResolvedValue({ ...person, properties: { plan: 'fresh' }, version: 9 })
+        const bound = store.forBatch(0)
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+        expect(fetched?.properties).toEqual({ plan: 'fresh' })
+        expect(fetched?.version).toBe(9)
+        expect(repository.fetchPersonById).toHaveBeenCalledWith(1, '7', expect.any(String))
+    })
+
+    it('checking fetches use the resolved person without a leader call', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        const bound = store.forBatch(0)
+        const fetched = await bound.fetchForChecking(1, 'd1')
+        expect(fetched?.id).toBe('7')
+        expect(repository.fetchPersonById).not.toHaveBeenCalled()
+    })
+
+    it('prefetch resolves the batch once so later fetches make no calls', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
+        await store.prefetchPersons([{ teamId: 1, distinctId: 'd1', batchId: 0 }])
+        const bound = store.forBatch(0)
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+        expect(fetched?.id).toBe('7')
+        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
+    })
+
+    it('a stale null result cannot downgrade a live mapping', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
+        const bound = store.forBatch(0)
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+        expect(fetched?.id).toBe('7')
+
+        // A late prefetch response reporting absence must not erase the
+        // resolved mapping.
+        ;(store as any).recordFetch(1, 'd1', null, 0)
+        const again = await bound.fetchForUpdate(1, 'd1')
+        expect(again?.id).toBe('7')
+    })
+
+    it('prefetch dedupes repeated distinct ids before resolving', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
+        await store.prefetchPersons([
+            { teamId: 1, distinctId: 'd1', batchId: 0 },
+            { teamId: 1, distinctId: 'd1', batchId: 0 },
+            { teamId: 1, distinctId: 'd1', batchId: 0 },
+        ])
+        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.resolvePersonsByDistinctIds.mock.calls[0][0]).toEqual([{ teamId: 1, distinctId: 'd1' }])
+    })
+
+    it('a failed prefetch falls back to first-touch resolution', async () => {
+        repository.resolvePersonsByDistinctIds.mockRejectedValueOnce(new Error('identity unavailable'))
+        await store.prefetchPersons([{ teamId: 1, distinctId: 'd1', batchId: 0 }])
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
+        const bound = store.forBatch(0)
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+        expect(fetched?.id).toBe('7')
+    })
+
+    it('deletes run the lifecycle saga with a deterministic op id and publish nothing', async () => {
+        repository.deletePersons.mockResolvedValue(new Map([['7', 'deleted']]))
+        const bound = store.forBatch(0)
+        const messages = await bound.deletePerson(person, 'd1')
+        expect(messages).toEqual([])
+        const [teamId, ids, opId] = repository.deletePersons.mock.calls[0]
+        expect(teamId).toBe(1)
+        expect(ids).toEqual(['7'])
+
+        // A retry derives the same op id, attaching to the same saga
+        // operation instead of starting a fresh one.
+        await bound.deletePerson(person, 'd1')
+        expect(repository.deletePersons.mock.calls[1][2]).toBe(opId)
+
+        repository.deletePersons.mockResolvedValue(new Map([['7', 'not_found']]))
+        const none = await bound.deletePerson(person, 'd1')
+        expect(none).toEqual([])
+    })
+
+    it('a delete purges the batch view and pending lane for the person', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
+        repository.deletePersons.mockResolvedValue(new Map([['7', 'deleted']]))
+        const bound = store.forBatch(0)
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+        await bound.applyEventOps(fetched!, ops({ $set: { a: '1' } }), 'd1')
+
+        await bound.deletePerson(person, 'd1')
+
+        // The memo no longer serves the deleted person, and the pending
+        // lane died with it — flushing must ship nothing.
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: null }])
+        const after = await bound.fetchForUpdate(1, 'd1')
+        expect(after).toBeNull()
+        await bound.flush()
+        expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+    })
+
+    it('a delete with no outcome for a person fails loudly', async () => {
+        repository.deletePersons.mockResolvedValue(new Map())
+        const bound = store.forBatch(0)
+        await expect(bound.deletePerson(person, 'd1')).rejects.toThrow('no outcome')
+    })
+
+    it('a delete blocked by a live lifecycle operation fails the batch for retry', async () => {
+        repository.deletePersons.mockResolvedValue(new Map([['7', 'skipped_conflict']]))
+        const bound = store.forBatch(0)
+        await expect(bound.deletePerson(person, 'd1')).rejects.toThrow('live lifecycle operation')
     })
 
     it('creation resolves through identity and memoizes every distinct id it mapped', async () => {
@@ -141,7 +264,7 @@ describe('PersonhogPersonsStore', () => {
         )
         await bound.fetchForUpdate(1, 'd1')
         await bound.fetchForUpdate(1, 'd2')
-        expect(repository.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+        expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -170,18 +293,7 @@ describe('PersonhogPersonsStore', () => {
         expect(results).toEqual([])
     })
 
-    it('publishes on a version advance even when the response says no change', async () => {
-        // A retried call whose lost first attempt landed replays into
-        // the leader's no-change fast path; the version floor is what
-        // still tells the truth.
-        repository.updatePersonProperties.mockResolvedValue({ person: { ...person, version: 5 }, updated: false })
-        const bound = store.forBatch(0)
-        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-        const results = await bound.flush()
-        expect(results).toHaveLength(1)
-    })
-
-    it('a later segment failing on a domain error still publishes what earlier segments applied', async () => {
+    it('a later segment failing on a domain error does not undo earlier segments', async () => {
         const bound = store.forBatch(0)
         const pair = ops({ $set_once: { k: 'v' }, $unset: ['k'] })
         const cutter = ops({ $set_once: { k: 'later' } })
@@ -192,8 +304,10 @@ describe('PersonhogPersonsStore', () => {
             .mockResolvedValueOnce({ person: { ...person, version: 2 }, updated: true })
             .mockRejectedValueOnce(new PersonhogPropertiesSizeError('too big', 1, '7'))
         const results = await bound.flush()
+        // Both segments shipped — the first landed before the second's
+        // domain error, and the error skips rather than fails the flush.
         expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
-        expect(results).toHaveLength(1)
+        expect(results).toEqual([])
     })
 
     it('pending state is visible through every distinct id of the person', async () => {
@@ -215,30 +329,32 @@ describe('PersonhogPersonsStore', () => {
 
         const viaD2 = await bound.fetchForUpdate(1, 'd2')
         expect(viaD2?.properties).toMatchObject({ a: '1' })
-        expect(repository.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+        expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
     })
 
     it('pending ops are visible to later fetches and compose across events', async () => {
-        repository.fetchPersonsByDistinctIds.mockResolvedValue([{ ...person, distinct_id: 'd1' }])
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
         const bound = store.forBatch(0)
         const fetched = await bound.fetchForUpdate(1, 'd1')
         await bound.applyEventOps(fetched!, ops({ $set: { a: '1' } }), 'd1')
 
         const refetched = await bound.fetchForUpdate(1, 'd1')
         expect(refetched?.properties).toEqual({ plan: 'free', a: '1' })
-        expect(repository.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
 
         const [afterSecond] = await bound.applyEventOps(refetched!, ops({ $set: { b: '2' } }), 'd1')
         expect(afterSecond.properties).toEqual({ plan: 'free', a: '1', b: '2' })
     })
 
     it('releaseBatch frees the batch memo so later fetches hit the service again', async () => {
-        repository.fetchPersonsByDistinctIds.mockResolvedValue([{ ...person, distinct_id: 'd1' }])
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
+        repository.fetchPersonById.mockResolvedValue({ ...person })
         const bound = store.forBatch(0)
         await bound.fetchForUpdate(1, 'd1')
         store.releaseBatch(0)
         await bound.fetchForUpdate(1, 'd1')
-        expect(repository.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(2)
+        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(2)
     })
 
     it('releaseBatch drops an unflushed lane so nothing ships for the batch', async () => {
@@ -279,14 +395,6 @@ describe('PersonhogPersonsStore', () => {
             (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
                 b.moveDistinctIdsFromPersons([p], p, 'd1', undefined as any),
         ],
-        [
-            'deletePersons',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) => b.deletePersons([p], 'd1'),
-        ],
-        [
-            'deletePerson',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) => b.deletePerson(p, 'd1'),
-        ],
     ])('%s fails loudly while the leader RPC is pending', (_method, call) => {
         const bound = store.forBatch(0)
         expect(() => call(bound, person)).toThrow(PersonhogPendingRpcError)
@@ -307,7 +415,7 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.isIdentified).toBe(true)
         expect(sent.lastSeenAtMs).toBe(7_200_000)
         expect(updated).toEqual({ ...person, version: 2 })
-        expect(messages).toHaveLength(1)
+        expect(messages).toEqual([])
     })
 
     it('refuses a diff update carrying fields the RPC cannot express', async () => {
