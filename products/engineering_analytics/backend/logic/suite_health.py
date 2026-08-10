@@ -3,6 +3,7 @@
 from products.engineering_analytics.backend.facade.contracts import (
     BROKEN_TEST_SPARKLINE_HOURS,
     BrokenTestsResult,
+    CITestRunner,
     FlakyTestList,
 )
 from products.engineering_analytics.backend.logic._shared import _parse_date, _parse_window
@@ -33,6 +34,7 @@ def build_flaky_tests(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    runner: CITestRunner | None = None,
 ) -> FlakyTestList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
@@ -51,6 +53,7 @@ def build_flaky_tests(
         date_to=parsed_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        runner=runner,
     )
 
 

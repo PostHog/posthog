@@ -40,7 +40,7 @@ Before scaffolding YAML, verify:
    Missing descriptions = agents guessing at parameters.
    Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
    and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
-   (see `posthog/api/alert.py` for the pattern).
+   (see `products/alerts/backend/api/alert.py` for the pattern).
 2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
    without it, drf-spectacular can't discover the request body
    and the generated tool gets `z.object({})` (zero parameters).

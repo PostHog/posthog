@@ -427,9 +427,23 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         ],
     }),
     urlToAction(({ actions }) => {
-        const reload = (): void => actions.loadSources()
         // Reload (and restart polling) when landing on a page that renders the sources list, in
         // case this shared logic was already mounted by another scene and afterMount won't re-run.
+        // Skip same-path URL changes — the sources tables sync their pagination to the URL (e.g.
+        // ?managed-sources_page=2), and a full refetch on every page click would blink the table
+        // and shift the page.
+        const reload = (
+            _params: Record<string, string | undefined>,
+            _searchParams: Record<string, any>,
+            _hashParams: Record<string, any>,
+            currentLocation: { pathname: string; initial?: boolean },
+            previousLocation?: { pathname: string }
+        ): void => {
+            if (!currentLocation.initial && currentLocation.pathname === previousLocation?.pathname) {
+                return
+            }
+            actions.loadSources()
+        }
         return Object.fromEntries(SOURCE_LIST_PATHS.map((sourcePath) => [sourcePath, reload]))
     }),
     listeners(({ actions, values, cache }) => ({

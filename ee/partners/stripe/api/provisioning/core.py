@@ -685,8 +685,10 @@ def region_to_host(region: str) -> str:
     region_lower = region.lower()
     if region_lower == "eu":
         return "https://eu.posthog.com"
-    elif region_lower in ("us", "dev"):
+    elif region_lower == "us":
         return "https://us.posthog.com"
+    elif region_lower == "dev":
+        return "https://app.dev.posthog.com"
     return settings.SITE_URL
 
 

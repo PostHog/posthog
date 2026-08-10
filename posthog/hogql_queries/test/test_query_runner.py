@@ -63,6 +63,7 @@ from posthog.hogql_queries.query_runner import (
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
@@ -73,6 +74,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
 )
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.shared_link_user import SharedLinkUser
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -296,6 +298,7 @@ class TestQueryRunner(BaseTest):
                     "campaign_name_mappings": {},
                     "custom_source_mappings": {},
                     "campaign_field_preferences": {},
+                    "costs_dedup_v2": False,
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -365,7 +368,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_13ab830e775c41ee3ae4b45c386e6064d74eec55fb93092732c0bb305d7e980f"
+        assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -379,7 +382,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_b624e873acbdc9829f0973b4dc14424bb26e3b5c36c11387ce24e9ff3bea2a00"
+        assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -390,7 +393,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
+        assert cache_key == "cache_42_032f9a7be3ea1fc4451f1e5a77841bb79f9b9ef65ad949f251ee0e68e8ee5fb0"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -1360,6 +1363,20 @@ class TestSharedInsightsExecutionMode(BaseTest):
         result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
         self.assertEqual(result_mode, expected_mode)
         self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
+
+    @parameterized.expand([("shared_link_viewer", True), ("member", False)])
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_async_calculation_carries_the_share_for_a_shared_link_viewer(
+        self, _name: str, is_shared_viewer: bool, mock_enqueue: mock.MagicMock
+    ) -> None:
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        user = SharedLinkUser(sharing_configuration) if is_shared_viewer else self.user
+        runner = setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team)
+
+        runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=user)
+
+        expected = sharing_configuration.pk if is_shared_viewer else None
+        assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
 
 @pytest.mark.ee

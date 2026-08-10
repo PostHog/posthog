@@ -20,6 +20,7 @@ from uuid import UUID
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
+    FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
     MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
@@ -54,6 +55,7 @@ __all__ = [
     "get_schema",
     "list_schemas_for_source",
     "get_table",
+    "get_queryable_table",
     "list_tables_for_source",
     "list_jobs_for_source",
     # framework-free helper transforms
@@ -66,6 +68,7 @@ __all__ = [
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
     # file-upload storage contract
+    "FILE_FORMAT_READ_HINTS",
     "FILE_FORMAT_TO_TABLE_FORMAT",
     "MAX_FILE_UPLOAD_SIZE_BYTES",
     "SUPPORTED_FILE_FORMATS",
@@ -203,6 +206,18 @@ def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.Ext
 
 def get_table(table_id: UUID, team_id: int) -> contracts.DataWarehouseTable:
     return _to_table(_DataWarehouseTable.objects.get(id=table_id, team_id=team_id))
+
+
+def get_queryable_table(table_id: UUID, team_id: int) -> contracts.DataWarehouseTable | None:
+    """The table only if it is still queryable, else None.
+
+    Unlike ``get_table``, this applies the soft-delete and orphaned-source filters and returns
+    None instead of raising, so a caller holding a stored table reference can tell "gone" from
+    "something went wrong".
+    """
+    # raw_objects skips the eager schema prefetch/joins objects does -- the mapper only reads scalars.
+    table = _DataWarehouseTable.raw_objects.queryable().filter(id=table_id, team_id=team_id).first()
+    return _to_table(table) if table is not None else None
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:

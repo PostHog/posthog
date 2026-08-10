@@ -69,6 +69,9 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
     return lines
 }
 
+// Mirror of DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS in products/logs/backend/models.py — keep the
+// two in sync. Values under these keys render as clickable person links here, and the person
+// Logs tab scopes on them server-side so those logs appear on the person's tab.
 const DISTINCT_ID_KEYS = [
     'distinct.id',
     'distinct_id',

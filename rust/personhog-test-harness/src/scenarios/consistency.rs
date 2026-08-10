@@ -226,11 +226,7 @@ pub async fn run_probers(
                     }
                     Err(e) => {
                         collector.writes.record_failure();
-                        traffic_metrics::record_write_failed(
-                            traffic_metrics::LANE_PROBER,
-                            &e,
-                            stop.load(Ordering::Relaxed),
-                        );
+                        traffic_metrics::record_write_failed(traffic_metrics::LANE_PROBER, &e);
                         tracing::warn!(person_id, error = %e, "probe write failed");
                         continue;
                     }
@@ -238,9 +234,13 @@ pub async fn run_probers(
                 let mut written = HashMap::new();
                 written.insert(key.clone(), serde_json::Value::String(marker.clone()));
                 match response.person {
-                    Some(person) => {
+                    Some(person) if response.updated => {
                         state.record_write(person_id, person.version, written).await;
                     }
+                    // A no-change ack (an at-least-once replay whose first
+                    // application landed) echoes a version owned by some
+                    // other write — assert the keys, claim no version.
+                    Some(_) => state.record_write_no_change(person_id, written).await,
                     None => {
                         // Already flagged as a violation by the journal; the
                         // keys still get end-of-run verification.
@@ -293,11 +293,7 @@ pub async fn run_probers(
                         collector.reads.record_failure();
                         traffic_metrics::record_read_failed(
                             traffic_metrics::LANE_PROBER,
-                            if stop.load(Ordering::Relaxed) {
-                                traffic_metrics::REASON_SHUTDOWN
-                            } else {
-                                traffic_metrics::status_reason(&e)
-                            },
+                            traffic_metrics::status_reason(&e),
                         );
                         tracing::warn!(person_id, error = %e, "probe read failed");
                     }

@@ -1,11 +1,11 @@
 // Weekly flaky-test report, posted to #flakey-tests on Monday.
 //
 // PULL model, sibling of eng-analytics-weekly-digest.mjs: reads the
-// engineering_analytics flaky_tests endpoint for candidates, then one HogQL read
-// of the product's ci_failures view joined to the synced runs table for the
-// rerun-rescue counts and failing-job evidence links the endpoint does not carry
-// yet. The product owns the flake signal; this owns cadence, owner attribution,
-// and the relay.
+// engineering_analytics flaky_tests endpoint for candidates, then one pytest-only
+// HogQL read of the product's ci_failures view joined to the synced runs table for
+// the rerun-rescue counts and failing-job evidence links the endpoint does not
+// carry yet. The product owns the flake signal; this owns cadence, owner
+// attribution, and the relay.
 //
 //   GHA cron ──> flaky_tests endpoint + one HogQL query ──> Slack
 //
@@ -14,6 +14,7 @@
 // retry-enabled lanes. Master-burst breakage is filtered out client-side.
 
 import { execFileSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
@@ -21,6 +22,7 @@ const API_KEY = process.env.POSTHOG_API_KEY || ''
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 // The synced runs table name carries the warehouse source prefix, which differs per project.
 const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
+const TRUNK_TABLE = process.env.TRUNK_QUARANTINE_TABLE || 'trunkio.quarantinedtests'
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || 'C09ADEV3AJD' // #flakey-tests
 const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase())
@@ -33,6 +35,18 @@ const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 const TOP_N = 10
 const CANDIDATE_POOL = 40
 const CLUSTER_MIN_TESTS = 5
+const REPORT_RUNNERS = ['pytest', 'jest']
+const RUNNER_LABELS = { pytest: 'pytest', jest: 'Jest' }
+const PARKED_NAMES_SHOWN = 5
+
+// Two systems can suppress a failing test, and only one of them reaches the endpoint. The
+// quarantine file xfails the test, so the span records 'xfailed' and the item arrives already
+// marked. Trunk instead masks the job verdict and leaves a hard failure in the junit, so its
+// quarantines arrive as ordinary failures and have to be read separately.
+// Same two variables the CI uploaders read: uploads decide whether the synced Trunk state is
+// current, masking decides whether a quarantine actually keeps a failure from failing CI.
+const TRUNK_UPLOADS_ON = process.env.TRUNK_UPLOAD_ENABLED === 'true'
+const TRUNK_MASKS_CI = TRUNK_UPLOADS_ON && process.env.TRUNK_QUARANTINE_ENABLED === 'true'
 
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY_MS = 30_000
@@ -84,10 +98,17 @@ function endpointUrl(action, params = {}) {
 
 const AUTH_HEADERS = { Authorization: `Bearer ${API_KEY}` }
 
-function fetchFlakyTests() {
-    return withRetry(() =>
-        request(endpointUrl('flaky_tests', { date_from: '-7d', limit: 100 }), { headers: AUTH_HEADERS }, 'flaky_tests')
-    )
+function flakyTestsUrl(runner) {
+    return endpointUrl('flaky_tests', {
+        date_from: '-7d',
+        limit: 100,
+        repo: GITHUB_REPOSITORY,
+        runner,
+    })
+}
+
+function fetchFlakyTests(runner) {
+    return withRetry(() => request(flakyTestsUrl(runner), { headers: AUTH_HEADERS }, 'flaky_tests'))
 }
 
 // `values` bind through HogQL's {placeholder} syntax, escaped server-side — never
@@ -106,26 +127,46 @@ function hogql(query, values) {
     )
 }
 
-// One bad merge is breakage, not flakiness; keep it off the table. The endpoint's
-// classification does not separate master bursts yet, so this stays client-side.
+// A same-commit recovery proves a flake, so only suppress likely one-merge bursts
+// when the endpoint has no recovery proof.
 function isMasterBurst(item) {
     return (
+        item.classification === 'suspected_regression' &&
         item.failed_run_count > 0 &&
         item.master_failed_run_count / item.failed_run_count >= 0.5 &&
         item.failed_pr_count <= 3
     )
 }
 
+function selectReportCandidates(items, runner) {
+    return items.filter((item) => item.runner === runner && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
+}
+
+async function fetchCandidatePools(runners, fetchTests = fetchFlakyTests) {
+    return Promise.all(
+        runners.map(async (runner) => {
+            const result = await fetchTests(runner)
+            return { runner, candidates: selectReportCandidates(result.items || [], runner) }
+        })
+    )
+}
+
 // Product suites run from their product dir, so a selector path may be repo- or
 // product-relative — suffix-match the tracked index (full even under sparse checkout).
-function repoPathResolver() {
+function trackedTestPaths(runGit = execFileSync) {
     // The tracked-file list is a few MB; the 1MB execFileSync default truncates it.
-    const tracked = execFileSync('git', ['ls-files', '*.py'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    return runGit('git', ['ls-files', '*.py', '*.js', '*.jsx', '*.ts', '*.tsx'], {
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+    })
         .split('\n')
         .filter(Boolean)
-    const trackedSet = new Set(tracked)
+}
+
+function repoPathResolver(trackedPaths = trackedTestPaths()) {
+    const trackedSet = new Set(trackedPaths)
     const bySuffix = new Map()
-    for (const path of tracked) {
+    for (const path of trackedPaths) {
         const base = path.split('/').pop()
         if (!bySuffix.has(base)) {
             bySuffix.set(base, [])
@@ -174,20 +215,25 @@ function resolveOwners(items) {
     }
 }
 
-// The logs view records test ids as pytest printed them, so a product suite appears
-// product-relative there while the endpoint selector may be repo-relative.
+// One test carries different leading path segments depending on who named it: a product suite
+// runs from its product dir, jest reports from its package root, and the endpoint reports
+// repo-relative. Matching on every path suffix lets either side hold the longer prefix, which a
+// fixed list of known prefixes cannot do as packages come and go. Stops above the bare filename,
+// where two packages' same-named files would collide.
 function selectorVariants(selector) {
-    const variants = [selector]
-    const productRelative = selector.replace(/^products\/[^/]+\//, '')
-    if (productRelative !== selector) {
-        variants.push(productRelative)
+    const [path, ...rest] = selector.split('::')
+    const tail = rest.length > 0 ? `::${rest.join('::')}` : ''
+    const segments = path.split('/')
+    const variants = []
+    for (let start = 0; start <= segments.length - 2; start++) {
+        variants.push(segments.slice(start).join('/') + tail)
     }
-    return variants
+    return variants.length > 0 ? variants : [selector]
 }
 
 // Rescue counts (failed at attempt N, run green at a later attempt) and the two most
 // recent failing (run, job) pairs, from the product's ci_failures view.
-async function enrich(items) {
+async function enrich(items, runHogql = hogql) {
     const bySelector = new Map()
     for (const item of items) {
         for (const variant of selectorVariants(item.selector)) {
@@ -201,15 +247,17 @@ async function enrich(items) {
     }
     let rows = []
     try {
-        const result = await hogql(
+        const result = await runHogql(
             `SELECT f.test_id AS test_id,
                 uniqIf(f.run_id, r.run_attempt > f.run_attempt AND r.conclusion = 'success') AS runs_rescued,
                 arraySlice(arrayReverseSort(x -> x.1, groupUniqArray(20)((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
             FROM engineering_analytics_ci_failures f
             LEFT JOIN ${RUNS_TABLE} r ON r.id = f.run_id
-            WHERE f.timestamp >= now() - INTERVAL 7 DAY AND f.test_id IN {selectors}
+            WHERE f.timestamp >= now() - INTERVAL 7 DAY
+                AND lower(f.repo) = lower({repository})
+                AND f.test_id IN {selectors}
             GROUP BY f.test_id`,
-            { selectors }
+            { repository: GITHUB_REPOSITORY, selectors }
         )
         rows = result.results || []
     } catch (err) {
@@ -240,6 +288,102 @@ async function enrich(items) {
     return (item) => enriched.get(item.selector) || empty
 }
 
+async function enrichRunnerCandidates(runner, candidates, runHogql = hogql) {
+    if (runner === 'pytest') {
+        return enrich(
+            candidates.filter((item) => !item.cluster_size),
+            runHogql
+        )
+    }
+    const empty = { runsRescued: null, evidence: [] }
+    return () => empty
+}
+
+// Trunk keys a test by (file, classname, name) rather than by one id, and the two runners split
+// the name differently: pytest hides the class inside `classname` (the file's module plus the
+// class), while jest puts the whole title in `name`. Trimming the module prefix recovers the
+// pytest class; jest needs no reassembly, so file and name concatenate directly.
+//
+// `parent` carries the runner for pytest and the file path for jest, which is what separates the
+// two sets. The table has no repository column, so this cannot be repo-scoped. It does not need
+// to be: a row only annotates a selector the repo-scoped endpoint already returned.
+const TRUNK_QUARANTINED_QUERY = `
+    SELECT concat(file, '::', if(cls = '', '', concat(cls, '::')), name) AS nodeid,
+        quarantined_at
+    FROM (
+        SELECT file, name, quarantined_at,
+            replaceAll(substring(file, 1, length(file) - 3), '/', '.') AS module,
+            if({runner} = 'pytest' AND startsWith(classname, concat(module, '.')),
+               replaceAll(substring(classname, length(module) + 2, length(classname)), '.', '::'),
+               '') AS cls
+        FROM __TRUNK_TABLE__
+        WHERE if({runner} = 'pytest', parent = 'pytest', parent != 'pytest')
+    )`
+
+// Uploads off, a missing table, or a query error all degrade to a report without Trunk state,
+// never to a failed run or an empty table.
+async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_UPLOADS_ON) {
+    const none = () => null
+    if (!enabled) {
+        return none
+    }
+    let rows = []
+    try {
+        const result = await runHogql(TRUNK_QUARANTINED_QUERY.replace('__TRUNK_TABLE__', TRUNK_TABLE), {
+            runner,
+        })
+        rows = result.results || []
+    } catch (err) {
+        console.warn(`Trunk quarantine lookup failed — reporting without Trunk state: ${err.message}`)
+        return none
+    }
+    const byVariant = new Map()
+    for (const [nodeid, quarantinedAt] of rows) {
+        for (const variant of selectorVariants(nodeid)) {
+            byVariant.set(variant, { quarantinedAt })
+        }
+    }
+    return (item) =>
+        selectorVariants(item.selector)
+            .map((variant) => byVariant.get(variant))
+            .find(Boolean) || null
+}
+
+// One question for both systems: is this failure already suppressed, so the queue should not ask
+// anyone to act on it? Returns null while the test still fails CI.
+//
+// Trunk with masking off is the one case that is marked but not suppressed: Trunk called the test
+// flaky, CI still goes red on it, so it stays in the queue carrying a label.
+function testStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
+    return (item) => {
+        // Both counts are seven-day aggregates and the endpoint counts a quarantined run
+        // separately from a failed one, so a park that ended inside the window leaves the
+        // quarantined count set while CI fails on the test again. The unquarantined failures
+        // decide: with any of them the test is still red and still work.
+        const quarantineFile = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0
+        if (quarantineFile && !item.failed_run_count) {
+            return { parked: true, source: 'the quarantine file' }
+        }
+        const trunk = trunkFor(item)
+        if (!trunk) {
+            return null
+        }
+        return { parked: masksCi, source: 'Trunk', since: trunk.quarantinedAt }
+    }
+}
+
+// Parked tests leave the queue but stay listed below the table: a long-lived auto-quarantine
+// covering a real breakage is the thing nobody notices otherwise.
+//
+// Partitioning has to precede clustering. A cluster's selector is a bare file path, which can
+// never match a test id, so collapsing first buries parked tests in a row that then ranks as if
+// CI still failed on them.
+function buildQueue(candidates, statusFor) {
+    const parked = candidates.filter((item) => statusFor(item)?.parked)
+    const queue = candidates.filter((item) => !statusFor(item)?.parked)
+    return { queue: collapseClusters(queue), parked: parked.map((item) => ({ ...item, park: statusFor(item) })) }
+}
+
 // 5+ co-failing tests in one file are one shared-fixture incident, not N flakes.
 function collapseClusters(items) {
     const byFile = new Map()
@@ -254,6 +398,7 @@ function collapseClusters(items) {
     for (const [file, group] of byFile) {
         if (group.length >= CLUSTER_MIN_TESTS) {
             collapsed.push({
+                runner: group[0].runner,
                 selector: file,
                 cluster_size: group.length,
                 failed_run_count: group.reduce((sum, item) => sum + item.failed_run_count, 0),
@@ -267,12 +412,45 @@ function collapseClusters(items) {
     return collapsed
 }
 
+// Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
+function rankReportCandidates(items, extrasFor) {
+    return items
+        .map((item, index) => ({ item, index }))
+        .sort(
+            (left, right) =>
+                (extrasFor(right.item).runsRescued ?? 0) - (extrasFor(left.item).runsRescued ?? 0) ||
+                right.item.failed_run_count - left.item.failed_run_count ||
+                left.index - right.index
+        )
+        .slice(0, TOP_N)
+        .map(({ item }) => item)
+}
+
+async function buildRunnerReports(
+    candidatePools,
+    getEnrichment = enrichRunnerCandidates,
+    getTrunk = fetchTrunkQuarantined
+) {
+    return Promise.all(
+        candidatePools.map(async ({ runner, candidates }) => {
+            const statusFor = testStatusFor(await getTrunk(runner))
+            const { queue, parked } = buildQueue(candidates, statusFor)
+            const extrasFor = await getEnrichment(runner, queue)
+            return { runner, candidates: rankReportCandidates(queue, extrasFor), extrasFor, statusFor, parked }
+        })
+    )
+}
+
 function cell(text) {
     return { type: 'raw_text', text }
 }
 
-function mrkdwnCell(text) {
-    return { type: 'mrkdwn', text }
+function linkedCell(links) {
+    const elements = links.flatMap(({ url, text }, index) => [
+        ...(index > 0 ? [{ type: 'text', text: ' ' }] : []),
+        { type: 'link', url, text },
+    ])
+    return { type: 'rich_text', elements: [{ type: 'rich_text_section', elements }] }
 }
 
 function shortName(selector) {
@@ -280,59 +458,91 @@ function shortName(selector) {
     return name.length > 36 ? `${name.slice(0, 35)}…` : name
 }
 
-function tableRows(items, ownerFor, extrasFor) {
+function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
     return items.map((item) => {
         const { owner, repoPath } = ownerFor(item)
         const { runsRescued, evidence } = extrasFor(item)
-        const name = item.cluster_size ? `${item.selector.split('/').pop()} (${item.cluster_size} tests)` : shortName(item.selector)
+        const name = item.cluster_size
+            ? `${item.selector.split('/').pop()} (${item.cluster_size} tests)`
+            : shortName(item.selector)
         const testCell = repoPath
-            ? mrkdwnCell(`<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}|${name}>`)
+            ? linkedCell([{ url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}`, text: name }])
             : cell(name)
-        const quarantined = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0 ? ' (quarantined)' : ''
-        const logs = evidence
-            .map(({ runId, jobId }, i) => {
-                const url = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`
-                return `<${url}|${i + 1}>`
-            })
-            .join(' ')
+        // Anything parked has already left the table, so the only status a row can carry is
+        // Trunk having flagged a test that still fails CI.
+        const flagged = statusFor(item) ? ' (Trunk flagged)' : ''
+        const logLinks = evidence.map(({ runId, jobId }, index) => ({
+            url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`,
+            text: String(index + 1),
+        }))
         return [
             testCell,
-            cell(owner.replace(/^team-/, '') + quarantined),
+            cell(RUNNER_LABELS[item.runner] || item.runner),
+            cell(owner.replace(/^team-/, '') + flagged),
             cell(runsRescued == null ? '-' : String(runsRescued)),
             cell(String(item.failed_run_count)),
-            logs ? mrkdwnCell(logs) : cell('-'),
+            logLinks.length > 0 ? linkedCell(logLinks) : cell('-'),
         ]
     })
 }
 
-function buildBlocks(now, rows) {
+function parkedSummary(parked) {
+    const shown = parked.slice(0, PARKED_NAMES_SHOWN).map((item) => shortName(item.selector))
+    const remaining = parked.length - shown.length
+    const names = remaining > 0 ? `${shown.join(', ')}, and ${remaining} more` : shown.join(', ')
+    const oldest = parked
+        .map((item) => item.park?.since)
+        .filter(Boolean)
+        .sort()[0]
+    const since = oldest ? ` Oldest parked ${oldest.slice(0, 10)}.` : ''
+    const count = parked.length === 1 ? '1 test is' : `${parked.length} tests are`
+    return `${count} quarantined, so CI no longer fails on them: ${names}.${since} Fix them or take them out of quarantine.`
+}
+
+function buildBlocks(now, rows, parked = []) {
     const dateLabel = now.toISOString().slice(0, 10)
+    // Every candidate can be parked, which leaves the parked note as the whole report.
+    const heading = rows.length > 0 ? `Top ${rows.length} flaky tests` : 'Flaky tests'
     const blocks = [
         {
             type: 'section',
-            text: { type: 'mrkdwn', text: `*Top ${rows.length} flaky tests — ${dateLabel}* _(backend CI, last 7 days)_` },
-        },
-        {
-            type: 'table',
-            column_settings: [
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'right' },
-                { align: 'right' },
-                { align: 'left' },
-            ],
-            rows: [[cell('test'), cell('owner'), cell('rescued'), cell('fails'), cell('logs')], ...rows],
-        },
-        {
-            type: 'context',
-            elements: [
-                {
-                    type: 'mrkdwn',
-                    text: 'Fix: `/fixing-flaky-tests` · Park 14 days: `hogli test:quarantine add <test id>`',
-                },
-            ],
+            text: {
+                type: 'mrkdwn',
+                text: `*Weekly flaky tests - ${dateLabel}* _(CI, last 7 days, up to ${TOP_N} per runner)_`,
+            },
         },
     ]
+    if (rows.length > 0) {
+        blocks.push(
+            {
+                type: 'table',
+                column_settings: [
+                    { align: 'left' },
+                    { align: 'left' },
+                    { align: 'left' },
+                    { align: 'right' },
+                    { align: 'right' },
+                    { align: 'left' },
+                ],
+                rows: [
+                    [cell('test'), cell('runner'), cell('owner'), cell('rescued'), cell('fails'), cell('logs')],
+                    ...rows,
+                ],
+            },
+            {
+                type: 'context',
+                elements: [
+                    {
+                        type: 'mrkdwn',
+                        text: 'Fix: `/fixing-flaky-tests` · Park 14 days: `hogli test:quarantine add <test id>`',
+                    },
+                ],
+            }
+        )
+    }
+    if (parked.length > 0) {
+        blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: parkedSummary(parked) }] })
+    }
     const workflowPath = GITHUB_WORKFLOW_REF.split('@')[0].replace(`${GITHUB_REPOSITORY}/`, '')
     if (GITHUB_REPOSITORY && workflowPath) {
         const editUrl = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/edit/${GITHUB_REF_NAME}/${workflowPath}`
@@ -354,7 +564,10 @@ async function postToSlack(blocks) {
     })
     const data = await res.json()
     if (!data.ok) {
-        throw new Error(`Slack chat.postMessage failed: ${data.error}`)
+        const validationDetails = Array.isArray(data.response_metadata?.messages)
+            ? `: ${data.response_metadata.messages.join('; ')}`
+            : ''
+        throw new Error(`Slack chat.postMessage failed: ${data.error}${validationDetails}`)
     }
 }
 
@@ -364,19 +577,18 @@ async function main() {
         return
     }
     const now = new Date()
-    const result = await fetchFlakyTests()
-    const pool = collapseClusters((result.items || []).filter((item) => !isMasterBurst(item)).slice(0, CANDIDATE_POOL))
-    const extrasFor = await enrich(pool.filter((item) => !item.cluster_size))
-    // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
-    const flaky = pool
-        .sort((a, b) => (extrasFor(b).runsRescued ?? 0) - (extrasFor(a).runsRescued ?? 0) || b.failed_run_count - a.failed_run_count)
-        .slice(0, TOP_N)
-    if (flaky.length === 0) {
+    const runnerReports = await buildRunnerReports(await fetchCandidatePools(REPORT_RUNNERS))
+    const reportCandidates = runnerReports.flatMap(({ candidates }) => candidates)
+    const parked = runnerReports.flatMap((report) => report.parked)
+    if (reportCandidates.length === 0 && parked.length === 0) {
         console.info('No qualifying flaky tests this week — nothing to post.')
         return
     }
-    const ownerFor = resolveOwners(flaky)
-    const blocks = buildBlocks(now, tableRows(flaky, ownerFor, extrasFor))
+    const ownerFor = resolveOwners(reportCandidates)
+    const rows = runnerReports.flatMap(({ candidates, extrasFor, statusFor }) =>
+        tableRows(candidates, ownerFor, extrasFor, statusFor)
+    )
+    const blocks = buildBlocks(now, rows, parked)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
         return
@@ -388,7 +600,27 @@ async function main() {
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
 }
 
-main().catch((err) => {
-    console.error(err)
-    process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((err) => {
+        console.error(err)
+        process.exit(1)
+    })
+}
+
+export {
+    buildBlocks,
+    buildQueue,
+    buildRunnerReports,
+    CLUSTER_MIN_TESTS,
+    enrich,
+    enrichRunnerCandidates,
+    fetchCandidatePools,
+    fetchTrunkQuarantined,
+    flakyTestsUrl,
+    REPORT_RUNNERS,
+    repoPathResolver,
+    selectReportCandidates,
+    tableRows,
+    testStatusFor,
+    trackedTestPaths,
+}
