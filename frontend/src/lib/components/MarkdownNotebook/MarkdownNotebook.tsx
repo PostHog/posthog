@@ -275,6 +275,9 @@ export type MarkdownNotebookProps = {
     /** In view mode, keep the filters toggle for definitions with `viewModeFilters` — for
      * read-only canvases where the filters panel is the only way to configure a node. */
     allowViewModeFilters?: boolean
+    /** Public/shared read-only renders: hide per-block resource links whose relative URLs would
+     * resolve against the viewer's project rather than the author's. */
+    hideResourceLinks?: boolean
     placeholder?: string
     className?: string
     autoFocus?: boolean
@@ -584,6 +587,7 @@ function MarkdownNotebookEditor({
     focusAIPromptRequest,
     aiWritingNodeIndexes,
     allowViewModeFilters = false,
+    hideResourceLinks = false,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
@@ -5846,6 +5850,7 @@ function MarkdownNotebookEditor({
                     rememberedComponentPanels: componentPanelCacheEntry?.remembered,
                     persistComponentPanelVisibility,
                     allowViewModeFilters,
+                    hideResourceLinks,
                     isSelected: selectedComponentNodeIds.has(node.id),
                     toggleComponentPanel: (panel) => {
                         const nextPanels = {
