@@ -19,11 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
+    DEFAULT_METRICS,
     ENDPOINTS,
     EVENT_SCOPED_METRICS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     SESSION_ONLY_DIMENSIONS,
+    PlausibleEndpointConfig,
+    compatible_metrics,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible"
@@ -134,6 +137,20 @@ class TestNormalizeRow:
 
         assert row["date"] == "2024-01-01"
         assert "source" not in row
+
+    @pytest.mark.parametrize(
+        "dimensions, metrics",
+        [
+            (["2024-01-01"], [10, 12, 30, 0.5, 60]),
+            (["2024-01-01"], [10, 12, 30, 0.5, 60, 40, 99]),
+            ([], [10, 12, 30, 0.5, 60, 40]),
+        ],
+    )
+    def test_a_response_of_the_wrong_shape_raises_instead_of_dropping_columns(self, dimensions, metrics):
+        config = PLAUSIBLE_ENDPOINTS["timeseries"]
+
+        with pytest.raises(ValueError):
+            _normalize_row(config, _result(dimensions, metrics))
 
 
 class TestValidateCredentials:
@@ -283,6 +300,31 @@ class TestMetricDimensionScoping:
         assert not (conflicting_metrics and session_only_dimensions), (
             f"Plausible rejects {sorted(conflicting_metrics)} broken down by {sorted(session_only_dimensions)}"
         )
+
+    @pytest.mark.parametrize(
+        "breakdown_dimensions, expected",
+        [
+            ([], DEFAULT_METRICS),
+            (["visit:source"], DEFAULT_METRICS),
+            (["event:page"], DEFAULT_METRICS),
+            (["visit:entry_page"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
+            (["visit:exit_page"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
+            # No report breaks down by the hostname variants yet, so these cases are what prove the
+            # rule covers every session-only dimension rather than the two currently in use.
+            (["visit:entry_page_hostname"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
+            (["visit:exit_page_hostname"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
+        ],
+    )
+    def test_incompatible_metrics_are_dropped_per_breakdown(self, breakdown_dimensions, expected):
+        assert compatible_metrics(list(DEFAULT_METRICS), breakdown_dimensions) == expected
+
+    def test_a_report_left_with_no_metrics_is_rejected(self):
+        with pytest.raises(ValueError, match="no metrics compatible"):
+            PlausibleEndpointConfig(
+                name="entry_page_events",
+                breakdown_dimensions=["visit:entry_page"],
+                metrics=["pageviews", "events"],
+            )
 
     @pytest.mark.parametrize(
         "endpoint, dimension, column",

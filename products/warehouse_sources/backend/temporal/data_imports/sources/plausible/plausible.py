@@ -78,11 +78,11 @@ def _to_date(value: Any) -> Optional[date]:
 def _normalize_row(config: PlausibleEndpointConfig, result: dict[str, Any]) -> dict[str, Any]:
     """Flatten a Stats API result ({dimensions: [...], metrics: [...]}) into a named-column dict."""
     row: dict[str, Any] = {}
-    # Direct access (not .get) so a malformed response missing dimensions — and therefore the `date`
-    # primary key — fails fast instead of ingesting unkeyed rows.
-    for name, value in zip(config.column_names, result["dimensions"]):
+    # Direct access (not .get) and strict zips so a malformed response fails fast instead of
+    # ingesting rows missing the `date` primary key or silently dropping metric columns.
+    for name, value in zip(config.column_names, result["dimensions"], strict=True):
         row[name] = value
-    for name, value in zip(config.metrics, result["metrics"]):
+    for name, value in zip(config.metrics, result["metrics"], strict=True):
         row[name] = value
     return row
 
