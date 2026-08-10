@@ -30,7 +30,7 @@ from rest_framework import status
 from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
-from posthog.api.oauth.views import OAuthValidator
+from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -4265,6 +4265,275 @@ class TestOAuthAPI(APIBaseTest):
         refreshed_access_token = OAuthAccessToken.objects.get(token=refreshed["access_token"])
         expected_expiry = timezone.now() + timedelta(days=7)
         self.assertLess(abs((refreshed_access_token.expires - expected_expiry).total_seconds()), 60)
+
+
+class TestOAuthFunnelInstrumentation(APIBaseTest):
+    """The authorization funnel has to stay observable end to end: an authorization that
+    completes but never becomes a token is the failure shape support cannot otherwise see,
+    so every step reports and each event names the client the same way."""
+
+    def setUp(self):
+        super().setUp()
+        self.code_verifier = "a" * 64
+        self.application = OAuthApplication.objects.create(
+            name="Funnel Test App",
+            client_id="funnel_test_client_id",
+            client_secret="funnel_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm=OAuthApplication.RS256_ALGORITHM,
+            organization=self.organization,
+            user=self.user,
+        )
+
+    @property
+    def _code_challenge(self) -> str:
+        digest = hashlib.sha256(self.code_verifier.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
+
+    def _post_body(self, **overrides) -> dict:
+        return {
+            "client_id": self.application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self._code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+            **overrides,
+        }
+
+    def _authorize_url(self, **extra) -> str:
+        params = {
+            "client_id": self.application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "scope": "openid",
+            "code_challenge": self._code_challenge,
+            "code_challenge_method": "S256",
+            **extra,
+        }
+        return f"/oauth/authorize/?{urlencode(params)}"
+
+    @staticmethod
+    def _events(mock_capture, event: str) -> list:
+        return [c for c in mock_capture.call_args_list if c.kwargs.get("event") == event]
+
+    def test_consent_grant_captures_authorization_granted(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("code=", response.json()["redirect_to"])
+
+        granted = self._events(mock_capture, "oauth_authorization_granted")
+        self.assertEqual(len(granted), 1)
+        props = granted[0].kwargs["properties"]
+        self.assertEqual(props["grant_path"], "consent")
+        self.assertEqual(props["client_name"], self.application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["granted_scopes"], "openid")
+        self.assertEqual(props["granted_scope_count"], 1)
+        self.assertFalse(props["has_scoped_organizations"])
+        self.assertEqual(self._events(mock_capture, "oauth_authorization_denied"), [])
+
+    def test_declining_consent_captures_denied_not_granted(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body(allow=False))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._events(mock_capture, "oauth_authorization_granted"), [])
+        self.assertEqual(len(self._events(mock_capture, "oauth_authorization_denied")), 1)
+
+    def test_consent_missing_required_scope_captures_rejection_with_reason(self):
+        # `required_scopes` is derived from `scopes`, so seeding the ceiling is what makes
+        # `insight:read` a locked row the grant below is missing.
+        self.application.scopes = ["insight:read"]
+        self.application.save()
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body(scope="openid"))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_authorization_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["reason"], "missing_required_scopes")
+        self.assertEqual(props["missing_scopes"], ["insight:read"])
+        # `rejected_scopes` means "outside the ceiling" on the invalid_scope event; reusing
+        # it here would make the two reasons indistinguishable in a breakdown.
+        self.assertNotIn("rejected_scopes", props)
+        self.assertEqual(self._events(mock_capture, "oauth_authorization_granted"), [])
+
+    def test_token_exchange_captures_token_issued_for_the_authorizing_user(self):
+        authorize_response = self.client.post("/oauth/authorize/", self._post_body())
+        code = authorize_response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            token_response = self.client.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "authorization_code",
+                    "client_id": self.application.client_id,
+                    "client_secret": "funnel_test_client_secret",
+                    "redirect_uri": "https://example.com/callback",
+                    "code_verifier": self.code_verifier,
+                    "code": code,
+                },
+            )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        issued = self._events(mock_capture, "oauth_token_issued")
+        self.assertEqual(len(issued), 1)
+        self.assertEqual(issued[0].kwargs["distinct_id"], str(self.user.distinct_id))
+        props = issued[0].kwargs["properties"]
+        self.assertEqual(props["grant_type"], "authorization_code")
+        self.assertEqual(props["client_name"], self.application.name)
+        self.assertEqual(props["granted_scopes"], "openid")
+        self.assertEqual(self._events(mock_capture, "oauth_token_rejected"), [])
+
+    def test_reusing_a_code_captures_token_rejected_with_the_oauth_error(self):
+        authorize_response = self.client.post("/oauth/authorize/", self._post_body())
+        code = authorize_response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_body = {
+            "grant_type": "authorization_code",
+            "client_id": self.application.client_id,
+            "client_secret": "funnel_test_client_secret",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+            "code": code,
+        }
+        self.client.post("/oauth/token/", token_body)
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            replay = self.client.post("/oauth/token/", token_body)
+
+        self.assertEqual(replay.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "invalid_grant")
+        self.assertEqual(props["grant_type"], "authorization_code")
+        self.assertEqual(props["client_name"], self.application.name)
+        self.assertIs(props["$process_person_profile"], False)
+        self.assertEqual(self._events(mock_capture, "oauth_token_issued"), [])
+
+    def test_consent_wildcard_grant_reports_the_narrowed_scopes(self):
+        self.application.scopes = ["insight:read"]
+        self.application.save()
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body(scope="* insight:read"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        granted = self._events(mock_capture, "oauth_authorization_granted")
+        self.assertEqual(len(granted), 1)
+        props = granted[0].kwargs["properties"]
+        self.assertEqual(props["granted_scopes"], "insight:read")
+        self.assertEqual(props["granted_scope_count"], 1)
+
+    def test_first_party_grant_reports_the_scoped_organizations_it_mints(self):
+        self.application.is_first_party = True
+        self.application.save()
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.get(self._authorize_url())
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        granted = self._events(mock_capture, "oauth_authorization_granted")
+        self.assertEqual(len(granted), 1)
+        props = granted[0].kwargs["properties"]
+        self.assertEqual(props["grant_path"], "first_party")
+        self.assertTrue(props["has_scoped_organizations"])
+        self.assertFalse(props["has_scoped_teams"])
+
+    def test_malformed_json_token_request_captures_token_rejected(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/token/", data="{not json", content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "invalid_request")
+        self.assertEqual(props["grant_type"], "unknown")
+
+    def test_jwt_bearer_without_assertion_captures_token_rejected(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "client_id": self.application.client_id,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "invalid_request")
+        self.assertEqual(props["grant_type"], "urn:ietf:params:oauth:grant-type:jwt-bearer")
+        self.assertEqual(props["client_name"], self.application.name)
+
+    def test_transient_db_failure_keeps_the_503_when_the_event_lookup_also_fails(self):
+        with (
+            patch(
+                "oauth2_provider.views.base.TokenView.post",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+            patch(
+                "posthog.api.oauth.views.get_application_by_client_id",
+                side_effect=OperationalError("connection failed"),
+            ),
+            patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture,
+        ):
+            response = self.client.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "authorization_code",
+                    "client_id": self.application.client_id,
+                    "code": "irrelevant",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "temporarily_unavailable")
+        self.assertNotIn("client_name", props)
+
+    def test_token_issued_without_a_resource_owner_stays_personless(self):
+        access_token = OAuthAccessToken(application=self.application, user=None, scope="openid")
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            OAuthTokenView._capture_token_issued(access_token, "client_credentials", [], [])
+
+        issued = self._events(mock_capture, "oauth_token_issued")
+        self.assertEqual(len(issued), 1)
+        self.assertEqual(issued[0].kwargs["distinct_id"], self.application.client_id)
+        self.assertIs(issued[0].kwargs["properties"]["$process_person_profile"], False)
+
+
+class TestTokenErrorCode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("json_error", 400, b'{"error": "invalid_grant"}', "invalid_grant"),
+            ("html_body", 400, b"<html>nope</html>", "http_400"),
+            ("json_without_error_key", 400, b'{"detail": "nope"}', "http_400"),
+            ("json_error_not_a_string", 400, b'{"error": {"code": 1}}', "http_400"),
+            ("empty_body", 503, b"", "http_503"),
+        ]
+    )
+    def test_reads_the_rfc_error_code_or_falls_back_to_the_status(
+        self, _name: str, status_code: int, content: bytes, expected: str
+    ):
+        self.assertEqual(_token_error_code(HttpResponse(content, status=status_code)), expected)
 
 
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
