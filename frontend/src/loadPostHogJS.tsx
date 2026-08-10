@@ -181,7 +181,15 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 return
             }
 
-            posthog.capture('onFeatureFlags error')
+            // Context to break the failure down by, since the bare counter says nothing about cause.
+            posthog.capture('onFeatureFlags error', {
+                pathname: window.location.pathname,
+                // Whether the server-side bootstrap in head.html was populated for this load.
+                bootstrap_present: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS,
+                // OAuth mode sends flag requests cross-origin and disables tracing headers.
+                oauth_mode: isOAuthMode(),
+                navigator_online: window.navigator.onLine,
+            })
 
             // Track that we failed to load feature flags
             window.POSTHOG_GLOBAL_ERRORS ||= {}
