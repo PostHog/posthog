@@ -1261,8 +1261,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     const experimentParams = parseExperimentScannerParams(router.values.searchParams)
                     if (experimentParams) {
+                        // Strip the experiment params so a reload doesn't re-run the prefill over the
+                        // user's edits, matching how the template param is dropped above.
+                        const { experiment: _e, variants: _v, exposure: _x, ...rest } = router.values.searchParams
+                        router.actions.replace(router.values.location.pathname, rest)
                         // An experiment deep link expresses fresh intent, so it outranks a saved
-                        // draft; the draft is left in place for the next plain entry.
+                        // draft; restoringDraft guards persistDraft so the prefill can't clobber the
+                        // draft this user may already have for the next plain entry.
+                        cache.restoringDraft = true
                         try {
                             const experiment = await api.experiments.get(experimentParams.experimentId)
                             const context: ExperimentScannerContext = {
@@ -1275,6 +1281,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         } catch {
                             lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
                             actions.loadScannerSuccess(newScanner(templateKey))
+                        } finally {
+                            cache.restoringDraft = false
                         }
                         return
                     }
@@ -1314,8 +1322,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            // The template picker resets the form to the template's config; an experiment prefill
-            // (targeted query, scoped name) has to survive that reset, so it is re-applied here.
+            // Changing type keeps the rest of the form: it spreads `current`, so an experiment
+            // prefill's name and query carry over untouched. Only the config is reset for the new type.
             setScannerType: ({ scannerType }) => {
                 const current = values.scanner
                 if (!current) {
@@ -1382,6 +1390,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
                 }
+                // Discarding ends the experiment flow; a scanner started next must not inherit it.
+                actions.setExperimentContext(null)
                 actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
             scannerSaved: () => {
@@ -1391,6 +1401,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (props.id === 'new') {
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
+                    // The saved scanner's experiment association ends here; a new scanner started in
+                    // the same session must not re-apply this experiment's query and name.
+                    actions.setExperimentContext(null)
                 }
             },
 

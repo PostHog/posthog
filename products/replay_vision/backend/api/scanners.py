@@ -28,10 +28,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
@@ -715,18 +714,17 @@ class ReplayScannerFilter(django_filters.FilterSet):
         return queryset.filter(experiment_targeting__experiment_id=experiment_id)
 
     def _caller_accessible_experiments(self) -> QuerySet[Experiment]:
-        # The nested router names the team URL param parent_lookup_team_id (rest_framework_extensions'
-        # parent_lookup_ prefix); the scanner queryset is already scoped to this same team.
-        kwargs = self.request.parser_context["kwargs"] if self.request else {}
-        team_id = kwargs.get("parent_lookup_team_id")
-        user = getattr(self.request, "user", None)
-        if team_id is None or not isinstance(user, User):  # can't scope the check; expose nothing
+        # Reuse the viewset's resolved team and access control rather than reparsing the URL —
+        # self.team_id handles @current and token-derived teams, and user_access_control is already
+        # built. The scanner queryset is already scoped to this same team.
+        view = self.request.parser_context.get("view") if self.request else None
+        if view is None:
             return Experiment.objects.none()
-        team = Team.objects.filter(id=team_id).first()
-        if team is None:
-            return Experiment.objects.none()
-        team_experiments = Experiment.objects.filter(team_id=team_id)
-        return UserAccessControl(user=user, team=team).filter_queryset_by_access_level(team_experiments)
+        team_experiments = Experiment.objects.filter(team_id=view.team_id)
+        access = view.user_access_control
+        if access is None:
+            return team_experiments
+        return access.filter_queryset_by_access_level(team_experiments)
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:

@@ -265,6 +265,17 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         resp = self.client.get(f"{self.scanners_url}?experiment_id={experiment.id}")
         self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
 
+    def test_experiment_id_filter_resolves_the_current_project_alias(self) -> None:
+        # The filter must resolve the team the way the viewset does; a raw @current in the URL used to
+        # reach the DB lookup and 500. The user's current team is set by the test harness.
+        experiment = create_experiment(self.team, "aliased-flag")
+        targeting = {"experiment_id": experiment.id, "variant_keys": [], "use_exposure_fallback": False}
+        self._create_scanner(name="targeted", experiment_targeting=targeting)
+
+        resp = self.client.get(f"/api/environments/@current/vision/scanners/?experiment_id={experiment.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
+
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
     def setUp(self) -> None:
