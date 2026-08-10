@@ -196,7 +196,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: '?view={short_id}'
+        enrich_url: ?view={short_id}
         title: Create saved ticket view
         description: >
             Create a saved ticket view: a named, reusable set of ticket filters. `filters` accepts status, priority,
@@ -244,12 +244,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '?view={short_id}'
+        enrich_url: ?view={short_id}
         title: Get saved ticket view
         description: >
-            Get a saved ticket view by its short_id, including the full `filters` object that
-            conversations-views-list omits. Read the view here first when editing it, because
-            conversations-views-update replaces `filters` wholesale rather than merging into it.
+            Get a saved ticket view by its short_id, including the full `filters` object that conversations-views-list
+            omits. Read the view here first when editing it, because conversations-views-update replaces `filters`
+            wholesale rather than merging into it.
         param_overrides:
             short_id:
                 description: Short identifier of the view, as returned by conversations-views-list.
@@ -270,7 +270,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: '?view={short_id}'
+        enrich_url: ?view={short_id}
         title: Update saved ticket view
         description: >
             Update a saved ticket view by its short_id. Can change the name, the saved `filters`, and is_favorited.
