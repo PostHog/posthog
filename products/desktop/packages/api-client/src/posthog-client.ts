@@ -2485,15 +2485,22 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side).
-  async resolveTaskChannel(name: string): Promise<TaskChannel> {
+  // Resolve-or-create a public channel by name (idempotent server-side). `star`
+  // only applies when this call creates the channel; an existing one keeps the
+  // requester's star as it was.
+  async resolveTaskChannel(
+    name: string,
+    options?: { star?: boolean },
+  ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify({ name }) },
+      overrides: {
+        body: JSON.stringify({ name, star: options?.star ?? true }),
+      },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);

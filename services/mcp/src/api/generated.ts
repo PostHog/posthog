@@ -14686,6 +14686,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
+      /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+      star?: boolean;
     }
 
     export interface CheckDatabaseNameResponse {

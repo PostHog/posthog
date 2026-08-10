@@ -61,11 +61,11 @@ export function useChannelMutations() {
   }, [queryClient]);
 
   const createMutation = useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async ({ name, star }: { name: string; star: boolean }) => {
       if (!client) throw new Error("Not authenticated");
       // Resolve-or-create is idempotent server-side, so racing creators of the
       // same name converge on one channel.
-      return client.resolveTaskChannel(name);
+      return client.resolveTaskChannel(name, { star });
     },
     onSuccess: (created) => {
       // Insert the created channel into the cache immediately so the sidebar
@@ -100,8 +100,10 @@ export function useChannelMutations() {
   });
 
   return {
-    createChannel: (name: string) =>
-      createMutation.mutateAsync(name).then(toChannel),
+    createChannel: (name: string, options?: { star?: boolean }) =>
+      createMutation
+        .mutateAsync({ name, star: options?.star ?? true })
+        .then(toChannel),
     deleteChannel: (id: string) => deleteMutation.mutateAsync(id),
     renameChannel: (id: string, name: string) =>
       renameMutation.mutateAsync({ id, name }).then(toChannel),
