@@ -113,9 +113,15 @@ def _opt_in_activity(organization: Organization):
     )
 
 
+def _was_opted_in(organization: Organization, changes: list[OptInChange], truncated: bool) -> bool:
+    if any(c.after is True or c.before is True for c in changes):
+        return True
+    # An untruncated window is the whole history, so the scan above already answered this. Only a
+    # truncated one can hide an older opt-in and needs the uncapped query below.
+    return truncated and _has_recorded_opt_in(organization)
+
+
 def _has_recorded_opt_in(organization: Organization) -> bool:
-    # Deliberately uncapped, unlike the displayed changes: an opt-in older than the cap still means
-    # the organization was opted in at some point, and the headline speaks to its whole history.
     return (
         _opt_in_activity(organization)
         .filter(
@@ -179,7 +185,7 @@ def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
         # validation error into an opaque 500 from the next unrelated query.
         with transaction.atomic():
             changes, truncated = _fetch_changes(organization)
-            was_opted_in = _has_recorded_opt_in(organization)
+            was_opted_in = _was_opted_in(organization, changes, truncated)
     except Exception as e:
         capture_exception(e)
         return OptInHistory(headline="Could not load opt-in history", changes=[], error=str(e))
