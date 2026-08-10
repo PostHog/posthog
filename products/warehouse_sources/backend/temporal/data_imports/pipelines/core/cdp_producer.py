@@ -144,12 +144,17 @@ class CDPProducer:
                     trigger__type="data-warehouse-table",
                     trigger__table_name=dot_notated_table_name,
                 ).exists()
-            except DjangoOperationalError as e:
+            except (DjangoOperationalError, OSError) as e:
                 # This queries PostHog's own database, not the source being synced. A transient
                 # failure reaching it (e.g. a DNS blip resolving our host) stringifies with the
                 # same wording a customer's misconfigured source host would, which the source's
                 # `get_non_retryable_errors` would misclassify as non-retryable and permanently
                 # stop a healthy sync. Re-raise clear of those substrings so it stays retryable.
+                # A bare OSError (e.g. "Too many open files") reaches here unwrapped rather than as
+                # a DjangoOperationalError when the worker runs out of file descriptors while
+                # opening the connection's selector, before libpq has anything to report — same
+                # transient condition, different exception type depending on which connect step it
+                # hits, so both need the same reclassification.
                 raise PostHogInternalDatabaseError(
                     "Failed to check hog function/workflow triggers in PostHog's database"
                 ) from e
