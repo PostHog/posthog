@@ -33,6 +33,10 @@ A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
 The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
 **The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
 
+> **Not everything phrased as a scout is a scout.**
+> If the ask is to deliver the key numbers from an **existing dashboard or insight** to a channel on a fixed schedule ("set up a scout to post the top-line from this dashboard in #launch once a day"), a **dashboard (or insight) subscription with the AI summary enabled** is usually the better fit — scouts are for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
+> Respect a user who's certain they want a scout; when it's ambiguous, suggest the subscription and confirm first ("A dashboard subscription is a better fit for a recurring message — want me to set that up?"), and route to `managing-subscriptions`.
+
 ## The job before the writing
 
 Don't write a scout in the abstract.

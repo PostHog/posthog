@@ -19,6 +19,7 @@ import {
 import {
     experimentsSessionBucketsCreate,
     experimentsSessionContextsCreate,
+    experimentsSessionEventDeltasCreate,
 } from 'products/experiments/frontend/generated/api'
 
 import {
@@ -36,6 +37,7 @@ jest.mock('lib/utils/product-intents', () => ({
 jest.mock('products/experiments/frontend/generated/api', () => ({
     experimentsSessionContextsCreate: jest.fn().mockResolvedValue({ results: [] }),
     experimentsSessionBucketsCreate: jest.fn(),
+    experimentsSessionEventDeltasCreate: jest.fn(),
 }))
 
 const BUCKET_RESPONSE = {
@@ -46,6 +48,35 @@ const BUCKET_RESPONSE = {
     date_from: '2026-01-01T00:00:00Z',
     date_to: '2026-02-01T00:00:00Z',
     filter_test_accounts: true,
+}
+
+const DELTA_RESPONSE = {
+    cards: [
+        {
+            kind: 'behavior',
+            event: 'pricing_faq',
+            variant: 'test',
+            strength: 'far_more',
+            metric_name: null,
+            recording_count: 2,
+            session_ids: ['card-session-1', 'card-session-2'],
+        },
+    ],
+    arms: [
+        { key: 'control', persons: 100, sessions: 140 },
+        { key: 'test', persons: 100, sessions: 138 },
+    ],
+    multiple_variant_persons: 0,
+    multiple_variant_handling: 'exclude',
+    metric_events: [],
+    date_from: '2026-01-01T00:00:00Z',
+    date_to: '2026-02-01T00:00:00Z',
+    filter_test_accounts: true,
+    used_exposure_fallback: false,
+    sessions_truncated: false,
+    events_truncated: false,
+    min_arm_persons: 50,
+    too_early: false,
 }
 
 const PURCHASE_METRIC = {
@@ -105,6 +136,8 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsSessionContextsCreate as jest.Mock).mockClear()
         ;(experimentsSessionBucketsCreate as jest.Mock).mockClear()
         ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue(BUCKET_RESPONSE)
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockClear()
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockResolvedValue(DELTA_RESPONSE)
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -829,5 +862,102 @@ describe('experimentReplayTabLogic', () => {
         expect(sidebar.values.defaultTab).toBe(SessionRecordingSidebarTab.INSPECTOR)
 
         sidebar.unmount()
+    })
+
+    it('runs the variant comparison only once the panel is opened', async () => {
+        // It is the heaviest read on this tab and most visits don't want it, so mounting the tab
+        // must not fire it.
+        expect(experimentsSessionEventDeltasCreate).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
+    })
+
+    it('does not fire a duplicate comparison when the shelf is closed and reopened mid-load', async () => {
+        let resolveLoad: (value: unknown) => void = () => {}
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockImplementation(
+            () => new Promise((resolve) => (resolveLoad = resolve))
+        )
+
+        logic.actions.toggleBehaviorComparison()
+        await expectLogic(logic).toDispatchActions(['loadSessionEventDeltas'])
+
+        logic.actions.toggleBehaviorComparison()
+        logic.actions.toggleBehaviorComparison()
+        await expectLogic(logic).toMatchValues({ sessionEventDeltasLoading: true })
+
+        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(1)
+
+        resolveLoad(DELTA_RESPONSE)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
+    })
+
+    it("shows a selected card's recordings, in the variant the card belongs to", async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        }).toFinishAllListeners()
+        expect(logic.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
+
+        await expectLogic(logic, () => {
+            logic.actions.selectWatchCard(DELTA_RESPONSE.cards[0] as any)
+        }).toFinishAllListeners()
+
+        // The variant facet follows the card, the capped bucket is left behind so the card's own
+        // session set takes its place, and the card survives that mode change rather than being
+        // cleared by it. The metric selection goes with the mode: kept, "didn't fire Purchase"
+        // would silently have become "fired Purchase".
+        expect(logic.values.selectedVariantKey).toBe('test')
+        expect(logic.values.metricFilterMode).toBe('fired_all')
+        expect(logic.values.selectedMetricUuids).toEqual([])
+        expect(logic.values.recordingsFilters.session_ids).toEqual(['card-session-1', 'card-session-2'])
+        // The card's ids already encode the event condition, so no event filter is added on top —
+        // only the exposure filter stays, keeping the list's definition visible.
+        expect(logic.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [...getViewRecordingFiltersForVariant(EXPERIMENT, 'test')],
+            },
+        ])
+    })
+
+    it.each([
+        ['the variant facet moves', (): void => logic.actions.setSelectedVariantKey('control')],
+        ['a metric is picked', (): void => logic.actions.setMetricSelected('metric-purchase', true)],
+        ['the shelf is closed', (): void => logic.actions.toggleBehaviorComparison()],
+    ])('drops the selected card when %s', async (_name: string, moveFacet: () => void) => {
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+            logic.actions.selectWatchCard(DELTA_RESPONSE.cards[0] as any)
+        }).toFinishAllListeners()
+        expect(logic.values.recordingsFilters.session_ids).toEqual(['card-session-1', 'card-session-2'])
+
+        await expectLogic(logic, moveFacet).toFinishAllListeners()
+
+        // Left stacked these contradict rather than compose: the card's ids are one variant's and
+        // AND to an empty list under another, a metric picked on top is dropped from the query
+        // while still reading as applied, and a closed shelf leaves no way to deselect.
+        expect(logic.values.selectedWatchCard).toBeNull()
+        expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
+    })
+
+    it("follows the playlist when the card's recordings are cleared there", async () => {
+        await expectLogic(logic, () => {
+            logic.actions.selectWatchCard(DELTA_RESPONSE.cards[0] as any)
+        }).toFinishAllListeners()
+
+        // Without following it the tab would push the same session ids straight back, and the
+        // playlist's own "Show all" control would look broken.
+        await expectLogic(logic, () => {
+            logic.actions.playlistFiltersChanged({
+                ...logic.values.recordingsFilters,
+                session_ids: undefined,
+            })
+        }).toMatchValues({ selectedWatchCard: null })
     })
 })
