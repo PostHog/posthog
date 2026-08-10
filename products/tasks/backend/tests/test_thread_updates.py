@@ -387,3 +387,25 @@ class TestEmitTaskEvent(TestCase):
         activity = TaskActivity.objects.for_team(self.team.id).filter(task=self.task, user=self.user).first()
         assert activity is not None
         self.assertEqual(activity.kind, TaskActivity.Kind.MESSAGE)
+
+    def test_an_overlong_key_is_hashed_rather_than_dropped(self) -> None:
+        # event_key is varchar(255) and PR urls are validated up to 2048, so an overlong key
+        # would raise inside a best-effort emitter and lose the row silently — every retry.
+        long_key = "https://example.com/pull/" + "x" * 300
+
+        first = emit_task_event(self.task, event="pr_created", content="opened", event_key=long_key)
+        second = emit_task_event(self.task, event="pr_created", content="opened again", event_key=long_key)
+
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertTrue(events[0].event_key.startswith("sha256:"))
+        self.assertLessEqual(len(events[0].event_key), 255)
+
+    def test_overlong_keys_that_differ_do_not_collide(self) -> None:
+        prefix = "https://example.com/pull/" + "x" * 300
+        emit_task_event(self.task, event="pr_created", content="one", event_key=f"{prefix}/1")
+        emit_task_event(self.task, event="pr_created", content="two", event_key=f"{prefix}/2")
+
+        self.assertEqual(len(self._events()), 2)

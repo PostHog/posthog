@@ -6715,6 +6715,23 @@ def forward_thread_message(
 AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
 
 
+# Matches TaskThreadMessage.event_key's column width. A key over it is hashed rather than
+# truncated: truncation could collide two different PRs onto one key.
+_EVENT_KEY_MAX_LENGTH = 255
+
+
+def _bounded_event_key(event_key: str) -> str:
+    """``event_key`` as it can be stored — a digest once it outgrows the column.
+
+    An overlong key would raise ``DataError`` inside a best-effort emitter, so the event
+    would vanish silently, and vanish again on every retry. A digest keeps the key stable,
+    which is all idempotency needs of it.
+    """
+    if len(event_key) <= _EVENT_KEY_MAX_LENGTH:
+        return event_key
+    return f"sha256:{hashlib.sha256(event_key.encode()).hexdigest()}"
+
+
 def emit_task_event(
     task: Task,
     *,
@@ -6740,6 +6757,7 @@ def emit_task_event(
     rows leave it off: a run starting is timeline material, not something to mark a
     task unread for.
     """
+    event_key = _bounded_event_key(event_key)
     # for_team: callers include non-request contexts (temporal relay) where the
     # fail-closed manager has no team scope.
     row = {
