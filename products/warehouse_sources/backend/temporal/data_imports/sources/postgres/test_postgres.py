@@ -1682,6 +1682,15 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EAUTHQUERY) auth_query secret check timed out"
             ),
+            # Supavisor's own credential fetch fails repeatedly and trips its internal circuit
+            # breaker, rejecting new connects with a bare OperationalError carrying its
+            # "(ECIRCUITBREAKER)" code. Same transient pooler-bookkeeping class as EAUTHQUERY —
+            # recovers once the breaker resets — so the reconnect must catch it.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) failed to retrieve database credentials after multiple "
+                "attempts, new connections are temporarily blocked"
+            ),
             # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
             # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
