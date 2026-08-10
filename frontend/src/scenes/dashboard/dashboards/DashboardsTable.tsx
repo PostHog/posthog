@@ -4,7 +4,6 @@ import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } fro
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
-import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -16,7 +15,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -31,7 +30,6 @@ import {
     DashboardBasicType,
     DashboardMode,
     DashboardType,
-    ProjectTreeRef,
 } from '~/types'
 
 import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
@@ -59,7 +57,7 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { tableSortingChanged, setFilters } = useActions(dashboardsLogic)
+    const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
     const { tableSorting, filters } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
@@ -68,10 +66,6 @@ export function DashboardsTable({
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-    const { openMoveToModalForRefs } = useActions(moveToLogic)
-    const { reportDashboardMoveInitiated } = useActions(eventUsageLogic)
-
-    const moveRefFor = (id: number): ProjectTreeRef => ({ type: 'dashboard', ref: String(id) })
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -250,10 +244,7 @@ export function DashboardsTable({
                                           userAccessLevel={user_access_level}
                                       >
                                           <LemonButton
-                                              onClick={() => {
-                                                  reportDashboardMoveInitiated('single', 1)
-                                                  openMoveToModalForRefs([moveRefFor(id)])
-                                              }}
+                                              onClick={() => moveDashboardsToFolder([id], 'single')}
                                               fullWidth
                                               data-attr="dashboard-move-to-folder"
                                           >
@@ -334,8 +325,8 @@ export function DashboardsTable({
                                     size="small"
                                     type="secondary"
                                     onClick={() => {
-                                        reportDashboardMoveInitiated('bulk', ctx.selectedKeys.length)
-                                        openMoveToModalForRefs(ctx.selectedKeys.map(moveRefFor))
+                                        // Copied because clearSelection below mutates the live selection.
+                                        moveDashboardsToFolder([...ctx.selectedKeys], 'bulk')
                                         ctx.clearSelection()
                                     }}
                                     data-attr="dashboards-bulk-move-to-folder"

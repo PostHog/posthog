@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -410,6 +411,36 @@ describe('dashboardsLogic', () => {
         expect(lastRequestUrl).not.toBeNull()
         expect(lastRequestUrl!.searchParams.get('search')).toBe('sales')
         expect(lastRequestUrl!.searchParams.getAll('tags')).toEqual(['finance'])
+    })
+
+    it('opens the move modal with the file system rows of the dashboards it was given', async () => {
+        // The list only holds dashboard ids, so this listener is what turns them into the file system
+        // entries the shared move flow needs. Passing ids straight through would open a modal that moves
+        // nothing.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system': ({ request }) => {
+                    const ref = new URL(request.url).searchParams.get('ref')
+                    return [
+                        200,
+                        { count: 0, results: [{ id: `fs-${ref}`, ref, type: 'dashboard', path: 'Marketing' }] },
+                    ]
+                },
+            },
+        })
+
+        // Mounted so the dispatched action reaches its reducers, the way GlobalModals mounts it in the app.
+        moveToLogic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.moveDashboardsToFolder([11, 12], 'bulk')
+        }).toFinishListeners()
+
+        expect(moveToLogic.values.movingItems).toEqual([
+            expect.objectContaining({ id: 'fs-11' }),
+            expect.objectContaining({ id: 'fs-12' }),
+        ])
+        expect(moveToLogic.values.isOpen).toBe(true)
     })
 
     it('does not refetch when toggling pinned while a search is active on the /dashboard URL', async () => {

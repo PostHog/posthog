@@ -30,8 +30,7 @@ jest.mock('lib/lemon-ui/LemonTable', () => ({
 }))
 
 describe('DashboardsTable move to folder', () => {
-    const openMoveToModalForRefs = jest.fn()
-    const reportDashboardMoveInitiated = jest.fn()
+    const moveDashboardsToFolder = jest.fn()
     const clearSelection = jest.fn()
 
     afterEach(cleanup)
@@ -44,8 +43,7 @@ describe('DashboardsTable move to folder', () => {
             tableSortingChanged: jest.fn(),
             showDuplicateDashboardModal: jest.fn(),
             showDeleteDashboardModal: jest.fn(),
-            openMoveToModalForRefs,
-            reportDashboardMoveInitiated,
+            moveDashboardsToFolder,
         })
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
@@ -72,21 +70,16 @@ describe('DashboardsTable move to folder', () => {
         )
     }
 
-    it('offers the per-row move action and opens the modal for that dashboard', () => {
+    it('offers the per-row move action and moves that dashboard', () => {
         renderTable([1])
         fireEvent.click(screen.getByText('Move to another folder'))
-        expect(reportDashboardMoveInitiated).toHaveBeenCalledWith('single', 1)
-        expect(openMoveToModalForRefs).toHaveBeenCalledWith([{ type: 'dashboard', ref: '1' }])
+        expect(moveDashboardsToFolder).toHaveBeenCalledWith([1], 'single')
     })
 
-    it('offers the bulk move action and opens the modal for the whole selection', () => {
+    it('offers the bulk move action and moves the whole selection', () => {
         renderTable([1, 2], [1, 2])
         fireEvent.click(screen.getByText('Move to folder'))
-        expect(reportDashboardMoveInitiated).toHaveBeenCalledWith('bulk', 2)
-        expect(openMoveToModalForRefs).toHaveBeenCalledWith([
-            { type: 'dashboard', ref: '1' },
-            { type: 'dashboard', ref: '2' },
-        ])
+        expect(moveDashboardsToFolder).toHaveBeenCalledWith([1, 2], 'bulk')
         expect(clearSelection).toHaveBeenCalled()
     })
 })
