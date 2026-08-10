@@ -251,6 +251,7 @@ Available features:
 | `logs`                   | [Logs](https://posthog.com/docs/logs)                                                           |
 | `managed_migrations`     | Managed migrations                                                                              |
 | `marketing_analytics`    | Marketing analytics                                                                             |
+| `messaging`              | Messaging                                                                                       |
 | `mcp_analytics`          | MCP analytics                                                                                   |
 | `mcp_store`              | MCP Store                                                                                       |
 | `metrics`                | Metrics                                                                                         |
