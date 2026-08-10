@@ -16,9 +16,9 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     ThreadAction,
     ThreadComment,
     classify_thread,
-    commit_restricted_paths,
     fetch_unresolved_threads,
     github_graphql_request,
+    inspect_fix_commit,
     is_restricted_fix_path,
     order_threads,
     should_resolve,
@@ -73,6 +73,16 @@ def _verdict(
         commit_verified=commit_verified,
         commit_restricted=commit_restricted,
     )
+
+
+def _commit_payload(
+    *, files: list[dict[str, Any]] | None = None, author: dict[str, Any] | None = None, verified: bool = True
+) -> dict[str, Any]:
+    return {
+        "files": files or [],
+        "author": author if author is not None else {"login": "posthog[bot]", "type": "Bot"},
+        "commit": {"verification": {"verified": verified}},
+    }
 
 
 class TestGitHubThreads:
@@ -180,11 +190,30 @@ class TestGitHubThreads:
             ("clean", {"filename": "products/foo/backend/api.py"}, []),
         ]
     )
-    def test_commit_restricted_paths(self, _name: str, file_entry: dict[str, Any], expected: list[str]) -> None:
+    def test_inspect_fix_commit_restricted_paths(
+        self, _name: str, file_entry: dict[str, Any], expected: list[str]
+    ) -> None:
         response = Mock()
-        response.json.return_value = {"files": [file_entry]}
+        response.json.return_value = _commit_payload(files=[file_entry])
         with patch(f"{_THREADS}.github_api_request", return_value=response):
-            assert commit_restricted_paths(token="t", owner="o", repo="r", sha="abc") == expected
+            inspection = inspect_fix_commit(token="t", owner="o", repo="r", sha="abc")
+        assert inspection.restricted_paths == expected
+        assert inspection.provenance_ok is True
+
+    @parameterized.expand(
+        [
+            # A reachable ancestor authored by a human must not pass as the run's own fix commit.
+            ("human_author", {"login": "alice", "type": "User"}, True),
+            ("unsigned_commit", {"login": "posthog[bot]", "type": "Bot"}, False),
+        ]
+    )
+    def test_inspect_fix_commit_rejects_bad_provenance(
+        self, _name: str, author: dict[str, Any], verified: bool
+    ) -> None:
+        response = Mock()
+        response.json.return_value = _commit_payload(author=author, verified=verified)
+        with patch(f"{_THREADS}.github_api_request", return_value=response):
+            assert inspect_fix_commit(token="t", owner="o", repo="r", sha="abc").provenance_ok is False
 
     def test_order_threads_ranks_humans_then_reviewhog_then_other_bots_oldest_first(self) -> None:
         other_bot = _thread(

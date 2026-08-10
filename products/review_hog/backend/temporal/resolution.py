@@ -64,8 +64,8 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     ThreadAction,
     classify_thread,
     commit_on_branch,
-    commit_restricted_paths,
     fetch_unresolved_threads,
+    inspect_fix_commit,
     order_threads,
     reply_to_thread,
     resolve_thread,
@@ -276,14 +276,16 @@ def _deliver_side_effects(
     20-thread session can outlive the ~1h token TTL, and `get_access_token` auto-refreshes an
     expired one. Only the token is fresh — the installation selection stays pinned from
     `_prepare_run`, so deliveries never repeat its live GitHub probe.
-    A FIXED verdict's `commit_sha` is the model's echo, so it is verified server-side first
-    (`commit_on_branch`, persisted as `commit_verified`): an unproven SHA delivers the reply with a
-    visible could-not-confirm caveat instead of the commit link and never auto-resolves — the thread
-    stays open for a human. A real commit is then checked against the hard-floor path backstop
-    (`commit_restricted_paths`): one touching CI/CODEOWNERS/dependency files delivers a human-review
-    warning instead of the link and never auto-resolves either. Only a verified commit gets a
-    `commit` artefact (the schema records pushed commits only), appended right after the
-    verification persists so it happens exactly once per verdict.
+    A FIXED verdict's `commit_sha` is the model's echo, so it is verified server-side first:
+    `commit_on_branch` proves it reachable, then `inspect_fix_commit` proves provenance (authored by
+    our app bot, verified signature) — "on the branch" alone would accept any ancestor, letting a
+    steered turn pass off someone's old clean commit as the fix. A SHA failing either delivers the
+    reply with a visible could-not-confirm caveat instead of the commit link and never auto-resolves
+    (persisted as `commit_verified=False`); the thread stays open for a human. A proven commit is
+    then checked against the hard-floor path backstop: one touching CI/CODEOWNERS/dependency files
+    delivers a human-review warning instead of the link and never auto-resolves either. Only a
+    verified commit gets a `commit` artefact (the schema records pushed commits only), appended
+    right after the verification persists so it happens exactly once per verdict.
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
     advances to our own posted reply so it doesn't re-open triage. A crash between posting the reply
     and recording it (the persist below) leaves the watermark un-advanced, so the retry re-triages the
@@ -312,21 +314,30 @@ def _deliver_side_effects(
                 branch,
             )
         else:
-            restricted_hits = commit_restricted_paths(
+            inspection = inspect_fix_commit(
                 token=token,
                 owner=input.owner,
                 repo=input.repo,
                 sha=updated.commit_sha,
                 installation_id=installation_id,
             )
-            restricted = bool(restricted_hits)
-            if restricted:
+            if not inspection.provenance_ok:
+                verified = False
                 logger.error(
-                    "Fix commit %s for thread %s touches restricted paths %s; withholding the link and leaving the thread open",
+                    "Fix commit %s claimed for thread %s is on the branch but not a verified app-bot commit; "
+                    "delivering without the link and leaving the thread open",
                     updated.commit_sha,
                     updated.thread_id,
-                    restricted_hits,
                 )
+            else:
+                restricted = bool(inspection.restricted_paths)
+                if restricted:
+                    logger.error(
+                        "Fix commit %s for thread %s touches restricted paths %s; withholding the link and leaving the thread open",
+                        updated.commit_sha,
+                        updated.thread_id,
+                        inspection.restricted_paths,
+                    )
         updated = updated.model_copy(update={"commit_verified": verified, "commit_restricted": restricted})
         persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)
         if verified:
@@ -344,8 +355,9 @@ def _deliver_side_effects(
                 body += f"\n\nFix commit: https://github.com/{input.owner}/{input.repo}/commit/{updated.commit_sha}"
             else:
                 body += (
-                    "\n\n⚠️ The fix commit claimed in this reply could not be found on the PR branch, "
-                    "so a human should verify the fix before trusting it. The thread stays open."
+                    "\n\n⚠️ The commit claimed in this reply could not be confirmed as this run's own fix "
+                    "commit on the PR branch, so a human should verify the fix before trusting it. "
+                    "The thread stays open."
                 )
         comment_id, comment_url = reply_to_thread(
             token=token, thread_id=updated.thread_id, body=body, installation_id=installation_id

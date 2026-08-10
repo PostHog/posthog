@@ -20,7 +20,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.thread_resolution import ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_RESOLUTION_SKILL_NAME
-from products.review_hog.backend.reviewer.tools.github_threads import ReviewThread, ThreadComment
+from products.review_hog.backend.reviewer.tools.github_threads import FixCommitInspection, ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
     ResolutionRunResult,
     ResolveThreadsInput,
@@ -79,6 +79,10 @@ def _verdict(
         reply_posted=reply_posted,
         resolved=resolved,
     )
+
+
+def _inspection(restricted: list[str] | None = None, *, provenance_ok: bool = True) -> FixCommitInspection:
+    return FixCommitInspection(restricted_paths=restricted or [], provenance_ok=provenance_ok)
 
 
 def _mock_installation() -> Mock:
@@ -150,7 +154,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, "https://github.com/x")) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
-            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
+            patch(f"{_RESOLUTION}.inspect_fix_commit", return_value=_inspection()),
             patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
             _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
@@ -170,7 +174,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
-            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
+            patch(f"{_RESOLUTION}.inspect_fix_commit", return_value=_inspection()),
             patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
             delivered = _deliver_side_effects(
@@ -198,13 +202,37 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
 
         body = reply.call_args.kwargs["body"]
         assert "Fix commit" not in body
-        assert "could not be found on the PR branch" in body
+        assert "could not be confirmed as this run's own fix" in body
         assert resolve.call_count == 0
         stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
         assert stored.commit_verified is False
         assert stored.reply_posted is True
         assert stored.resolved is False
         # An unproven SHA must never enter the commit artefact log (pushed commits only).
+        assert (
+            not ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
+        )
+
+    def test_foreign_authored_commit_is_treated_as_unverified(self) -> None:
+        # "On the branch" includes every ancestor, so a steered turn could echo someone's old clean
+        # commit; a reachable SHA that is not a verified app-bot commit must stay unverified.
+        report = self._report()
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_sha="abc123")
+        with (
+            patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
+            patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}.inspect_fix_commit", return_value=_inspection(provenance_ok=False)),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
+        ):
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
+
+        body = reply.call_args.kwargs["body"]
+        assert "Fix commit" not in body
+        assert "could not be confirmed as this run's own fix" in body
+        assert resolve.call_count == 0
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.commit_verified is False
         assert (
             not ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
         )
@@ -284,7 +312,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
-            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[".github/workflows/ci.yml"]),
+            patch(
+                f"{_RESOLUTION}.inspect_fix_commit", return_value=_inspection(restricted=[".github/workflows/ci.yml"])
+            ),
             patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
             _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
@@ -318,7 +348,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)),
             patch(f"{_RESOLUTION}.resolve_thread", side_effect=RuntimeError("token cannot resolve")),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
-            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
+            patch(f"{_RESOLUTION}.inspect_fix_commit", return_value=_inspection()),
             patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
             # The failure must propagate so the run counts the thread as undelivered instead of

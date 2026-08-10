@@ -3023,6 +3023,16 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
    are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
    scope with that feature.
+   _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
+   branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
+   steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
+   restricted-paths call is now `inspect_fix_commit`: the same single `GET /commits/{sha}` also requires a
+   verified web-flow signature and an app-bot author (`is_app_bot_author` — probed against the July e2e fix
+   commits: authored `posthog-local-dev[bot]`/Bot, `verification.verified` true; fail-open on login when
+   `REVIEWHOG_GITHUB_BOT_LOGIN` is unset). A reachable SHA failing provenance persists
+   `commit_verified=False` — caveat reply, no link, never auto-resolves. Residual (accepted): echoing one of
+   the bot's own earlier fix commits still passes; that closes only with the recorded Tasks
+   session-provenance follow-up.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

@@ -11,6 +11,7 @@ unit, outdated unresolved threads included, resolved threads never fetched back.
 
 import time
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -19,7 +20,12 @@ from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
-from products.review_hog.backend.reviewer.tools.github_client import GITHUB_API_BASE, GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GITHUB_API_BASE,
+    GitHubAPIError,
+    github_api_request,
+    is_app_bot_author,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -388,13 +394,28 @@ def is_restricted_fix_path(path: str) -> bool:
     return normalized.rsplit("/", 1)[-1] in _RESTRICTED_BASENAMES
 
 
-def commit_restricted_paths(
+@dataclass(frozen=True, kw_only=True)
+class FixCommitInspection:
+    """What one `GET /commits/{sha}` says about a claimed fix commit."""
+
+    restricted_paths: list[str]
+    # Authored by OUR app bot with a GitHub-verified signature. `commit_on_branch` proves the SHA
+    # is on the branch, but "on the branch" includes every ancestor — without this gate a steered
+    # turn could echo some human's old clean commit and have every check inspect the wrong one.
+    provenance_ok: bool
+
+
+def inspect_fix_commit(
     *, token: str, owner: str, repo: str, sha: str, installation_id: str | None = None
-) -> list[str]:
-    """Restricted paths a commit touches (empty = clean).
+) -> FixCommitInspection:
+    """Restricted paths the commit touches (empty = clean) plus its provenance, in one API call.
 
     Fails closed on GitHub's 300-file cap: a files list that may be truncated reports the commit as
     unverifiable rather than clean — a comment-driven fix that big deserves human eyes anyway.
+    Provenance: signed-commit fixes are authored as the app's bot (`is_app_bot_author`, fail-open on
+    login when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset) and carry a verified web-flow signature; a
+    reachable SHA failing either is not provably this run's fix. The residual — echoing one of the
+    bot's own earlier commits — stays with the recorded session-provenance follow-up.
     """
     response = github_api_request(
         "GET",
@@ -403,7 +424,10 @@ def commit_restricted_paths(
         endpoint="/repos/{owner}/{repo}/commits/{ref}",
         installation_id=installation_id,
     )
-    files = response.json().get("files") or []
+    payload = response.json()
+    verification = (payload.get("commit") or {}).get("verification") or {}
+    provenance_ok = bool(verification.get("verified")) and is_app_bot_author(payload.get("author"))
+    files = payload.get("files") or []
     # A rename is ONE entry with filename=new path and previous_filename=old path, so both sides
     # must be checked: renaming .github/workflows/x.yml out of place must still flag as restricted.
     hits = [
@@ -413,8 +437,8 @@ def commit_restricted_paths(
         if path and is_restricted_fix_path(path)
     ]
     if len(files) >= 300 and not hits:
-        return ["(files list truncated at 300; cannot verify)"]
-    return hits
+        hits = ["(files list truncated at 300; cannot verify)"]
+    return FixCommitInspection(restricted_paths=hits, provenance_ok=provenance_ok)
 
 
 def commit_on_branch(
