@@ -3,6 +3,7 @@ from functools import partial
 
 from django.db import transaction
 
+import psycopg
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 
@@ -136,6 +137,18 @@ def update_external_job_status(
     return model
 
 
+def _is_transient_queue_pool_timeout(error: BaseException) -> bool:
+    """Whether `error` is PgBouncer's own "query waited too long for a free server
+    connection" rejection on the v3 queue's Postgres pool, not a genuine queue-DB failure.
+
+    The queue talks over a raw psycopg connection (see `_sweep_v3_queue_batches`), so a
+    saturated pool surfaces as a bare `ProtocolViolation` rather than Django's
+    `OperationalError`. Matching on message, not just type, keeps other `ProtocolViolation`
+    causes (e.g. a cached login failure) reported.
+    """
+    return isinstance(error, psycopg.errors.ProtocolViolation) and "query_wait_timeout" in str(error)
+
+
 def _sweep_v3_queue_batches_swallowing_errors(
     *, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger
 ) -> None:
@@ -145,6 +158,11 @@ def _sweep_v3_queue_batches_swallowing_errors(
         _sweep_v3_queue_batches(job_id=job_id, status=status, logger=logger)
     except Exception as e:
         FINALIZE_QUEUE_SWEEP_ERRORS.inc()
+        if _is_transient_queue_pool_timeout(e):
+            # A pool-saturation blip, not a sweep bug — the stale-stranded reconcile sweep
+            # already retries what this misses, so it isn't worth paging anyone over.
+            logger.warning("dwh_finalize_queue_sweep_pool_timeout", job_id=job_id)
+            return
         logger.exception("dwh_finalize_queue_sweep_failed", job_id=job_id)
         capture_exception(e)
 

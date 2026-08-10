@@ -3,6 +3,8 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
+import psycopg
+
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
@@ -502,3 +504,68 @@ class TestFinalizeQueueSweep:
         db_job = ExternalDataJob.objects.get(id=job.id)
         assert db_job.status == ExternalDataJob.Status.FAILED
         assert db_job.finished_at is not None
+
+    def test_queue_sweep_pool_timeout_not_reported_as_exception(self, django_capture_on_commit_callbacks):
+        # A saturated PgBouncer pool rejects the sweep's query with a bare
+        # `ProtocolViolation("query_wait_timeout")` — a transient blip the stale-stranded
+        # reconcile sweep already retries, not a bug worth paging on.
+        team, _source, _schema, job = _create_org_team_source_schema_job(
+            pipeline_version=ExternalDataJob.PipelineVersion.V3
+        )
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches",
+                side_effect=psycopg.errors.ProtocolViolation("query_wait_timeout"),
+            ) as mock_sweep,
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.capture_exception") as mock_capture,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            logger = MagicMock()
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=logger,
+                latest_error="boom",
+            )
+
+        mock_sweep.assert_called_once()
+        mock_capture.assert_not_called()
+        logger.exception.assert_not_called()
+        logger.warning.assert_called_once()
+
+    def test_queue_sweep_unrelated_protocol_violation_still_reported(self, django_capture_on_commit_callbacks):
+        # A ProtocolViolation can also carry a cached-login-failure message, which is a real,
+        # actionable failure, not a pool-saturation blip. Matching on message keeps this case
+        # reported instead of being swallowed by the query_wait_timeout classification above.
+        team, _source, _schema, job = _create_org_team_source_schema_job(
+            pipeline_version=ExternalDataJob.PipelineVersion.V3
+        )
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches",
+                side_effect=psycopg.errors.ProtocolViolation("server login has been failing"),
+            ) as mock_sweep,
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.capture_exception") as mock_capture,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="boom",
+            )
+
+        mock_sweep.assert_called_once()
+        mock_capture.assert_called_once()
