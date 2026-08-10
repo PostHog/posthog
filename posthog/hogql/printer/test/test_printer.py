@@ -4860,6 +4860,11 @@ class TestPrinter(BaseTest):
                 "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM (SELECT distinct_id FROM events WHERE event = 'signup'))",
                 "globalIn(",
             ),
+            (
+                "nullable_left_not_in_keeps_rows_on_null",
+                "SELECT event FROM events WHERE nullIf(event, '') NOT IN (SELECT event FROM events WHERE event = 'signup')",
+                "ifNull(globalNotIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
