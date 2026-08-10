@@ -8635,6 +8635,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "last_modified_at": {
                   "chain": null,
                   "fields": null,
@@ -8644,6 +8654,29 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "notebook_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "notebook_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.notebooks",
@@ -18527,6 +18560,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "last_modified_at": {
                   "chain": null,
                   "fields": null,
@@ -18536,6 +18579,29 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "notebook_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "notebook_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.notebooks",

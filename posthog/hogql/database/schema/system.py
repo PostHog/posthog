@@ -3,7 +3,7 @@ from functools import lru_cache
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import TICKET_ASSIGNMENT, TICKET_TAGS
+from posthog.hogql.database.lazy_join_tags import NOTEBOOK_TAGS, TICKET_ASSIGNMENT, TICKET_TAGS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -1419,6 +1419,100 @@ def _notebook_markdown_expr() -> ast.Expr:
     )
 
 
+class _NotebookScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    """PostgresTable variant for notebook-side tables that have no `team_id` column of their own.
+
+    The framework's auto-injected `team_id = X` guard is skipped (the column doesn't exist);
+    isolation instead flows from the predicate scoping through `system.notebooks`, whose
+    own team_id guard the framework re-applies to the inner reference. For the tag junction,
+    the same predicate also prunes non-notebook `posthog_taggeditem` rows (tags on insights,
+    dashboards, tickets, ...), which carry a NULL `notebook_id` and so never match a notebook id.
+    """
+
+    predicates: list[Expr] = [parse_expr("notebook_id IN (SELECT id FROM system.notebooks)")]
+
+
+notebook_tagged_items: _NotebookScopedPostgresTable = _NotebookScopedPostgresTable(
+    name="_notebook_tagged_items",
+    postgres_table_name="posthog_taggeditem",
+    description="Internal junction table (PostgreSQL `posthog_taggeditem`) of tag-to-notebook links; not for direct querying — use `system.notebooks.tags`.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
+        "tag_id": UUIDDatabaseField(
+            name="tag_id", description="Tag applied to the notebook; join to `system.tags.id`."
+        ),
+        "notebook_id": StringDatabaseField(
+            name="notebook_id",
+            nullable=True,
+            description="Notebook the tag is applied to; join to `system.notebooks.id`.",
+        ),
+    },
+)
+
+
+def _notebook_tags_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            nti.notebook_id AS notebook_id,
+            arraySort(arrayDistinct(groupArray(t.name))) AS names
+        FROM system._notebook_tagged_items AS nti
+        INNER JOIN system.tags AS t ON t.id = nti.tag_id
+        GROUP BY nti.notebook_id
+        """
+    )
+
+
+class _NotebookTagsTable(LazyTable):
+    description: str = (
+        "Internal aggregating table backing `system.notebooks.tags`: the distinct, sorted tag names per notebook."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "notebook_id": StringDatabaseField(
+            name="notebook_id", description="Notebook these tags belong to; join to `system.notebooks.id`."
+        ),
+        "names": StringArrayDatabaseField(
+            name="names", description="Distinct, sorted tag names applied to the notebook."
+        ),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _notebook_tags_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "notebook_tags"
+
+    def to_printed_hogql(self) -> str:
+        return "notebook_tags"
+
+
+def notebook_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `notebooks.tags`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_notebook_tags_select(),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "notebook_id"]),
+            ),
+        ),
+    )
+
+
+notebook_tags_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_NotebookTagsTable(),
+    resolver=NOTEBOOK_TAGS,
+)
+
+
 notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
@@ -1452,9 +1546,16 @@ notebooks: PostgresTable = PostgresTable(
         ),
         "version": IntegerDatabaseField(name="version", description="Notebook version number."),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the notebook was created."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the notebook."
+        ),
         "last_modified_at": DateTimeDatabaseField(
             name="last_modified_at", description="When the notebook was last modified."
         ),
+        "last_modified_by_id": IntegerDatabaseField(
+            name="last_modified_by_id", nullable=True, description="User who last modified the notebook."
+        ),
+        "tags": notebook_tags_lazy_join,
     },
 )
 
@@ -2675,6 +2776,7 @@ class SystemTables(TableNode):
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "_notebook_tagged_items": TableNode(name="_notebook_tagged_items", table=notebook_tagged_items, hidden=True),
         "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
         "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
         "review_queues": TableNode(name="review_queues", table=review_queues),

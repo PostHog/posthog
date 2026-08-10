@@ -1,3 +1,4 @@
+import json
 import math
 import hashlib
 from datetime import timedelta
@@ -7,7 +8,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from django.http import Http404, JsonResponse
 from django.utils.timezone import now
 
@@ -36,14 +37,16 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_in_notebook_edit, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
+from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import User
+from posthog.models import TaggedItem, User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.tag import tagify
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -118,6 +121,23 @@ _LOCAL_FRAME_REF_ERROR = (
 )
 
 
+def _parse_tag_names(value: Any) -> list[str]:
+    """Parse a tags query param that arrives as a list or a JSON-encoded string.
+
+    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
+    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
+    Names are tagified (stripped/lowercased) because that's the form stored on Tag.name,
+    so a raw match on "Growth" would silently miss the stored "growth".
+    """
+    try:
+        tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(tags, list):
+        return []
+    return [tagify(tag) for tag in tags if isinstance(tag, str)]
+
+
 def depluralize(string: str | None) -> str | None:
     if not string:
         return None
@@ -171,10 +191,18 @@ _PARENT_RESOURCE_SCHEMA = {
 }
 
 
-class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+class NotebookMinimalSerializer(
+    TaggedItemSerializerMixin, serializers.ModelSerializer, UserAccessControlSerializerMixin
+):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
+        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
+        required=False,
+        help_text="Organizational tags for this notebook (up to 100, 255 characters each).",
+    )
 
     class Meta:
         model = Notebook
@@ -188,6 +216,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "tags",
             "_create_in_folder",
         ]
         read_only_fields = fields
@@ -219,6 +248,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
             "user_access_level",
             "parent_resource",
+            "tags",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -262,6 +292,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
             validated_data["short_id"] = short_id
 
         created_by = validated_data.pop("created_by", request.user)
+        # Tags live in the shared TaggedItem table, not on the notebook row; pop them so
+        # Notebook.objects.create doesn't reject them as an unknown key.
+        tags = validated_data.pop("tags", None)
         content = validated_data.get("content")
         if isinstance(content, dict):
             validated_data["content"] = annotate_python_nodes(content)
@@ -271,6 +304,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             last_modified_by=request.user,
             **validated_data,
         )
+        self._attempt_set_tags(tags, notebook)
 
         log_notebook_activity(
             activity="created",
@@ -302,10 +336,20 @@ class NotebookSerializer(NotebookMinimalSerializer):
         except Notebook.DoesNotExist:
             before_update = None
 
+        # Tags are applied after the row lock below: they live in the shared TaggedItem table,
+        # so their create/delete loop has no business extending the notebook lock. Popping them
+        # from both dicts also keeps TaggedItemSerializerMixin.update (reached via super()) from
+        # re-applying the raw request values — initial_data is uncoerced, so a non-string tag
+        # would crash tagify with a 500 instead of the 400 validation already produced.
+        tags = validated_data.pop("tags", None)
+        if isinstance(self.initial_data, dict):
+            self.initial_data.pop("tags", None)
+
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
             should_publish_update = False
+            updated_notebook = locked_instance
 
             if validated_data.keys():
                 locked_instance.last_modified_at = now()
@@ -356,6 +400,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
                             notify_team_id, notify_notebook_id, notify_version, diff=update_diff
                         )
                     )
+
+        self._attempt_set_tags(tags, updated_notebook)
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
@@ -578,15 +624,45 @@ def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
                 required=False,
             ),
             OpenApiParameter(
+                "last_modified_by",
+                OpenApiTypes.UUID,
+                description="UUID of the user who last modified the notebook",
+                required=False,
+            ),
+            OpenApiParameter(
                 "date_from",
                 OpenApiTypes.DATETIME,
-                description="Filter for notebooks created after this date & time",
+                description="Filter for notebooks last modified after this date & time",
                 required=False,
             ),
             OpenApiParameter(
                 "date_to",
                 OpenApiTypes.DATETIME,
-                description="Filter for notebooks created before this date & time",
+                description="Filter for notebooks last modified before this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Full-text search on notebook title and text content",
+                required=False,
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON-encoded list of tag names. Returns notebooks carrying at least one of the "
+                    'given tags, e.g. `["growth", "checkout"]`.'
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
+                "excluded_tags",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON-encoded list of tag names. Excludes notebooks carrying any of the given tags, "
+                    "even when they also carry non-excluded tags."
+                ),
                 required=False,
             ),
             OpenApiParameter(
@@ -691,6 +767,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
             # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
             queryset = queryset.defer("content", "text_content")
+            # prefetched_tags is what TaggedItemSerializerMixin.to_representation reads first,
+            # so tags render from one prefetch query instead of one query per notebook.
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "tagged_items",
+                    queryset=TaggedItem.objects.select_related("tag"),
+                    to_attr="prefetched_tags",
+                )
+            )
 
         order = self.request.GET.get("order", None)
         if order:
@@ -721,6 +806,24 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     # TODO this can be removed once all/most notebooks have text_content
                     Q(title__search=value) | Q(text_content__search=value)
                 )
+            elif key == "tags":
+                tags = _parse_tag_names(value)
+                if tags:
+                    # Filter by ID subquery instead of join + .distinct(): the list queryset already
+                    # joins the user/team tables, so SELECT DISTINCT over it dedupes every column.
+                    notebooks_with_tags = Notebook.objects.filter(
+                        team=self.team, tagged_items__tag__name__in=tags
+                    ).values("pk")
+                    queryset = queryset.filter(pk__in=notebooks_with_tags)
+            elif key == "excluded_tags":
+                excluded_tags = _parse_tag_names(value)
+                if excluded_tags:
+                    # Exclude by ID subquery so a notebook carrying both an excluded and a
+                    # non-excluded tag is still reliably filtered out.
+                    notebooks_with_excluded_tags = Notebook.objects.filter(
+                        team=self.team, tagged_items__tag__name__in=excluded_tags
+                    ).values("pk")
+                    queryset = queryset.exclude(pk__in=notebooks_with_excluded_tags)
             elif key == "contains" and isinstance(value, str):
                 contains = value
                 match_pairs = contains.replace(",", " ").split(" ")

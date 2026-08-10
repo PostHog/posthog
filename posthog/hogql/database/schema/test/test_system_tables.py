@@ -114,6 +114,8 @@ TEAM_ID_FILTER_PATTERNS = {
     "_ticket_assignments": "system__support_tickets.team_id",
     # Roles scope one level deeper, through the assignments that reference them
     "_ticket_assignee_roles": "system__support_tickets.team_id",
+    # Same shape, scoped through system.notebooks instead
+    "_notebook_tagged_items": "system__notebooks.team_id",
 }
 
 
@@ -150,6 +152,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_account_custom_property_values_history",
             # Hidden junction backing system.support_tickets.tags; covered by TestSystemTicketTagsLazyJoin.
             "_ticket_tagged_items",
+            # Hidden junction backing system.notebooks.tags; covered by TestSystemNotebookTagsLazyJoin.
+            "_notebook_tagged_items",
             # Hidden table backing system.support_tickets.assignee; covered by TestSystemTicketAssignmentLazyJoin.
             "_ticket_assignments",
             # Hidden table backing the assignee role_name resolution; covered by TestSystemTicketAssignmentLazyJoin.
@@ -1048,6 +1052,62 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         rows = {row[0]: row[1] for row in response.results}
 
         assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
+
+
+class TestSystemNotebookTagsLazyJoin(NonAtomicBaseTest):
+    """Verify the `notebooks.tags` lazy join returns per-notebook tag names and stays team-isolated."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+
+    def test_tags_lazy_join_returns_tag_names_array(self):
+        notebook = _create_notebook(self.team, "tagged")
+        notebook.tagged_items.create(tag=Tag.objects.create(name="billing", team=self.team))
+        notebook.tagged_items.create(tag=Tag.objects.create(name="urgent", team=self.team))
+        _create_notebook(self.team, "untagged")
+
+        response = execute_hogql_query(
+            "SELECT id, tags.names FROM system.notebooks ORDER BY title",
+            team=self.team,
+            user=self.user,
+        )
+        tags_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert sorted(tags_by_id[str(notebook.id)]) == ["billing", "urgent"]
+        # The untagged notebook resolves to an empty array, not a dropped row.
+        assert len(tags_by_id) == 2
+
+    def test_not_tagged_filter(self):
+        # The reporting use case: notebooks that are not tagged with a given tag.
+        kept = _create_notebook(self.team, "kept")
+        excluded = _create_notebook(self.team, "excluded")
+        excluded.tagged_items.create(tag=Tag.objects.create(name="exclude_from_reporting", team=self.team))
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.notebooks WHERE NOT has(tags.names, 'exclude_from_reporting')",
+            team=self.team,
+            user=self.user,
+        )
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(kept.id) in ids
+        assert str(excluded.id) not in ids
+
+    def test_tags_lazy_join_isolated_per_team(self):
+        other_notebook = _create_notebook(self.other_team, "theirs")
+        other_notebook.tagged_items.create(tag=Tag.objects.create(name="billing", team=self.other_team))
+
+        response = execute_hogql_query(
+            "SELECT id, tags.names FROM system.notebooks",
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results == []
 
 
 class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):

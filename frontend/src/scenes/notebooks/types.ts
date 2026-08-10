@@ -15,6 +15,7 @@ export type NotebookListItemType = {
     created_by: UserBasicType | null
     last_modified_at?: string
     last_modified_by?: UserBasicType | null
+    tags?: string[]
     _create_in_folder?: string
 }
 

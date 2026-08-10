@@ -425,3 +425,32 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             with_recording_two_id,
             with_both_recording_id,
         ]
+
+    def _create_notebook_with_tags(self, title: str, tags: list[str] | None = None) -> str:
+        payload: dict[str, Any] = {"title": title}
+        if tags is not None:
+            payload["tags"] = tags
+        response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data=payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("tags_match", 'tags=["growth"]', {"A"}),
+            ("tags_no_match", 'tags=["nonexistent"]', set()),
+            ("excluded_tags", 'excluded_tags=["growth"]', {"B", "C"}),
+            ("tags_and_excluded", 'tags=["shared"]&excluded_tags=["growth"]', {"B"}),
+            # Malformed values are ignored rather than an error, so filtering is a no-op.
+            ("tags_invalid_json", "tags=not-json", {"A", "B", "C"}),
+            ("tags_scalar_json", "tags=5", {"A", "B", "C"}),
+            ("excluded_tags_invalid_json", "excluded_tags=not-json", {"A", "B", "C"}),
+        ]
+    )
+    def test_filters_based_on_tags(self, _name: str, query: str, expected_titles: set[str]) -> None:
+        self._create_notebook_with_tags("A", tags=["growth", "shared"])
+        self._create_notebook_with_tags("B", tags=["shared"])
+        self._create_notebook_with_tags("C")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["title"] for row in response.json()["results"]} == expected_titles

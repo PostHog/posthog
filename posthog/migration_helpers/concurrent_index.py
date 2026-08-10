@@ -69,6 +69,19 @@ def _disable_timeouts(schema_editor) -> None:
     schema_editor.execute("SET statement_timeout = 0")
 
 
+def _transaction_safe_sql(schema_editor, sql: str) -> str:
+    """Strip CONCURRENTLY when running inside a transaction block.
+
+    Real deploys run these ops in non-atomic migrations, so CONCURRENTLY applies.
+    TestMigrations, however, walks the migration graph inside the test transaction,
+    where CONCURRENTLY is a hard error — and the transactional form is fine there,
+    since test tables are tiny and nothing else holds locks on them.
+    """
+    if schema_editor.connection.in_atomic_block:
+        return sql.replace(" CONCURRENTLY", "")
+    return sql
+
+
 def _index_validity(schema_editor, index_name: str) -> str | None:
     """None if no index of this name exists, else "valid" or "invalid" (indisvalid)."""
     with schema_editor.connection.cursor() as cursor:
@@ -225,11 +238,11 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index_name) == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
-        schema_editor.execute(self.sql)  # CREATE ... IF NOT EXISTS
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.sql))  # CREATE ... IF NOT EXISTS
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
-        schema_editor.execute(self.reverse_sql)
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.reverse_sql))
 
     def describe(self) -> str:
         return f"Concurrently create index {self.index_name} on {self.table_name}"
@@ -287,13 +300,13 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
-        schema_editor.execute(self.sql)
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.sql))
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index_name) == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
-        schema_editor.execute(self.reverse_sql)  # CREATE ... IF NOT EXISTS
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.reverse_sql))  # CREATE ... IF NOT EXISTS
 
     def describe(self) -> str:
         return f"Concurrently drop index {self.index_name} on {self.table_name}"

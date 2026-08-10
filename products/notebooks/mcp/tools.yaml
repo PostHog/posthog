@@ -148,8 +148,10 @@ tools:
         list: true
         title: List notebooks
         description: >
-            List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by,
-            date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.
+            List all notebooks in the project. Supports filtering by search term (title and text content),
+            created_by, last_modified_by, tags / excluded_tags (JSON-encoded lists of tag names), date_from,
+            date_to (both filter on last-modified time), and contains. Returns title, short_id, tags, and
+            creation/modification metadata.
     notebooks-list-frames:
         operation: notebooks_kernel_status_retrieve
         enabled: true

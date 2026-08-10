@@ -18,12 +18,17 @@ export interface NotebooksListFilters {
     // UUID of the user that created the notebook
     createdBy: string | null
     contains: NotebookNodeType[]
+    // Tag names the notebooks must have / must not have
+    tags: string[]
+    excludedTags: string[]
 }
 
 export const DEFAULT_FILTERS: NotebooksListFilters = {
     search: '',
     createdBy: null,
     contains: [],
+    tags: [],
+    excludedTags: [],
 }
 
 const RESULTS_PER_PAGE = 50
@@ -181,6 +186,8 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                         contains,
                         created_by: createdByForQuery ?? undefined,
                         search: values.filters?.search || undefined,
+                        tags: values.filters?.tags.length ? values.filters.tags : undefined,
+                        excluded_tags: values.filters?.excludedTags.length ? values.filters.excludedTags : undefined,
                         order: values.sortValue ?? '-last_modified_at',
                         limit: RESULTS_PER_PAGE,
                         offset: (values.page - 1) * RESULTS_PER_PAGE,

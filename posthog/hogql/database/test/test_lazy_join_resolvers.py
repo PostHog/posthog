@@ -227,6 +227,7 @@ class TestLazyJoinManifest(SimpleTestCase):
             "foreign_key",
             "group_n",
             "groups_revenue_analytics",
+            "notebook_tags",
             "person_distinct_id_overrides",
             "person_distinct_ids",
             "persons",

@@ -4,6 +4,8 @@ import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagSelect } from 'lib/components/TagSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -50,6 +52,17 @@ export function NotebooksTable(): JSX.Element {
 
     const columns: LemonTableColumns<NotebookListItemType> = [
         titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
+        {
+            title: 'Tags',
+            dataIndex: 'tags',
+            render: function Render(_, notebook: NotebookListItemType) {
+                const tags = notebook.tags
+                if (!tags || tags.length === 0) {
+                    return null
+                }
+                return <ObjectTags tags={[...tags].sort()} staticOnly />
+            },
+        } as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
 
         createdByColumn<NotebookListItemType>() as LemonTableColumn<
             NotebookListItemType,
@@ -116,6 +129,22 @@ export function NotebooksTable(): JSX.Element {
                 />
                 <div className="flex items-center gap-2 flex-wrap">
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
+                    <div className="flex items-center gap-2">
+                        <span>Tags:</span>
+                        <TagSelect
+                            defaultLabel="Any tags"
+                            value={filters.tags}
+                            onChange={(tags) => setFilters({ tags })}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span>Exclude tags:</span>
+                        <TagSelect
+                            defaultLabel="No tags"
+                            value={filters.excludedTags}
+                            onChange={(excludedTags) => setFilters({ excludedTags })}
+                        />
+                    </div>
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
                         <MemberSelect

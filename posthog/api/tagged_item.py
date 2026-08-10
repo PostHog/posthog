@@ -184,6 +184,8 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 
 
 BULK_UPDATE_TAGS_MAX_IDS = 500
+BULK_UPDATE_TAGS_MAX_TAGS = 100
+TAG_NAME_MAX_LENGTH = 255  # Mirrors Tag.name's max_length
 
 
 class BulkUpdateTagsRequestSerializer(serializers.Serializer):

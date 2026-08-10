@@ -1187,13 +1187,13 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
+        # +1 for the parent_resource lookup on NotebookSerializer, +1 for its tags
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
+        # +1 for the parent_resource lookup on NotebookSerializer, +1 for its tags
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         # The 9th query is domain enforcement resolving the user's current organization — this
@@ -1206,7 +1206,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls, tags prefetch
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_with_preload_optimization(self):
@@ -1235,13 +1235,13 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 8
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
+        # +1 for the parent_resource lookup on NotebookSerializer, +1 for its tags
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
+        # +1 for the parent_resource lookup on NotebookSerializer, +1 for its tags
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
     def test_query_counts_stable_for_project_access(self):
@@ -1257,14 +1257,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls, tags prefetch
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
 
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls, tags prefetch
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):

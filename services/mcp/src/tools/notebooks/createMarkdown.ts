@@ -15,6 +15,13 @@ export const NotebooksCreateMarkdownSchema = z
             .describe(
                 'Optional initial markdown body below the title. Do not include executable cells here — add them with notebooks-add-cell.'
             ),
+        tags: z
+            .array(z.string().min(1).max(255))
+            .max(100)
+            .optional()
+            .describe(
+                'Optional organizational tags for the notebook (e.g. ["experiments-sme", "investigation"]). Tags make notebooks discoverable via the tags filter on notebooks-list.'
+            ),
     })
     .strict()
 
@@ -34,6 +41,7 @@ export const createMarkdownHandler: ToolBase<
             title: params.title,
             content: buildMarkdownNotebookContent(markdown),
             text_content: markdown,
+            ...(params.tags?.length ? { tags: params.tags } : {}),
         },
     })
     return await withPostHogUrl(

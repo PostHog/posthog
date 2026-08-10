@@ -7,15 +7,19 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { tagsModel } from '~/models/tagsModel'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
@@ -48,9 +52,10 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, accessDeniedToNotebook } = useValues(
-        notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
-    )
+    const boundNotebookLogic = notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
+    const { notebook, notebookLoading, accessDeniedToNotebook, isLocalOnly } = useValues(boundNotebookLogic)
+    const { updateNotebookTags } = useActions(boundNotebookLogic)
+    const { tags: allExistingTags } = useValues(tagsModel)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
     const [isMarkdownSourceOpen, setIsMarkdownSourceOpen] = useState(false)
@@ -124,6 +129,12 @@ export function NotebookScene(): JSX.Element {
         return <NotebookLoadingState />
     }
 
+    const canEditNotebook =
+        !isTemplate &&
+        // the scratchpad is local-only, so tag saves would silently no-op there
+        !isLocalOnly &&
+        userHasAccess(AccessControlResourceType.Notebook, AccessControlLevel.Editor, notebook?.user_access_level)
+
     return (
         <>
             <NotebookSceneMenuBar shortId={notebookId} />
@@ -132,6 +143,18 @@ export function NotebookScene(): JSX.Element {
                     <SceneBreadcrumbBackButton />
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
+                    {notebook &&
+                        (canEditNotebook ? (
+                            <ObjectTags
+                                tags={notebook.tags ?? []}
+                                onChange={(tags) => updateNotebookTags(tags)}
+                                saving={notebookLoading}
+                                tagsAvailable={allExistingTags.filter((tag) => !notebook.tags?.includes(tag))}
+                                data-attr="notebook-tags"
+                            />
+                        ) : notebook.tags && notebook.tags.length > 0 ? (
+                            <ObjectTags tags={notebook.tags} staticOnly data-attr="notebook-tags" />
+                        ) : null)}
                 </div>
 
                 <div className="flex gap-2 items-center">

@@ -4801,7 +4801,9 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
+            data: Partial<
+                Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | 'tags' | '_create_in_folder'>
+            >
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -4810,6 +4812,9 @@ const api = {
                 contains?: NotebookNodeResource[]
                 created_by?: UserBasicType['uuid']
                 search?: string
+                // Tag names to filter by / exclude; sent JSON-encoded via toParams, as the backend expects
+                tags?: string[]
+                excluded_tags?: string[]
                 order?: string
                 offset?: number
                 limit?: number

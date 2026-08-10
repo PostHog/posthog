@@ -5,7 +5,7 @@ from unittest import mock
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Tag, Team
 from posthog.models.user import User
 
 from products.notebooks.backend.models import Notebook
@@ -117,6 +117,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "last_modified_by": response_json["last_modified_by"],
             "user_access_level": "manager",
             "parent_resource": None,
+            "tags": [],
         }
 
         self.assert_notebook_activity(
@@ -505,3 +506,86 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestNotebookTags(APIBaseTest):
+    def _create_notebook(self, title: str, tags: list[str] | None = None) -> dict:
+        payload: dict = {"title": title}
+        if tags is not None:
+            payload["tags"] = tags
+        response = self.client.post(f"/api/projects/{self.team.id}/notebooks", payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def test_create_with_tags_persists_and_normalizes_them(self) -> None:
+        notebook = self._create_notebook("Tagged", tags=["Growth", "checkout"])
+        assert sorted(notebook["tags"]) == ["checkout", "growth"]
+        detail = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}").json()
+        assert sorted(detail["tags"]) == ["checkout", "growth"]
+
+    def test_update_replaces_tags_and_untagged_update_preserves_them(self) -> None:
+        notebook = self._create_notebook("Tagged", tags=["one"])
+
+        # A PATCH that doesn't mention tags must not wipe them.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}",
+            {"title": "still tagged"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["one"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}",
+            {"tags": ["two", "three"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(response.json()["tags"]) == ["three", "two"]
+
+        # tags: [] clears (None preserves, [] clears)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}",
+            {"tags": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == []
+        detail = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}").json()
+        assert detail["tags"] == []
+
+    def test_list_includes_tags(self) -> None:
+        # NotebookMinimalSerializer takes a different (deferred + prefetched) queryset path than
+        # the detail serializer; this catches the list serialization of tags breaking independently.
+        notebook = self._create_notebook("Tagged", tags=["growth"])
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks")
+        row = next(r for r in response.json()["results"] if r["id"] == notebook["id"])
+        assert row["tags"] == ["growth"]
+
+    def test_create_with_too_many_tags_returns_400(self) -> None:
+        from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS
+
+        tags = [f"tag-{i}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS + 1)]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Too many", "tags": tags},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["type"] == "validation_error"
+        assert response.json()["attr"] == "tags"
+
+    def test_tags_do_not_leak_across_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_notebook = Notebook.objects.create(team=other_team, created_by=self.user, title="other")
+        other_tag = Tag.objects.create(name="growth", team_id=other_team.id)
+        other_notebook.tagged_items.create(tag_id=other_tag.id)
+
+        response = self.client.get(f'/api/projects/{self.team.id}/notebooks?tags=["growth"]')
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == []
+
+        # Same tag name in this team only matches this team's notebooks.
+        mine = self._create_notebook("mine", tags=["growth"])
+        response = self.client.get(f'/api/projects/{self.team.id}/notebooks?tags=["growth"]')
+        assert [r["id"] for r in response.json()["results"]] == [mine["id"]]
