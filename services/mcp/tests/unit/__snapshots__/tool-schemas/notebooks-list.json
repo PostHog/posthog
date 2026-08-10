@@ -10,15 +10,23 @@
             "type": "string"
         },
         "date_from": {
-            "description": "Filter for notebooks created after this date & time",
+            "description": "Filter for notebooks last modified after this date & time",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
         "date_to": {
-            "description": "Filter for notebooks created before this date & time",
+            "description": "Filter for notebooks last modified before this date & time",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "excluded_tags": {
+            "description": "JSON-encoded list of tag names. Excludes notebooks carrying any of the given tags, even when they also carry non-excluded tags.",
+            "type": "string"
+        },
+        "last_modified_by": {
+            "description": "UUID of the user who last modified the notebook",
             "type": "string"
         },
         "limit": {
@@ -28,6 +36,14 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "search": {
+            "description": "Full-text search on notebook title and text content",
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded list of tag names. Returns notebooks carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.",
+            "type": "string"
         },
         "user": {
             "description": "If any value is provided for this parameter, return notebooks created by the logged in user.",

@@ -169,6 +169,11 @@ class _ConcurrentIndexOp(migrations.RunSQL):
     unique: bool
     using: str
     where: str
+    # str-typed copies of RunSQL's sql/reverse_sql (typed as a str|list|tuple
+    # union there) — these ops always build plain strings, and the forwards/
+    # backwards overrides need them as such for _transaction_safe_sql.
+    forward_sql: str
+    backward_sql: str
 
     def deconstruct(self) -> tuple[str, list[object], dict[str, str | bool]]:
         # RunSQL.deconstruct() emits sql=/reverse_sql= kwargs, which this op's
@@ -222,27 +227,26 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         self.unique = unique
         self.using = using
         self.where = where
-        super().__init__(
-            sql=_build_create_sql(
-                index_name=index_name,
-                table_name=table_name,
-                columns=columns,
-                unique=unique,
-                using=using,
-                where=where,
-            ),
-            reverse_sql=_build_drop_sql(index_name),
+        self.forward_sql = _build_create_sql(
+            index_name=index_name,
+            table_name=table_name,
+            columns=columns,
+            unique=unique,
+            using=using,
+            where=where,
         )
+        self.backward_sql = _build_drop_sql(index_name)
+        super().__init__(sql=self.forward_sql, reverse_sql=self.backward_sql)
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index_name) == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
-        schema_editor.execute(_transaction_safe_sql(schema_editor, self.sql))  # CREATE ... IF NOT EXISTS
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.forward_sql))  # CREATE ... IF NOT EXISTS
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
-        schema_editor.execute(_transaction_safe_sql(schema_editor, self.reverse_sql))
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.backward_sql))
 
     def describe(self) -> str:
         return f"Concurrently create index {self.index_name} on {self.table_name}"
@@ -286,27 +290,26 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         self.unique = unique
         self.using = using
         self.where = where
-        super().__init__(
-            sql=_build_drop_sql(index_name),
-            reverse_sql=_build_create_sql(
-                index_name=index_name,
-                table_name=table_name,
-                columns=columns,
-                unique=unique,
-                using=using,
-                where=where,
-            ),
+        self.forward_sql = _build_drop_sql(index_name)
+        self.backward_sql = _build_create_sql(
+            index_name=index_name,
+            table_name=table_name,
+            columns=columns,
+            unique=unique,
+            using=using,
+            where=where,
         )
+        super().__init__(sql=self.forward_sql, reverse_sql=self.backward_sql)
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
-        schema_editor.execute(_transaction_safe_sql(schema_editor, self.sql))
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.forward_sql))
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index_name) == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
-        schema_editor.execute(_transaction_safe_sql(schema_editor, self.reverse_sql))  # CREATE ... IF NOT EXISTS
+        schema_editor.execute(_transaction_safe_sql(schema_editor, self.backward_sql))  # CREATE ... IF NOT EXISTS
 
     def describe(self) -> str:
         return f"Concurrently drop index {self.index_name} on {self.table_name}"

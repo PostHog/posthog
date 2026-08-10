@@ -11,6 +11,15 @@
         "short_id": {
             "type": "string"
         },
+        "tags": {
+            "description": "Organizational tags for this notebook (up to 100, 255 characters each).",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
         "text_content": {
             "anyOf": [
                 {

@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Serializer mixin that handles tags for objects.",
     "properties": {
         "content": {
             "description": "Notebook content as a ProseMirror JSON document structure."
@@ -7,6 +8,15 @@
         "deleted": {
             "description": "Whether the notebook has been soft-deleted.",
             "type": "boolean"
+        },
+        "tags": {
+            "description": "Organizational tags for this notebook (up to 100, 255 characters each).",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
         },
         "text_content": {
             "anyOf": [
