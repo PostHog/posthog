@@ -46,6 +46,8 @@ class EnrichmentFields:
     ownership_status: Optional[str] = None
     parent_company: Optional[str] = None
     parent_company_domain: Optional[str] = None
+    customer_type: Optional[str] = None
+    funding_status: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return set (non-None) fields keyed by registry name."""

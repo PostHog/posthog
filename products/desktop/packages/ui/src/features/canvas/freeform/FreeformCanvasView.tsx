@@ -356,7 +356,9 @@ export function FreeformCanvasView({
       useCanvasChatPanelStore.getState().openComments();
       useCommentNavigationStore
         .getState()
-        .requestCommentFocus(commentTaskId, commentTarget, id);
+        .requestCommentFocus(commentTaskId, commentTarget, id, {
+          intent: "reveal-thread",
+        });
     },
     [commentTaskId, commentTarget],
   );

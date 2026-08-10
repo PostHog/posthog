@@ -1,12 +1,21 @@
 import api from 'lib/api'
 
-import { ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
-import { AnyPropertyFilter } from '~/types'
+import { ProductKey, type RefreshType } from '~/queries/schema/schema-general'
+import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import { normalizeSentimentResult, type GenerationSentiment } from './sentimentResults'
 
 export const GENERATIONS_PAGE_SIZE = 200
+
+export type SentimentCategory = 'negative' | 'positive'
+
+const SENTIMENT_CATEGORIES: readonly SentimentCategory[] = ['negative', 'positive']
+
+/** The categories the query should select, falling back to all of them if nothing is active */
+function resolveActiveCategories(activeFilters: Set<SentimentCategory> | undefined): SentimentCategory[] {
+    const active = SENTIMENT_CATEGORIES.filter((category) => activeFilters?.has(category))
+    return active.length > 0 ? active : [...SENTIMENT_CATEGORIES]
+}
 
 const SENTIMENT_QUERY_TAGS = {
     productKey: ProductKey.AI_OBSERVABILITY,
@@ -87,7 +96,9 @@ export interface SentimentGeneration {
 export interface SentimentGenerationsQueryValues {
     dateFilter: { dateFrom: string | null; dateTo: string | null }
     shouldFilterTestAccounts: boolean
-    propertyFilters: AnyPropertyFilter[]
+    activeFilters: Set<SentimentCategory>
+    /** Restrict results to one sentiment evaluation, or null for all of them */
+    evaluationId: string | null
 }
 
 export interface SentimentGenerationsPage {
@@ -263,8 +274,18 @@ export async function fetchStoredGenerationSentiments(
 
 async function fetchSentimentEvaluationCandidates(
     values: SentimentGenerationsQueryValues,
-    offset: number
+    offset: number,
+    refresh?: RefreshType
 ): Promise<SentimentEvaluationCandidate[]> {
+    const categories = resolveActiveCategories(values.activeFilters)
+    const categoryScores = categories.map((category) => `JSONExtractFloat(scores, '${category}')`)
+    // Rank by the strongest score among the selected categories only, so a deselected
+    // category can't push a generation to the top of the page
+    const rankingExpression = categoryScores.length > 1 ? `greatest(${categoryScores.join(', ')})` : categoryScores[0]
+    const evaluationClause = values.evaluationId
+        ? `AND properties.$ai_evaluation_id = ${escapeHogQLString(values.evaluationId)}`
+        : ''
+
     const response = await api.queryHogQL<unknown[][]>(
         hogql`
             SELECT
@@ -284,23 +305,22 @@ async function fetchSentimentEvaluationCandidates(
                 WHERE event = '$ai_evaluation'
                   AND properties.$ai_evaluation_runtime = 'sentiment'
                   AND timestamp >= now() - INTERVAL 30 DAY
+                  ${hogql.raw(evaluationClause)}
                   AND {filters}
                 GROUP BY trace_id, generation_id
             )
             WHERE length(evaluation_id) > 0
               AND length(trace_id) > 0
               AND length(generation_id) > 0
-              AND label IN ('positive', 'negative', 'neutral')
+              AND label IN ${categories}
               AND toIntOrZero(message_count) > 0
-            ORDER BY greatest(
-                JSONExtractFloat(scores, 'positive'),
-                JSONExtractFloat(scores, 'negative')
-            ) DESC, evaluation_timestamp DESC, generation_id DESC
+            ORDER BY ${hogql.raw(rankingExpression)} DESC, evaluation_timestamp DESC, generation_id DESC
             LIMIT ${GENERATIONS_PAGE_SIZE}
             OFFSET ${Math.max(0, Math.trunc(offset))}
         `,
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_evaluations' },
         {
+            refresh,
             queryParams: {
                 filters: {
                     dateRange: {
@@ -328,7 +348,8 @@ async function fetchSentimentEvaluationCandidates(
 
 async function hydrateSentimentGenerations(
     candidates: SentimentEvaluationCandidate[],
-    values: SentimentGenerationsQueryValues
+    values: SentimentGenerationsQueryValues,
+    refresh?: RefreshType
 ): Promise<Map<string, SentimentGeneration>> {
     const traceIds = uniqueNonEmpty(candidates.map((candidate) => candidate.traceId))
     const generationIds = uniqueNonEmpty(candidates.map((candidate) => candidate.generationId))
@@ -392,10 +413,10 @@ async function hydrateSentimentGenerations(
         `,
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_generation_hydration' },
         {
+            refresh,
             queryParams: {
                 filters: {
                     filterTestAccounts: values.shouldFilterTestAccounts,
-                    properties: values.propertyFilters,
                 },
             },
         }
@@ -440,21 +461,27 @@ async function hydrateSentimentGenerations(
     return generationById
 }
 
+/**
+ * Results are ranked by strongest score and rarely change between visits, so a page load reuses
+ * whatever the query cache holds. Pass `forceRefresh` to recompute — that's the Reload button.
+ */
 export async function fetchSentimentGenerationsPage(
     values: SentimentGenerationsQueryValues,
-    offset: number
+    offset: number,
+    forceRefresh: boolean = false
 ): Promise<SentimentGenerationsPage> {
+    const refresh: RefreshType | undefined = forceRefresh ? 'force_blocking' : undefined
     const generations: SentimentGeneration[] = []
     let rawCount = 0
     let hasMore = false
 
     while (generations.length < GENERATIONS_PAGE_SIZE) {
-        const candidates = await fetchSentimentEvaluationCandidates(values, offset + rawCount)
+        const candidates = await fetchSentimentEvaluationCandidates(values, offset + rawCount, refresh)
         if (candidates.length === 0) {
             break
         }
 
-        const generationById = await hydrateSentimentGenerations(candidates, values)
+        const generationById = await hydrateSentimentGenerations(candidates, values, refresh)
         let consumedCandidates = 0
 
         for (const candidate of candidates) {

@@ -89,6 +89,7 @@ mod tests {
             is_identified: false,
             is_user_id: None,
             last_seen_at: None,
+            is_deleted: false,
         }
     }
 
