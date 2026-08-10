@@ -2,20 +2,20 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { LinkedReportsList } from './LinkedReports'
+import { LinkedReportsSection } from './LinkedReports'
 
-// What the issue page shows above the exception once self-driving has looked at the error. This is the
-// entry the ticket thread uses, so the states worth a snapshot are the same ones: a proposed fix, a
-// merged fix, and a report with no pull request to point at yet.
+// The right pane's self-driving section, above the exception card. Whether a fix exists is what a
+// person triaging needs, so the states worth a snapshot are a proposed fix, a merged fix, and a report
+// with no pull request to point at yet.
 
-const meta: Meta<typeof LinkedReportsList> = {
+const meta: Meta<typeof LinkedReportsSection> = {
     title: 'Scenes-App/ErrorTracking/LinkedReports',
-    component: LinkedReportsList,
+    component: LinkedReportsSection,
     parameters: { layout: 'padded', viewMode: 'story', mockDate: '2026-08-10' },
 }
 export default meta
 
-type Story = StoryObj<typeof LinkedReportsList>
+type Story = StoryObj<typeof LinkedReportsSection>
 
 function makeReport(overrides: Partial<SignalReportApi> = {}): SignalReportApi {
     return {
@@ -31,23 +31,23 @@ function makeReport(overrides: Partial<SignalReportApi> = {}): SignalReportApi {
     } as SignalReportApi
 }
 
-/** The right-hand column is 375px at its narrowest and about 700px at the default split. */
-function Column({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="w-[700px]">{children}</div>
+/** The right pane is about 700px at the default split, and the section runs its full width. */
+function Pane({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="w-[700px] border rounded overflow-hidden bg-surface-primary">{children}</div>
 }
 
 export const FixProposed: Story = {
     render: () => (
-        <Column>
-            <LinkedReportsList reports={[makeReport()]} />
-        </Column>
+        <Pane>
+            <LinkedReportsSection reports={[makeReport()]} />
+        </Pane>
     ),
 }
 
 export const SeveralReportsAcrossStates: Story = {
     render: () => (
-        <Column>
-            <LinkedReportsList
+        <Pane>
+            <LinkedReportsSection
                 reports={[
                     makeReport(),
                     makeReport({
@@ -69,15 +69,15 @@ export const SeveralReportsAcrossStates: Story = {
                     }),
                 ]}
             />
-        </Column>
+        </Pane>
     ),
 }
 
-/** The narrowest the column gets, where the title and the fix state compete for width. */
-export const NarrowColumn: Story = {
+/** The narrowest the pane gets, where the title and the fix state compete for width. */
+export const NarrowPane: Story = {
     render: () => (
-        <div className="w-[375px]">
-            <LinkedReportsList reports={[makeReport()]} />
+        <div className="w-[375px] border rounded overflow-hidden bg-surface-primary">
+            <LinkedReportsSection reports={[makeReport()]} />
         </div>
     ),
 }

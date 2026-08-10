@@ -224,8 +224,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
 
-                                <LinkedReports />
-
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
                                         <LeftHandColumn isMobile={isMobile} />
@@ -280,6 +278,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={selectedEvent} />
+            <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
                     issueId={issue?.id ?? 'no-issue'}
