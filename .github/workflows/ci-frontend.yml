@@ -33,7 +33,11 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: ubuntu-latest
+        # Depot's elastic pool absorbs the spikes that drain the GitHub-hosted queue,
+        # where jobs have waited up to ~30 min to start. Forks stay on ubuntu-latest:
+        # these jobs run fork-controlled code and Depot injects shared cache credentials
+        # ambiently (see the frontend-typechecking job and _rust-build-images.yml).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
@@ -193,7 +197,8 @@ jobs:
     # and defers to the ready full run.
     select-jest-tests:
         name: Select jest tests
-        runs-on: ubuntu-latest
+        # Depot pool to skip the GitHub-hosted queue; forks stay on ubuntu-latest (see the changes job).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 5
         needs: changes
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
@@ -309,13 +314,15 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode: single EE-tree job, no chunk sharding. The FOSS
-                  # structural check (ee/ removed) only matters when ee imports are
-                  # touched; defer that to the ready-for-review full run. --findRelatedTests
-                  # walks jest's import graph from these files and runs the matching
-                  # *.test.* files.
+                  # Selective mode: EE-tree only, sharded across the same chunk count
+                  # as the full matrix so no single shard walks the whole
+                  # --findRelatedTests graph alone. The FOSS structural check (ee/ removed)
+                  # only matters when ee imports are touched; defer that to the
+                  # ready-for-review full run. --findRelatedTests walks jest's import graph
+                  # from these files and runs the matching *.test.* files; --shard then
+                  # partitions that set, and empty shards pass via --passWithNoTests.
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
-                  echo 'matrix={"include":[{"segment":"EE","chunk":1}]}' >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"segment":"EE","chunk":1},{"segment":"EE","chunk":2},{"segment":"EE","chunk":3},{"segment":"EE","chunk":4}]}' >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
                   echo "changed_files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
                   echo "Selective mode: $(echo "$CHANGED_FILES" | wc -w) frontend source files"
@@ -324,7 +331,8 @@ jobs:
         name: Frontend formatting
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
-        runs-on: ubuntu-latest
+        # Depot pool to skip the GitHub-hosted queue; forks stay on ubuntu-latest (see the changes job).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -370,7 +378,8 @@ jobs:
         name: Frontend bundle size
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        runs-on: ubuntu-latest
+        # Depot pool to skip the GitHub-hosted queue; forks stay on ubuntu-latest (see the changes job).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -698,11 +707,10 @@ jobs:
                     run: node bin/validate-setup-tasks.mjs
 
     jest:
-        runs-on: ubuntu-latest
-        # Draft PRs run the selective mode as a single unsharded job over every
-        # test reachable from the changed files. A PR touching a scene component
-        # can pull in much of the suite, so the budget must fit a near-full
-        # unsharded run; the ready-for-review fanout shards well below it.
+        # Depot pool to skip the GitHub-hosted queue; forks stay on ubuntu-latest (see the changes job).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
+        # Draft PRs run the selective mode sharded across the same chunk count as the
+        # full matrix, so no single shard walks the whole --findRelatedTests graph alone.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on ready
@@ -715,9 +723,9 @@ jobs:
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            # On draft PRs, select-jest-tests may narrow this to a single EE job
-            # running only the tests reachable from changed frontend source files,
-            # or skip jest entirely (should_run=false) when selection can't be
+            # On draft PRs, select-jest-tests may narrow this to a sharded EE-only
+            # matrix running only the tests reachable from changed frontend source
+            # files, or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs and master pushes it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
@@ -768,8 +776,9 @@ jobs:
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
-                      # source files and runs the matching tests. No --shard: single
-                      # job runs the entire selected set.
+                      # source files and runs the matching tests. --shard then partitions
+                      # that set across SHARD_COUNT runners, so no single shard walks the
+                      # whole graph alone; empty shards pass via --passWithNoTests.
                       #
                       # No --testPathPattern: it is mutually exclusive with
                       # --findRelatedTests (jest folds both into one path regex and
@@ -782,6 +791,7 @@ jobs:
                       pnpm --filter=@posthog/frontend exec jest \
                           --forceExit \
                           --passWithNoTests \
+                          --shard="$SHARD_INDEX/$SHARD_COUNT" \
                           --findRelatedTests $CHANGED_FILES
                   else
                       # 100% = one worker per available core. Public-repo ubuntu-latest
@@ -831,7 +841,8 @@ jobs:
               run: exit 1
 
     jest-replay-shared:
-        runs-on: ubuntu-latest
+        # Depot pool to skip the GitHub-hosted queue; forks stay on ubuntu-latest (see the changes job).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.replay_shared == 'true'
