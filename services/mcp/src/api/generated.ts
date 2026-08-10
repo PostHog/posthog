@@ -13992,6 +13992,36 @@ export namespace Schemas {
     }
 
     /**
+     * A staged draft version and the status of its latest build. Preview a
+     * draft's files with `source?version_id=`, then make it live with `promote`.
+     */
+    export interface CanvasDraft {
+      /** Id of the draft source version. */
+      version_id: string;
+      /**
+         * Short description recorded when the draft was staged.
+         * @nullable
+         */
+      prompt: string | null;
+      /** Who staged the draft. */
+      readonly created_by: UserBasic | null;
+      /** When the draft was staged. */
+      created_at: string;
+      /** Status of the draft's latest build; null when no build has been recorded yet.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum | null;
+      /**
+         * Id of the draft's latest build, when one exists.
+         * @nullable
+         */
+      build_id: string | null;
+    }
+
+    /**
      * Payload for promoting a draft version to the canvas's live head.
      */
     export interface CanvasPromote {
@@ -46234,6 +46264,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CIMDVerificationToken[];
+    }
+
+    export interface PaginatedCanvasDraftList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CanvasDraft[];
     }
 
     export interface PaginatedCanvasList {
@@ -80450,6 +80489,17 @@ export namespace Schemas {
      * Include the retained ready build for this historical source version.
      */
     version_id?: string;
+    };
+
+    export type CanvasesDraftsRetrieveParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type CanvasesSourceRetrieveParams = {

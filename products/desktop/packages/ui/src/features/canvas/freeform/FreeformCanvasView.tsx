@@ -1,6 +1,7 @@
 import {
   ArrowUUpLeftIcon,
   ArrowUUpRightIcon,
+  CaretDownIcon,
   ClockCounterClockwiseIcon,
   ShapesIcon,
   SidebarSimpleIcon,
@@ -14,6 +15,7 @@ import {
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
+import type { CanvasDraft } from "@posthog/core/canvas/dashboardSchemas";
 import {
   type CanvasAnalyticsConfig,
   type CanvasCommentHighlight,
@@ -22,7 +24,12 @@ import {
 } from "@posthog/core/canvas/freeformSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
+  Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -40,6 +47,7 @@ import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/inv
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
+  useCanvasDrafts,
   useCanvasSource,
   useCanvasVersions,
   useDashboardMutations,
@@ -105,6 +113,17 @@ function canvasErrorType(message: string): string {
   return (
     message.match(/^([A-Z][A-Za-z0-9]*(?:Error|Exception))\b/)?.[1] ?? "unknown"
   );
+}
+
+// Badge tone for a draft's latest build status: ready is good, failed is bad,
+// in-flight is cautionary, and no build yet is neutral.
+function draftBadgeVariant(
+  status: CanvasDraft["buildStatus"],
+): "default" | "warning" | "success" | "destructive" {
+  if (status === "ready") return "success";
+  if (status === "failed") return "destructive";
+  if (status === "queued" || status === "building") return "warning";
+  return "default";
 }
 
 export function FreeformCanvasView({
@@ -272,19 +291,41 @@ export function FreeformCanvasView({
   });
 
   // Server-side version history (newest first), for the undo/redo navigation.
+  // Drafts are excluded from this list and fetched separately.
   const { versions, isLoading: versionsLoading } =
     useCanvasVersions(dashboardId);
+  const { drafts, isLoading: draftsLoading } = useCanvasDrafts(dashboardId);
   const commentTaskId = canvasCommentTaskId(genTaskId, versions);
+  // The browsed version is a draft preview when it matches a staged draft
+  // rather than a published version. Drives the Draft label and Promote action.
+  const browsedDraft =
+    drafts.find((draft) => draft.versionId === browseVersionId) ?? null;
+  const browsingDraft = !!browsedDraft;
 
-  // Clear a browse that points at a version the history no longer contains
-  // (e.g. it was pruned server-side while this canvas was open).
+  // Clear a browse that points at a version the canvas no longer offers (e.g.
+  // pruned server-side while open). A browsed draft is a valid target, so it is
+  // not cleared.
   useEffect(() => {
     if (
-      shouldClearCanvasBrowse({ versions, versionsLoading, browseVersionId })
+      shouldClearCanvasBrowse({
+        versions,
+        drafts,
+        versionsLoading,
+        draftsLoading,
+        browseVersionId,
+      })
     ) {
       setBrowseVersion(threadId, null);
     }
-  }, [browseVersionId, versions, versionsLoading, threadId, setBrowseVersion]);
+  }, [
+    browseVersionId,
+    versions,
+    drafts,
+    versionsLoading,
+    draftsLoading,
+    threadId,
+    setBrowseVersion,
+  ]);
 
   // Undo/redo step through the version list relative to the HEAD (which, after
   // a revert, may sit mid-list rather than at versions[0]). The arithmetic is
@@ -308,7 +349,8 @@ export function FreeformCanvasView({
   // Revert: make the browsed version the head. The mutation invalidates the
   // record, versions, source, and builds caches (the server queues a rebuild),
   // so afterwards only the local browse state needs clearing.
-  const { revertToVersion, isReverting } = useDashboardMutations();
+  const { revertToVersion, isReverting, promoteDraft, isPromoting } =
+    useDashboardMutations();
   const onRevert = useCallback(async () => {
     if (!browseVersionId) return;
     try {
@@ -329,6 +371,31 @@ export function FreeformCanvasView({
     dashboardId,
     threadId,
     revertToVersion,
+    setBrowseVersion,
+  ]);
+  // Promote the previewed draft to the live head. Like revert, the mutation
+  // refreshes the canvas's lifecycle; afterwards clear the local browse so the
+  // view snaps to the now-live version.
+  const onPromote = useCallback(async () => {
+    if (!browseVersionId) return;
+    try {
+      await promoteDraft(
+        dashboardId,
+        browseVersionId,
+        dashboard?.currentVersionId ?? null,
+      );
+      setBrowseVersion(threadId, null);
+    } catch (error) {
+      toast.error("Couldn't promote draft", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [
+    browseVersionId,
+    dashboard?.currentVersionId,
+    dashboardId,
+    threadId,
+    promoteDraft,
     setBrowseVersion,
   ]);
 
@@ -587,12 +654,19 @@ export function FreeformCanvasView({
                   >
                     <ArrowUUpRightIcon size={16} />
                   </Button>
-                  {versions.length > 0 && (
-                    <Text size="1" className="ml-1 text-gray-9">
-                      v{versions.length - currentIndex}/{versions.length}
-                    </Text>
+                  {browsingDraft ? (
+                    <Badge variant="warning" className="ml-1">
+                      Draft preview
+                    </Badge>
+                  ) : (
+                    versions.length > 0 && (
+                      <Text size="1" className="ml-1 text-gray-9">
+                        v{versions.length - currentIndex}/{versions.length}
+                        {!browsing && " · Live"}
+                      </Text>
+                    )
                   )}
-                  {browsing && (
+                  {browsing && !browsingDraft && (
                     <Button
                       size="sm"
                       variant="primary"
@@ -602,6 +676,48 @@ export function FreeformCanvasView({
                     >
                       {isReverting ? "Reverting…" : "Revert to this version"}
                     </Button>
+                  )}
+                  {browsingDraft && (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      className="ml-1"
+                      disabled={isPromoting}
+                      onClick={() => void onPromote()}
+                    >
+                      {isPromoting ? "Promoting…" : "Promote to live"}
+                    </Button>
+                  )}
+                  {drafts.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button size="sm" variant="default" className="ml-1">
+                            Drafts ({drafts.length})
+                            <CaretDownIcon size={12} />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="start" side="bottom">
+                        {drafts.map((draft) => (
+                          <DropdownMenuItem
+                            key={draft.versionId}
+                            onClick={() =>
+                              setBrowseVersion(threadId, draft.versionId)
+                            }
+                          >
+                            <span className="mr-2 truncate">
+                              {draft.prompt || "Untitled draft"}
+                            </span>
+                            <Badge
+                              variant={draftBadgeVariant(draft.buildStatus)}
+                            >
+                              {draft.buildStatus ?? "pending"}
+                            </Badge>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </>
               )}

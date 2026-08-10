@@ -228,6 +228,22 @@ class CanvasVersionSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the version was published.")
 
 
+class CanvasDraftSerializer(serializers.Serializer):
+    """A staged draft version and the status of its latest build. Preview a
+    draft's files with `source?version_id=`, then make it live with `promote`."""
+
+    version_id = serializers.CharField(help_text="Id of the draft source version.")
+    prompt = serializers.CharField(allow_null=True, help_text="Short description recorded when the draft was staged.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="Who staged the draft.")
+    created_at = serializers.DateTimeField(help_text="When the draft was staged.")
+    build_status = serializers.ChoiceField(
+        choices=["queued", "building", "ready", "failed"],
+        allow_null=True,
+        help_text="Status of the draft's latest build; null when no build has been recorded yet.",
+    )
+    build_id = serializers.CharField(allow_null=True, help_text="Id of the draft's latest build, when one exists.")
+
+
 class CanvasSourceResponseSerializer(serializers.Serializer):
     """A canvas's source project plus the version pointer edits must be based on."""
 

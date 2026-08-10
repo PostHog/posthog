@@ -30,6 +30,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildsResponseSerializer,
     CanvasCapabilityWideningSerializer,
     CanvasCreateSerializer,
+    CanvasDraftSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasRevertSerializer,
@@ -100,7 +101,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Canvas.objects.unscoped().select_related("created_by")
     serializer_class = CanvasSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "source", "versions", "builds", "validate"]
+    scope_object_read_actions = ["list", "retrieve", "source", "versions", "drafts", "builds", "validate"]
     scope_object_write_actions = [
         "create",
         "partial_update",
@@ -479,6 +480,46 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "diagnostics": diagnostics,
             }
         )
+
+    @extend_schema(
+        operation_id="canvases_drafts_retrieve",
+        responses={200: CanvasDraftSerializer(many=True)},
+        request=None,
+    )
+    @action(methods=["GET"], detail=True)
+    def drafts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The canvas's staged draft versions, newest first, each with its latest build status.
+
+        A draft is a version that was built but never made the head. Preview one
+        with `source?version_id=`, then make it live with `promote`.
+        """
+        canvas = self.get_object()
+        draft_versions = list(
+            canvas.source_versions.filter(draft=True)
+            .select_related("created_by")
+            .order_by("-created_at")[:VERSIONS_WINDOW]
+        )
+        latest_build_by_version: dict[Any, CanvasBuild] = {}
+        for build in canvas.builds.filter(source_version_id__in=[version.id for version in draft_versions]).order_by(
+            "source_version_id", "-created_at"
+        ):
+            latest_build_by_version.setdefault(build.source_version_id, build)
+        data = [
+            {
+                "version_id": str(version.id),
+                "prompt": version.prompt,
+                "created_by": version.created_by,
+                "created_at": version.created_at,
+                "build_status": latest_build_by_version[version.id].status
+                if version.id in latest_build_by_version
+                else None,
+                "build_id": str(latest_build_by_version[version.id].id)
+                if version.id in latest_build_by_version
+                else None,
+            }
+            for version in draft_versions
+        ]
+        return Response(CanvasDraftSerializer(data, many=True).data)
 
     @extend_schema(
         operation_id="canvases_draft_create",

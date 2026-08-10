@@ -132,4 +132,28 @@ describe("shouldClearCanvasBrowse", () => {
       ).toBe(expected);
     },
   );
+
+  it("keeps a browse that points at a draft (not in published history)", () => {
+    expect(
+      shouldClearCanvasBrowse({
+        versions: [...VERSIONS],
+        drafts: [{ versionId: "draft-1" }],
+        versionsLoading: false,
+        draftsLoading: false,
+        browseVersionId: "draft-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not clear while drafts are still loading", () => {
+    expect(
+      shouldClearCanvasBrowse({
+        versions: [...VERSIONS],
+        drafts: [],
+        versionsLoading: false,
+        draftsLoading: true,
+        browseVersionId: "draft-1",
+      }),
+    ).toBe(false);
+  });
 });

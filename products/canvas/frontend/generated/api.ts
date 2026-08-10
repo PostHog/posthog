@@ -25,9 +25,11 @@ import type {
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasesBuildsRetrieveParams,
+    CanvasesDraftsRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesVersionsRetrieveParams,
+    PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
     PaginatedCanvasVersionListApi,
     PatchedCanvasUpdateApi,
@@ -222,6 +224,40 @@ export const canvasesDraftCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasSourceDraftApi),
+    })
+}
+
+export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string, params?: CanvasesDraftsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/drafts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/drafts/`
+}
+
+/**
+ * The canvas's staged draft versions, newest first, each with its latest build status.
+ *
+ * A draft is a version that was built but never made the head. Preview one
+ * with `source?version_id=`, then make it live with `promote`.
+ */
+export const canvasesDraftsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesDraftsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedCanvasDraftListApi> => {
+    return apiMutator<PaginatedCanvasDraftListApi>(getCanvasesDraftsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

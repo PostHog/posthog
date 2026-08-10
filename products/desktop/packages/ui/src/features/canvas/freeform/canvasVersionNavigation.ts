@@ -60,20 +60,32 @@ export function canvasVersionNavigation(args: {
 }
 
 /**
- * Whether an active browse points at a version the history no longer contains
+ * Whether an active browse points at a version the canvas no longer offers
  * (e.g. it was pruned server-side while the canvas was open) and should be
- * cleared. A still-loading or empty history is not evidence of absence.
+ * cleared. A browsed draft counts as present — drafts are a valid preview
+ * target even though they are excluded from the published history. A
+ * still-loading history (versions or drafts) is not evidence of absence.
  */
 export function shouldClearCanvasBrowse(args: {
   versions: readonly { id: string }[];
+  drafts?: readonly { versionId: string }[];
   versionsLoading: boolean;
+  draftsLoading?: boolean;
   browseVersionId: string | null;
 }): boolean {
-  const { versions, versionsLoading, browseVersionId } = args;
+  const {
+    versions,
+    drafts = [],
+    versionsLoading,
+    draftsLoading = false,
+    browseVersionId,
+  } = args;
   return (
     !!browseVersionId &&
     !versionsLoading &&
+    !draftsLoading &&
     versions.length > 0 &&
-    !versions.some((v) => v.id === browseVersionId)
+    !versions.some((v) => v.id === browseVersionId) &&
+    !drafts.some((d) => d.versionId === browseVersionId)
   );
 }

@@ -473,6 +473,45 @@ export interface CanvasSourceInvalidApi {
 }
 
 /**
+ * A staged draft version and the status of its latest build. Preview a
+ * draft's files with `source?version_id=`, then make it live with `promote`.
+ */
+export interface CanvasDraftApi {
+    /** Id of the draft source version. */
+    version_id: string
+    /**
+     * Short description recorded when the draft was staged.
+     * @nullable
+     */
+    prompt: string | null
+    /** Who staged the draft. */
+    readonly created_by: UserBasicApi | null
+    /** When the draft was staged. */
+    created_at: string
+    /** Status of the draft's latest build; null when no build has been recorded yet.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi | null
+    /**
+     * Id of the draft's latest build, when one exists.
+     * @nullable
+     */
+    build_id: string | null
+}
+
+export interface PaginatedCanvasDraftListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CanvasDraftApi[]
+}
+
+/**
  * One per-file edit: set a file's content, or delete it.
  */
 export interface CanvasSourceEditOperationApi {
@@ -693,6 +732,17 @@ export type CanvasesBuildsRetrieveParams = {
      * Include the retained ready build for this historical source version.
      */
     version_id?: string
+}
+
+export type CanvasesDraftsRetrieveParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type CanvasesSourceRetrieveParams = {

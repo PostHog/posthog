@@ -643,6 +643,15 @@ class TestCanvasDraftBuilds(CanvasAPIBaseTest):
         ]
         assert version_ids == [head_id]
 
+    def test_drafts_endpoint_lists_drafts_with_build_status(self):
+        canvas_id, head_id = self._published_canvas()
+        draft_body = self._draft(canvas_id, self._project("export default function C() { return 2 }")).json()
+
+        drafts = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/drafts/").json()
+        assert [row["version_id"] for row in drafts] == [draft_body["version_id"]]
+        assert drafts[0]["build_status"] == "queued"
+        assert drafts[0]["build_id"] == draft_body["build"]["id"]
+
     def test_draft_is_not_revertable(self):
         canvas_id, head_id = self._published_canvas()
         draft_version_id = self._draft(canvas_id).json()["version_id"]
