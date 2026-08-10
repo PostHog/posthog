@@ -31,6 +31,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
+import { STALE_EVENT_DAYS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -766,24 +767,33 @@ function InfiniteListEmptyState(): JSX.Element {
             ) : (
                 <>
                     <IconArchive className="text-5xl text-tertiary" />
-                    <span>
-                        {emptySearchQuery ? (
-                            'Start typing to find results'
-                        ) : (
-                            <>
-                                No results for "<strong>{searchQuery}</strong>"
-                            </>
-                        )}
-                    </span>
-                    {canOfferStaleToggle && (
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            data-attr="taxonomic-include-stale-events"
-                            onClick={() => setIncludeStaleEvents(true)}
-                        >
-                            Include stale events
-                        </LemonButton>
+                    {canOfferStaleToggle ? (
+                        <>
+                            <span>
+                                No active events match "<strong>{searchQuery}</strong>"
+                            </span>
+                            <span className="text-center text-secondary italic">
+                                Events with no activity in the last {STALE_EVENT_DAYS} days are hidden.
+                            </span>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                data-attr="taxonomic-include-stale-events"
+                                onClick={() => setIncludeStaleEvents(true)}
+                            >
+                                Include stale events
+                            </LemonButton>
+                        </>
+                    ) : (
+                        <span>
+                            {emptySearchQuery ? (
+                                'Start typing to find results'
+                            ) : (
+                                <>
+                                    No results for "<strong>{searchQuery}</strong>"
+                                </>
+                            )}
+                        </span>
                     )}
                     {canOfferAllSwitch && (
                         <LemonButton

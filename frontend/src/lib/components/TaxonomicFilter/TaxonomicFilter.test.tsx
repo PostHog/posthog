@@ -437,6 +437,35 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    describe('no results - stale events', () => {
+        it('names the stale filter and offers to include stale events on the Events tab', async () => {
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            const searchInput = screen.getByTestId('taxonomic-filter-searchfield')
+            await withoutDebounceDelay((user) => user.type(searchInput, 'xyznonexistent'))
+
+            // The empty state names the staleness filter as the reason and offers to widen the search.
+            let includeStaleButton: HTMLElement | undefined
+            await waitFor(() => {
+                includeStaleButton = screen.getByTestId('taxonomic-include-stale-events')
+                expect(includeStaleButton).toBeInTheDocument()
+            })
+            expect(screen.getByText(/No active events match/)).toBeInTheDocument()
+
+            // Including stale events re-queries without the filter, so the stale-specific state clears.
+            await userEvent.click(includeStaleButton!)
+
+            await waitFor(() => {
+                expect(screen.queryByTestId('taxonomic-include-stale-events')).not.toBeInTheDocument()
+                expect(screen.queryByText(/No active events match/)).not.toBeInTheDocument()
+            })
+        })
+    })
+
     describe('tab switching', () => {
         it('clicking a category tab switches the visible results', async () => {
             renderFilter({

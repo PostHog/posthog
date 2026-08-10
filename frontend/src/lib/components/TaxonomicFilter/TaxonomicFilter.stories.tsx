@@ -669,7 +669,7 @@ export const EmptyEventsWithStaleToggle: Story = {
         testOptions: { waitForSelector: '[data-attr="taxonomic-include-stale-events"]' },
         docs: {
             description: {
-                story: 'When a search on the Events tab returns no results (all matches are stale), an "Include stale events" button appears so users can opt in to seeing events older than 30 days.',
+                story: 'When a search on the Events tab returns no results, the empty state names the staleness filter as the reason and offers "Include stale events" as the primary action, so users can opt in to seeing events older than 30 days instead of reading a flat "No results".',
             },
         },
     },
