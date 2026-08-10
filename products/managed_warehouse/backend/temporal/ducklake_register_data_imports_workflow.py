@@ -527,7 +527,7 @@ def _register_prepared_parquet_files(
 ) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
-    shadow_name, previous_name = _new_registration_table_names()
+    registration_names = _new_registration_table_names()
     landing_uri = _generation_scoped_landing_uri(
         inputs.metadata.landing_uri,
         job_id=inputs.job_id,
@@ -548,7 +548,7 @@ def _register_prepared_parquet_files(
                     "read_parquet({}, union_by_name=true, hive_partitioning=true) LIMIT 0"
                 ).format(
                     psql.Identifier(schema_name),
-                    psql.Identifier(shadow_name),
+                    psql.Identifier(registration_names.shadow_name),
                     parquet_glob,
                 )
             )
@@ -556,7 +556,7 @@ def _register_prepared_parquet_files(
                 conn.execute(
                     psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
                         psql.Identifier(schema_name),
-                        psql.Identifier(shadow_name),
+                        psql.Identifier(registration_names.shadow_name),
                         psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                     )
                 )
@@ -566,7 +566,7 @@ def _register_prepared_parquet_files(
                     "allow_missing => true, hive_partitioning => true)"
                 ).format(
                     psql.Literal("ducklake"),
-                    psql.Literal(shadow_name),
+                    psql.Literal(registration_names.shadow_name),
                     parquet_glob,
                     psql.Literal(schema_name),
                 )
@@ -581,7 +581,7 @@ def _register_prepared_parquet_files(
             registered_row = conn.execute(
                 psql.SQL("SELECT count(*) FROM {}.{}").format(
                     psql.Identifier(schema_name),
-                    psql.Identifier(shadow_name),
+                    psql.Identifier(registration_names.shadow_name),
                 )
             ).fetchone()
             source_count = int(source_row[0]) if source_row else 0
@@ -604,13 +604,13 @@ def _register_prepared_parquet_files(
                         psql.SQL("ALTER TABLE IF EXISTS {}.{} RENAME TO {}").format(
                             psql.Identifier(schema_name),
                             psql.Identifier(table_name),
-                            psql.Identifier(previous_name),
+                            psql.Identifier(registration_names.previous_name),
                         )
                     )
                     conn.execute(
                         psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
                             psql.Identifier(schema_name),
-                            psql.Identifier(shadow_name),
+                            psql.Identifier(registration_names.shadow_name),
                             psql.Identifier(table_name),
                         )
                     )
@@ -624,15 +624,24 @@ def _register_prepared_parquet_files(
 
         return registered_count
     finally:
-        cleanup_names = [previous_name] if publish_attempted else []
+        cleanup_names = [registration_names.previous_name] if publish_attempted else []
         if not shadow_is_published:
-            cleanup_names.insert(0, shadow_name)
+            cleanup_names.insert(0, registration_names.shadow_name)
         _cleanup_registration_tables(conn, schema_name, cleanup_names)
 
 
-def _new_registration_table_names() -> tuple[str, str]:
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _RegistrationTableNames:
+    shadow_name: str
+    previous_name: str
+
+
+def _new_registration_table_names() -> _RegistrationTableNames:
     attempt_token = uuid.uuid4().hex
-    return f"__ph_register_{attempt_token}", f"__ph_previous_{attempt_token}"
+    return _RegistrationTableNames(
+        shadow_name=f"__ph_register_{attempt_token}",
+        previous_name=f"__ph_previous_{attempt_token}",
+    )
 
 
 def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, table_names: list[str]) -> None:

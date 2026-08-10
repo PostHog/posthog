@@ -408,13 +408,15 @@ def test_registration_tables_are_owned_by_one_activity_attempt(monkeypatch):
     attempt_ids = iter([uuid.UUID(int=1), uuid.UUID(int=2)])
     monkeypatch.setattr(registration_module.uuid, "uuid4", lambda: next(attempt_ids))
 
-    first_shadow, first_previous = registration_module._new_registration_table_names()
-    second_shadow, second_previous = registration_module._new_registration_table_names()
+    first = registration_module._new_registration_table_names()
+    second = registration_module._new_registration_table_names()
 
-    assert {first_shadow, first_previous}.isdisjoint({second_shadow, second_previous})
-    assert first_shadow == f"__ph_register_{uuid.UUID(int=1).hex}"
-    assert first_previous == f"__ph_previous_{uuid.UUID(int=1).hex}"
-    assert all(len(name) <= 63 for name in (first_shadow, first_previous, second_shadow, second_previous))
+    assert {first.shadow_name, first.previous_name}.isdisjoint({second.shadow_name, second.previous_name})
+    assert first.shadow_name == f"__ph_register_{uuid.UUID(int=1).hex}"
+    assert first.previous_name == f"__ph_previous_{uuid.UUID(int=1).hex}"
+    assert all(
+        len(name) <= 63 for name in (first.shadow_name, first.previous_name, second.shadow_name, second.previous_name)
+    )
 
 
 def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypatch):
