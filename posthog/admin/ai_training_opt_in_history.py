@@ -6,6 +6,7 @@ value (region, license, HIPAA) are deliberately not reproduced here. A value wit
 change is reported as "no change recorded", and the raw flags are shown as-is for support to read.
 """
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -41,6 +42,10 @@ class OptInChange:
     @property
     def transition_display(self) -> str:
         return f"{_describe_value(self.before)} → {_describe_value(self.after)}"
+
+    @property
+    def raw_detail_json(self) -> str:
+        return json.dumps(self.raw_detail, indent=2, default=str)
 
 
 @dataclass(frozen=True)
