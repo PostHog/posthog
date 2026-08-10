@@ -57,7 +57,7 @@ tools:
             idempotent: false
         enrich_url: '{short_id}'
         title: Create notebook
-        description: >-
+        description: >
             Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's
             rich text document structure (ProseMirror-based). Returns the created notebook with its short_id. Embedded
             charts use `{type: "ph-query", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a)
