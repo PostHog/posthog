@@ -116,6 +116,7 @@ export const scene: SceneExport = {
 export function ReplayScannersScene(): JSX.Element {
     const {
         scanners,
+        scannersError,
         scannersLoading,
         scannersPage,
         scannersTotal,
@@ -394,7 +395,22 @@ export function ReplayScannersScene(): JSX.Element {
                             useURLForSorting={false}
                             nouns={['scanner', 'scanners']}
                             emptyState={
-                                scannersTotal === 0 && !hasActiveFilters ? (
+                                scannersError ? (
+                                    <div className="flex flex-col items-center gap-3 p-8 text-center">
+                                        <div className="text-muted">
+                                            Could not load scanners. Check your connection.
+                                        </div>
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => loadScanners()}
+                                            data-attr="vision-scanner-retry-load"
+                                        >
+                                            Try again
+                                        </LemonButton>
+                                    </div>
+                                ) : scannersTotal === 0 && !hasActiveFilters ? (
                                     <div className="flex flex-col items-center gap-3 p-8 text-center">
                                         <div className="text-muted">No scanners yet.</div>
                                         <CreateScannerButton

@@ -136,6 +136,7 @@ export interface replayScannersLogicValues {
     scannerStatsLoading: boolean
     scannerTypeFilter: ScannerTypeEnumApi[]
     scanners: ReplayScanner[]
+    scannersError: boolean
     scannersLoading: boolean
     scannersPage: number
     scannersSort: ScannersSorting | null
@@ -200,8 +201,12 @@ export interface replayScannersLogicActions {
     loadScanners: () => {
         value: true
     }
-    loadScannersFailure: (error: string) => {
+    loadScannersFailure: (
+        error: string,
+        isTransient?: boolean
+    ) => {
         error: string
+        isTransient: boolean
     }
     loadScannersSuccess: (
         scanners: ReplayScanner[],
@@ -283,7 +288,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadCreators: true,
         loadScannerStats: true,
         loadScannersSuccess: (scanners: ReplayScanner[], total: number) => ({ scanners, total }),
-        loadScannersFailure: (error: string) => ({ error }),
+        // `isTransient` marks a network-level failure that a retry may fix, so the table shows a retry state.
+        loadScannersFailure: (error: string, isTransient: boolean = false) => ({ error, isTransient }),
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
@@ -394,6 +400,15 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScannersFailure: () => false,
             },
         ],
+        // True only after a network-level load failure, so the table can offer a retry instead of a bare empty page.
+        scannersError: [
+            false,
+            {
+                loadScanners: () => false,
+                loadScannersSuccess: () => false,
+                loadScannersFailure: (_, { isTransient }) => isTransient,
+            },
+        ],
         chartDateFrom: [
             '-30d' as string | null,
             {
@@ -444,8 +459,19 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
-                lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
-                actions.loadScannersFailure(String(error))
+                if (error?.name === 'AbortError') {
+                    // A cancelled or superseded request is benign — clear the spinner without alarming the user.
+                    actions.loadScannersFailure(String(error))
+                    return
+                }
+                if (error?.detail) {
+                    // A real API error carries a message worth showing.
+                    lemonToast.error(`Failed to load scanners: ${error.detail}`)
+                    actions.loadScannersFailure(String(error))
+                    return
+                }
+                // A bare network failure (e.g. `TypeError: Failed to fetch`) has no detail — offer a retry in the table.
+                actions.loadScannersFailure(String(error), true)
             }
         },
 

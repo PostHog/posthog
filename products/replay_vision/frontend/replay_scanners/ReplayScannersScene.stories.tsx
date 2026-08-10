@@ -491,6 +491,20 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
+// A load that fails at the network level lands as a retryable in-table state, not a red toast.
+export const ScannersLoadError: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': () => [500, {}],
+                '/api/projects/:team_id/vision/scanners/stats/': { total: 0, enabled: 0, by_type: {} },
+                '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
+                '/api/projects/:team_id/vision/quota/': quota,
+            },
+        }),
+    ],
+}
+
 // Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
 export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },

@@ -1,9 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as generatedApi from '../generated/api'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { makeQuota as makeQuotaFixture } from '../utils/quotaTestUtils'
 import {
@@ -292,6 +296,55 @@ describe('replayScannersLogic', () => {
                 'loadScanners',
                 'loadCreators',
             ])
+        })
+    })
+
+    describe('load failure handling', () => {
+        let errorSpy: jest.SpyInstance
+        let listSpy: jest.SpyInstance
+
+        // A bare network failure reaches the listener as an ApiError with no detail and no status
+        // (handleFetch wraps `TypeError: Failed to fetch` that way); an aborted request keeps its name.
+        const networkError = new ApiError('Failed to fetch')
+        const abortError = Object.assign(new Error('signal is aborted without reason'), { name: 'AbortError' })
+        const apiError = new ApiError('Backend on fire', 500, undefined, { detail: 'Backend on fire' })
+
+        beforeEach(() => {
+            errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+            listSpy = jest.spyOn(generatedApi, 'visionScannersList')
+        })
+
+        afterEach(() => {
+            errorSpy.mockRestore()
+            listSpy.mockRestore()
+        })
+
+        it.each([
+            { name: 'a bare network failure', error: networkError, expectError: true, expectToast: false },
+            { name: 'an aborted request', error: abortError, expectError: false, expectToast: false },
+            { name: 'an API error with a detail', error: apiError, expectError: false, expectToast: true },
+        ])('$name — error state $expectError, toast $expectToast', async ({ error, expectError, expectToast }) => {
+            listSpy.mockRejectedValue(error)
+
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+
+            expect(logic.values.scannersError).toBe(expectError)
+            expect(logic.values.scannersLoading).toBe(false)
+            if (expectToast) {
+                expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Backend on fire'))
+            } else {
+                expect(errorSpy).not.toHaveBeenCalled()
+            }
+        })
+
+        it('a later successful load clears the retry state', async () => {
+            listSpy.mockRejectedValueOnce(networkError)
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+            expect(logic.values.scannersError).toBe(true)
+
+            listSpy.mockResolvedValueOnce({ results: [], count: 0 })
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+            expect(logic.values.scannersError).toBe(false)
         })
     })
 
