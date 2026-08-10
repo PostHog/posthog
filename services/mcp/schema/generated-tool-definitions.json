@@ -1436,6 +1436,20 @@
             "readOnlyHint": true
         }
     },
+    "channel-instructions-update": {
+        "description": "Publish a complete replacement for a channel's CONTEXT.md. Read the current version with channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if another update changes the document.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update channel instructions",
+        "title": "Update channel instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
         "category": "Tasks",
@@ -9023,7 +9037,7 @@
         }
     },
     "skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.\n\nTo change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —\nthis replaces the owner set. Omit it to leave owners unchanged; pass an empty list to\nclear them. Ownership is independent of the version, so a body edit alone never\nchanges it.",
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.\n\nTo change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —\nthis replaces the owner set. Omit it to leave owners unchanged; pass an empty list to\nclear them. Ownership is independent of the version, so a body edit alone never\nchanges it.\n\nPass 'version_description' with a short note on what changed and why — it is shown in\nthe skill's version history.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Update skill",
