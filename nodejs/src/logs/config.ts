@@ -10,7 +10,7 @@ import {
     KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_TRACES_INGESTION_OVERFLOW,
 } from '~/common/config/kafka-topics'
-import { isProdEnv } from '~/common/utils/env-utils'
+import { isProdCloud, isProdEnv } from '~/common/utils/env-utils'
 
 import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 
@@ -113,8 +113,9 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_METRICS_RULES_KILLSWITCH: false,
         LOGS_METRICS_RULES_EXPORT_URL: '',
-        // Off in prod until per-team rollout; on in dev for local end-to-end testing.
-        LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        // On everywhere except US/EU production (local, tests, and the hosted DEV environment),
+        // where it drives end-to-end testing. US/EU stay off until the per-team rollout.
+        LOGS_RETENTION_ENABLED_TEAMS: isProdCloud() ? '' : '*',
         LOGS_RETENTION_KILLSWITCH: false,
         LOGS_BILLING_PRORATE_ENABLED: false,
         LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '',

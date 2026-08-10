@@ -45,6 +45,11 @@ export const isProdEnv = (): boolean => determineNodeEnv() === NodeEnv.Productio
 export const isCloud = (): boolean =>
     ['EU', 'US', 'DEV', 'E2E'].includes((process.env.CLOUD_DEPLOYMENT ?? '').toUpperCase())
 
+// True only on the customer-facing production clouds (US / EU), excluding the hosted DEV/E2E
+// environments and local. Use to gate a feature on everywhere-but-prod while a per-team rollout
+// is pending, rather than `isProdEnv()` which also treats the hosted DEV deployment as prod.
+export const isProdCloud = (): boolean => ['EU', 'US'].includes((process.env.CLOUD_DEPLOYMENT ?? '').toUpperCase())
+
 export function isOverflowBatchByDistinctId(): boolean {
     const overflowBatchByDistinctId = process.env.INGESTION_OVERFLOW_BATCH_BY_DISTINCT_ID
     return stringToBoolean(overflowBatchByDistinctId)
