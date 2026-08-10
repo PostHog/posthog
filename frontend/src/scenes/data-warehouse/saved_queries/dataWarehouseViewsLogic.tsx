@@ -384,11 +384,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     try {
                         return await api.dataWarehouseSavedQueryFolders.list()
                     } catch (error) {
-                        // A failed `fetch` throws a `TypeError` ("Failed to fetch") when the request never
-                        // reaches the server — the user goes offline, closes the tab mid-request, or an ad
-                        // blocker eats the call. This is noise, not a defect: `apiStatusLogic` already shows a
-                        // connection banner, so keep the current folder list and don't capture an exception.
-                        // Every other error type still throws, so real bugs keep surfacing.
+                        // A transient fetch failure (offline, tab closed mid-request, blocked call) throws a
+                        // TypeError. It's noise, not a defect — apiStatusLogic already shows a connection
+                        // banner — so keep the current folders. Other error types still throw so real bugs surface.
                         if (error instanceof TypeError) {
                             return values.dataWarehouseSavedQueryFolders
                         }
