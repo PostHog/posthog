@@ -1590,6 +1590,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
+        if instance.deleted and validated_data.get("deleted", False):
+            return instance
+
         can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(

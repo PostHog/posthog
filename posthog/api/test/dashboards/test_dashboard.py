@@ -2283,13 +2283,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, expected_status=status.HTTP_200_OK)
         self.assertEqual(len(dashboard_json["tiles"]), 2, dashboard_json["tiles"])
 
-    def test_re_deleting_an_already_deleted_dashboard_is_idempotent(self) -> None:
-        # A ghost row lingering in a client's cache can PATCH deleted=True against an already soft-deleted
-        # dashboard. That must succeed (no-op) rather than 404 and dead-end the delete in the UI.
+    def test_re_deleting_an_already_deleted_dashboard_does_not_delete_insights(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
-        self.dashboard_api.update_dashboard(dashboard_id, {"deleted": True}, expected_status=status.HTTP_200_OK)
+        self.dashboard_api.update_dashboard(
+            dashboard_id, {"deleted": True, "delete_insights": True}, expected_status=status.HTTP_200_OK
+        )
+
+        insight_json = self.dashboard_api.get_insight(insight_id=insight_id)
+        self.assertFalse(insight_json["deleted"])
 
     def test_soft_delete_does_not_delete_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
