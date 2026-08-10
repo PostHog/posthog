@@ -19,7 +19,7 @@ import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsag
  * starts the same approval earlier, against the same integration the agent picks up.
  */
 export function SelfDrivingGitHubConnect(): JSX.Element | null {
-    const { githubIntegrations, integrationsLoading } = useValues(integrationsLogic)
+    const { integrations, githubIntegrations } = useValues(integrationsLogic)
     const { reportSelfDrivingOnboardingGitHubConnectClicked } = useActions(onboardingEventUsageLogic)
 
     // Connecting an integration needs project membership (the backend enforces it again). Anyone
@@ -29,9 +29,10 @@ export function SelfDrivingGitHubConnect(): JSX.Element | null {
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
 
-    // Hold the space until we know: showing "Connect GitHub" to someone already connected reads as
-    // a step they still owe us.
-    if (integrationsLoading && githubIntegrations.length === 0) {
+    // `integrations` stays null until the first load resolves. Keying off `integrationsLoading`
+    // instead would flash "Connect GitHub" at someone already connected, because the loader has not
+    // set it yet on the render that follows mount.
+    if (integrations === null) {
         return null
     }
 
