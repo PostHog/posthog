@@ -28,11 +28,6 @@ def _run_sync(executor, fn, *args):
     fn(*args)
 
 
-# Distinguishes an omitted property from one explicitly captured as 0, which is the
-# difference between "the provider reports no cache" and "the request missed the cache".
-_ABSENT = object()
-
-
 class TestPostHogCallback:
     @pytest.fixture
     def callback(self):
@@ -505,8 +500,11 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         props = mock_client.capture.call_args.kwargs["properties"]
-        for key in ("$ai_cache_read_input_tokens", "$ai_cache_creation_input_tokens"):
-            assert props.get(key, _ABSENT) == expected.get(key, _ABSENT), key
+        assert {
+            key: props[key]
+            for key in ("$ai_cache_read_input_tokens", "$ai_cache_creation_input_tokens")
+            if key in props
+        } == expected
 
     @pytest.mark.parametrize(
         "cost_breakdown,expected_props",
