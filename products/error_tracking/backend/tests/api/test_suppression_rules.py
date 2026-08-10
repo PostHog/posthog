@@ -21,35 +21,60 @@ class TestGetClientSafeFilters(SimpleTestCase):
             # All client-safe: returned as-is
             (
                 "all_client_safe",
-                {"type": "AND", "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}]},
-                {"type": "AND", "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}]},
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+                },
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+                },
             ),
             (
                 "or_all_client_safe",
-                {"type": "OR", "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}]},
-                {"type": "OR", "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}]},
+                {
+                    "type": "OR",
+                    "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+                },
+                {
+                    "type": "OR",
+                    "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+                },
             ),
             (
                 "negative_operator_is_client_safe",
                 {
                     "type": "AND",
                     "values": [
-                        {"operator": "is_not", "key": "$exception_types", "value": "TypeError"},
-                        {"operator": "not_icontains", "key": "$exception_values", "value": "expected"},
+                        {"type": "event", "operator": "is_not", "key": "$exception_types", "value": "TypeError"},
+                        {
+                            "type": "event",
+                            "operator": "not_icontains",
+                            "key": "$exception_values",
+                            "value": "expected",
+                        },
                     ],
                 },
                 {
                     "type": "AND",
                     "values": [
-                        {"operator": "is_not", "key": "$exception_types", "value": "TypeError"},
-                        {"operator": "not_icontains", "key": "$exception_values", "value": "expected"},
+                        {"type": "event", "operator": "is_not", "key": "$exception_types", "value": "TypeError"},
+                        {
+                            "type": "event",
+                            "operator": "not_icontains",
+                            "key": "$exception_values",
+                            "value": "expected",
+                        },
                     ],
                 },
             ),
             # Any server-only property → entire rule returns None
             (
                 "server_only_property_returns_none",
-                {"type": "AND", "values": [{"operator": "exact", "key": "$exception_sources", "value": "app.js"}]},
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "exact", "key": "$exception_sources", "value": "app.js"}],
+                },
                 None,
             ),
             (
@@ -57,8 +82,8 @@ class TestGetClientSafeFilters(SimpleTestCase):
                 {
                     "type": "AND",
                     "values": [
-                        {"operator": "exact", "key": "$exception_types", "value": "TypeError"},
-                        {"operator": "exact", "key": "$exception_sources", "value": "app.js"},
+                        {"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"},
+                        {"type": "event", "operator": "exact", "key": "$exception_sources", "value": "app.js"},
                     ],
                 },
                 None,
@@ -68,26 +93,68 @@ class TestGetClientSafeFilters(SimpleTestCase):
                 {
                     "type": "OR",
                     "values": [
-                        {"operator": "exact", "key": "$exception_types", "value": "TypeError"},
-                        {"operator": "exact", "key": "$exception_sources", "value": "app.js"},
+                        {"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"},
+                        {"type": "event", "operator": "exact", "key": "$exception_sources", "value": "app.js"},
                     ],
                 },
                 None,
             ),
-            # Operators the SDK does not implement
+            # Operators withheld from client evaluation
             (
                 "unimplemented_operator_returns_none",
-                {"type": "AND", "values": [{"operator": "is_not_set", "key": "$exception_types", "value": None}]},
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "is_not_set", "key": "$exception_types", "value": None}],
+                },
                 None,
             ),
             (
                 "server_only_operator_returns_none",
-                {"type": "AND", "values": [{"operator": "starts_with", "key": "$exception_values", "value": "Cannot"}]},
+                {
+                    "type": "AND",
+                    "values": [
+                        {"type": "event", "operator": "starts_with", "key": "$exception_values", "value": "Cannot"}
+                    ],
+                },
+                None,
+            ),
+            (
+                "greater_than_returns_none",
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "gt", "key": "$exception_values", "value": "1"}],
+                },
+                None,
+            ),
+            (
+                "less_than_returns_none",
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "lt", "key": "$exception_values", "value": "1"}],
+                },
+                None,
+            ),
+            (
+                "regex_returns_none",
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "regex", "key": "$exception_values", "value": "error.*"}],
+                },
+                None,
+            ),
+            (
+                "not_regex_returns_none",
+                {
+                    "type": "AND",
+                    "values": [
+                        {"type": "event", "operator": "not_regex", "key": "$exception_values", "value": "error.*"}
+                    ],
+                },
                 None,
             ),
             (
                 "missing_operator_returns_none",
-                {"type": "AND", "values": [{"key": "$exception_types", "value": "TypeError"}]},
+                {"type": "AND", "values": [{"type": "event", "key": "$exception_types", "value": "TypeError"}]},
                 None,
             ),
             (
@@ -108,7 +175,25 @@ class TestGetClientSafeFilters(SimpleTestCase):
             (
                 "empty_values_list",
                 {"type": "AND", "values": []},
-                {"type": "AND", "values": []},
+                None,
+            ),
+            (
+                "empty_or_values_list",
+                {"type": "OR", "values": []},
+                None,
+            ),
+            (
+                "missing_leaf_type",
+                {"type": "AND", "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}]},
+                None,
+            ),
+            (
+                "non_string_leaf_type",
+                {
+                    "type": "AND",
+                    "values": [{"type": 1, "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+                },
+                None,
             ),
             (
                 "legacy_list_filters",
@@ -142,19 +227,24 @@ class TestGetClientSafeFilters(SimpleTestCase):
             ),
             (
                 "unsupported_property_returns_none",
-                {"type": "AND", "values": [{"operator": "exact", "key": "$lib", "value": "web"}]},
+                {"type": "AND", "values": [{"type": "event", "operator": "exact", "key": "$lib", "value": "web"}]},
                 None,
             ),
             (
                 "non_string_value_returns_none",
-                {"type": "AND", "values": [{"operator": "exact", "key": "$exception_types", "value": 1}]},
+                {
+                    "type": "AND",
+                    "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": 1}],
+                },
                 None,
             ),
             (
                 "non_string_array_value_returns_none",
                 {
                     "type": "AND",
-                    "values": [{"operator": "exact", "key": "$exception_types", "value": ["TypeError", 1]}],
+                    "values": [
+                        {"type": "event", "operator": "exact", "key": "$exception_types", "value": ["TypeError", 1]}
+                    ],
                 },
                 None,
             ),
@@ -217,7 +307,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
     def test_returns_fully_client_safe_rule(self) -> None:
         filters = {
             "type": "AND",
-            "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+            "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
         }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
 
@@ -230,8 +320,8 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         filters = {
             "type": "AND",
             "values": [
-                {"operator": "exact", "key": "$exception_types", "value": "TypeError"},
-                {"operator": "exact", "key": "$exception_sources", "value": "app.js"},
+                {"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"},
+                {"type": "event", "operator": "exact", "key": "$exception_sources", "value": "app.js"},
             ],
         }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
@@ -244,8 +334,8 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         filters = {
             "type": "OR",
             "values": [
-                {"operator": "exact", "key": "$exception_types", "value": "TypeError"},
-                {"operator": "exact", "key": "$exception_sources", "value": "app.js"},
+                {"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"},
+                {"type": "event", "operator": "exact", "key": "$exception_sources", "value": "app.js"},
             ],
         }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
@@ -258,8 +348,8 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         filters = {
             "type": "OR",
             "values": [
-                {"operator": "exact", "key": "$exception_sources", "value": "app.js"},
-                {"operator": "regex", "key": "$exception_functions", "value": "handleClick"},
+                {"type": "event", "operator": "exact", "key": "$exception_sources", "value": "app.js"},
+                {"type": "event", "operator": "regex", "key": "$exception_functions", "value": "handleClick"},
             ],
         }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
@@ -283,20 +373,20 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
     def test_handles_mixed_rules(self) -> None:
         safe_filters = {
             "type": "AND",
-            "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+            "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
         }
         has_server_only = {
             "type": "AND",
             "values": [
-                {"operator": "exact", "key": "$exception_types", "value": "TypeError"},
-                {"operator": "exact", "key": "$exception_sources", "value": "app.js"},
+                {"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"},
+                {"type": "event", "operator": "exact", "key": "$exception_sources", "value": "app.js"},
             ],
         }
         also_safe = {
             "type": "OR",
             "values": [
-                {"operator": "regex", "key": "$exception_values", "value": ".*null.*"},
-                {"operator": "is_not", "key": "$exception_types", "value": "RangeError"},
+                {"type": "event", "operator": "icontains", "key": "$exception_values", "value": "null"},
+                {"type": "event", "operator": "is_not", "key": "$exception_types", "value": "RangeError"},
             ],
         }
 
@@ -313,7 +403,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
     def test_excludes_sampling_rate_when_less_than_one(self) -> None:
         filters = {
             "type": "AND",
-            "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+            "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
         }
         ErrorTrackingSuppressionRule.objects.create(
             team=self.team, filters=filters, bytecode=[], order_key=0, sampling_rate=0.5
@@ -326,7 +416,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
     def test_omits_sampling_rate_when_one(self) -> None:
         filters = {
             "type": "AND",
-            "values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}],
+            "values": [{"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"}],
         }
         ErrorTrackingSuppressionRule.objects.create(
             team=self.team, filters=filters, bytecode=[], order_key=0, sampling_rate=1.0

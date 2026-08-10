@@ -32,14 +32,10 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSymbolSet,
 )
 
-SERVER_ONLY_PROPERTIES = frozenset({"$exception_sources", "$exception_functions"})
 CLIENT_EVALUABLE_PROPERTIES = frozenset({"$exception_types", "$exception_values"})
 
-# Operators posthog-js implements in propertyComparisons. Anything outside this set is undefined when
-# the SDK looks it up and throws on call, which drops the exception rather than skipping the rule.
-CLIENT_EVALUABLE_OPERATORS = frozenset(
-    {"exact", "is_not", "regex", "not_regex", "icontains", "not_icontains", "gt", "lt"}
-)
+# Regex and numeric coercion differ between posthog-js and the server evaluator, so those rules stay server-side.
+CLIENT_EVALUABLE_OPERATORS = frozenset({"exact", "is_not", "icontains", "not_icontains"})
 
 
 class ErrorTrackingReleaseHashInUseError(Exception):
@@ -828,11 +824,13 @@ def get_client_safe_filters(filters: object) -> dict | None:
         return None
 
     values = filters.get("values")
-    if not isinstance(values, list):
+    if not isinstance(values, list) or not values:
         return None
 
     for value in values:
         if not isinstance(value, dict) or "values" in value:
+            return None
+        if not isinstance(value.get("type"), str):
             return None
         if value.get("key") not in CLIENT_EVALUABLE_PROPERTIES:
             return None
