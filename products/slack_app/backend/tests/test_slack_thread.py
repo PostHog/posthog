@@ -365,3 +365,38 @@ class TestReplyFooterGate(SimpleTestCase):
         # The footer rides as a `blocks` chunk: a `context` block is the only muted text,
         # and Slack's streamed markdown_text has no equivalent.
         assert any(chunk.get("type") == "blocks" for chunk in chunks) is expected
+
+
+class TestPostFooter(SimpleTestCase):
+    def _handler(self, provenance: RunProvenance) -> SlackThreadHandler:
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        return SlackThreadHandler(context, provenance)
+
+    @parameterized.expand(
+        [
+            ("with_model", RunProvenance(model="claude-opus-5"), True),
+            ("nothing_to_say", RunProvenance(), False),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_message_footer_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_trailing_footer_is_posted_only_when_it_has_content(
+        self,
+        _name: str,
+        provenance: RunProvenance,
+        expected: bool,
+        mock_get_client,
+        mock_get_integration,
+        _mock_flag,
+        _mock_home,
+    ) -> None:
+        # Without streaming there is no answer to append to, so the footer trails as its
+        # own message — but an empty one would be a stray blank post in the thread.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={}, integration_id="T1")
+
+        assert self._handler(provenance).post_footer() is expected
+        assert mock_client.chat_postMessage.called is expected

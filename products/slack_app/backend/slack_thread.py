@@ -550,6 +550,28 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
+    def post_footer(self) -> bool:
+        """Post the provenance footer as its own message, returning whether it went out.
+
+        The streamed path closes its answer with the footer inline. Without streaming the
+        answer arrives as plain text spread over however many messages the agent sent, so
+        there is nothing to append to and the footer follows as a trailing message.
+        """
+        footer = self._footer_block()
+        if not footer:
+            return False
+        try:
+            self._get_client().chat_postMessage(
+                channel=self.context.channel,
+                thread_ts=self.context.thread_ts,
+                text=footer["elements"][0]["text"],
+                blocks=[footer],
+            )
+            return True
+        except Exception as e:
+            logger.warning("slack_app_post_footer_failed", error=str(e))
+            return False
+
     def post_note(self, text: str) -> None:
         """Post a plain one-line note to the thread, replacing any progress message."""
         blocks: list[dict[str, Any]] = [
