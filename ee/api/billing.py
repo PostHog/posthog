@@ -142,16 +142,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     param_derived_from_user_current_team = "team_id"
 
-    scope_object = "INTERNAL"
-    # Surface in OpenAPI despite INTERNAL + root-router. See preprocess_exclude_path_format.
+    scope_object = "billing"
+    scope_object_read_actions = ["list", "usage", "spend"]
+    scope_object_write_actions: list[str] = []
+    # Surface in OpenAPI despite root-router registration. See preprocess_exclude_path_format.
     force_include_in_api_docs = True
-
-    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
-        # Selective opt-in for PAT/OAuth access. Only the listed actions are reachable via API token;
-        # all other billing endpoints stay session-only via the INTERNAL scope_object default.
-        if self.action in ("list", "usage", "spend"):
-            return ["billing:read"]
-        return None
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
