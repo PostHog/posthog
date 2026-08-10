@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import type { ReactNode } from 'react'
 
@@ -26,7 +27,7 @@ describe('AIObservabilitySelfDriving', () => {
         cleanup()
     })
 
-    it('explains the scout pipeline and links to the Inbox', () => {
+    it('renders scout templates and links to the self-driving docs', async () => {
         render(
             <Provider>
                 <AIObservabilitySelfDriving />
@@ -35,16 +36,14 @@ describe('AIObservabilitySelfDriving', () => {
 
         expect(screen.getAllByText('Use template')).toHaveLength(3)
 
-        const scoutsLink = screen.getByText('Scouts')
-        expect(scoutsLink).toHaveAttribute('href', 'https://posthog.com/docs/self-driving/scouts')
-        expect(scoutsLink).toHaveAttribute('target', '_blank')
+        const tooltipTrigger = screen.getByText('What is this?')
+        await userEvent.hover(tooltipTrigger)
 
-        const pipelineLink = screen.getByText('self-driving pipeline')
-        expect(pipelineLink).toHaveAttribute('href', 'https://posthog.com/docs/self-driving/self-improving-loop')
-        expect(pipelineLink).toHaveAttribute('target', '_blank')
+        expect(await screen.findByText(/Each template is a pre-defined scout/)).toBeInTheDocument()
 
-        expect(screen.getByText('Inbox').getAttribute('href')).toContain('/inbox/reports')
-        expect(screen.getByText(/Actionable scout reports appear in your/)).toBeInTheDocument()
+        const docsLink = screen.getByText('Read the docs')
+        expect(docsLink).toHaveAttribute('href', 'https://posthog.com/docs/ai-observability/self-driving')
+        expect(docsLink).toHaveAttribute('target', '_blank')
         expect(screen.getByText('ai-observability').closest('p')).toHaveTextContent(
             'Add the ai-observability label to a scout for it to appear here.'
         )
