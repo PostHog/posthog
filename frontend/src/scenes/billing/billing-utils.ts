@@ -665,6 +665,9 @@ export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'PostHog AI') {
         return 'PostHog AI will be unavailable'
     }
+    if (productName === 'Inbox') {
+        return 'Inbox agents will be paused'
+    }
     return 'data loss may occur'
 }
 
