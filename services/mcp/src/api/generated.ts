@@ -87006,6 +87006,21 @@ export namespace Schemas {
     window_hours?: number;
     };
 
+    export type SignalsScoutRunsRecentPerScoutParams = {
+    /**
+     * Staleness guard on `created_at` — runs older than this are excluded even when a scout has fewer than `per_scout_limit` newer ones (default 30, hard cap 365). Keeps a scout that stopped running from reporting its last runs as current.
+     * @minimum 1
+     * @maximum 365
+     */
+    max_age_days?: number;
+    /**
+     * How many of each scout's most recent runs to return (default 25, hard cap 100). The count is per scout, so a scout's history depth does not depend on how often the rest of the fleet runs.
+     * @minimum 1
+     * @maximum 100
+     */
+    per_scout_limit?: number;
+    };
+
     export type SignalsScoutScratchpadSearchParams = {
     /**
      * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.

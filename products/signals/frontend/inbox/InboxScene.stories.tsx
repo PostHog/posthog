@@ -39,6 +39,7 @@ const sceneMocks = mswDecorator({
         '/api/projects/:id/signals/config': () => [200, mockTeamConfig],
         '/api/projects/:id/signals/scout/configs': () => [200, []],
         '/api/projects/:id/signals/scout/runs': () => [200, []],
+        '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
         '/api/projects/:id/external_data_sources/': () => [200, { results: [], count: 0 }],
     },

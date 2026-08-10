@@ -20,8 +20,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import Q
-from django.db.models.functions import Coalesce
+from django.db.models import F, Q, Window
+from django.db.models.functions import Coalesce, RowNumber
 from django.utils import timezone
 
 from products.signals.backend.models import SignalScoutRun
@@ -33,6 +33,17 @@ if TYPE_CHECKING:
 # Defensive caps so a runaway agent loop can't pull thousands of rows in one call.
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
+
+# The per-scout run window backing the inbox scout surfaces. 25 runs covers a day for an hourly
+# scout and a month for a daily one — the point being that both get enough history to judge, which
+# a single fleet-wide time window can't do. The 30-day age guard keeps a scout that stopped running
+# from rendering its last runs as if they were current. `MAX_RUNS_PER_SCOUT_TOTAL` is a payload
+# backstop; see `recent_runs_per_scout` for why it must not become a live path.
+DEFAULT_RUNS_PER_SCOUT = 25
+MAX_RUNS_PER_SCOUT = 100
+DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS = 30
+MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS = 365
+MAX_RUNS_PER_SCOUT_TOTAL = 2000
 
 # The "Scout findings" callout summary tallies findings over a fixed lookback window. The default
 # window, the run cap, and the report cap mirror the cloud/desktop frontend
@@ -184,6 +195,54 @@ def search_recent_runs(
         qs = qs.filter(skill_version=skill_version)
     qs = qs[:clamped_limit]
     return [_to_summary(row, team_id=team_id) for row in qs]
+
+
+def recent_runs_per_scout(
+    *,
+    team_id: int,
+    per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
+    max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+) -> list[RunSummary]:
+    """Return each scout's most recent runs — up to `per_scout_limit` per `skill_name`, newest first.
+
+    A cadence-invariant alternative to `search_recent_runs`' fixed time window. A fleet-wide
+    lookback has to serve an hourly scout and a weekly one from one budget: widen it and the busy
+    scouts fill the result cap, leaving the sparse ones with a history that gets shorter the
+    healthier the rest of the fleet is. Ranking within each `skill_name` gives every scout the same
+    depth of history no matter its schedule, and bounds the response at scouts x `per_scout_limit`
+    instead of at "however many runs the fleet happened to do".
+
+    `max_age_days` is the staleness guard, not a window: a scout that stopped running weeks ago
+    should read as stale rather than render its last runs as if they were current.
+    """
+    per_scout_limit = max(1, min(per_scout_limit, MAX_RUNS_PER_SCOUT))
+    max_age_days = max(1, min(max_age_days, MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS))
+    cutoff = timezone.now() - timedelta(days=max_age_days)
+
+    # Rank inside each scout's partition, then keep the top N — one query, evaluated as a subquery
+    # with the window in the SELECT and the rank filter outside it.
+    ranked_ids = (
+        SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=cutoff)
+        .annotate(
+            _rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("skill_name")],
+                order_by=F("created_at").desc(),
+            )
+        )
+        .filter(_rank__lte=per_scout_limit)
+        .values_list("id", flat=True)
+    )
+    # Backstop only: `MAX_ENABLED_SCOUTS_PER_TEAM` (250) x `per_scout_limit` is a payload no client
+    # wants, even though real fleets are tens of scouts and never approach it. Slicing newest-first
+    # gives up the per-scout fairness this function exists for, so it must stay unreachable in
+    # practice — if a fleet ever trips it, lower `per_scout_limit` rather than raising the cap.
+    rows = (
+        SignalScoutRun.objects.filter(team_id=team_id, id__in=list(ranked_ids))
+        .select_related("task_run")
+        .order_by("-created_at")[:MAX_RUNS_PER_SCOUT_TOTAL]
+    )
+    return [_to_summary(row, team_id=team_id) for row in rows]
 
 
 @dataclass(frozen=True)
