@@ -106,7 +106,11 @@ The Inbox reads from PostHog Cloud's Self-driving backend, currently implemented
 - `GET /api/projects/{teamId}/signals/reports/{id}/artefacts/`: structured report artefacts.
 - `GET /api/projects/{teamId}/signals/reports/{id}/tasks/`: tasks linked to a report.
 
-The shared renderer type for the report is `SignalReport` in `apps/code/src/shared/types.ts`. If the backend serializer changes, update that type and the normalizers in `posthogClient.ts` together.
+The shared renderer type for the report is `SignalReport` in `packages/shared/src/domain-types.ts`. If the backend serializer changes, update that type and the client methods in `packages/api-client/src/posthog-client.ts` together.
+
+Report charts: `SignalReport.charts` carries scout-authored chart definitions (`chart_id`, `title`, `query`, `caption?`, `size?`). The desktop app renders them natively in the detail views: `packages/core/src/inbox/reportCharts.ts` classifies the stored query (runnable HogQL/trends vs saved-insight vs link-out fallback), `PostHogAPIClient.runQuery` executes runnable sources against `/api/projects/{teamId}/query/`, and `components/detail/ReportChartCard.tsx` draws the result with `@posthog/quill-charts`. Query kinds the app can't draw degrade to a card that links out to PostHog. Summary prose references charts as `[label](chart:<chart_id>)` links; `SignalReportSummaryMarkdown` turns those into in-page jumps to the chart card (plain text on list rows).
+
+PR refunds: `POST /api/projects/{teamId}/signals/reports/{id}/refund/` refunds a billed PR and archives the report (`PostHogAPIClient.refundSignalReport`). The action is gated behind the `signals-pr-refunds` flag (`SIGNALS_PR_REFUNDS_FLAG`) and `utils/refundEligibility.ts`'s `computeRefundEligibility`, which reads `implementation_pr_url`, `refund` (one `SignalReportRefund` per report, ever), `billing_exempt_reason`, and the backend-owned `refund_ineligibility_reason`. The server enforces the same rules, so the gate is display-only; `ReportRefundAction` shows nothing when the report is ineligible.
 
 Card headlines are derived client-side from `summary` by `utils/reportPresentation.ts`; there is no backend headline field.
 
@@ -137,7 +141,7 @@ Components come from `@posthog/quill`; layout is `div`s with Tailwind. Radix is 
 - Do not add any `@radix-ui/*` import. Use `@posthog/quill` plus `div` + Tailwind.
 - Do not reuse the deleted legacy `ReportListRow`, `ReportDetailPane`, or old list/detail stores.
 - Do not put page-level Inbox title or navigation into the global app header; `InboxView` owns the Inbox page chrome.
-- Do not add a configure shortcut back into the Inbox header; Responders configuration is a sidebar destination.
+- Responder configuration stays at `/code/agents`. The Inbox header carries a "Configure agents" link to it, but do not embed configuration UI in the Inbox itself.
 - Scout (`signals_scout`) is a real Cloud source product. Keep it covered wherever source products surface: `INBOX_SOURCE_OPTIONS`, `SOURCE_PRODUCT_META`, and the scout-name display in `SignalCard`.
 - Scout management UI (fleet configuration, run history) lives in `features/scouts/` and is backed by the PostHog Cloud scout endpoints (`/api/projects/{teamId}/signals/scout/`). Do not add scout controls that have no backing endpoint there.
 - Do not put preview shims or mock report data in `apps/code/index.html`; the app shell should stay minimal.
