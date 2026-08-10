@@ -25,6 +25,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
@@ -33,6 +34,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
     ACTION_TASKS_PAGE_PREV,
+    BLOCK_TASKS_CONTROLS,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
     HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
@@ -762,6 +764,75 @@ class TestParseModalSubmission:
     def test_partial_state_returns_partial_tuple(self):
         view = _build_submission(runtime_adapter="claude")
         assert parse_modal_submission(view) == ("claude", None, None)
+
+
+# ---------------------------------------------------------------------------
+# Handler tests — Tasks card controls
+# ---------------------------------------------------------------------------
+
+
+class TestTasksControlsResolveViewState:
+    """What the Tasks controls ask the resolver for, without touching the database.
+
+    The Home tab holds no server-side state: the page rides on the clicked button's
+    `value` and the filters ride on the view's input state. These lock that decoding,
+    which is otherwise only observable through a full publish.
+    """
+
+    def _payload(self, action_id: str, *, value: str | None = None, repo: str | None = None) -> dict:
+        action: dict[str, Any] = {"action_id": action_id}
+        if value is not None:
+            action["value"] = value
+        controls: dict[str, Any] = {}
+        if repo:
+            controls[ACTION_TASKS_FILTER_REPO] = {"selected_option": {"value": repo}}
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [action],
+            "view": {"id": "V1", "hash": "H1", "type": "home", "state": {"values": {BLOCK_TASKS_CONTROLS: controls}}},
+        }
+
+    def _resolved_state(self, monkeypatch, payload: dict):
+        captured: dict[str, Any] = {}
+        monkeypatch.setattr(slack_app_home, "_get_slack_integration", lambda team_id: object())
+        monkeypatch.setattr(slack_app_home, "is_slack_app_home_enabled", lambda integration: True)
+        monkeypatch.setattr(
+            slack_app_home,
+            "_republish_home",
+            lambda integration, slack_user_id, *, view_state=None: captured.update(state=view_state),
+        )
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+        assert "state" in captured, "the click never reached a republish"
+        return captured["state"]
+
+    @pytest.mark.parametrize(
+        "action_id,value,expected_page",
+        [
+            (ACTION_TASKS_PAGE_NEXT, "1", 1),
+            (ACTION_TASKS_PAGE_PREV, "0", 0),
+            (ACTION_TASKS_PAGE_NEXT, "7", 7),
+            # A button that somehow arrives without a usable page falls back to the first.
+            (ACTION_TASKS_PAGE_NEXT, None, 0),
+            (ACTION_TASKS_PAGE_NEXT, "not-a-number", 0),
+        ],
+    )
+    def test_page_comes_off_the_clicked_button(self, monkeypatch, action_id, value, expected_page):
+        state = self._resolved_state(monkeypatch, self._payload(action_id, value=value))
+        assert state.tasks_page == expected_page
+
+    def test_paging_keeps_the_active_repo_filter(self, monkeypatch):
+        # Paging must not silently widen the list back to every repo.
+        state = self._resolved_state(
+            monkeypatch, self._payload(ACTION_TASKS_PAGE_NEXT, value="1", repo="posthog/posthog")
+        )
+        assert (state.selected_repo, state.tasks_page) == ("posthog/posthog", 1)
+
+    def test_changing_the_filter_returns_to_the_first_page(self, monkeypatch):
+        # Otherwise a narrower result set leaves the viewer stranded past its last page.
+        state = self._resolved_state(monkeypatch, self._payload(ACTION_TASKS_FILTER_REPO, repo="posthog/posthog"))
+        assert (state.selected_repo, state.tasks_page) == ("posthog/posthog", 0)
 
 
 # ---------------------------------------------------------------------------
