@@ -17,17 +17,39 @@ Do NOT:
 
 import asyncio
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
+from django.db.models import (
+    BooleanField,
+    CharField,
+    Count,
+    DateTimeField,
+    Exists,
+    F,
+    Field,
+    FloatField,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    TextField,
+    Value,
+)
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 
 import structlog
 from celery import current_app
@@ -91,6 +113,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertySyncRun,
+    CustomPropertyValue,
     DisplayType,
     EventStream,
     EventStreamMember,
@@ -103,15 +126,20 @@ from products.customer_analytics.backend.models.account import (
     RETIRED_ROLE_KEYS,
     AccountProperties as _ModelAccountProperties,
 )
+from products.customer_analytics.backend.models.custom_property_definition import (
+    DATA_TYPE_BY_DISPLAY_TYPE,
+    NUMERIC_DISPLAY_TYPES,
+    DataType,
+)
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
 )
 
-# ResourceNotebook stays a direct import for the account-list Prefetch only — prefetching the
-# account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
-# CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
+# ResourceNotebook stays a direct import for account-list reads because the account relation cannot
+# cross a data facade. All account-notebook CRUD goes through `notebooks` (the facade). Tracked by
+# the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
 
@@ -365,14 +393,27 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     )
 
 
+def _json_safe_scalar(value: Any) -> float | bool | str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, float | bool | str):
+        return value
+    return None
+
+
 def _scalar_value(row: "CustomPropertyValue") -> float | bool | str | None:
     """Return the row's value as a JSON-safe scalar; datetimes become ISO strings."""
-    v = _custom_property_values_logic.value_of(row)
-    if isinstance(v, datetime):
-        return v.isoformat()
-    if isinstance(v, float | bool | str):
-        return v
-    return None
+    return _json_safe_scalar(_custom_property_values_logic.value_of(row))
+
+
+def _scalar_value_for_display_type(row: "CustomPropertyValue", display_type: DisplayType) -> float | bool | str | None:
+    value_column = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
+    return _json_safe_scalar(getattr(row, value_column))
 
 
 def _get_external_account_by_external_id(team_id: int, external_id: str) -> Account | None:
@@ -2060,6 +2101,493 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         created_by=account.created_by_id,
         updated_at=account.updated_at,
     )
+
+
+class InvalidAccountTableColumn(ValueError):
+    pass
+
+
+ACCOUNT_TABLE_MAX_HISTORY_POINTS = 50_000
+
+
+def _account_table_field_values(
+    account: Account, fields: frozenset[contracts.AccountTableField]
+) -> dict[contracts.AccountTableField, str | None]:
+    properties = account.properties
+    values: dict[contracts.AccountTableField, str | None] = {}
+    for field in sorted(fields, key=lambda account_field: account_field.value):
+        match field:
+            case contracts.AccountTableField.NAME:
+                values[field] = account.name
+            case contracts.AccountTableField.EXTERNAL_ID:
+                values[field] = account.external_id
+            case contracts.AccountTableField.CREATED_AT:
+                values[field] = account.created_at.isoformat() if account.created_at else None
+            case contracts.AccountTableField.UPDATED_AT:
+                values[field] = account.updated_at.isoformat() if account.updated_at else None
+            case contracts.AccountTableField.STRIPE_CUSTOMER_ID:
+                values[field] = properties.stripe_customer_id
+            case contracts.AccountTableField.HUBSPOT_DEAL_ID:
+                values[field] = properties.hubspot_deal_id
+            case contracts.AccountTableField.BILLING_ID:
+                values[field] = properties.billing_id
+            case contracts.AccountTableField.SFDC_ID:
+                values[field] = properties.sfdc_id
+            case contracts.AccountTableField.ZENDESK_ID:
+                values[field] = properties.zendesk_id
+            case _:
+                raise ValueError(f"Unsupported account table field: {field}")
+    return values
+
+
+def _validate_account_table_definitions(
+    *,
+    team_id: int,
+    selection: contracts.AccountTableColumnSelection,
+    filters: tuple[contracts.AccountTableFilter, ...],
+    sort: contracts.AccountTableSort | None,
+) -> dict[UUID, DisplayType]:
+    relationship_ids = set(selection.relationship_definition_ids)
+    if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
+        relationship_ids.add(sort.definition_id)
+    if relationship_ids:
+        valid_relationship_ids = set(
+            AccountRelationshipDefinition.objects.for_team(team_id)
+            .filter(id__in=relationship_ids)
+            .values_list("id", flat=True)
+        )
+        invalid_relationship_ids = relationship_ids - valid_relationship_ids
+        if invalid_relationship_ids:
+            invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_relationship_ids))
+            raise InvalidAccountTableColumn(f"Unknown relationship definitions: {invalid_ids}")
+
+    custom_property_ids = set(selection.custom_property_definition_ids) | set(selection.custom_property_history_windows)
+    custom_property_ids.update(
+        filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableCustomPropertyFilter)
+    )
+    if sort and sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
+        custom_property_ids.add(sort.definition_id)
+    if not custom_property_ids:
+        return {}
+
+    custom_property_display_types = {
+        definition_id: DisplayType(display_type)
+        for definition_id, display_type in CustomPropertyDefinition.objects.for_team(team_id)
+        .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
+        .values_list("id", "display_type")
+    }
+    invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
+    if invalid_custom_property_ids:
+        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_custom_property_ids))
+        raise InvalidAccountTableColumn(f"Unknown account custom property definitions: {invalid_ids}")
+
+    non_numeric_history_ids = {
+        definition_id
+        for definition_id in selection.custom_property_history_windows
+        if custom_property_display_types[definition_id].value not in NUMERIC_DISPLAY_TYPES
+    }
+    if non_numeric_history_ids:
+        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in non_numeric_history_ids))
+        raise InvalidAccountTableColumn(f"Custom property history requires numeric definitions: {invalid_ids}")
+    return custom_property_display_types
+
+
+def _coerce_datetime_filter_value(value: float | bool | str) -> datetime:
+    if not isinstance(value, str):
+        raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
+    parsed_datetime = parse_datetime(value)
+    if parsed_datetime is None:
+        parsed_date = parse_date(value)
+        if parsed_date is None:
+            raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
+        parsed_datetime = datetime.combine(parsed_date, time.min, tzinfo=UTC)
+    elif timezone.is_naive(parsed_datetime):
+        parsed_datetime = timezone.make_aware(parsed_datetime, UTC)
+    return parsed_datetime
+
+
+def _coerce_custom_property_filter_values(
+    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
+) -> tuple[float | bool | str | datetime, ...]:
+    data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
+    values = filter_.values
+    if filter_.operator in {
+        contracts.AccountTableCustomPropertyOperator.IS_SET,
+        contracts.AccountTableCustomPropertyOperator.IS_NOT_SET,
+    }:
+        return ()
+    if not values:
+        raise InvalidAccountTableColumn("Custom property filters require at least one value.")
+
+    if data_type == DataType.NUMERIC:
+        if any(isinstance(value, bool) for value in values):
+            raise InvalidAccountTableColumn("Numeric custom property filters require numeric values.")
+        try:
+            return tuple(float(value) for value in values)
+        except (TypeError, ValueError) as error:
+            raise InvalidAccountTableColumn("Numeric custom property filters require numeric values.") from error
+    if data_type == DataType.BOOLEAN:
+        coerced: list[bool] = []
+        for value in values:
+            if isinstance(value, bool):
+                coerced.append(value)
+            elif str(value).lower() in {"true", "1"}:
+                coerced.append(True)
+            elif str(value).lower() in {"false", "0"}:
+                coerced.append(False)
+            else:
+                raise InvalidAccountTableColumn("Boolean custom property filters require true or false values.")
+        return tuple(coerced)
+    if data_type == DataType.DATETIME:
+        return tuple(_coerce_datetime_filter_value(value) for value in values)
+    return tuple(str(value) for value in values)
+
+
+def _custom_property_filter_predicate(
+    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
+) -> tuple[Q, bool]:
+    operator = filter_.operator
+    data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
+    values = _coerce_custom_property_filter_values(filter_, display_type)
+    value_field = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[data_type]
+
+    if operator == contracts.AccountTableCustomPropertyOperator.IS_SET:
+        return Q(), False
+    if operator == contracts.AccountTableCustomPropertyOperator.IS_NOT_SET:
+        return Q(), True
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.EXACT,
+        contracts.AccountTableCustomPropertyOperator.IS_NOT,
+    }:
+        return Q(**{f"{value_field}__in": values}), operator == contracts.AccountTableCustomPropertyOperator.IS_NOT
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.REGEX,
+        contracts.AccountTableCustomPropertyOperator.NOT_REGEX,
+    }:
+        raise InvalidAccountTableColumn("Regex custom property filters are not supported by account table queries.")
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.CONTAINS,
+        contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN,
+    }:
+        if data_type != DataType.STRING:
+            raise InvalidAccountTableColumn("Contains operators require a text custom property.")
+        predicate = Q()
+        for value in values:
+            predicate |= Q(value_str__icontains=value)
+        return predicate, operator == contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.GREATER_THAN,
+        contracts.AccountTableCustomPropertyOperator.GREATER_THAN_OR_EQUAL,
+        contracts.AccountTableCustomPropertyOperator.LESS_THAN,
+        contracts.AccountTableCustomPropertyOperator.LESS_THAN_OR_EQUAL,
+    }:
+        if data_type != DataType.NUMERIC:
+            raise InvalidAccountTableColumn("Comparison operators require a numeric custom property.")
+        if len(values) != 1:
+            raise InvalidAccountTableColumn("Numeric comparison filters require one value.")
+        lookup = {
+            contracts.AccountTableCustomPropertyOperator.GREATER_THAN: "gt",
+            contracts.AccountTableCustomPropertyOperator.GREATER_THAN_OR_EQUAL: "gte",
+            contracts.AccountTableCustomPropertyOperator.LESS_THAN: "lt",
+            contracts.AccountTableCustomPropertyOperator.LESS_THAN_OR_EQUAL: "lte",
+        }[operator]
+        return Q(**{f"value_num__{lookup}": values[0]}), False
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.DATE_EXACT,
+        contracts.AccountTableCustomPropertyOperator.DATE_BEFORE,
+        contracts.AccountTableCustomPropertyOperator.DATE_AFTER,
+    }:
+        if data_type != DataType.DATETIME:
+            raise InvalidAccountTableColumn("Date operators require a date or datetime custom property.")
+        if len(values) != 1:
+            raise InvalidAccountTableColumn("Date comparison filters require one value.")
+        if operator == contracts.AccountTableCustomPropertyOperator.DATE_EXACT:
+            target_date = cast(datetime, values[0]).replace(hour=0, minute=0, second=0, microsecond=0)
+            return Q(value_datetime__gte=target_date, value_datetime__lt=target_date + timedelta(days=1)), False
+        lookup = {
+            contracts.AccountTableCustomPropertyOperator.DATE_BEFORE: "lt",
+            contracts.AccountTableCustomPropertyOperator.DATE_AFTER: "gt",
+        }[operator]
+        return Q(**{f"value_datetime__{lookup}": values[0]}), False
+    raise InvalidAccountTableColumn(f"Unsupported custom property filter operator: {operator.value}")
+
+
+def _apply_account_table_filters(
+    queryset: QuerySet[Account],
+    *,
+    team_id: int,
+    filters: tuple[contracts.AccountTableFilter, ...],
+    custom_property_display_types: dict[UUID, DisplayType],
+) -> QuerySet[Account]:
+    active_relationships = AccountRelationship.objects.for_team(team_id).filter(
+        account_id=OuterRef("pk"), ended_at__isnull=True, user_id__isnull=False
+    )
+    for filter_ in filters:
+        if isinstance(filter_, contracts.AccountTableSearchFilter):
+            query = filter_.query.strip()
+            if query:
+                queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
+        elif isinstance(filter_, contracts.AccountTableTagsFilter):
+            if filter_.tag_names:
+                matching_tags = TaggedItem.objects.filter(
+                    account_id=OuterRef("pk"), tag__team_id=team_id, tag__name__in=filter_.tag_names
+                )
+                queryset = queryset.filter(Exists(matching_tags))
+        elif isinstance(filter_, contracts.AccountTableAssignedToFilter):
+            if filter_.user_ids:
+                queryset = queryset.filter(Exists(active_relationships.filter(user_id__in=filter_.user_ids)))
+        elif isinstance(filter_, contracts.AccountTableUnassignedFilter):
+            queryset = queryset.filter(~Exists(active_relationships))
+        elif isinstance(filter_, contracts.AccountTableAccountIdFilter):
+            queryset = queryset.filter(id=filter_.account_id)
+        elif isinstance(filter_, contracts.AccountTableCustomPropertyFilter):
+            active_values = CustomPropertyValue.objects.for_team(team_id).filter(
+                account_id=OuterRef("pk"), definition_id=filter_.definition_id, is_deleted=False
+            )
+            predicate, negate_exists = _custom_property_filter_predicate(
+                filter_, custom_property_display_types[filter_.definition_id]
+            )
+            matching_values = active_values.filter(predicate)
+            queryset = queryset.filter(~Exists(matching_values) if negate_exists else Exists(matching_values))
+    return queryset
+
+
+def _custom_property_sort_output_field(display_type: DisplayType) -> Field:
+    return {
+        DataType.STRING: TextField(),
+        DataType.NUMERIC: FloatField(),
+        DataType.BOOLEAN: BooleanField(),
+        DataType.DATETIME: DateTimeField(),
+    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
+
+
+def _apply_account_table_sort(
+    queryset: QuerySet[Account],
+    *,
+    team_id: int,
+    sort: contracts.AccountTableSort | None,
+    custom_property_display_types: dict[UUID, DisplayType],
+) -> QuerySet[Account]:
+    if sort is None:
+        return queryset.order_by("-created_at", "-id")
+
+    if sort.kind == contracts.AccountTableSortKind.ACCOUNT_FIELD:
+        if sort.account_field is None:
+            raise InvalidAccountTableColumn("Account field sorting requires a field.")
+        direct_fields = {
+            contracts.AccountTableField.NAME: "name",
+            contracts.AccountTableField.EXTERNAL_ID: "external_id",
+            contracts.AccountTableField.CREATED_AT: "created_at",
+            contracts.AccountTableField.UPDATED_AT: "updated_at",
+        }
+        if direct_field := direct_fields.get(sort.account_field):
+            queryset = queryset.annotate(_account_table_sort=F(direct_field))
+        else:
+            queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
+    elif sort.kind == contracts.AccountTableSortKind.TAGS:
+        tag_values = (
+            TaggedItem.objects.filter(account_id=OuterRef("pk"), tag__team_id=team_id)
+            .values("account_id")
+            .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
+            .values("value")
+        )
+        queryset = queryset.annotate(_account_table_sort=Subquery(tag_values, output_field=ArrayField(CharField())))
+    elif sort.kind == contracts.AccountTableSortKind.NOTE_COUNT:
+        note_counts = (
+            ResourceNotebook.objects.filter(account_id=OuterRef("pk"))
+            .values("account_id")
+            .annotate(value=Count("id"))
+            .values("value")
+        )
+        queryset = queryset.annotate(
+            _account_table_sort=Coalesce(Subquery(note_counts, output_field=IntegerField()), Value(0))
+        )
+    elif sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
+        relationship_values = (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(
+                account_id=OuterRef("pk"),
+                definition_id=sort.definition_id,
+                ended_at__isnull=True,
+                user_id__isnull=False,
+            )
+            .values("account_id")
+            .annotate(value=ArrayAgg("user_id", order_by="user_id"))
+            .values("value")
+        )
+        queryset = queryset.annotate(
+            _account_table_sort=Subquery(relationship_values, output_field=ArrayField(IntegerField()))
+        )
+    elif sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
+        display_type = custom_property_display_types[sort.definition_id]
+        value_field = {
+            DataType.STRING: "value_str",
+            DataType.NUMERIC: "value_num",
+            DataType.BOOLEAN: "value_bool",
+            DataType.DATETIME: "value_datetime",
+        }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
+        custom_property_value = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id=OuterRef("pk"), definition_id=sort.definition_id, is_deleted=False
+        )
+        queryset = queryset.annotate(
+            _account_table_sort=Subquery(
+                custom_property_value.values(value_field)[:1],
+                output_field=_custom_property_sort_output_field(display_type),
+            )
+        )
+
+    order = F("_account_table_sort")
+    primary_order = (
+        order.asc(nulls_last=True)
+        if sort.direction == contracts.AccountTableSortDirection.ASCENDING
+        else order.desc(nulls_last=True)
+    )
+    return queryset.order_by(primary_order, "id")
+
+
+def query_accounts_table(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    selection: contracts.AccountTableColumnSelection,
+    filters: tuple[contracts.AccountTableFilter, ...],
+    sort: contracts.AccountTableSort | None,
+    offset: int,
+    limit: int,
+) -> contracts.AccountTablePage:
+    custom_property_display_types = _validate_account_table_definitions(
+        team_id=team_id,
+        selection=selection,
+        filters=filters,
+        sort=sort,
+    )
+
+    queryset = _apply_account_table_filters(
+        _accounts_queryset(team_id, user_access_control),
+        team_id=team_id,
+        filters=filters,
+        custom_property_display_types=custom_property_display_types,
+    )
+    queryset = _apply_account_table_sort(
+        queryset,
+        team_id=team_id,
+        sort=sort,
+        custom_property_display_types=custom_property_display_types,
+    )
+    fetched_accounts = list(queryset[offset : offset + limit + 1])
+    has_more = len(fetched_accounts) > limit
+    accounts = fetched_accounts[:limit]
+    account_ids = [account.id for account in accounts]
+
+    tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
+    if selection.include_tags:
+        for account_id, tag_name in (
+            TaggedItem.objects.filter(account_id__in=account_ids)
+            .order_by("tag__name")
+            .values_list("account_id", "tag__name")
+        ):
+            tags_by_account[account_id].append(tag_name)
+
+    note_counts_by_account: dict[UUID, int] = dict.fromkeys(account_ids, 0)
+    if selection.include_note_count:
+        for result in (
+            ResourceNotebook.objects.filter(account_id__in=account_ids).values("account_id").annotate(count=Count("id"))
+        ):
+            note_counts_by_account[result["account_id"]] = result["count"]
+
+    relationship_ids = selection.relationship_definition_ids
+    sorted_relationship_ids = sorted(relationship_ids, key=lambda definition_id: definition_id.hex)
+    relationships_by_account: dict[UUID, dict[UUID, list[int]]] = {
+        account_id: {definition_id: [] for definition_id in sorted_relationship_ids} for account_id in account_ids
+    }
+    if relationship_ids:
+        for account_id, definition_id, user_id in (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(
+                account_id__in=account_ids,
+                definition_id__in=relationship_ids,
+                ended_at__isnull=True,
+                user_id__isnull=False,
+            )
+            .order_by("user_id")
+            .values_list("account_id", "definition_id", "user_id")
+        ):
+            relationships_by_account[account_id][definition_id].append(user_id)
+
+    custom_property_ids = selection.custom_property_definition_ids
+    sorted_custom_property_ids = sorted(custom_property_ids, key=lambda definition_id: definition_id.hex)
+    custom_properties_by_account: dict[UUID, dict[UUID, float | bool | str | None]] = {
+        account_id: dict.fromkeys(sorted_custom_property_ids) for account_id in account_ids
+    }
+    if custom_property_ids:
+        for value in CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id__in=account_ids,
+            definition_id__in=custom_property_ids,
+            is_deleted=False,
+        ):
+            custom_properties_by_account[value.account_id][value.definition_id] = _scalar_value_for_display_type(
+                value, custom_property_display_types[value.definition_id]
+            )
+
+    history_windows = selection.custom_property_history_windows
+    custom_property_history_by_account: dict[
+        UUID, dict[UUID, list[contracts.AccountTableCustomPropertyHistoryPoint]]
+    ] = {account_id: {definition_id: [] for definition_id in history_windows} for account_id in account_ids}
+    if history_windows:
+        now = timezone.now()
+        history_filter = Q()
+        for definition_id, window_days in history_windows.items():
+            history_filter |= Q(definition_id=definition_id, created_at__gte=now - timedelta(days=window_days))
+            history_filter |= Q(definition_id=definition_id, is_deleted=False)
+        history_point_count = 0
+        history_values = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .filter(history_filter, account_id__in=account_ids, value_num__isnull=False)
+            .order_by("created_at", "id")
+            .iterator(chunk_size=2_000)
+        )
+        for value in history_values:
+            history_point_count += 1
+            if history_point_count > ACCOUNT_TABLE_MAX_HISTORY_POINTS:
+                raise InvalidAccountTableColumn(
+                    f"Account table queries support up to {ACCOUNT_TABLE_MAX_HISTORY_POINTS} history points."
+                )
+            assert value.value_num is not None
+            custom_property_history_by_account[value.account_id][value.definition_id].append(
+                contracts.AccountTableCustomPropertyHistoryPoint(
+                    timestamp=value.created_at,
+                    value=value.value_num,
+                )
+            )
+
+    rows = [
+        contracts.AccountTableRow(
+            id=account.id,
+            name=account.name,
+            external_id=account.external_id,
+            account_fields=_account_table_field_values(account, selection.account_fields),
+            tags=tags_by_account[account.id] if selection.include_tags else None,
+            note_count=note_counts_by_account[account.id] if selection.include_note_count else None,
+            relationships=relationships_by_account[account.id],
+            custom_properties=custom_properties_by_account[account.id],
+            custom_property_history=custom_property_history_by_account[account.id],
+        )
+        for account in accounts
+    ]
+    return contracts.AccountTablePage(rows=rows, has_more=has_more, limit=limit, offset=offset)
 
 
 def list_accounts_for_view(
