@@ -74,7 +74,7 @@ const SingleTemplateVariable = ({
             <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
             <LemonInput
                 placeholder={variable.value}
-                value={variable.value}
+                value={variable.value ?? ''}
                 onChange={(e) =>
                     e ? setVariable({ ...variable, value: e }) : resetVariable({ ...variable, value: undefined })
                 }
@@ -151,9 +151,8 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
     return (
         <LemonCard
             className="w-80"
-            onClick={() => {
-                showVariables()
-            }}
+            onClick={!variablesVisible ? () => showVariables() : undefined}
+            hoverEffect={!variablesVisible}
             closeable={variablesVisible}
             onClose={hideVariables}
             focused={variablesVisible}
@@ -169,9 +168,13 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
                         </div>
                     )}
                     <h3 className="mb-0">
-                        <Link onClick={() => showVariables()} className="text-accent">
-                            {props.template.name}
-                        </Link>
+                        {variablesVisible ? (
+                            <span className="text-accent">{props.template.name}</span>
+                        ) : (
+                            <Link onClick={() => showVariables()} className="text-accent">
+                                {props.template.name}
+                            </Link>
+                        )}
                     </h3>
                 </div>
                 <p>{props.template.description}</p>

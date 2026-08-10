@@ -7451,7 +7451,6 @@ export type ReplayTemplateVariableType = {
     type: 'event' | 'flag' | 'pageview' | 'person-property' | 'snapshot_source'
     name: string
     key: string
-    touched?: boolean
     value?: string
     description?: string
     filterGroup?: UniversalFiltersGroupValue
