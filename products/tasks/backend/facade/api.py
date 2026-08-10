@@ -5771,6 +5771,17 @@ def normalize_channel_name(name: str) -> str:
     return re.sub(r"\s+", "-", name.strip().lower())[:128]
 
 
+def _set_channel_star(channel_id: UUID, team_id: int, user_id: int, *, starred: bool) -> None:
+    if starred:
+        ChannelStar.objects.get_or_create(channel_id=channel_id, user_id=user_id, defaults={"team_id": team_id})
+    else:
+        ChannelStar.objects.filter(channel_id=channel_id, user_id=user_id).delete()
+
+
+def _is_channel_starred(channel_id: UUID, user_id: int) -> bool:
+    return ChannelStar.objects.filter(channel_id=channel_id, user_id=user_id).exists()
+
+
 def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.ChannelDTO:
     return contracts.ChannelDTO(
         id=channel.id,
@@ -5854,9 +5865,11 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
         logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
 
 
-def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
+def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool) -> contracts.ChannelDTO | None:
     """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
-    Emits a ``channel_created`` feed message the first time a channel is created."""
+    Emits a ``channel_created`` feed message the first time a channel is created, and (unless
+    ``star`` is false) stars the channel for whoever created it. Resolving a channel that
+    already exists leaves the requester's star alone — only creation stars."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
@@ -5875,7 +5888,15 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
         )
     if created:
         _emit_channel_created(channel, user_id)
-    return _channel_to_dto(channel)
+    if user_id is None:
+        starred = False
+    elif not created:
+        starred = _is_channel_starred(channel.id, user_id)
+    else:
+        starred = star
+        if star:
+            _set_channel_star(channel.id, team_id, user_id, starred=True)
+    return _channel_to_dto(channel, starred=starred)
 
 
 def update_channel(
@@ -6031,7 +6052,7 @@ def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> co
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return None
-    starred = user_id is not None and ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).exists()
+    starred = user_id is not None and _is_channel_starred(channel.id, user_id)
     return _channel_to_dto(channel, starred=starred)
 
 
@@ -6230,10 +6251,7 @@ def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred:
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return False
-    if starred:
-        ChannelStar.objects.get_or_create(channel_id=channel.id, user_id=user_id, defaults={"team_id": team_id})
-    else:
-        ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).delete()
+    _set_channel_star(channel.id, team_id, user_id, starred=starred)
     return True
 
 
