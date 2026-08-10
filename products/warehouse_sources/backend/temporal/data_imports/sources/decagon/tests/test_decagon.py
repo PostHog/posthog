@@ -521,6 +521,34 @@ class TestArticleTables:
         ]
         assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3]]
 
+    def test_shifted_duplicate_does_not_end_the_walk_before_the_total(self) -> None:
+        # The server's total counts unique articles. A row that shifted pages arrives
+        # twice but is kept once; counting raw items against the total would stop one
+        # page early and silently drop the final page's articles.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 4}),
+            _make_response({"articles": [{"id": 2}, {"id": 3}], "total": 4}),
+            _make_response({"articles": [{"id": 4}], "total": 4}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert len(sent_params) == 3
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3], [4]]
+
+    def test_page_contributing_nothing_new_ends_the_walk(self) -> None:
+        # A server that ignores the page param would otherwise repeat the same page
+        # forever without the kept-row count ever reaching the total.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert len(sent_params) == 2
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
+
     def test_article_usage_is_a_single_request_pinned_to_utc(self) -> None:
         # The timezone param changes how usage is bucketed; leaving it to the account
         # default would let a dashboard setting silently shift the numbers.
