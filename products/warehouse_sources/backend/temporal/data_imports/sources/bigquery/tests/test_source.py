@@ -725,6 +725,28 @@ def test_non_retryable_errors_match_offline_token_uri_endpoint(observed_error):
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # token_uri pointed at the cloud metadata endpoint — PostHog's egress proxy denies it.
+        "RefreshError: Egress proxying is denied to host '169.254.169.254': no valid IP found "
+        "among resolved addresses - 169.254.169.254 denied by rule 'Deny: Not Global Unicast'. .",
+        # Different denied host — the match must not rely on the volatile host/IP.
+        "RefreshError: Egress proxying is denied to host '10.0.0.5': no valid IP found "
+        "among resolved addresses - 10.0.0.5 denied by rule 'Deny: Not Global Unicast'. .",
+    ],
+)
+def test_non_retryable_errors_match_egress_denied_token_uri_endpoint(observed_error):
+    """A service account whose `token_uri` points at a non-globally-routable address (e.g. a
+    cloud metadata endpoint) makes our egress proxy deny the request, and google-auth surfaces
+    that denial as a `RefreshError` — a misconfigured key the user must fix, so the sync must be
+    disabled rather than retried forever."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Egress-denied token_uri endpoint error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Corrupted/truncated private key body in the uploaded service account JSON.
         "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
         "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
@@ -775,6 +797,24 @@ def test_bigquery_unrecognized_column_name_is_non_retryable(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Unrecognized column name error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # A single enabled column renamed/dropped from the source table (direct-read path).
+        "request failed: The following selected fields do not exist in the table schema: FOO",
+        # Multiple columns — the match must not rely on the specific field names or their count.
+        "request failed: The following selected fields do not exist in the table schema: FOO, BAR, BAZ",
+    ],
+)
+def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
+    """A column selected for syncing via the Storage Read API's direct-read path that was renamed
+    or dropped from the live table makes every retry fail identically."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Missing selected-fields error should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
