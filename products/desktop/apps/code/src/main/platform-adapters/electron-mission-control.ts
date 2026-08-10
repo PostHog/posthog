@@ -12,9 +12,9 @@ import {
   MissionControlServiceEvent,
   type MissionControlServiceEvents,
   type MissionControlState,
+  type ObservedWindow,
 } from "../services/mission-control/schemas";
 import type {
-  CgWindow,
   Rect,
   WindowListSampler,
 } from "../services/mission-control/window-list";
@@ -108,35 +108,44 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
     const sampler = this.resolveSampler();
     const empty = {
       durationMs,
-      detected: false,
+      detectedAtMs: [],
       appeared: [],
       disappeared: [],
       baselineCount: 0,
+      ownPid: process.pid,
     };
     if (!sampler) return { available: false, ...empty };
 
     try {
+      const startedAt = Date.now();
       const baseline = sampler.sample();
       const baselineByKey = new Map(
         baseline.map((window) => [windowKey(window), window]),
       );
-      const appeared = new Map<string, CgWindow>();
+      const appeared = new Map<string, ObservedWindow>();
       // Baseline windows seen in every sample so far. A window that vanishes
       // even once drops out and is reported as disappeared.
       const survived = new Set(baselineByKey.keys());
-      let detected = false;
+      const detectedAtMs: number[] = [];
 
-      const deadline = Date.now() + durationMs;
-      while (Date.now() < deadline) {
+      while (Date.now() - startedAt < durationMs) {
         await delay(POLL_INTERVAL_MS);
+        const at = Date.now() - startedAt;
         const current = sampler.sample();
-        if (detectMissionControl(current, this.displayBounds()))
-          detected = true;
+        if (detectMissionControl(current, this.displayBounds())) {
+          detectedAtMs.push(at);
+        }
 
         const currentKeys = new Set(current.map(windowKey));
         for (const window of current) {
           const key = windowKey(window);
-          if (!baselineByKey.has(key)) appeared.set(key, window);
+          if (baselineByKey.has(key)) continue;
+          const seen = appeared.get(key);
+          if (seen) {
+            seen.lastSeenMs = at;
+          } else {
+            appeared.set(key, { ...window, firstSeenMs: at, lastSeenMs: at });
+          }
         }
         for (const key of survived) {
           if (!currentKeys.has(key)) survived.delete(key);
@@ -146,18 +155,21 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
       const result: MissionControlProbe = {
         available: true,
         durationMs,
-        detected,
-        appeared: [...appeared.values()],
+        detectedAtMs,
+        appeared: [...appeared.values()].sort(
+          (a, b) => a.firstSeenMs - b.firstSeenMs,
+        ),
         disappeared: [...baselineByKey]
           .filter(([key]) => !survived.has(key))
           .map(([, window]) => window),
         baselineCount: baseline.length,
+        ownPid: process.pid,
       };
       // Logged here rather than from the renderer, where it was raised: renderer
       // lines do not reach the dev toolbar's log panel, and this is the one
       // artifact worth keeping a durable copy of.
       log.info("Probe finished", {
-        detected: result.detected,
+        detections: result.detectedAtMs.length,
         appeared: result.appeared.length,
         displays: this.displayBounds(),
       });

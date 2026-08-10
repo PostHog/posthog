@@ -35,9 +35,17 @@ function coversDisplay(bounds: Rect, display: Rect): boolean {
  * it against a real macOS release with `dev.probeMissionControl` rather than
  * adjusting it from first principles.
  *
- * App Exposé, Launchpad and Show Desktop put up similar Dock windows and so match
- * too. That is harmless: each either hides our window completely or slides it off
- * screen, so the overlay is either invisible or a reasonable thing to show.
+ * KNOWN FALSE POSITIVES, not yet fixed: hovering the Dock, and the Cmd-Tab app
+ * switcher, both trip this. The Dock's own window covers the whole display — a
+ * long-standing CoreGraphics quirk — so "a full-display Dock window above the
+ * normal level" turns out to mean "the Dock is drawing something" rather than
+ * "Mission Control is open". Narrowing it needs a recording of those two
+ * gestures to compare against, which is what dev.probeMissionControl now
+ * timestamps for.
+ *
+ * App Exposé, Launchpad and Show Desktop match too, and those are harmless: each
+ * either hides our window completely or slides it off screen, so the overlay is
+ * either invisible or a reasonable thing to show.
  */
 export function detectMissionControl(
   windows: CgWindow[],

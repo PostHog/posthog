@@ -10,7 +10,7 @@ import { parseWindowListPlist } from "./cg-window-list";
  *     plistlib.dumps([...], fmt=plistlib.FMT_BINARY)).decode())"
  */
 const WINDOW_LIST_PLIST = Buffer.from(
-  "YnBsaXN0MDCjARQc1QIDBAUGBxAREhNfEA9rQ0dXaW5kb3dCb3VuZHNfEBNrQ0dXaW5kb3dJc09uc2NyZWVuXmtDR1dpbmRvd0xheWVyXxAPa0NHV2luZG93TnVtYmVyXxASa0NHV2luZG93T3duZXJOYW1l1AgJCgsMDQ4PVkhlaWdodFVXaWR0aFFYUVkjQIwoAAAAAAAjQJaAAAAAAAAjAAAAAAAAAAAjv/AAAAAAAAAJEBQQe1REb2Nr0wIEBhUaG9QICQoLFhcYGSNAgsAAAAAAACNAiQAAAAAAACNAKAAAAAAAACNAQwAAAAAAABAAV1Bvc3RIb2fSAgQdH9QICQoLHg0ODiNAOAAAAAAAABAZAAgADAAXACkAPwBOAGAAdQB+AIUAiwCNAI8AmAChAKoAswC0ALYAuAC9AMQAzQDWAN8A6ADxAPMA+wEAAQkBEgAAAAAAAAIBAAAAAAAAACAAAAAAAAAAAAAAAAAAAAEU",
+  "YnBsaXN0MDCjARYf1gIDBAUGBwgREhMUFV8QD2tDR1dpbmRvd0JvdW5kc18QE2tDR1dpbmRvd0lzT25zY3JlZW5ea0NHV2luZG93TGF5ZXJfEA9rQ0dXaW5kb3dOdW1iZXJfEBJrQ0dXaW5kb3dPd25lck5hbWVfEBFrQ0dXaW5kb3dPd25lclBJRNQJCgsMDQ4PEFZIZWlnaHRVV2lkdGhRWFFZI0CMKAAAAAAAI0CWgAAAAAAAIwAAAAAAAAAAI7/wAAAAAAAACRAUEHtURG9jaxEBLNQCBAYHFxwdHtQJCgsMGBkaGyNAgsAAAAAAACNAiQAAAAAAACNAKAAAAAAAACNAQwAAAAAAABAAV1Bvc3RIb2cREHLTAgQHICIj1AkKCwwhDg8PI0A4AAAAAAAAEBkRARMACAAMABkAKwBBAFAAYgB3AIsAlACbAKEAowClAK4AtwDAAMkAygDMAM4A0wDWAN8A6ADxAPoBAwEMAQ4BFgEZASABKQEyATQAAAAAAAACAQAAAAAAAAAkAAAAAAAAAAAAAAAAAAABNw==",
   "base64",
 );
 
@@ -22,18 +22,22 @@ describe("parseWindowListPlist", () => {
     expect(parseWindowListPlist(WINDOW_LIST_PLIST)).toEqual([
       {
         ownerName: "Dock",
+        ownerPid: 300,
         layer: 20,
         bounds: { x: 0, y: -1, width: 1440, height: 901 },
       },
       {
         ownerName: "PostHog",
+        ownerPid: 4210,
         layer: 0,
         bounds: { x: 12, y: 38, width: 800, height: 600 },
       },
       {
         // kCGWindowOwnerName is absent for some system surfaces; it must not
-        // become the string "undefined" and accidentally match a filter.
+        // become the string "undefined" and accidentally match a filter. The pid
+        // is always there, which is why our own windows are found by pid.
         ownerName: "",
+        ownerPid: 275,
         layer: 25,
         bounds: { x: 0, y: 0, width: 1440, height: 24 },
       },

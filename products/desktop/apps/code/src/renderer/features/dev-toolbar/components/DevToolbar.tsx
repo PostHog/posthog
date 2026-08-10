@@ -806,8 +806,12 @@ function formatRttCompact(ms: number): string {
 
 const SLOW_PRESETS_MS = [0, 250, 1000, 3000] as const;
 
-/** Long enough to open Mission Control, look at it, and come back. */
-const MISSION_CONTROL_PROBE_MS = 8000;
+/**
+ * Long enough to run several gestures in one recording — Mission Control, then
+ * an app switch, then a Dock hover. Each one's windows separate out afterwards by
+ * their firstSeenMs, which is how a false positive gets told from the real thing.
+ */
+const MISSION_CONTROL_PROBE_MS = 20_000;
 
 function QuickActionsMenu() {
   const trpcReact = useTRPC();
@@ -842,7 +846,7 @@ function QuickActionsMenu() {
   const probeMissionControl = () => {
     setProbing(true);
     log.info(
-      `Recording the window list for ${MISSION_CONTROL_PROBE_MS}ms — open Mission Control now`,
+      `Recording the window list for ${MISSION_CONTROL_PROBE_MS}ms — run the gestures now`,
     );
     void trpcClient.dev.probeMissionControl
       .mutate({ durationMs: MISSION_CONTROL_PROBE_MS })
@@ -996,8 +1000,8 @@ function QuickActionsMenu() {
               className={`mr-2 ${probing ? "text-(--accent-11)" : "text-(--gray-9)"}`}
             />
             {probing
-              ? "Recording — open Mission Control"
-              : "Record the window list"}
+              ? "Recording — run the gestures"
+              : `Record the window list (${MISSION_CONTROL_PROBE_MS / 1000}s)`}
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

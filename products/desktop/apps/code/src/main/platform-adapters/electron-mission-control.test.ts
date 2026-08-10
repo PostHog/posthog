@@ -38,6 +38,7 @@ import { MissionControlService } from "./electron-mission-control";
 /** The full-display Dock window Mission Control puts up. */
 const MISSION_CONTROL_BACKING: CgWindow = {
   ownerName: "Dock",
+  ownerPid: 300,
   layer: 20,
   bounds: { x: 0, y: 0, width: 2560, height: 1440 },
 };
@@ -45,6 +46,7 @@ const MISSION_CONTROL_BACKING: CgWindow = {
 /** The Dock's own strip, present with or without Mission Control. */
 const DOCK_STRIP: CgWindow = {
   ownerName: "Dock",
+  ownerPid: 300,
   layer: 20,
   bounds: { x: 1030, y: 1330, width: 500, height: 110 },
 };
@@ -198,7 +200,7 @@ describe("MissionControlService", () => {
     expect(service.getState().active).toBe(true);
   });
 
-  it("reports the window that appeared mid-recording", async () => {
+  it("reports the window that appeared mid-recording, and when", async () => {
     // The whole point of recording rather than sampling on demand: Mission
     // Control is only ever open while the app is unclickable, so the window that
     // identifies it can only be caught by a probe that is already running.
@@ -206,20 +208,26 @@ describe("MissionControlService", () => {
     sampler.create.mockReturnValue(impl);
     const service = new MissionControlService();
 
-    const probe = service.probe(1000);
-    await vi.advanceTimersByTimeAsync(250);
+    const probe = service.probe(2000);
+    // Ordinary desktop for the first stretch, then Mission Control opens.
+    await vi.advanceTimersByTimeAsync(500);
     state.windows = [DOCK_STRIP, MISSION_CONTROL_BACKING];
-    await vi.advanceTimersByTimeAsync(250);
-    state.windows = [MISSION_CONTROL_BACKING];
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
 
-    expect(await probe).toMatchObject({
-      available: true,
-      detected: true,
-      appeared: [MISSION_CONTROL_BACKING],
-      disappeared: [DOCK_STRIP],
-      baselineCount: 1,
-    });
+    const result = await probe;
+    expect(result).toMatchObject({ available: true, baselineCount: 1 });
+    expect(result.appeared).toHaveLength(1);
+
+    // Timings are what let one recording cover several gestures, so the window
+    // must be stamped with when it showed up, not with the recording's start.
+    const [seen] = result.appeared;
+    expect(seen).toMatchObject(MISSION_CONTROL_BACKING);
+    expect(seen.firstSeenMs).toBeGreaterThan(0);
+    expect(seen.lastSeenMs).toBeGreaterThanOrEqual(seen.firstSeenMs);
+
+    // Detection tracks the same window, so it cannot have fired before it.
+    expect(result.detectedAtMs.length).toBeGreaterThan(0);
+    expect(Math.min(...result.detectedAtMs)).toBe(seen.firstSeenMs);
   });
 
   it("reports unavailable rather than throwing when there is no window list", async () => {
@@ -228,7 +236,7 @@ describe("MissionControlService", () => {
 
     await expect(service.probe(1000)).resolves.toMatchObject({
       available: false,
-      detected: false,
+      detectedAtMs: [],
       appeared: [],
     });
   });

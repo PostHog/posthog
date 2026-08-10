@@ -8,6 +8,7 @@ const DISPLAYS = [DISPLAY];
 
 const window = (partial: Partial<CgWindow>): CgWindow => ({
   ownerName: "PostHog",
+  ownerPid: 501,
   layer: 0,
   bounds: { x: 12, y: 38, width: 1281, height: 1410 },
   ...partial,

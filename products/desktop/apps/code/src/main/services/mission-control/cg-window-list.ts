@@ -27,6 +27,7 @@ const CORE_FOUNDATION =
 /** The plist shape of one window entry; every field is optional in practice. */
 interface RawWindow {
   kCGWindowOwnerName?: unknown;
+  kCGWindowOwnerPID?: unknown;
   kCGWindowLayer?: unknown;
   kCGWindowBounds?: {
     X?: unknown;
@@ -46,6 +47,7 @@ function toCgWindow(raw: RawWindow): CgWindow {
     // some system-owned surfaces.
     ownerName:
       typeof raw.kCGWindowOwnerName === "string" ? raw.kCGWindowOwnerName : "",
+    ownerPid: num(raw.kCGWindowOwnerPID),
     layer: num(raw.kCGWindowLayer),
     // CoreGraphics capitalises these; our own type does not.
     bounds: {
