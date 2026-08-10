@@ -1999,6 +1999,19 @@ class TestIntegrationAPIKeyAccess:
         assert response.json()["users"] == [{"id": "U42", "name": "andy.m", "display_name": "andy"}]
         mock_slack_instance.get_user_by_id.assert_called_once_with("U42")
 
+        # Lookups are cached per id — hits and misses alike — so repeated probes can't spend the
+        # workspace's Slack API quota one users.info call at a time.
+        mock_slack_instance.get_user_by_id.reset_mock()
+        mock_slack_instance.get_user_by_id.return_value = None
+        for _ in range(2):
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?user_id=UMISSING",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["users"] == []
+        mock_slack_instance.get_user_by_id.assert_called_once_with("UMISSING")
+
         response = client.get(
             f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/users/",
             HTTP_AUTHORIZATION=f"Bearer {key_value}",

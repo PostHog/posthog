@@ -209,6 +209,7 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
 def post_scout_emission_to_slack(
     emission: SignalScoutEmission,
     *,
+    delivery_id: str,
     integration_id: int,
     channel: str,
 ) -> None:
@@ -225,7 +226,9 @@ def post_scout_emission_to_slack(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
-            client_msg_id=str(emission.id),
+            # The queue derives one delivery_id per recipient, so each DM keeps its own
+            # Slack idempotency key instead of every recipient sharing the emission id.
+            client_msg_id=delivery_id,
             unfurl_links=False,
             unfurl_media=False,
         )

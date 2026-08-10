@@ -18,7 +18,9 @@ import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { IntegrationType, SlackChannelType, SlackUserType } from '~/types'
+import { IntegrationType, SlackChannelType } from '~/types'
+
+import type { SlackUserApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
@@ -87,11 +89,53 @@ const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): Lemo
         : null
 }
 
-const getSlackUserOptions = (slackUsers: SlackUserType[]): LemonInputSelectOption[] => {
-    return slackUsers.map((user) => ({
-        key: `${user.id}|@${user.display_name}`,
-        label: `@${user.display_name}`,
-    }))
+const getSlackUserOptions = (slackUsers: SlackUserApi[]): LemonInputSelectOption[] => {
+    return slackUsers.map((user) => {
+        // Display names are not unique in a workspace, so surface the unique handle alongside
+        // whenever it differs — otherwise two "@Alex" options are indistinguishable.
+        const showHandle = Boolean(user.name) && user.name.toLowerCase() !== user.display_name.toLowerCase()
+        return {
+            key: `${user.id}|@${user.display_name}`,
+            label: showHandle ? `@${user.display_name} (${user.name})` : `@${user.display_name}`,
+            labelComponent: (
+                <span className="flex items-center gap-1">
+                    <span>@{user.display_name}</span>
+                    {showHandle ? <span className="text-muted">({user.name})</span> : null}
+                </span>
+            ),
+        }
+    })
+}
+
+function SlackIntegrationInactiveBanner({ message }: { message: string }): JSX.Element {
+    // Reconnecting overwrites the existing integration, which the API reserves for project admins
+    // (`has_team_management_access`). Without this the banner would send a member through OAuth
+    // only to have the write rejected at the end.
+    const reconnectRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
+    return (
+        <LemonBanner type="warning" className="mt-1">
+            <div className="flex justify-between gap-2 items-center">
+                <span>
+                    {message}
+                    {reconnectRestrictionReason ? ' Ask a project admin to reconnect it.' : ''}
+                </span>
+                {reconnectRestrictionReason ? null : (
+                    <Link
+                        to={api.integrations.authorizeUrl({
+                            kind: 'slack',
+                            next: window.location.pathname + '?target_type=slack',
+                        })}
+                        disableClientSideRouting
+                    >
+                        Reconnect Slack
+                    </Link>
+                )}
+            </div>
+        </LemonBanner>
+    )
 }
 
 export type SlackUserPickerProps = {
@@ -111,11 +155,21 @@ export function SlackUserPicker({
     maxUsers,
 }: SlackUserPickerProps): JSX.Element {
     const logic = slackIntegrationLogic({ id: integration.id })
-    const { slackUsers, allSlackUsers, allSlackUsersLoading, slackIntegrationInactiveMessage } = useValues(logic)
+    const {
+        slackUsers,
+        allSlackUsers,
+        allSlackUsersLoading,
+        slackIntegrationInactiveMessage,
+        getUsersRefreshButtonDisabledReason,
+    } = useValues(logic)
     const { loadAllSlackUsers } = useActions(logic)
     // Gates the empty-val recovery reload, mirroring SlackChannelPicker: LemonInputSelect clears its
     // input on blur/select, which must not re-trigger a full search round-trip every focus cycle.
     const hasActiveSearchRef = useRef(false)
+
+    const usersRefreshButtonDisabledReason = getUsersRefreshButtonDisabledReason()
+    // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender.
+    usePeriodicRerender(usersRefreshButtonDisabledReason ? 1000 : 60_000)
 
     useEffect(() => {
         // Read live logic values rather than the render closure: sibling pickers can mount within
@@ -131,7 +185,7 @@ export function SlackUserPicker({
         () =>
             (values ?? []).map((value) => {
                 const memberId = value.split('|')[0]
-                const match = slackUsers.find((user: SlackUserType) => user.id === memberId)
+                const match = slackUsers.find((user: SlackUserApi) => user.id === memberId)
                 return match ? `${match.id}|@${match.display_name}` : value
             }),
         [values, slackUsers]
@@ -165,6 +219,11 @@ export function SlackUserPicker({
                 mode="multiple"
                 data-attr="select-slack-users"
                 placeholder={atLimit ? undefined : 'Select people...'}
+                action={{
+                    children: <span className="Link">Refresh members</span>,
+                    onClick: () => loadAllSlackUsers(true),
+                    disabledReason: usersRefreshButtonDisabledReason,
+                }}
                 options={atLimit ? options.filter((option) => selectedValues.includes(option.key)) : options}
                 loading={allSlackUsersLoading}
                 emptyStateComponent={
@@ -177,9 +236,7 @@ export function SlackUserPicker({
             />
 
             {slackIntegrationInactiveMessage ? (
-                <LemonBanner type="warning" className="mt-1">
-                    {slackIntegrationInactiveMessage}
-                </LemonBanner>
+                <SlackIntegrationInactiveBanner message={slackIntegrationInactiveMessage} />
             ) : null}
 
             {allSlackUsers?.has_more && !allSlackUsersLoading ? (
@@ -212,13 +269,6 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         slackIntegrationInactiveMessage,
     } = useValues(logic)
     const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
-    // Reconnecting overwrites the existing integration, which the API reserves for project admins
-    // (`has_team_management_access`). Without this the banner would send a member through OAuth
-    // only to have the write rejected at the end.
-    const reconnectRestrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
     const [localValue, setLocalValue] = useState<string | null>(null)
     // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
     // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
@@ -356,25 +406,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             />
 
             {slackIntegrationInactiveMessage ? (
-                <LemonBanner type="warning" className="mt-1">
-                    <div className="flex justify-between gap-2 items-center">
-                        <span>
-                            {slackIntegrationInactiveMessage}
-                            {reconnectRestrictionReason ? ' Ask a project admin to reconnect it.' : ''}
-                        </span>
-                        {reconnectRestrictionReason ? null : (
-                            <Link
-                                to={api.integrations.authorizeUrl({
-                                    kind: 'slack',
-                                    next: window.location.pathname + '?target_type=slack',
-                                })}
-                                disableClientSideRouting
-                            >
-                                Reconnect Slack
-                            </Link>
-                        )}
-                    </div>
-                </LemonBanner>
+                <SlackIntegrationInactiveBanner message={slackIntegrationInactiveMessage} />
             ) : null}
 
             {allSlackChannels?.has_more && !allSlackChannelsLoading ? (

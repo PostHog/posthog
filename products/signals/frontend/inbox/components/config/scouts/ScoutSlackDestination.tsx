@@ -46,6 +46,8 @@ export function ScoutSlackDestination({
     const mode: SlackTargetMode = hasUsers ? 'dm' : hasChannel ? 'channel' : pendingMode
 
     const selectWorkspace = (integrationId: number): void => {
+        // Switching workspace clears the target, so pin the toggle to the mode the user was in.
+        setPendingMode(mode)
         onChange({ slack: { integration_id: integrationId, channel: null } })
     }
 
@@ -73,6 +75,9 @@ export function ScoutSlackDestination({
             return
         }
         if (!users.length) {
+            // Removing the last recipient empties the saved destination; without pinning the mode
+            // the toggle would fall back to its channel default and swap the picker mid-edit.
+            setPendingMode('dm')
             onChange({ slack: { integration_id: selectedIntegration.id, channel: null } })
             return
         }
@@ -82,6 +87,7 @@ export function ScoutSlackDestination({
     }
 
     const disableSlack = (): void => {
+        setPendingMode(mode)
         onChange({})
     }
 

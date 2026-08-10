@@ -186,9 +186,11 @@ const integrationsUsersRetrieve = (): ToolBase<typeof IntegrationsUsersRetrieveS
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/users/`,
             query: {
+                force_refresh: params.force_refresh,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                user_id: params.user_id,
             },
         })
         return result

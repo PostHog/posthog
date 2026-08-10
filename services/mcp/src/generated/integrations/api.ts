@@ -188,6 +188,7 @@ export const IntegrationsUsersRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const integrationsUsersRetrieveQueryForceRefreshDefault = false
 export const integrationsUsersRetrieveQueryLimitDefault = 50
 export const integrationsUsersRetrieveQueryLimitMax = 200
 
@@ -197,6 +198,12 @@ export const integrationsUsersRetrieveQueryOffsetMin = 0
 export const integrationsUsersRetrieveQuerySearchDefault = ``
 
 export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    force_refresh: zod
+        .boolean()
+        .default(integrationsUsersRetrieveQueryForceRefreshDefault)
+        .describe(
+            'Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.'
+        ),
     limit: zod
         .number()
         .min(1)
@@ -212,6 +219,12 @@ export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .default(integrationsUsersRetrieveQuerySearchDefault)
         .describe('Optional case-insensitive member name or ID search query.'),
+    user_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.'
+        ),
 })
 
 /**

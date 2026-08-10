@@ -114,6 +114,7 @@ class TestScoutSlackDelivery(BaseTest):
             slack_integration.return_value.client = fake_client
             post_scout_emission_to_slack(
                 emission,
+                delivery_id=str(emission.id),
                 integration_id=integration.id,
                 channel="CSCOUTS|#scout-findings",
             )
@@ -217,6 +218,7 @@ class TestScoutSlackDelivery(BaseTest):
             slack_integration.return_value.client = fake_client
             post_scout_emission_to_slack(
                 emission,
+                delivery_id=str(emission.id),
                 integration_id=integration.id,
                 channel="CSCOUTS|#scout-findings",
             )

@@ -436,6 +436,23 @@ class SlackUsersQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of members to skip before returning results.",
     )
+    user_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and "
+            "`offset` are ignored and the response holds at most that member."
+        ),
+    )
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP "
+            "callers always read through the cache."
+        ),
+    )
 
 
 class SlackUsersResponseSerializer(serializers.Serializer):
@@ -1384,32 +1401,38 @@ class IntegrationViewSet(
         if instance.kind not in SLACK_INTEGRATION_KINDS:
             raise ValidationError("users endpoint is only supported for Slack integrations")
         slack = SlackIntegration(instance)
+        query_serializer = SlackUsersQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
         # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
         # callers always read through the 1h cache so an agent loop can't bypass it.
         is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
-        force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
+        force_refresh: bool = is_session_auth and query_serializer.validated_data["force_refresh"]
 
         # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
         # integration_id (the Slack workspace id, shared across teams).
         key = f"slack/{instance.id}/users"
 
-        user_id = request.query_params.get("user_id")
+        user_id = query_serializer.validated_data["user_id"]
         if user_id:
             data = cache.get(key)
             if data is not None:
                 for member in data["users"]:
                     if member["id"] == user_id:
                         return Response({"users": [member]})
+            # Cache hits AND misses per id, so a loop over arbitrary ids can't spend the
+            # workspace's Slack API quota one uncached users.info call at a time.
+            lookup_key = f"slack/{instance.id}/users/{user_id}"
+            cached_lookup = cache.get(lookup_key)
+            if cached_lookup is not None:
+                return Response({"users": cached_lookup})
             try:
                 member = slack.get_user_by_id(user_id)
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
-            if member:
-                return Response({"users": [self._serialize_slack_user(member)]})
-            return Response({"users": []})
+            serialized_lookup = [self._serialize_slack_user(member)] if member else []
+            cache.set(lookup_key, serialized_lookup, 60 * 60)
+            return Response({"users": serialized_lookup})
 
-        query_serializer = SlackUsersQuerySerializer(data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
         search = query_serializer.validated_data["search"]
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]

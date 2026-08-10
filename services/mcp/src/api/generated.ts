@@ -84741,6 +84741,10 @@ export namespace Schemas {
 
     export type IntegrationsUsersRetrieveParams = {
     /**
+     * Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.
+     */
+    force_refresh?: boolean;
+    /**
      * Maximum number of members to return per request (max 200).
      * @minimum 1
      * @maximum 200
@@ -84755,6 +84759,11 @@ export namespace Schemas {
      * Optional case-insensitive member name or ID search query.
      */
     search?: string;
+    /**
+     * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
+     * @nullable
+     */
+    user_id?: string | null;
     };
 
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };
