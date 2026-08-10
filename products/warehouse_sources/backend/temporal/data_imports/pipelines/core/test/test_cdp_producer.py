@@ -7,11 +7,13 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.db.utils import OperationalError as DjangoOperationalError
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -889,6 +891,30 @@ async def test_serialize_json_raises_on_non_dict_unsupported(team):
 
 def _make_producer(job_id: str) -> CDPProducer:
     return CDPProducer(team_id=1, schema_id="schema_1", job_id=job_id, logger=mock.AsyncMock())
+
+
+@parameterized.expand([("local_setup", True), ("non_local_setup", False)])
+def test_get_fs_reuses_the_same_filesystem_across_calls(_name, use_local_setup):
+    # stage_chunk() calls _get_fs() once per chunk over a whole sync (potentially thousands of
+    # chunks); constructing a fresh S3FileSystem per call leaks its underlying connections/file
+    # descriptors until the process runs out of them. Both branches build their own S3FileSystem,
+    # so both must cache it.
+    producer = _make_producer("job_1")
+
+    with (
+        patch.object(settings, "USE_LOCAL_SETUP", use_local_setup),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.pa_fs.S3FileSystem"
+        ) as mock_s3_filesystem,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.ensure_bucket_exists"
+        ),
+    ):
+        first = producer._get_fs()
+        second = producer._get_fs()
+
+    mock_s3_filesystem.assert_called_once()
+    assert first is second
 
 
 def test_build_event_id_is_a_valid_uuid():
