@@ -299,6 +299,12 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A GitHubRateLimitError that survives _fetch_page's own rate-limit-aware tenacity retry
+        # still gets picked up by Temporal's activity retry; classify it as retryable so it's
+        # logged as a warning rather than tracked as an exception. Mirrors Stripe's equivalent case.
+        return {"GitHub API rate limit exceeded"}
+
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:

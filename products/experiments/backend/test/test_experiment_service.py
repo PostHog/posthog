@@ -796,6 +796,19 @@ class TestExperimentService(APIBaseTest):
                 {"exposure_config": {"kind": "ActionsNode"}},
                 "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
             ),
+            (
+                "activation_config_not_a_dict",
+                {"activation_config": "purchase"},
+                "exposure_criteria.activation_config must be an object, got str",
+            ),
+            (
+                "activation_config_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+                "exposure_criteria.activation_config requires the default exposure event",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -833,6 +846,35 @@ class TestExperimentService(APIBaseTest):
             (
                 "event_payload_without_explicit_kind",
                 {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+            (
+                "activation_payload",
+                {"activation_config": {"event": "purchase", "properties": []}},
+            ),
+            (
+                "explicit_null_configs",
+                {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "null_activation_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": None,
+                },
+            ),
+            (
+                "activation_with_default_exposure_config",
+                {
+                    "exposure_config": {"event": "$feature_flag_called", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+            ),
+            (
+                "activation_with_pinned_exposure_event",
+                {
+                    "exposure_config": {"event": "$experiment_exposure", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
             ),
         ]
     )

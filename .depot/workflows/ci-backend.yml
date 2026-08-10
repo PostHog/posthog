@@ -820,7 +820,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
-            # used by core-tests/django which achieves ~1s wait times.
+            # used by core-tests/django and makes the later wait step negligible.
             - name: Clean up data directories
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
@@ -1169,7 +1169,7 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
-              # of ~10 minutes of full migrations.
+              # of a full migration run.
               if: github.event_name != 'push'
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -1728,7 +1728,7 @@ jobs:
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
-              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config

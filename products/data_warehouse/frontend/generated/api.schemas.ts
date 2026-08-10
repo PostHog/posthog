@@ -12,6 +12,7 @@
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
@@ -21,6 +22,7 @@ export const DataModelingJobStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
 } as const
 
 export interface DataModelingJobApi {
@@ -469,6 +471,18 @@ export interface InsightVariableApi {
     readonly code_name: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface PaginatedInsightVariableListApi {
@@ -512,6 +526,18 @@ export interface PatchedInsightVariableApi {
     readonly code_name?: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface QueryTabStateApi {
@@ -1760,6 +1786,7 @@ export interface CredentialApi {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -2721,6 +2748,7 @@ export interface CredentialApi {
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
  * * `Motion` - Motion
+ * * `ImpactPartner` - ImpactPartner
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3047,6 +3075,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
@@ -4008,6 +4037,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Wix: 'Wix',
     Sevalla: 'Sevalla',
     Motion: 'Motion',
+    ImpactPartner: 'ImpactPartner',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

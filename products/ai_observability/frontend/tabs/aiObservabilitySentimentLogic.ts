@@ -4,23 +4,20 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 import { groupsModel } from '~/models/groupsModel'
 
 import type { AnyPropertyFilter } from '../../../../frontend/src/types'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
+import type { EvaluationApi } from '../generated/api.schemas'
 import { sentimentEvaluationAvailabilityLogic } from '../sentimentEvaluationAvailabilityLogic'
-import { fetchSentimentGenerationsPage, type SentimentGeneration } from '../sentimentQueries'
+import { fetchSentimentGenerationsPage, type SentimentCategory, type SentimentGeneration } from '../sentimentQueries'
 import type { MessageSentiment } from '../sentimentResults'
 import { extractContentText } from '../sentimentUtils'
 
-export type { SentimentGeneration } from '../sentimentQueries'
-
-export type SentimentCategory = 'positive' | 'negative' | 'neutral'
-
-/** @deprecated Use SentimentCategory with activeFilters set instead */
-export type SentimentFilterLabel = SentimentCategory | 'both'
+export type { SentimentGeneration, SentimentCategory } from '../sentimentQueries'
 
 /** A generation paired with the index of the best matching message for display */
 export interface SentimentCard {
@@ -154,8 +151,11 @@ export interface aiObservabilitySentimentLogicValues {
     groupsTaxonomicTypes: TaxonomicFilterGroupType[] // groupsModel
     hasLoadedSentimentEvaluations: boolean // sentimentEvaluationAvailabilityLogic
     hasSentimentEvaluations: boolean // sentimentEvaluationAvailabilityLogic
+    sentimentEvaluations: EvaluationApi[] // sentimentEvaluationAvailabilityLogic
     sentimentEvaluationsLoading: boolean // sentimentEvaluationAvailabilityLogic
     activeFilters: Set<SentimentCategory>
+    evaluationId: string | null
+    evaluationOptions: LemonSelectOption<string | null>[]
     expandedCardIds: Set<string>
     generations: SentimentGeneration[]
     generationsError: boolean
@@ -165,7 +165,6 @@ export interface aiObservabilitySentimentLogicValues {
     hasMore: boolean
     intensityThreshold: number
     sentimentCards: SentimentCard[]
-    sentimentFilter: SentimentFilterLabel
     sentimentSummary: Record<SentimentCategory, number>
     showSentimentEvaluationOnboarding: boolean
     stillAnalyzing: boolean
@@ -177,7 +176,9 @@ export interface aiObservabilitySentimentLogicActions {
     activate: () => {
         value: true
     }
-    loadGenerations: () => any
+    loadGenerations: ({ forceRefresh }?: { forceRefresh?: boolean }) => {
+        forceRefresh?: boolean
+    }
     loadGenerationsFailure: (
         error: string,
         errorObject?: any
@@ -187,10 +188,14 @@ export interface aiObservabilitySentimentLogicActions {
     }
     loadGenerationsSuccess: (
         generations: SentimentGeneration[],
-        payload?: any
+        payload?: {
+            forceRefresh?: boolean
+        }
     ) => {
         generations: SentimentGeneration[]
-        payload?: any
+        payload?: {
+            forceRefresh?: boolean
+        }
     }
     loadMoreGenerations: () => {
         value: true
@@ -213,14 +218,14 @@ export interface aiObservabilitySentimentLogicActions {
             value: true
         }
     }
+    setEvaluationId: (evaluationId: string | null) => {
+        evaluationId: string | null
+    }
     setHasMore: (hasMore: boolean) => {
         hasMore: boolean
     }
     setIntensityThreshold: (intensityThreshold: number) => {
         intensityThreshold: number
-    }
-    setSentimentFilter: (sentimentFilter: SentimentFilterLabel) => {
-        sentimentFilter: SentimentFilterLabel
     }
     toggleCardExpanded: (cardKey: string) => {
         cardKey: string
@@ -237,6 +242,7 @@ export interface aiObservabilitySentimentLogicActions {
 export interface aiObservabilitySentimentLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         taxonomicGroupTypes: (groupsTaxonomicTypes: TaxonomicFilterGroupType[]) => TaxonomicFilterGroupType[]
+        evaluationOptions: (sentimentEvaluations: EvaluationApi[]) => LemonSelectOption<string | null>[]
         sentimentCards: (
             generations: SentimentGeneration[],
             activeFilters: Set<SentimentCategory>,
@@ -277,15 +283,19 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             groupsModel,
             ['groupsTaxonomicTypes'],
             sentimentEvaluationAvailabilityLogic,
-            ['hasLoadedSentimentEvaluations', 'hasSentimentEvaluations', 'sentimentEvaluationsLoading'],
+            [
+                'hasLoadedSentimentEvaluations',
+                'hasSentimentEvaluations',
+                'sentimentEvaluations',
+                'sentimentEvaluationsLoading',
+            ],
         ],
     })),
 
     actions({
         activate: true,
-        /** @deprecated Use toggleSentimentCategory instead */
-        setSentimentFilter: (sentimentFilter: SentimentFilterLabel) => ({ sentimentFilter }),
         toggleSentimentCategory: (category: SentimentCategory) => ({ category }),
+        setEvaluationId: (evaluationId: string | null) => ({ evaluationId }),
         setIntensityThreshold: (intensityThreshold: number) => ({ intensityThreshold }),
         toggleCardExpanded: (cardKey: string) => ({ cardKey }),
         loadMoreGenerations: true,
@@ -294,14 +304,8 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
     }),
 
     reducers({
-        sentimentFilter: [
-            'both' as SentimentFilterLabel,
-            {
-                setSentimentFilter: (_, { sentimentFilter }) => sentimentFilter,
-            },
-        ],
         activeFilters: [
-            new Set<SentimentCategory>(['positive', 'negative']) as Set<SentimentCategory>,
+            new Set<SentimentCategory>(['negative']) as Set<SentimentCategory>,
             {
                 toggleSentimentCategory: (state, { category }) => {
                     const next = new Set(state)
@@ -321,6 +325,12 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             0.5,
             {
                 setIntensityThreshold: (_, { intensityThreshold }) => intensityThreshold,
+            },
+        ],
+        evaluationId: [
+            null as string | null,
+            {
+                setEvaluationId: (_, { evaluationId }) => evaluationId,
             },
         ],
         expandedCardIds: [
@@ -365,8 +375,11 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
         generations: [
             [] as SentimentGeneration[],
             {
-                loadGenerations: async () => {
-                    const page = await fetchSentimentGenerationsPage(values, 0)
+                loadGenerations: async ({ forceRefresh }: { forceRefresh?: boolean } = {}, breakpoint) => {
+                    const page = await fetchSentimentGenerationsPage(values, 0, forceRefresh)
+                    // The query is slow enough that toggling filters twice can leave two requests in
+                    // flight — drop this one if a newer load started while it was running
+                    breakpoint()
                     lastPageHasMore = page.hasMore
                     nextGenerationsOffset = page.rawCount
                     return page.generations
@@ -395,6 +408,16 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 TaxonomicFilterGroupType.HogQLExpression,
             ],
         ],
+        evaluationOptions: [
+            (s) => [s.sentimentEvaluations],
+            (sentimentEvaluations: EvaluationApi[]): LemonSelectOption<string | null>[] => [
+                { value: null, label: 'All evaluations' },
+                ...sentimentEvaluations.map((evaluation) => ({
+                    value: evaluation.id,
+                    label: evaluation.name,
+                })),
+            ],
+        ],
         sentimentCards: [
             (s) => [s.generations, s.activeFilters, s.intensityThreshold],
             (
@@ -416,9 +439,7 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                         if (!activeFilters.has(msg.label as SentimentCategory)) {
                             continue
                         }
-                        // For neutral messages, skip the intensity threshold — neutral scores are
-                        // inherently lower and the threshold is designed for positive/negative signals
-                        if (msg.label !== 'neutral' && msg.score < intensityThreshold) {
+                        if (msg.score < intensityThreshold) {
                             continue
                         }
                         const prev = best[msg.label]
@@ -438,7 +459,7 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
         sentimentSummary: [
             (s) => [s.generations, s.intensityThreshold],
             (generations: SentimentGeneration[], intensityThreshold: number): Record<SentimentCategory, number> => {
-                const counts: Record<SentimentCategory, number> = { positive: 0, negative: 0, neutral: 0 }
+                const counts: Record<SentimentCategory, number> = { negative: 0, positive: 0 }
                 for (const gen of generations) {
                     const sentimentData = gen.sentiment
                     if (!sentimentData?.messages) {
@@ -451,7 +472,7 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                         if (!(label in counts)) {
                             continue
                         }
-                        if (label !== 'neutral' && msg.score < intensityThreshold) {
+                        if (msg.score < intensityThreshold) {
                             continue
                         }
                         const prev = best[label]
@@ -585,6 +606,16 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 }
             },
             propertyFilters: () => {
+                if (values.hasLoadedOnce) {
+                    actions.loadGenerations()
+                }
+            },
+            activeFilters: () => {
+                if (values.hasLoadedOnce) {
+                    actions.loadGenerations()
+                }
+            },
+            evaluationId: () => {
                 if (values.hasLoadedOnce) {
                     actions.loadGenerations()
                 }

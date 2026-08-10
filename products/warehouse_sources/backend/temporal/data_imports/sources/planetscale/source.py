@@ -54,6 +54,15 @@ _HOST_NOT_RESOLVED_ERROR = (
 
 _GENERIC_CONNECTION_ERROR = "Could not connect to PlanetScale. Please check all connection details are valid."
 
+# `get_schemas` already retried a transient connect-time drop in-process (`_connect_with_transient_retry`
+# in mysql.py) before this exhausted every attempt, so the sync path treats the same message as benign via
+# `get_retryable_errors` and never reports it. Mirror that here so a brief blip surfaced during interactive
+# validation doesn't get captured as an unexpected bug.
+_TRANSIENT_CONNECTION_ERROR = (
+    "Lost the connection to PlanetScale while checking your credentials. This is usually a brief network "
+    "blip rather than a configuration problem. Please try again."
+)
+
 # Create-time refinement of pymysql's catch-all connect error (2003), which collapses a bad host,
 # a closed port, and a firewall drop into one message. Mirrors the MySQL source's handling with
 # PlanetScale's own guidance. Kept out of `get_non_retryable_errors`, which the sync path also
@@ -210,6 +219,9 @@ class PlanetScaleSource(MySQLSource):
             for pattern, friendly_error in self.get_non_retryable_errors().items():
                 if pattern in error_msg:
                     return False, friendly_error or _GENERIC_CONNECTION_ERROR
+            for pattern in self.get_retryable_errors():
+                if pattern in error_msg:
+                    return False, _TRANSIENT_CONNECTION_ERROR
 
             capture_exception(e)
             return False, _GENERIC_CONNECTION_ERROR

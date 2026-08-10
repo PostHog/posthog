@@ -20,24 +20,27 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 
 import structlog
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.services.integration_resolver import load_integrations
 from products.slack_app.backend.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     available_model_choices,
     describe_run_model,
     format_model_id,
+    group_by_runtime,
     label_for,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
@@ -85,6 +88,28 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 
+# Every control the Home tab renders, in one place. The interactivity endpoint reads
+# this to claim region ownership and to dispatch, so a control that isn't listed here
+# renders as a button that silently does nothing. Adding an action id above without
+# adding it here is the failure this set exists to prevent.
+HOME_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        ACTION_EDIT_PERSONAL,
+        ACTION_RESET_PERSONAL,
+        ACTION_UNLINK_ACCOUNT,
+        ACTION_SET_PROJECT_PERSONAL,
+        ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_RESET_PROJECT_PERSONAL,
+        ACTION_TASKS_FILTER_REPO,
+        ACTION_TASKS_FILTER_STATUS,
+        ACTION_TASKS_REFRESH,
+        ACTION_TASKS_PAGE_PREV,
+        ACTION_TASKS_PAGE_NEXT,
+        ACTION_STATS_WINDOW,
+        ACTION_STATS_REFRESH,
+    }
+)
+
 # Single block_id for the whole controls row. Block Kit only persists
 # state in `view.state.values` under blocks that carry a `block_id`, so
 # both the repo and the status dropdowns live under the same key here and
@@ -115,6 +140,11 @@ MODAL_ACTION_MODEL = "ai_prefs:model"
 MODAL_ACTION_REASONING_EFFORT = "ai_prefs:reasoning_effort"
 
 MODAL_BLOCK_RUNTIME_ADAPTER = "block_runtime_adapter"
+# Prefixes, not literal block ids: Slack carries a block's state across `views.update`
+# whenever the `block_id` is unchanged, which is how a model picked under the previous
+# runtime used to survive a runtime switch and get submitted. Suffixing each dependent
+# block with what it depends on makes the re-rendered block a new one to Slack, so the
+# stale pick is dropped instead of hiding behind the fresh options. See `_scoped_block_id`.
 MODAL_BLOCK_MODEL = "block_model"
 MODAL_BLOCK_REASONING_EFFORT = "block_reasoning_effort"
 
@@ -140,24 +170,25 @@ class PickerAdapter:
 
 
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Group the model catalogue into the runtime → model → effort tree the modal's
-    linked dropdowns render. Adapters with no available models are omitted entirely."""
-    by_adapter: dict[str, list[PickerModel]] = {}
-    for choice in available_model_choices():
-        efforts = tuple(
-            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
-        )
-        by_adapter.setdefault(choice.runtime_adapter, []).append(
-            PickerModel(value=choice.model, label=choice.label, supported_efforts=efforts)
-        )
-
+    """Dress the catalogue's runtime → model tree in the effort labels the modal's linked
+    dropdowns render. Adapters with no available models are omitted entirely."""
     return tuple(
         PickerAdapter(
-            value=adapter_value,
-            label=label_for(adapter_value, RUNTIME_ADAPTER_DISPLAY_NAMES),
-            models=tuple(models),
+            value=group.runtime_adapter,
+            label=group.label,
+            models=tuple(
+                PickerModel(
+                    value=choice.model,
+                    label=choice.label,
+                    supported_efforts=tuple(
+                        PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
+                        for e in choice.supported_efforts
+                    ),
+                )
+                for choice in group.choices
+            ),
         )
-        for adapter_value, models in by_adapter.items()
+        for group in group_by_runtime(available_model_choices())
     )
 
 
@@ -326,6 +357,7 @@ def render_home_view(
     project_state: ProjectState | None = None,
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
+    has_project_access: bool = True,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -333,6 +365,14 @@ def render_home_view(
     blocks: list[dict] = []
 
     blocks.extend(_header_blocks())
+
+    # Nothing below the fold means anything to someone who can't reach a project: the
+    # cards are scoped to one, and mentioning @PostHog won't work either. Say so once
+    # and stop, rather than drawing empty cards that read as "you have no tasks yet".
+    if not has_project_access:
+        blocks.append({"type": "divider"})
+        blocks.extend(_no_project_access_blocks())
+        return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
 
     # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
     # rather than the calling user's own. Admin-only, and first because it's the reason
@@ -438,6 +478,45 @@ def _header_blocks() -> list[dict]:
             "Tune how @PostHog mentions get routed and answered from this Slack workspace.",
         ),
     ]
+
+
+def _no_project_access_blocks() -> list[dict]:
+    """Shown when the viewer can't reach any PostHog project connected to this workspace.
+
+    Covers both halves of the same dead end — no project is connected yet, or one is but
+    the viewer isn't a member of its organization — because from Slack the two are
+    indistinguishable and the next step is the same page either way.
+    """
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    blocks: list[dict] = [
+        _section_title(
+            "🔒 No project to show yet",
+            "This Slack workspace isn't connected to a PostHog project you can see, "
+            "so there's nothing to set up here and @PostHog mentions won't run.",
+        ),
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ("Connect a project in PostHog, or ask an admin to add you to one that's already connected."),
+            },
+        },
+    ]
+    if site_url:
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "url": f"{site_url}/settings/project-integrations",
+                        "text": {"type": "plain_text", "text": "Connect PostHog to Slack", "emoji": True},
+                        "style": "primary",
+                    }
+                ],
+            }
+        )
+    return blocks
 
 
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
@@ -1136,7 +1215,7 @@ def render_edit_modal(
                 model_element["initial_option"] = next(o for o in model_options if o["value"] == current.model)
             model_block = {
                 "type": "input",
-                "block_id": MODAL_BLOCK_MODEL,
+                "block_id": _scoped_block_id(MODAL_BLOCK_MODEL, current.runtime_adapter),
                 "label": {"type": "plain_text", "text": "Model"},
                 "dispatch_action": True,
                 "element": model_element,
@@ -1161,7 +1240,7 @@ def render_edit_modal(
             effort_element["initial_option"] = next(o for o in effort_options if o["value"] == current.reasoning_effort)
         effort_block = {
             "type": "input",
-            "block_id": MODAL_BLOCK_REASONING_EFFORT,
+            "block_id": _scoped_block_id(MODAL_BLOCK_REASONING_EFFORT, current.model),
             "label": {"type": "plain_text", "text": "Reasoning effort"},
             "optional": True,
             "element": effort_element,
@@ -1196,6 +1275,11 @@ def render_edit_modal(
     }
 
 
+def _scoped_block_id(prefix: str, depends_on: str | None) -> str:
+    """Block id for an input whose options are derived from another input's value."""
+    return f"{prefix}:{depends_on}" if depends_on else prefix
+
+
 def parse_modal_submission(view: dict) -> tuple[str | None, str | None, str | None]:
     """Pull `(runtime_adapter, model, reasoning_effort)` out of a Slack view_submission payload.
 
@@ -1211,12 +1295,14 @@ def parse_modal_submission(view: dict) -> tuple[str | None, str | None, str | No
     return runtime_adapter, model, reasoning_effort
 
 
-def _selected_value(state: dict, block_id: str, action_id: str) -> str | None:
-    block = state.get(block_id, {})
-    action = block.get(action_id, {})
-    selected = action.get("selected_option")
-    if isinstance(selected, dict):
-        return selected.get("value")
+def _selected_value(state: dict, block_prefix: str, action_id: str) -> str | None:
+    """Read a select's value out of view state, matching the scoped block id it was rendered under."""
+    for block_id, actions in state.items():
+        if block_id != block_prefix and not block_id.startswith(f"{block_prefix}:"):
+            continue
+        selected = (actions.get(action_id) or {}).get("selected_option")
+        if isinstance(selected, dict):
+            return selected.get("value")
     return None
 
 
@@ -1233,8 +1319,11 @@ def _selected_value(state: dict, block_id: str, action_id: str) -> str | None:
 # here.
 
 
-def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
+def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Integration) -> None:
     """Publish the Home tab for the user who just opened it.
+
+    The caller resolves the integration through the shared region gate, so this
+    region owns the workspace by the time we get here.
 
     Gated by the slack-app-home flag — when off, the publish is skipped so
     installs without the manifest changes (and workspaces that haven't opted
@@ -1246,11 +1335,13 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     if not slack_user_id:
         return
 
-    integration = _get_slack_integration(slack_team_id)
-    if integration is None:
-        return
-
     if not is_slack_app_home_enabled(integration):
+        logger.info(
+            "slack_app_home_publish_skipped",
+            reason="flag_off",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+        )
         return
 
     effective = resolve_ai_preferences(integration, slack_user_id)
@@ -1272,12 +1363,19 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
+        has_project_access=bool(accessible),
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
     except Exception:
         logger.exception(
             "slack_app_home_publish_failed",
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+        )
+    else:
+        logger.info(
+            "slack_app_home_published",
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
@@ -1291,7 +1389,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     slack_user_id = (payload.get("user") or {}).get("id", "")
     trigger_id = payload.get("trigger_id")
 
-    integration = _get_slack_integration(slack_team_id)
+    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return HttpResponse(status=200)
 
@@ -1374,7 +1472,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if action_id in (MODAL_ACTION_RUNTIME_ADAPTER, MODAL_ACTION_MODEL):
         # Modal re-render: a runtime / model change updates which downstream
         # blocks (model list, effort options) are valid. Push an updated view.
-        return _update_modal_after_input_change(payload)
+        return _update_modal_after_input_change(payload, integration)
 
     return HttpResponse(status=200)
 
@@ -1389,7 +1487,7 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     slack_team_id = (payload.get("team") or {}).get("id", "")
     slack_user_id = (payload.get("user") or {}).get("id", "")
 
-    integration = _get_slack_integration(slack_team_id)
+    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return _modal_error_response("This Slack workspace is no longer connected to PostHog.")
 
@@ -1420,14 +1518,22 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 # ---------------------------------------------------------------------------
 
 
-def _get_slack_integration(slack_team_id: str) -> Integration | None:
+def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> Integration | None:
+    """The integration the viewer's Home tab is rendered against.
+
+    Same resolver the publish path runs, so a click is answered for the project the viewer
+    was looking at. Any row of the workspace would do for fetching a bot token, but the
+    rollout flag is scoped to an organization and the task list to a team, so answering
+    against an arbitrary one makes the tab disagree with itself.
+    """
     if not slack_team_id:
         return None
-    return (
-        Integration.objects.select_related("team", "team__organization")
-        .filter(kind="slack", integration_id=slack_team_id)
-        .first()
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=list(SLACK_INTEGRATION_KINDS),
+        slack_user_id=slack_user_id,
     )
+    return result.resolved_or_first()
 
 
 def _load_user_row(integration: Integration, slack_user_id: str) -> SlackSettings | None:
@@ -1496,29 +1602,23 @@ def _render_unavailable_modal() -> dict:
     }
 
 
-def _update_modal_after_input_change(payload: dict) -> HttpResponse:
+def _update_modal_after_input_change(payload: dict, integration: Integration) -> HttpResponse:
     """Re-render the modal in response to a runtime_adapter or model change.
 
-    Reads the in-flight state from `payload["view"]`, derives the new supported
-    efforts (changes when the model changes), and pushes the updated view via
-    `views.update`. Nothing is persisted here — the user still has to Save to
-    commit.
+    Reads the in-flight state from `payload["view"]`, drops whatever the change
+    invalidated, derives the efforts the surviving model supports, and pushes the
+    updated view via `views.update`. Nothing is persisted here — the user still has
+    to Save to commit.
     """
 
     view = payload.get("view", {})
     if view.get("callback_id") != EDIT_MODAL_PERSONAL_CALLBACK_ID:
         return HttpResponse(status=200)
 
-    runtime_adapter, model, reasoning_effort = parse_modal_submission(view)
-    current = AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
-    supported = _supported_efforts(runtime_adapter, model)
+    current = _drop_invalidated_selections(*parse_modal_submission(view))
+    supported = _supported_efforts(current.runtime_adapter, current.model)
 
     updated_view = render_edit_modal(current=current, supported_efforts=supported)
-
-    slack_team_id = (payload.get("team") or {}).get("id", "")
-    integration = _get_slack_integration(slack_team_id)
-    if integration is None:
-        return HttpResponse(status=200)
 
     slack = SlackIntegration(integration)
     try:
@@ -1526,6 +1626,24 @@ def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     except Exception:
         logger.exception("slack_app_home_modal_update_failed")
     return HttpResponse(status=200)
+
+
+def _drop_invalidated_selections(
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+) -> AIPreferences:
+    """Keep only the parts of an in-flight selection the current runtime still allows.
+
+    Switching runtime orphans the model picked under the old one, and that orphans the
+    effort. The scoped block ids stop Slack handing those back on the next interaction;
+    this stops the view we render from the same payload showing them in the meantime.
+    """
+    if model and model not in {value for value, _ in _models_for(runtime_adapter or "")}:
+        model = None
+    if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
+        reasoning_effort = None
+    return AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
 
 
 def _supported_efforts(runtime_adapter: str | None, model: str | None) -> list[str] | None:
@@ -1620,11 +1738,26 @@ def _republish_home(
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
+        has_project_access=bool(accessible),
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
     except Exception:
         logger.exception("slack_app_home_republish_failed")
+        return
+    # Carries the controls the click resolved to, so a report of "the filter does
+    # nothing" can be told apart from a click that never reached us at all.
+    logger.info(
+        "slack_app_home_republished",
+        slack_user_id=slack_user_id,
+        slack_team_id=integration.integration_id,
+        slack_app_home_tasks_page=tasks_state.page,
+        slack_app_home_tasks_total_pages=tasks_state.total_pages,
+        slack_app_home_tasks_shown=len(tasks_state.items),
+        slack_app_home_selected_repo=view_state.selected_repo,
+        slack_app_home_selected_status=view_state.selected_status,
+        slack_app_home_stats_window_days=view_state.stats_window_days,
+    )
 
 
 _TASKS_PAGE_SIZE = 10
@@ -1652,7 +1785,6 @@ def _resolve_tasks_state(
     accessible-team scoping) does not generalise.
     """
 
-    from django.conf import settings
     from django.utils import timezone as django_timezone
 
     from products.slack_app.backend.models import SlackThreadTaskMapping

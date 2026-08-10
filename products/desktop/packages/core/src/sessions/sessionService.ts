@@ -309,6 +309,14 @@ export interface SessionServiceHelpers {
   combineQueuedCloudPrompts: (...args: any[]) => any;
   getCloudPromptTransport: (...args: any[]) => any;
   resolveLocalSkillCommandPrompt?: (prompt: string) => Promise<string | null>;
+  uploadRunOutput: (
+    client: CloudArtifactClient,
+    taskId: string,
+    runId: string,
+    name: string,
+    content: string,
+    contentType?: string,
+  ) => Promise<string>;
   uploadRunAttachments: (
     client: CloudArtifactClient,
     taskId: string,
@@ -7575,6 +7583,47 @@ export class SessionService {
       `${authStatus.auth.apiHost}:${authStatus.auth.projectId}`,
       taskId,
       runId,
+    );
+  }
+
+  async uploadCloudRunArtifactVersion(
+    taskId: string,
+    runId: string,
+    name: string,
+    content: string,
+    contentType?: string,
+  ): Promise<string> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+
+    return this.d.h.uploadRunOutput(
+      authStatus.auth.client,
+      taskId,
+      runId,
+      name,
+      content,
+      contentType,
+    );
+  }
+
+  async setCloudRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+
+    return authStatus.auth.client.setTaskRunArtifactsDismissed(
+      taskId,
+      runId,
+      artifactIds,
+      dismissed,
     );
   }
 

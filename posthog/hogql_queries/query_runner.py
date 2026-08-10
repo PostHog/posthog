@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
     AccountsQuery,
+    AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -366,6 +367,7 @@ RunnableQueryNode = Union[
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
     AccountsQuery,
+    AccountsTableQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -1236,6 +1238,18 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountsTableQuery":
+        from products.customer_analytics.backend.facade.queries import AccountsTableQueryRunner
+
+        return AccountsTableQueryRunner(
             query=query,
             team=team,
             timings=timings,

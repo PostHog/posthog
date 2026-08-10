@@ -143,3 +143,49 @@ def test_ownership_status_mapping(_name, overrides, expected):
     assert fields.parent_company is None
     assert fields.parent_company_domain is None
     assert "parent_company" not in fields.to_dict()
+
+
+@parameterized.expand(
+    [
+        ("dropped_with_no_round_data", "VENTURE_UNKNOWN", {}, None),
+        ("kept_with_funding_total", "VENTURE_UNKNOWN", {"fundingTotal": 5000000}, "VENTURE_UNKNOWN"),
+        ("kept_with_funding_rounds", "VENTURE_UNKNOWN", {"numFundingRounds": 1}, "VENTURE_UNKNOWN"),
+        ("real_stage_kept_with_no_round_data", "SEED", {}, "SEED"),
+    ]
+)
+def test_venture_unknown_placeholder_filtered_only_without_round_data(_name, stage, funding_overrides, expected):
+    funding = {"fundingStage": stage, **funding_overrides}
+    fields = transform_harmonic_company(_company(funding=funding))
+    assert fields is not None
+    assert fields.funding_stage == expected
+
+
+def test_venture_unknown_placeholder_dropped_entirely_from_to_dict():
+    fields = transform_harmonic_company(_company(funding={"fundingStage": "VENTURE_UNKNOWN"}))
+    assert fields is not None
+    assert "funding_stage" not in fields.to_dict()
+
+
+@parameterized.expand(
+    [
+        ("mapped_when_present", {"customerType": "B2B"}, "B2B"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_customer_type_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.customer_type == expected
+
+
+@parameterized.expand(
+    [
+        # Top-level Company field in the GraphQL schema, not nested under funding.
+        ("mapped_when_present", {"fundingAttributeNullStatus": "NULL_TRUE_ZERO"}, "NULL_TRUE_ZERO"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_funding_status_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.funding_status == expected

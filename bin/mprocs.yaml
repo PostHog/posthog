@@ -142,6 +142,11 @@ procs:
         groups:
             layer: Ingestion pipeline
             tech: Node
+        env:
+            # The combined-mode AI consumer reads persons through PersonHog; the
+            # event_ingestion capability pulls the personhog services in.
+            PERSONHOG_ENABLED: 'true'
+            PERSONHOG_ADDR: '127.0.0.1:50052'
 
     ingestion-sessionreplay:
         sandbox: true

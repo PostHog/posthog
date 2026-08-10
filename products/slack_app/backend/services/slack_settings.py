@@ -122,28 +122,20 @@ def validate_ai_preferences(
 
     Raises `django.core.exceptions.ValidationError` if the triple is internally
     inconsistent. Call this from the write path so half-set rows never reach
-    the DB.
+    the DB. The storage rule — both halves of the pair or neither — lives here;
+    whether the three values may be used together is the model catalogue's call.
     """
     from django.core.exceptions import ValidationError
 
-    from products.tasks.backend.facade.run_config import (
-        PUBLIC_REASONING_EFFORTS,
-        RuntimeAdapter,
-        get_reasoning_effort_error,
-    )
+    from products.tasks.backend.facade.run_config import PUBLIC_REASONING_EFFORTS, validate_model_selection
 
     if (runtime_adapter is None) != (model is None):
         raise ValidationError(
             "runtime_adapter and model must be set together — set both to override the default, or both to null to inherit."
         )
 
-    if runtime_adapter is not None:
-        valid_adapters = {a.value for a in RuntimeAdapter}
-        if runtime_adapter not in valid_adapters:
-            raise ValidationError(
-                f"Unknown runtime_adapter '{runtime_adapter}'. Valid: {', '.join(sorted(valid_adapters))}."
-            )
-
+    # The catalogue only judges an effort against a model, so an effort stored without a
+    # pair — legal, and inherited by whatever model resolves later — still needs a check.
     if reasoning_effort is not None:
         valid_efforts = {e.value for e in PUBLIC_REASONING_EFFORTS}
         if reasoning_effort not in valid_efforts:
@@ -151,9 +143,7 @@ def validate_ai_preferences(
                 f"Unknown reasoning_effort '{reasoning_effort}'. Valid: {', '.join(sorted(valid_efforts))}."
             )
 
-    error = get_reasoning_effort_error(runtime_adapter, model, reasoning_effort)
-    if error:
-        raise ValidationError(error)
+    validate_model_selection(runtime_adapter, model, reasoning_effort)
 
 
 __all__ = [

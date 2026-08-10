@@ -10,8 +10,15 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { productEnablementCreate } from '~/generated/core/api'
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
+import {
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    RecordingUniversalFilters,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -19,10 +26,28 @@ import {
     engineeringAnalyticsCiSignalsConfigUpdate,
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
+import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
+
+/** product_enablement recipe names for tools that back a signal source. */
+export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conversations'
+
+/** The PostHog tool behind a signal source: whether it captures anything, and how to turn it on. */
+export interface SourceToolStatus {
+    toolName: string
+    enabled: boolean
+    /** The product_enablement recipe that turns the tool on, when one exists. */
+    enablement: SourceToolEnablement | null
+    /** Whether the tool's events exist in this project; null when there is no cheap event signal. */
+    receivingData: boolean | null
+}
+
+/** Event definitions probed to tell whether each source's tool is receiving data. */
+const TOOL_USAGE_EVENTS = ['$exception', '$ai_generation', '$ai_trace', '$pageview', '$autocapture']
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
@@ -175,6 +200,7 @@ export interface signalSourcesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     anomalyInvestigationConfig: SignalSourceConfig | null
     ciSignalsConfig: CISignalsConfigApi | null
     ciSignalsConfigLoading: boolean
@@ -182,6 +208,7 @@ export interface signalSourcesLogicValues {
     conversationsConfig: SignalSourceConfig | null
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
+    enablingTool: SourceToolEnablement | null
     errorTrackingIsFullyEnabled: boolean
     evalReportsConfig: SignalSourceConfig | null
     githubIssuesConfig: SignalSourceConfig | null
@@ -207,6 +234,9 @@ export interface signalSourcesLogicValues {
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
+    toolDataEvents: Set<string> | null
+    toolDataEventsLoading: boolean
+    toolStatusBySource: Partial<Record<AgentRosterSource, SourceToolStatus>>
     zendeskTicketsConfig: SignalSourceConfig | null
 }
 
@@ -215,6 +245,7 @@ export interface signalSourcesLogicActions {
     loadSources: () => {
         value: true
     } // sourcesDataLogic
+    loadCurrentTeam: () => any // teamLogic
     clearSessionAnalysisFilters: () => {
         value: true
     }
@@ -229,6 +260,12 @@ export interface signalSourcesLogicActions {
     }
     completeDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
+    }
+    enableSourceTool: (enablement: SourceToolEnablement) => {
+        enablement: SourceToolEnablement
+    }
+    enableSourceToolComplete: () => {
+        value: true
     }
     initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
@@ -261,6 +298,21 @@ export interface signalSourcesLogicActions {
         payload?: any
     ) => {
         sourceConfigs: SignalSourceConfig[]
+        payload?: any
+    }
+    loadToolDataEvents: () => any
+    loadToolDataEventsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadToolDataEventsSuccess: (
+        toolDataEvents: Set<string>,
+        payload?: any
+    ) => {
+        toolDataEvents: Set<string>
         payload?: any
     }
     onDataSourceSetupComplete: () => {
@@ -352,6 +404,10 @@ export interface signalSourcesLogicMeta {
         isEvalReportsToggling: (togglingSourceKeys: Set<string>) => boolean
         anomalyInvestigationConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
+        toolStatusBySource: (
+            currentTeam: TeamPublicType | TeamType | null,
+            toolDataEvents: Set<string> | null
+        ) => Partial<Record<AgentRosterSource, SourceToolStatus>>
         errorTrackingIsFullyEnabled: (sourceConfigs: SignalSourceConfig[] | null) => boolean
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
@@ -377,8 +433,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
         ],
-        actions: [sourcesDataLogic, ['loadSources']],
+        actions: [sourcesDataLogic, ['loadSources'], teamLogic, ['loadCurrentTeam']],
     })),
 
     actions({
@@ -405,6 +463,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleEvalReports: true,
         toggleConversations: true,
         toggleAnomalyInvestigation: true,
+        enableSourceTool: (enablement: SourceToolEnablement) => ({ enablement }),
+        enableSourceToolComplete: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -424,6 +484,18 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 loadCiSignalsConfig: async (): Promise<CISignalsConfigApi> =>
                     engineeringAnalyticsCiSignalsConfigRetrieve(String(teamLogic.values.currentTeamId)),
+            },
+        ],
+        toolDataEvents: [
+            null as Set<string> | null,
+            {
+                loadToolDataEvents: async (): Promise<Set<string>> => {
+                    const response = await eventDefinitionsList(String(teamLogic.values.currentTeamId), {
+                        names: TOOL_USAGE_EVENTS,
+                        limit: TOOL_USAGE_EVENTS.length,
+                    })
+                    return new Set(response.results.map(({ name }) => name))
+                },
             },
         ],
     }),
@@ -450,6 +522,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 openDataSourceSetup: (_, { source }) => source,
                 closeDataSourceSetup: () => null,
                 closeSourcesModal: () => null,
+            },
+        ],
+        enablingTool: [
+            null as SourceToolEnablement | null,
+            {
+                enableSourceTool: (_, { enablement }) => enablement,
+                enableSourceToolComplete: () => null,
             },
         ],
         sourceConfigs: {
@@ -653,6 +732,52 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.Analytics}_${SignalSourceType.AnomalyInvestigation}`),
+        ],
+        toolStatusBySource: [
+            (s) => [s.currentTeam, s.toolDataEvents],
+            (
+                currentTeam: TeamPublicType | TeamType | null,
+                toolDataEvents: Set<string> | null
+            ): Partial<Record<AgentRosterSource, SourceToolStatus>> => {
+                const team = currentTeam as TeamType | null
+                const has = (...events: string[]): boolean | null =>
+                    toolDataEvents ? events.some((event) => toolDataEvents.has(event)) : null
+                return {
+                    error_tracking: {
+                        toolName: 'Error tracking',
+                        // Server SDKs capture exceptions without the autocapture opt-in, so
+                        // flowing data counts as on.
+                        enabled: !!team?.autocapture_exceptions_opt_in || has('$exception') === true,
+                        enablement: 'error_tracking',
+                        receivingData: has('$exception'),
+                    },
+                    session_replay: {
+                        toolName: 'Session replay',
+                        enabled: !!team?.session_recording_opt_in,
+                        enablement: 'session_replay',
+                        // Recordings never produce event definitions, so there is no cheap signal.
+                        receivingData: null,
+                    },
+                    conversations: {
+                        toolName: 'Support',
+                        enabled: !!team?.conversations_enabled,
+                        enablement: 'conversations',
+                        receivingData: null,
+                    },
+                    llm_analytics: {
+                        toolName: 'AI observability',
+                        enabled: true,
+                        enablement: null,
+                        receivingData: has('$ai_generation', '$ai_trace'),
+                    },
+                    analytics: {
+                        toolName: 'Product analytics',
+                        enabled: true,
+                        enablement: null,
+                        receivingData: has('$pageview', '$autocapture'),
+                    },
+                }
+            },
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -1006,6 +1131,18 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     sourceType: SignalSourceType.AnomalyInvestigation,
                     enabled: desiredEnabled,
                 })
+            },
+            enableSourceTool: async ({ enablement }) => {
+                try {
+                    await productEnablementCreate(String(teamLogic.values.currentTeamId), {
+                        products: [enablement],
+                    })
+                    // Refresh the cached team so the tool reads back as on.
+                    actions.loadCurrentTeam()
+                } catch (error: any) {
+                    lemonToast.error(error?.detail || error?.message || "Couldn't turn this on. Please try again.")
+                }
+                actions.enableSourceToolComplete()
             },
             setDataWarehouseSourceEnabled: ({ source, enabled }) => {
                 const { completion } = WAREHOUSE_SOURCE_SETUP[source]

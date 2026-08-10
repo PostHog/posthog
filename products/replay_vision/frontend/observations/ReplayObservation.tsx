@@ -20,6 +20,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -115,6 +116,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
+    const showTierNames = useFeatureFlag('REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT', 'test')
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -543,7 +545,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <div className="flex flex-col gap-3 text-sm">
                         {snapshot?.model && (
                             <LabeledRow label="Model">
-                                <span>{modelLabel(snapshot.model)}</span>
+                                <span>{modelLabel(snapshot.model, showTierNames)}</span>
                             </LabeledRow>
                         )}
                         {summarizerLength && (

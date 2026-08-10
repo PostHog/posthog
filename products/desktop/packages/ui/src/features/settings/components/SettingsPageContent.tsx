@@ -47,11 +47,7 @@ function defineSettingsPage(
 const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   general: defineSettingsPage("General", GeneralSettings),
   notifications: defineSettingsPage("Notifications", NotificationsSettings),
-  "plan-usage": defineSettingsPage(
-    "Plan & usage",
-    PlanUsageSettings,
-    SETTINGS_PAGE_LAYOUT.FULL_BLEED,
-  ),
+  "plan-usage": defineSettingsPage("Plan & usage", PlanUsageSettings),
   workspaces: defineSettingsPage("Workspaces", WorkspacesSettings),
   worktrees: defineSettingsPage("Worktrees", WorktreesSettings),
   environments: defineSettingsPage("Environments", EnvironmentsSettings),

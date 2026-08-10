@@ -102,6 +102,13 @@ TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
 
+# Hard wall-clock cap on a process_task run, measured from the start of the
+# continue_as_new chain and never reset by heartbeats, so it bounds total run time even
+# while a wedged agent keeps heartbeating. Interactive sessions are exempt at the call
+# site. Set low (e.g. 60) for local testing; 0 or negative disables the cap entirely,
+# matching TASKS_INACTIVITY_TIMEOUT_SECONDS above.
+TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 3 * 60 * 60, type_cast=int)
+
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
 # quickly instead of waiting out the GitHub token's lifetime.

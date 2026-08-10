@@ -1,4 +1,5 @@
 import os
+import json
 import base64
 import hashlib
 import importlib
@@ -23,10 +24,13 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
-from posthog.api.oauth.views import OAuthValidator
+from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
+from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -634,6 +638,146 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("access_token", body)
         self.assertIn("refresh_token", body)
         self.assertTrue(OAuthRefreshToken.objects.filter(application=other_app).exists())
+
+    def _create_private_key_jwt_app_and_grant(
+        self,
+    ) -> tuple[OAuthApplication, OAuthGrant, rsa.RSAPrivateKey]:
+        cimd_url = "https://partner.example.com/oauth/client-metadata"
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        app = OAuthApplication.objects.create(
+            name="Private Key JWT CIMD Client",
+            client_id="cimd-pkjwt-client-id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            user=self.user,
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=cimd_url,
+            jwks_uri="https://partner.example.com/.well-known/jwks.json",
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="pkjwt-code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=1),
+            redirect_uri="https://partner.example.com/callback",
+            scope="openid",
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+        return app, grant, private_key
+
+    def _signed_assertion_and_jwks(self, app: OAuthApplication, private_key: rsa.RSAPrivateKey) -> tuple[str, dict]:
+        now = int(timezone.now().timestamp())
+        assertion = jwt.encode(
+            {
+                "iss": app.cimd_metadata_url,
+                "sub": app.cimd_metadata_url,
+                "aud": "https://us.posthog.com/oauth/token/",
+                "jti": "pkjwt-assertion-1",
+                "iat": now,
+                "exp": now + 60,
+            },
+            private_key,
+            algorithm="RS256",
+            headers={"kid": "partner-key-1"},
+        )
+        jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key()))
+        jwk.update({"kid": "partner-key-1", "use": "sig", "alg": "RS256"})
+        return assertion, {"keys": [jwk]}
+
+    def _post_assertion_exchange(self, app: OAuthApplication, grant: OAuthGrant, assertion: str):
+        return self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "https://partner.example.com/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+                "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                "client_assertion": assertion,
+            },
+        )
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_private_key_jwt_cimd_client_completes_token_exchange(self):
+        # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
+        # paths can never authenticate it and only the assertion path can finish an install.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale") as refresh,
+        ):
+            response = self._post_assertion_exchange(app, grant, assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIn("access_token", response.json())
+        # Token exchanges are the only traffic a refresh-grant-only client sends, so the
+        # assertion path has to be what keeps its CIMD registration fresh.
+        refresh.assert_called_once_with(app.cimd_metadata_url)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_private_key_jwt_exchange_survives_refresh_enqueue_failure(self):
+        # Metadata freshness is best-effort: a broker outage must not fail a valid exchange.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch(
+                "posthog.api.oauth.views.enqueue_cimd_refresh_if_stale",
+                side_effect=Exception("broker down"),
+            ),
+        ):
+            response = self._post_assertion_exchange(app, grant, assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_private_key_jwt_exchange_maps_redis_failure_to_retryable(self):
+        # The assertion path reads Redis for the JWKS and jti caches, so an outage must
+        # produce the retryable temporarily_unavailable response, not an unhandled 500.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, _ = self._signed_assertion_and_jwks(app, private_key)
+
+        with patch("posthog.api.oauth.client_assertion.cache") as mock_cache:
+            mock_cache.get.side_effect = RedisError("connection refused")
+            response = self._post_assertion_exchange(app, grant, assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE, response.content)
+        self.assertEqual(response.json()["error"], "temporarily_unavailable")
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_private_key_jwt_cimd_client_rejected_without_assertion(self):
+        # The confidential client must still fail closed when it presents no credential at all.
+        app, grant, _ = self._create_private_key_jwt_app_and_grant()
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "https://partner.example.com/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_invalid_client_credentials(self):
@@ -4123,6 +4267,275 @@ class TestOAuthAPI(APIBaseTest):
         self.assertLess(abs((refreshed_access_token.expires - expected_expiry).total_seconds()), 60)
 
 
+class TestOAuthFunnelInstrumentation(APIBaseTest):
+    """The authorization funnel has to stay observable end to end: an authorization that
+    completes but never becomes a token is the failure shape support cannot otherwise see,
+    so every step reports and each event names the client the same way."""
+
+    def setUp(self):
+        super().setUp()
+        self.code_verifier = "a" * 64
+        self.application = OAuthApplication.objects.create(
+            name="Funnel Test App",
+            client_id="funnel_test_client_id",
+            client_secret="funnel_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm=OAuthApplication.RS256_ALGORITHM,
+            organization=self.organization,
+            user=self.user,
+        )
+
+    @property
+    def _code_challenge(self) -> str:
+        digest = hashlib.sha256(self.code_verifier.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
+
+    def _post_body(self, **overrides) -> dict:
+        return {
+            "client_id": self.application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self._code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+            **overrides,
+        }
+
+    def _authorize_url(self, **extra) -> str:
+        params = {
+            "client_id": self.application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "scope": "openid",
+            "code_challenge": self._code_challenge,
+            "code_challenge_method": "S256",
+            **extra,
+        }
+        return f"/oauth/authorize/?{urlencode(params)}"
+
+    @staticmethod
+    def _events(mock_capture, event: str) -> list:
+        return [c for c in mock_capture.call_args_list if c.kwargs.get("event") == event]
+
+    def test_consent_grant_captures_authorization_granted(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("code=", response.json()["redirect_to"])
+
+        granted = self._events(mock_capture, "oauth_authorization_granted")
+        self.assertEqual(len(granted), 1)
+        props = granted[0].kwargs["properties"]
+        self.assertEqual(props["grant_path"], "consent")
+        self.assertEqual(props["client_name"], self.application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["granted_scopes"], "openid")
+        self.assertEqual(props["granted_scope_count"], 1)
+        self.assertFalse(props["has_scoped_organizations"])
+        self.assertEqual(self._events(mock_capture, "oauth_authorization_denied"), [])
+
+    def test_declining_consent_captures_denied_not_granted(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body(allow=False))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._events(mock_capture, "oauth_authorization_granted"), [])
+        self.assertEqual(len(self._events(mock_capture, "oauth_authorization_denied")), 1)
+
+    def test_consent_missing_required_scope_captures_rejection_with_reason(self):
+        # `required_scopes` is derived from `scopes`, so seeding the ceiling is what makes
+        # `insight:read` a locked row the grant below is missing.
+        self.application.scopes = ["insight:read"]
+        self.application.save()
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body(scope="openid"))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_authorization_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["reason"], "missing_required_scopes")
+        self.assertEqual(props["missing_scopes"], ["insight:read"])
+        # `rejected_scopes` means "outside the ceiling" on the invalid_scope event; reusing
+        # it here would make the two reasons indistinguishable in a breakdown.
+        self.assertNotIn("rejected_scopes", props)
+        self.assertEqual(self._events(mock_capture, "oauth_authorization_granted"), [])
+
+    def test_token_exchange_captures_token_issued_for_the_authorizing_user(self):
+        authorize_response = self.client.post("/oauth/authorize/", self._post_body())
+        code = authorize_response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            token_response = self.client.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "authorization_code",
+                    "client_id": self.application.client_id,
+                    "client_secret": "funnel_test_client_secret",
+                    "redirect_uri": "https://example.com/callback",
+                    "code_verifier": self.code_verifier,
+                    "code": code,
+                },
+            )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        issued = self._events(mock_capture, "oauth_token_issued")
+        self.assertEqual(len(issued), 1)
+        self.assertEqual(issued[0].kwargs["distinct_id"], str(self.user.distinct_id))
+        props = issued[0].kwargs["properties"]
+        self.assertEqual(props["grant_type"], "authorization_code")
+        self.assertEqual(props["client_name"], self.application.name)
+        self.assertEqual(props["granted_scopes"], "openid")
+        self.assertEqual(self._events(mock_capture, "oauth_token_rejected"), [])
+
+    def test_reusing_a_code_captures_token_rejected_with_the_oauth_error(self):
+        authorize_response = self.client.post("/oauth/authorize/", self._post_body())
+        code = authorize_response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_body = {
+            "grant_type": "authorization_code",
+            "client_id": self.application.client_id,
+            "client_secret": "funnel_test_client_secret",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+            "code": code,
+        }
+        self.client.post("/oauth/token/", token_body)
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            replay = self.client.post("/oauth/token/", token_body)
+
+        self.assertEqual(replay.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "invalid_grant")
+        self.assertEqual(props["grant_type"], "authorization_code")
+        self.assertEqual(props["client_name"], self.application.name)
+        self.assertIs(props["$process_person_profile"], False)
+        self.assertEqual(self._events(mock_capture, "oauth_token_issued"), [])
+
+    def test_consent_wildcard_grant_reports_the_narrowed_scopes(self):
+        self.application.scopes = ["insight:read"]
+        self.application.save()
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/authorize/", self._post_body(scope="* insight:read"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        granted = self._events(mock_capture, "oauth_authorization_granted")
+        self.assertEqual(len(granted), 1)
+        props = granted[0].kwargs["properties"]
+        self.assertEqual(props["granted_scopes"], "insight:read")
+        self.assertEqual(props["granted_scope_count"], 1)
+
+    def test_first_party_grant_reports_the_scoped_organizations_it_mints(self):
+        self.application.is_first_party = True
+        self.application.save()
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.get(self._authorize_url())
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        granted = self._events(mock_capture, "oauth_authorization_granted")
+        self.assertEqual(len(granted), 1)
+        props = granted[0].kwargs["properties"]
+        self.assertEqual(props["grant_path"], "first_party")
+        self.assertTrue(props["has_scoped_organizations"])
+        self.assertFalse(props["has_scoped_teams"])
+
+    def test_malformed_json_token_request_captures_token_rejected(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post("/oauth/token/", data="{not json", content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "invalid_request")
+        self.assertEqual(props["grant_type"], "unknown")
+
+    def test_jwt_bearer_without_assertion_captures_token_rejected(self):
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "client_id": self.application.client_id,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "invalid_request")
+        self.assertEqual(props["grant_type"], "urn:ietf:params:oauth:grant-type:jwt-bearer")
+        self.assertEqual(props["client_name"], self.application.name)
+
+    def test_transient_db_failure_keeps_the_503_when_the_event_lookup_also_fails(self):
+        with (
+            patch(
+                "oauth2_provider.views.base.TokenView.post",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+            patch(
+                "posthog.api.oauth.views.get_application_by_client_id",
+                side_effect=OperationalError("connection failed"),
+            ),
+            patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture,
+        ):
+            response = self.client.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "authorization_code",
+                    "client_id": self.application.client_id,
+                    "code": "irrelevant",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        rejected = self._events(mock_capture, "oauth_token_rejected")
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["error"], "temporarily_unavailable")
+        self.assertNotIn("client_name", props)
+
+    def test_token_issued_without_a_resource_owner_stays_personless(self):
+        access_token = OAuthAccessToken(application=self.application, user=None, scope="openid")
+
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            OAuthTokenView._capture_token_issued(access_token, "client_credentials", [], [])
+
+        issued = self._events(mock_capture, "oauth_token_issued")
+        self.assertEqual(len(issued), 1)
+        self.assertEqual(issued[0].kwargs["distinct_id"], self.application.client_id)
+        self.assertIs(issued[0].kwargs["properties"]["$process_person_profile"], False)
+
+
+class TestTokenErrorCode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("json_error", 400, b'{"error": "invalid_grant"}', "invalid_grant"),
+            ("html_body", 400, b"<html>nope</html>", "http_400"),
+            ("json_without_error_key", 400, b'{"detail": "nope"}', "http_400"),
+            ("json_error_not_a_string", 400, b'{"error": {"code": 1}}', "http_400"),
+            ("empty_body", 503, b"", "http_503"),
+        ]
+    )
+    def test_reads_the_rfc_error_code_or_falls_back_to_the_status(
+        self, _name: str, status_code: int, content: bytes, expected: str
+    ):
+        self.assertEqual(_token_error_code(HttpResponse(content, status=status_code)), expected)
+
+
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """
     Tests for RFC 8252 Section 7.3 — loopback redirect URIs must allow any port.
@@ -4287,6 +4700,14 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         )
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])
+
+    def test_metadata_advertises_every_method_cimd_registers_under(self):
+        # Guards the drift that broke CIMD installs: a client registers under a method the
+        # discovery document does not advertise, picks a method we reject, and fails the
+        # token exchange. Every method CIMD accepts must appear here.
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        advertised = set(response.json()["token_endpoint_auth_methods_supported"])
+        self.assertTrue(CIMD_SUPPORTED_AUTH_METHODS <= advertised)
 
     def test_metadata_advertises_id_jag_grant_profile(self):
         response = self.client.get("/.well-known/oauth-authorization-server")

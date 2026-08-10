@@ -52,7 +52,8 @@ class TestWordpressSource:
         assert pass_field.secret is True
 
     @pytest.mark.parametrize(
-        "expected_key", ["401 Client Error", "403 Client Error", "404 Client Error", "Non-JSON response from"]
+        "expected_key",
+        ["401 Client Error", "403 Client Error", "404 Client Error", "Non-JSON response from", "CertificateError"],
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
@@ -62,6 +63,19 @@ class TestWordpressSource:
         # the stable prefix, so the variable URL must not stop it being recognised as non-retryable.
         errors = self.source.get_non_retryable_errors()
         raised = "Non-JSON response from https://example.com/wp-json/wp/v2/posts"
+        matches = [friendly for key, friendly in errors.items() if key in raised]
+        assert matches and matches[0] is not None
+
+    def test_certificate_error_message_matches_non_retryable_error(self):
+        # requests wraps a hostname/cert mismatch as an SSLError whose message embeds the
+        # underlying CertificateError; the classifier matches on that class name, so the variable
+        # hostname and cert names around it must not stop it being recognised as non-retryable.
+        errors = self.source.get_non_retryable_errors()
+        raised = (
+            "HTTPSConnectionPool(host='example.com', port=443): Max retries exceeded with url: "
+            "/wp-json/wp/v2/categories (Caused by SSLError(CertificateError(\"hostname 'example.com' "
+            "doesn't match either of '*.example-host.test', 'example-host.test'\")))"
+        )
         matches = [friendly for key, friendly in errors.items() if key in raised]
         assert matches and matches[0] is not None
 

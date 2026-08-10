@@ -87,6 +87,7 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -105,6 +106,7 @@ import type {
   TaskMention,
   TaskRun,
   TaskRunArtefact,
+  TaskRunArtifact,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
@@ -141,7 +143,9 @@ import type {
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import {
   normalizeTaskResponse,
+  normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
+  type TaskRunArtifactDTO,
 } from "./task-normalization";
 
 export type * from "./mcp-gateway";
@@ -674,7 +678,7 @@ export class FolderInstructionsConflictError extends Error {
 
 export interface TaskArtifactUploadRequest {
   name: string;
-  type: "user_attachment" | "skill_bundle";
+  type: "output" | "user_attachment" | "skill_bundle";
   size: number;
   content_type?: string;
   source?: string;
@@ -703,6 +707,8 @@ export interface FinalizedTaskArtifactUpload {
   metadata?: TaskArtifactUploadRequest["metadata"];
   storage_path: string;
   uploaded_at?: string;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
 }
 
 export interface CloudRunOptions {
@@ -3020,6 +3026,7 @@ export class PostHogAPIClient {
 
   async warmTask(options: {
     repository?: string | null;
+    repositories?: string[];
     github_integration?: number | null;
     branch?: string | null;
     runtime_adapter?: string | null;
@@ -3040,6 +3047,7 @@ export class PostHogAPIClient {
       overrides: {
         body: JSON.stringify({
           repository: options.repository,
+          repositories: options.repositories,
           github_integration: options.github_integration,
           branch: options.branch ?? null,
           runtime_adapter: options.runtime_adapter ?? null,
@@ -3294,6 +3302,34 @@ export class PostHogAPIClient {
       path: { project_id: String(teamId) },
       body: payload as unknown as Schemas.Comment,
     });
+  }
+
+  /** Hide or restore every version of a file on the run, returning the updated manifest. */
+  async setTaskRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/dismiss/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify({ artifact_ids: artifactIds, dismissed }),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update artifact: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as {
+      artifacts?: TaskRunArtifactDTO[];
+    };
+    return (data.artifacts ?? []).map(normalizeTaskRunArtifact);
   }
 
   async getTaskSessionStorageAccess(
@@ -4270,6 +4306,41 @@ export class PostHogAPIClient {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || "Failed to update signal report state");
+    }
+
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
+   * Refund a report's billed PR. The server freezes the billing path, archives
+   * the report, and kicks off the billing credit when one is due; it also
+   * enforces eligibility, so callers only gate for display.
+   */
+  async refundSignalReport(
+    reportId: string,
+    input: { reason: SignalReportRefundReason; note?: string },
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/refund/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any non-2xx, so
+    // unwrap that into the endpoint's clean `error` message (e.g. the eligibility failures)
+    // rather than surfacing the raw string.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to refund this report's PR"),
+      );
     }
 
     return (await response.json()) as SignalReport;
@@ -6814,6 +6885,34 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return { results: data.results ?? [], columns: data.columns ?? [] };
+  }
+
+  /**
+   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
+   * the team's project and returns the raw response. `refresh: "blocking"`
+   * serves a fresh-enough cached result and computes synchronously otherwise —
+   * the same mode PostHog insights use. Backs inbox report charts, whose query
+   * nodes are scout-authored and arrive unparsed.
+   */
+  async runQuery(
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query, refresh: "blocking" }),
+      },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.error === "string" && data.error) {
+      throw new Error(data.error);
+    }
+    return data;
   }
 
   /**

@@ -1,6 +1,6 @@
-import { type FailureKind, failureRetryGuidance, observationRetryOffer } from './types'
+import { type FailureKind, failureRetryGuidance, getModelOptions, modelLabel, observationRetryOffer } from './types'
 
-describe('retry guidance', () => {
+describe('scanner type helpers', () => {
     describe('failureRetryGuidance', () => {
         // The retry button is always rendered; this is what decides whether we push it. Getting a kind into the wrong
         // bucket either discourages the retry that fixes it, or promises one that can only fail the same way.
@@ -58,6 +58,28 @@ describe('retry guidance', () => {
 
         it('carries a hint for the ineligible kinds it offers, so the button can say why retrying might work', () => {
             expect(observationRetryOffer('ineligible', 'no_snapshots:nothing to render').hint).not.toBeNull()
+        })
+    })
+
+    describe('model naming', () => {
+        // Both maps satisfy the types, so wiring the wrong one into a variant (a Gemini name leaking
+        // into tier labels, or vice versa) would silently contaminate the naming experiment's arms.
+        it('labels models by tier in the experiment variant and by model name by default', () => {
+            expect(getModelOptions(false).map((o) => o.label)).toEqual([
+                'Gemini 3.5 Flash Lite · 2 credits/observation',
+                'Gemini 3 Flash · 5 credits/observation',
+                'Gemini 3.6 Flash · 15 credits/observation',
+            ])
+            expect(getModelOptions(true).map((o) => o.label)).toEqual([
+                'Basic · 2 credits/observation',
+                'Pro · 5 credits/observation',
+                'Ultra · 15 credits/observation',
+            ])
+        })
+
+        it('falls back to the raw id for retired models frozen in old observation snapshots', () => {
+            expect(modelLabel('gemini-1.5-retired', true)).toBe('gemini-1.5-retired')
+            expect(modelLabel('gemini-1.5-retired', false)).toBe('gemini-1.5-retired')
         })
     })
 })
