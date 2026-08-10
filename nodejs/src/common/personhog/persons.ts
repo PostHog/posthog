@@ -80,14 +80,14 @@ export class PersonHogPersonOperations {
 
     async fetchPersonsByDistinctIds(
         teamPersons: { teamId: number; distinctId: string }[],
-        callerTag?: string,
-        options?: { consistency?: 'strong' | 'eventual' }
+        callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
         }
 
-        const readOptions = options?.consistency === 'strong' ? strongReadOptions() : eventualReadOptions()
+        // Eventual by construction — strong resolves use the identity service.
+        const readOptions = eventualReadOptions()
         const results: InternalPersonWithDistinctId[] = []
         for (let i = 0; i < teamPersons.length; i += PERSONHOG_BATCH_SIZE) {
             const batch = teamPersons.slice(i, i + PERSONHOG_BATCH_SIZE)
