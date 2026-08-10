@@ -35,6 +35,40 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+            # delta-rs's object_store crate wraps a persistent 403 (denied bucket/IAM policy) in the
+            # same "Generic S3 error" prefix used for self-recovering blips — without the exclusion,
+            # this would match on that prefix alone and get treated as transient, retrying forever
+            # instead of surfacing that access is denied.
+            (
+                "forbidden_list_request_os_error",
+                OSError(
+                    "Generic S3 error: Error performing list request: Error performing GET "
+                    "https://s3.example.com/bucket?list-type=2&prefix=data-warehouse%2F in 7ms - "
+                    "Server returned non-2xx status code: 403 Forbidden: "
+                    "<Error><Code>Forbidden</Code><Message>Forbidden</Message></Error>"
+                ),
+                False,
+            ),
+            (
+                "access_denied_os_error",
+                OSError(
+                    "Generic S3 error: Error performing list request: Server returned non-2xx status "
+                    "code: 403 Forbidden: <Error><Code>AccessDenied</Code></Error>"
+                ),
+                False,
+            ),
+            (
+                "unauthorized_os_error",
+                OSError("Generic S3 error: Server returned non-2xx status code: 401 Unauthorized"),
+                False,
+            ),
+            # A dispatch timeout wrapped in the same "Generic S3 error" prefix, with none of the
+            # persistent-auth-error markers above, must still classify as transient.
+            (
+                "dispatch_timeout_os_error",
+                OSError("Generic S3 error: Error getting list response body: operation timed out"),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught

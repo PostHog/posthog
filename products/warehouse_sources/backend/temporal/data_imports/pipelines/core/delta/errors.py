@@ -20,6 +20,16 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Please reduce your request rate",
 )
 
+# delta-rs's `object_store` crate wraps every S3-side error in the same "Generic S3 error" prefix
+# above, including a persistent bucket/IAM policy denial — not just the credential-provider hiccups
+# that needle is meant to catch. These mark a response that will never clear on retry, so they take
+# priority over the blanket "Generic S3 error" match.
+PERSISTENT_AUTH_ERROR_NEEDLES = (
+    "403 Forbidden",
+    "401 Unauthorized",
+    "<Code>AccessDenied</Code>",
+)
+
 
 class TransientObjectStoreError(NonReportableError):
     """A known-transient object-store blip (see is_transient_object_store_error), re-raised as this
@@ -43,6 +53,10 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     `object_store` crate. `NoCredentialsError`'s message is a fixed, generic string (no needle to
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
+
+    A 403/401 is excluded even though it's also wrapped in "Generic S3 error" text (see
+    PERSISTENT_AUTH_ERROR_NEEDLES) — a denied bucket/IAM policy doesn't clear on retry, so treating
+    it as a self-recovering blip would silently retry it forever instead of surfacing it.
     """
     if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
         # Already classified and wrapped by a prior call to this same function (see
@@ -50,9 +64,12 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
-    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
-        needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
-    )
+    if not isinstance(error, OSError | deltalake.exceptions.DeltaError):
+        return False
+    error_text = str(error)
+    if any(needle in error_text for needle in PERSISTENT_AUTH_ERROR_NEEDLES):
+        return False
+    return any(needle in error_text for needle in TRANSIENT_OBJECT_STORE_ERRORS)
 
 
 # `optimize.compact` plans its rewrite against the file list at the start of its scan, then reads
