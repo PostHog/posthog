@@ -179,6 +179,20 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         pagination="single",
         extra_params={"timezone": "UTC"},
     ),
+    # /tag/all returns the whole tag taxonomy in one unpaginated response: the dimension
+    # table that resolves the tag ids embedded in conversation rows to names, parents,
+    # and hierarchy positions. get_counts populates human_count/total_count, point-in-time
+    # aggregates that change on every sync. Tags carry no timestamp, so the table is
+    # unpartitioned and full refresh only.
+    "tags": DecagonEndpointConfig(
+        name="tags",
+        path="/tag/all",
+        data_key="tags",
+        primary_keys=["id"],
+        incremental_fields=[],
+        pagination="single",
+        extra_params={"get_counts": "true"},
+    ),
 }
 
 ENDPOINTS = tuple(DECAGON_ENDPOINTS.keys())
