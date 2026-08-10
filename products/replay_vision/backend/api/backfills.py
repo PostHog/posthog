@@ -25,7 +25,7 @@ from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ObservationStatus
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -189,7 +189,13 @@ class ReplayScannerBackfillViewSet(
         )
 
     def _clamped_window(self, data: dict[str, Any]) -> tuple[datetime, datetime]:
-        """The requested window, bounded above by now.
+        """The requested window, bounded above by the settle horizon the live sweep also waits for.
+
+        Not `now`: a session inside the settle window is still recording or still merging, so scanning it
+        yields a truncated observation, and the unique (scanner, session) constraint makes that the only
+        observation the session will ever get. The live sweep could never replace it once the recording
+        finished. Clamping here rather than in the query keeps the quoted count and the walk in agreement,
+        so nobody is quoted for sessions the walk will skip.
 
         Deliberately not clamped to the scanner's sweep watermark. Overlapping the live sweep is safe:
         both paths mint the same deterministic workflow id and the unique (scanner, session) constraint
@@ -197,7 +203,7 @@ class ReplayScannerBackfillViewSet(
         Whether a backfill is worth running is decided by how many *unobserved* recordings it would
         find, which `_enumerate` answers directly.
         """
-        window_end = min(data["window_end"], timezone.now())
+        window_end = min(data["window_end"], timezone.now() - SETTLE_INTERVAL)
         window_start = data["window_start"]
         if window_start >= window_end:
             raise ValidationError("The end of the range must be in the past. Pick an earlier range.")

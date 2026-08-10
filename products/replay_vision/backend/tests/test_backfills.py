@@ -18,7 +18,12 @@ from products.replay_vision.backend.api.backfills import (
     ReplayScannerBackfillViewSet,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    SETTLE_INTERVAL,
+    ReplayScanner,
+    ScannerModel,
+    ScannerType,
+)
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import QuotaState, compute_quota_snapshot, spend_projection
 from products.replay_vision.backend.temporal.activities.backfill import (
@@ -378,10 +383,14 @@ class TestBackfillsApi(APIBaseTest):
 
     @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
     @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
-    def test_create_freezes_config_clamps_window_to_now_and_rejects_second_active(
+    def test_create_freezes_config_clamps_window_to_settle_horizon_and_rejects_second_active(
         self, mock_query: MagicMock, mock_upsert: AsyncMock
     ) -> None:
         mock_query.return_value.count.return_value = 7
+        # Well behind the settle horizon, so the watermark assertion below measures the intended thing
+        # rather than the microseconds between scanner creation and this request.
+        self.scanner.last_swept_at = timezone.now() - dt.timedelta(days=2)
+        self.scanner.save(update_fields=["last_swept_at"])
         response = self.client.post(f"{self.base_url}/", self._window_body(), format="json")
         assert response.status_code == 201, response.json()
         body = response.json()
@@ -389,9 +398,9 @@ class TestBackfillsApi(APIBaseTest):
         assert body["status"] == "running"
 
         backfill = ReplayScannerBackfill.objects.for_team(self.team.id).get(pk=body["id"])
-        # A window reaching into the future is clamped back to now, but is no longer cut at the
-        # scanner's sweep watermark: overlap with the live sweep is safe and often the whole point.
-        assert backfill.window_end <= timezone.now()
+        # A window reaching into the future is clamped back to the settle horizon, but is no longer cut
+        # at the scanner's sweep watermark: overlap with the live sweep is safe and often the whole point.
+        assert backfill.window_end <= timezone.now() - SETTLE_INTERVAL
         assert backfill.window_end > self.scanner.last_swept_at
         assert backfill.scanner_snapshot["scanner_config"] == {"prompt": "p"}
         assert backfill.credits_per_observation > 0
@@ -410,6 +419,33 @@ class TestBackfillsApi(APIBaseTest):
         assert body["total_sessions"] == 40
         assert body["total_credits"] == 40 * body["credits_per_observation"]
         assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
+
+    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    def test_window_stops_at_the_settle_horizon_the_sweep_waits_for(self, mock_query: MagicMock) -> None:
+        # A session inside the settle window is still recording or still merging. Scanning it yields a
+        # truncated observation, and the unique (scanner, session) constraint means that is the only
+        # observation the session ever gets, so the live sweep can never replace it once it finishes.
+        mock_query.return_value.count.return_value = 3
+        body = {
+            "window_start": (timezone.now() - dt.timedelta(days=2)).isoformat(),
+            "window_end": (timezone.now() + dt.timedelta(days=1)).isoformat(),
+        }
+
+        response = self.client.post(f"{self.base_url}/estimate/", body, format="json")
+
+        assert response.status_code == 200, response.json()
+        window_end = dt.datetime.fromisoformat(response.json()["window_end"])
+        assert window_end <= timezone.now() - SETTLE_INTERVAL
+        # The quote has to describe the window actually walked, or it counts sessions the walk skips.
+        assert mock_query.call_args.kwargs["window_end"] == window_end
+
+    def test_window_entirely_inside_the_settle_horizon_is_rejected(self) -> None:
+        body = {
+            "window_start": (timezone.now() - dt.timedelta(minutes=5)).isoformat(),
+            "window_end": timezone.now().isoformat(),
+        }
+        response = self.client.post(f"{self.base_url}/estimate/", body, format="json")
+        assert response.status_code == 400
 
     def test_estimate_rejects_window_longer_than_the_cap(self) -> None:
         # An unbounded window makes the synchronous enumeration pay for the whole partition range.
