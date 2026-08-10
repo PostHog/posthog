@@ -1,15 +1,15 @@
-import django.db.models.functions.text
-from django.db import migrations, models
+from django.db import migrations
 
-from posthog.migration_helpers import SafeAddIndexConcurrently
+from posthog.migration_helpers import CreateIndexConcurrently
 
 
 class Migration(migrations.Migration):
     """
-    posthog_user is a hot table read on virtually every request, so a plain `AddIndex` (which
-    takes an ACCESS EXCLUSIVE lock to build) risks stalling site-wide traffic. SafeAddIndexConcurrently
-    builds it with CREATE INDEX CONCURRENTLY (SHARE UPDATE EXCLUSIVE, doesn't block reads/writes),
-    tracking Django state the same way AddIndex would.
+    posthog_user is a hot table read on virtually every request. CreateIndexConcurrently builds
+    with CREATE INDEX CONCURRENTLY (SHARE UPDATE EXCLUSIVE, doesn't block reads/writes) rather than
+    a plain AddIndex, which takes an ACCESS EXCLUSIVE lock. Raw SQL, not a tracked `models.Index`,
+    matching the existing 1138_onboarding_delegated_to_invite_index precedent for this table: User
+    has never carried a Meta.indexes list, and this doesn't start one.
 
     The index is not yet used by any query in this migration — EmailValidationHelper.user_exists_with_stripped_alias
     still filters via iexact/istartswith/iendswith. A follow-up change rewrites that lookup to filter
@@ -20,21 +20,13 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("auth", "0012_alter_user_first_name_max_length"),
         ("posthog", "1296_backfill_cimd_verification_token_url"),
     ]
 
     operations = [
-        SafeAddIndexConcurrently(
-            model_name="user",
-            index=models.Index(
-                models.Func(
-                    django.db.models.functions.text.Lower("email"),
-                    models.Value("\\+[^@]*@"),
-                    models.Value("@"),
-                    function="regexp_replace",
-                ),
-                name="user_stripped_alias_idx",
-            ),
+        CreateIndexConcurrently(
+            index_name="user_stripped_alias_idx",
+            table_name="posthog_user",
+            columns="(regexp_replace(lower(email), '\\+[^@]*@', '@'))",
         ),
     ]
