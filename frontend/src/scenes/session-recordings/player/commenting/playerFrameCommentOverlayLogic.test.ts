@@ -71,11 +71,9 @@ describe('playerFrameCommentOverlayLogic', () => {
         expect(membersLogic.values.meFirstMembers).toHaveLength(mockMembers.length)
     })
 
-    // Regression test: the overlay logic mounts with the player toolbar, before the recording has
-    // loaded, and only refreshes its timestamp when the formatted (second resolution) playhead
-    // time changes. Commenting without moving the playhead off 00:00 therefore submitted the
-    // `dayjs(null)` Invalid Date captured at mount, which threw inside the kea-forms submit - and
-    // kea-forms swallows that, so Save made no request and reported nothing.
+    // Regression test: currentTimestamp is unset until the player seeks, so a comment made before
+    // the playhead moves off 00:00 used to submit an invalid date and fail silently inside the
+    // kea-forms submit, saving nothing and reporting nothing.
     it('saves a comment made while the playhead is still at the start', async () => {
         const createSpy = jest.spyOn(api.comments, 'create').mockResolvedValue({} as CommentType)
 

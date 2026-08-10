@@ -208,9 +208,8 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 return colonDelimitedDuration(currentPlayerTime / 1000, timestampUnits)
             },
         ],
-        // The player only publishes currentTimestamp once it has seeked, so it is null while the
-        // playhead still sits at the start. Falling back to the recording start plus the playhead
-        // offset keeps a comment made before playback from having no date to anchor to.
+        // currentTimestamp is unset until the player seeks, so fall back to the recording start
+        // plus the playhead offset rather than leaving a comment with no date to anchor to
         dateForCurrentTimestamp: [
             (s) => [s.currentTimestamp, s.currentPlayerTime, s.sessionPlayerData],
             (
@@ -323,11 +322,9 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             submit: async (data) => {
                 const { commentId, content, richContent } = data
 
-                // the form only snapshots the timestamp when the player's formatted time changes,
-                // so read the player's live position whenever that snapshot is missing or stale
-                const dateForTimestamp = data.dateForTimestamp?.isValid()
-                    ? data.dateForTimestamp
-                    : values.dateForCurrentTimestamp
+                // the form's copy only refreshes on whole-second changes, so read the live position
+                // to keep this in step with milliseconds_into_recording below
+                const dateForTimestamp = values.dateForCurrentTimestamp
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -359,11 +356,10 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
         },
     })),
     listeners(({ values }) => ({
-        // kea-forms swallows anything thrown while submitting, so without this a comment that
-        // fails to save looks exactly like a dead button
+        // kea-forms discards anything thrown in submit, so a failed save is otherwise silent
         submitRecordingCommentFailure: ({ error }) => {
             if (values.recordingCommentHasErrors) {
-                // the form already renders these against the field
+                // already rendered against the field
                 return
             }
             lemonToast.error(`Could not save your comment: ${error.message}`)
