@@ -10,6 +10,7 @@ import {
     buildRecordingMatchingEventFiltersForUrl,
     buildRecordingsQueryForUrl,
     heatmapRecordingFallbackLogic,
+    urlToPropertyMatch,
 } from './heatmapRecordingFallbackLogic'
 
 describe('heatmapRecordingFallbackLogic', () => {
@@ -36,6 +37,36 @@ describe('heatmapRecordingFallbackLogic', () => {
         expect(query.kind).toBe('RecordingsQuery')
         expect(query.limit).toBe(3)
         expect(query.date_from).toBe('-30d')
+    })
+
+    it.each([
+        ['plain URL keeps icontains', 'https://example.com/pricing', 'icontains', 'https://example.com/pricing'],
+        ['trailing slash is dropped', 'https://example.com/pricing/', 'icontains', 'https://example.com/pricing'],
+        ['wildcard becomes an anchored regex', 'https://example.com/blog/*', 'regex', '^https://example.com/blog/.+$'],
+    ])('matches the visited page: %s', (_name, url, operator, value) => {
+        expect(urlToPropertyMatch(url)).toEqual({ operator, value: [value] })
+    })
+
+    it('drops the trailing slash so a recording without one still matches', () => {
+        expect(buildRecordingsQueryForUrl('https://example.com/pricing/').properties).toEqual([
+            { type: 'recording', key: 'visited_page', operator: 'icontains', value: ['https://example.com/pricing'] },
+        ])
+    })
+
+    it('turns a wildcard pattern into a regex so the Session replay escape hatch can match it', () => {
+        expect(buildRecordingFiltersForUrl('https://example.com/blog/*').filter_group?.values).toEqual([
+            {
+                type: 'AND',
+                values: [
+                    {
+                        type: 'recording',
+                        key: 'visited_page',
+                        operator: 'regex',
+                        value: ['^https://example.com/blog/.+$'],
+                    },
+                ],
+            },
+        ])
     })
 
     it('opens Session replay with the same visited-page and lookback filters', () => {

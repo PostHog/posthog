@@ -39,8 +39,9 @@ export function HeatmapRecordingFallback({
             <LemonBanner type="info">
                 <div className="flex flex-col gap-2">
                     <p className="mb-0">
-                        We didn't find a recent recording that visited this page. Open Session replay with the
-                        visited-page filter applied to broaden your search or wait for a new recording.
+                        Recordings and heatmap data are captured separately, so this page can have heatmap data but no
+                        recording yet. We didn't find a recent recording that visited it. Search Session replay or wait
+                        for a new recording.
                     </p>
                     <ViewRecordingsPlaylistButton
                         filters={buildRecordingFiltersForUrl(url)}

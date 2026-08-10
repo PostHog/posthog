@@ -709,6 +709,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                     trigger: pageDataCheck.trigger,
                     result: pageDataCheck.outcome,
                     match_type: pageDataCheck.matchType,
+                    count: pageDataCheck.count,
                 })
             },
             authorizeDisplayUrl: () => {

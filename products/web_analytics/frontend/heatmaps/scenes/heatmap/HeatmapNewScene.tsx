@@ -144,11 +144,17 @@ function MatchingDataReadiness(): JSX.Element {
 
     if (currentPageDataCheck.outcome === 'detected') {
         return (
-            <div className="flex items-center gap-2 text-success">
-                <IconCheckCircle className="size-5 shrink-0" />
-                <span>
-                    Found {currentPageDataCheck.count?.toLocaleString()} matching interaction
-                    {currentPageDataCheck.count === 1 ? '' : 's'} from the last 30 days.
+            <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 text-success">
+                    <IconCheckCircle className="size-5 shrink-0" />
+                    <span>
+                        Found {currentPageDataCheck.count?.toLocaleString()} interaction
+                        {currentPageDataCheck.count === 1 ? '' : 's'} across all types in the last 30 days.
+                    </span>
+                </div>
+                <span className="text-muted text-xs ml-7">
+                    The heatmap opens on clicks from the last 7 days. Widen the date range or change the interaction
+                    type if it looks empty.
                 </span>
             </div>
         )
@@ -162,8 +168,8 @@ function MatchingDataReadiness(): JSX.Element {
     return (
         <LemonBanner type="warning" action={checkAgain}>
             {currentPageDataCheck.outcome === 'none'
-                ? 'No matching heatmap data was found in the last 30 days. You can create the heatmap now and collect data later.'
-                : "We couldn't check for matching data. You can try again or continue creating the heatmap."}
+                ? 'No interactions were found on this page in the last 30 days. You can create the heatmap now and collect data later.'
+                : "We couldn't check for interactions. You can try again or continue creating the heatmap."}
         </LemonBanner>
     )
 }
@@ -535,10 +541,10 @@ function ReviewStep(): JSX.Element {
                     </ReviewStatus>
                     <ReviewStatus warning={hasMatchingData !== true}>
                         {hasMatchingData === true
-                            ? 'Matching data was found in the last 30 days.'
+                            ? 'Interactions were found in the last 30 days. The heatmap opens on clicks from the last 7 days.'
                             : hasMatchingData === false
-                              ? 'No matching data was found in the last 30 days.'
-                              : 'Matching data could not be confirmed.'}
+                              ? 'No interactions were found in the last 30 days.'
+                              : 'Interactions could not be confirmed.'}
                     </ReviewStatus>
                 </div>
 

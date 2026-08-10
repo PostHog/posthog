@@ -15,6 +15,9 @@ import {
     UniversalFilterValue,
 } from '~/types'
 
+import { heatmapUrlPatternToRegex } from '../scenes/heatmap/heatmapCreationLogic'
+import { isUrlPattern } from './heatmapsBrowserLogic'
+
 export type HeatmapRecordingFallbackLogicProps = {
     url: string
     selectionMode?: 'default' | 'guided'
@@ -22,7 +25,18 @@ export type HeatmapRecordingFallbackLogicProps = {
 
 const RECORDING_FALLBACK_LOOKBACK = '-30d'
 
+// Session recordings are a different dataset from heatmap capture, so this reuses the
+// readiness check's URL matching: a wildcard pattern becomes an anchored regex and a
+// trailing slash is dropped, otherwise a valid URL silently matches no recordings.
+export function urlToPropertyMatch(url: string): { operator: PropertyOperator; value: string[] } {
+    if (isUrlPattern(url)) {
+        return { operator: PropertyOperator.Regex, value: [heatmapUrlPatternToRegex(url)] }
+    }
+    return { operator: PropertyOperator.IContains, value: [url.replace(/\/+$/, '')] }
+}
+
 export function buildRecordingsQueryForUrl(url: string): RecordingsQuery {
+    const { operator, value } = urlToPropertyMatch(url)
     return {
         kind: NodeKind.RecordingsQuery,
         order: 'start_time',
@@ -33,8 +47,8 @@ export function buildRecordingsQueryForUrl(url: string): RecordingsQuery {
             {
                 type: PropertyFilterType.Recording,
                 key: 'visited_page',
-                operator: PropertyOperator.IContains,
-                value: [url],
+                operator,
+                value,
             },
         ],
     }
@@ -56,21 +70,23 @@ function buildRecordingFiltersForProperty(property: UniversalFilterValue): Parti
 }
 
 export function buildRecordingFiltersForUrl(url: string): Partial<RecordingUniversalFilters> {
+    const { operator, value } = urlToPropertyMatch(url)
     return buildRecordingFiltersForProperty({
         type: PropertyFilterType.Recording,
         key: 'visited_page',
-        operator: PropertyOperator.IContains,
-        value: [url],
+        operator,
+        value,
     })
 }
 
 export function buildRecordingMatchingEventFiltersForUrl(url: string): RecordingUniversalFilters {
+    const { operator, value } = urlToPropertyMatch(url)
     return {
         ...buildRecordingFiltersForProperty({
             type: PropertyFilterType.Event,
             key: '$current_url',
-            operator: PropertyOperator.IContains,
-            value: [url],
+            operator,
+            value,
         }),
         duration: [],
     } as RecordingUniversalFilters
