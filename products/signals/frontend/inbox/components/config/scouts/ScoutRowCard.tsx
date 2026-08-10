@@ -145,9 +145,10 @@ export function ScoutRowCard({
                         {rollup && rollup.emittedCount > 0 ? (
                             <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>
                         ) : null}
-                        {scoutTags(config).map((tag) => (
-                            <ScoutTagBadge key={tag} tag={tag} />
-                        ))}
+                        {/* Tags are a wall of pills on a long fleet list and say little about
+                            any one scout, so they stay on the detail header. The settings form
+                            and the tag filter still surface them where they're actionable. */}
+                        {asHeader ? scoutTags(config).map((tag) => <ScoutTagBadge key={tag} tag={tag} />) : null}
                     </div>
                 </div>
                 {/* The sparkline is the flexible region: it shrinks and clips the oldest runs

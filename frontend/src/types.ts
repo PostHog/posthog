@@ -5472,6 +5472,7 @@ export const INTEGRATION_KINDS = [
     'github',
     'gitlab',
     'meta-ads',
+    'instagram',
     'clickup',
     'reddit-ads',
     'databricks',
@@ -6002,6 +6003,7 @@ export enum ActivityScope {
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
     NOTEBOOK = 'Notebook',
+    CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
     // TODO: doh! we don't need replay and recording

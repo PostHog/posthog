@@ -27,7 +27,6 @@ from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
-    GitHubIntegration,
     Integration,
     SlackIntegration,
     SlackIntegrationError,
@@ -63,7 +62,6 @@ from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_assistant_flag_enabled,
-    is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
@@ -78,18 +76,8 @@ from products.slack_app.backend.services.integration_resolver import (
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
-    ACTION_EDIT_PERSONAL,
-    ACTION_RESET_PERSONAL,
-    ACTION_RESET_PROJECT_PERSONAL,
-    ACTION_SET_PROJECT_PERSONAL,
-    ACTION_SET_PROJECT_WORKSPACE,
-    ACTION_TASKS_FILTER_REPO,
-    ACTION_TASKS_FILTER_STATUS,
-    ACTION_TASKS_PAGE_NEXT,
-    ACTION_TASKS_PAGE_PREV,
-    ACTION_TASKS_REFRESH,
-    ACTION_UNLINK_ACCOUNT,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_RUNTIME_ADAPTER,
     handle_ai_preferences_block_action as _handle_ai_preferences_block_action,
@@ -638,19 +626,22 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
 
 
-def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
+def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str], team_id: int | None = None) -> str:
     kinds_token = ",".join(sorted(kinds))
-    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
+    team_token = team_id if team_id is not None else "*"
+    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}:{team_token}"
 
 
-def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
+def does_other_region_claim_workspace(
+    *, slack_team_id: str, kinds: list[str], incoming_host: str, team_id: int | None = None
+) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
 
     Returns True/False on a definitive answer, or None on transport failure or bad response.
     Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
     flake does not reroute the next event. None is never cached so the next event re-probes.
     """
-    cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
+    cache_key = _workspace_claims_cache_key(slack_team_id, kinds, team_id)
     cached = cache.get(cache_key)
     if isinstance(cached, bool):
         logger.info(
@@ -664,7 +655,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
-    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
+    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds, "team_id": team_id}).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
     signed = sign_slack_request(body, signing_secret)
 
@@ -716,8 +707,8 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
 
     Both Cloud regions provision the PostHog Desktop Slack signing secret, so a region can HMAC-sign
     a small JSON body and the receiver can verify it with the same routine that validates real
-    Slack webhooks. The signed body covers `slack_team_id` + `kinds`, so a captured signature
-    cannot be replayed against a different workspace.
+    Slack webhooks. The signed body covers every filter, so a captured signature cannot be replayed
+    against a different workspace or project.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -736,6 +727,7 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
 
     slack_team_id = data.get("slack_team_id")
     kinds = data.get("kinds")
+    team_id = data.get("team_id")
     if not isinstance(slack_team_id, str) or not slack_team_id:
         return HttpResponse("Missing slack_team_id", status=400)
     if not isinstance(kinds, list) or not kinds:
@@ -743,11 +735,16 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     filtered = [k for k in kinds if isinstance(k, str) and k in _VALID_WORKSPACE_CLAIM_KINDS]
     if not filtered:
         return HttpResponse("No valid kinds", status=400)
+    if team_id is not None and (not isinstance(team_id, int) or isinstance(team_id, bool)):
+        return HttpResponse("Invalid team_id", status=400)
 
-    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+    integrations = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
         kind__in=filtered,
         integration_id=slack_team_id,
-    ).exists()
+    )
+    if team_id is not None:
+        integrations = integrations.filter(team_id=team_id)
+    claimed = integrations.exists()
     return JsonResponse({"claimed": claimed})
 
 
@@ -921,16 +918,7 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
-    """Repo names available to the mentioner: their personal install, plus the team install when bot PRs are on."""
-    user_repos = _get_user_repo_names(integration, user_id=user_id)
-    if not is_slack_app_bot_prs_enabled(integration.team):
-        return user_repos
-    combined = set(user_repos) | set(_get_team_repo_names(integration))
-    return sorted(combined)[:_MAX_GITHUB_REPOS]
-
-
-def _get_user_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
-    """Repo names from the mentioner's personal GitHub install, or []. Cached per user."""
+    """Repo names available to the mentioner, from their personal GitHub install. Cached per user."""
     if user_id is None:
         return []
     cache_key = _user_repo_list_cache_key(user_id)
@@ -968,17 +956,6 @@ def _get_user_repo_names(integration: Integration, *, user_id: int | None) -> li
     if result:
         cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
     return result
-
-
-def _get_team_repo_names(integration: Integration) -> list[str]:
-    """Repo names from the team's org-owned GitHub install (cached JSONField read), or []."""
-    team_integration = Integration.objects.filter(
-        team=integration.team, kind=Integration.IntegrationKind.GITHUB
-    ).first()
-    if team_integration is None:
-        return []
-    github = GitHubIntegration(team_integration)
-    return [repo["full_name"] for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)]
 
 
 def _replace_repo_picker_message_with_selection(
@@ -1839,7 +1816,9 @@ def _route_app_home_opened(
     if region_route is not None:
         return region_route
 
-    integration = result.integration if result.integration in result.candidates else result.candidates[0]
+    integration = result.resolved_or_first()
+    if integration is None:
+        return ROUTE_NO_INTEGRATION
     try:
         _handle_app_home_opened(event, slack_team_id, integration=integration)
     except Exception:
@@ -2219,10 +2198,14 @@ def route_posthog_code_event_to_relevant_region(
 
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
-    local_match = link_result.candidates[0] if link_result.candidates else None
+    local_match = _link_shared_integration(event, link_result.candidates)
     if local_match:
         if _us_should_handle_instead(
-            slack_team_id, list(SLACK_INTEGRATION_KINDS), can_defer_to_other_region, incoming_host
+            slack_team_id,
+            list(SLACK_INTEGRATION_KINDS),
+            can_defer_to_other_region,
+            incoming_host,
+            team_id=local_match.team_id,
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
@@ -2241,7 +2224,9 @@ def route_posthog_code_event_to_relevant_region(
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
 
-def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str) -> bool:
+def _us_should_handle_instead(
+    slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str, *, team_id: int | None = None
+) -> bool:
     """US-precedence guard. EU yields to US when both claim a workspace.
 
     Skipped when we're already US (we win) or when we were proxied to (the other region already
@@ -2253,7 +2238,9 @@ def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: b
     """
     if not can_defer:
         return False
-    claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    claimed = does_other_region_claim_workspace(
+        slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host, team_id=team_id
+    )
     decision = True if claimed is None else claimed
     logger.info(
         "slack_app_route_us_probe_result",
@@ -3058,6 +3045,31 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
     return resources
 
 
+def _link_shared_integration(event: dict[str, Any], candidates: list[Integration]) -> Integration | None:
+    team_ids: set[int] = set()
+    links = event.get("links")
+    if isinstance(links, list):
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            url = link.get("url")
+            if not isinstance(url, str):
+                continue
+            parts = [part for part in urlparse(url).path.split("/") if part]
+            if len(parts) >= 2 and parts[0] == "project":
+                try:
+                    team_ids.add(int(parts[1]))
+                except ValueError:
+                    continue
+
+    if len(team_ids) == 1:
+        team_id = next(iter(team_ids))
+        return next((candidate for candidate in candidates if candidate.team_id == team_id), None)
+    if team_ids:
+        return None
+    return candidates[0] if candidates else None
+
+
 def _extract_context_token(payload: dict) -> str:
     """Extract the context token from a block_id (block_suggestion) or message metadata (block_actions)."""
 
@@ -3088,23 +3100,10 @@ def _extract_context_token(payload: dict) -> str:
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
 
 
-_AI_PREFERENCES_ACTION_IDS = frozenset(
-    {
-        ACTION_EDIT_PERSONAL,
-        ACTION_RESET_PERSONAL,
-        ACTION_RESET_PROJECT_PERSONAL,
-        ACTION_SET_PROJECT_PERSONAL,
-        ACTION_SET_PROJECT_WORKSPACE,
-        ACTION_TASKS_FILTER_REPO,
-        ACTION_TASKS_FILTER_STATUS,
-        ACTION_TASKS_PAGE_NEXT,
-        ACTION_TASKS_PAGE_PREV,
-        ACTION_TASKS_REFRESH,
-        ACTION_UNLINK_ACCOUNT,
-        MODAL_ACTION_RUNTIME_ADAPTER,
-        MODAL_ACTION_MODEL,
-    }
-)
+# Every Home tab control, plus the two modal selects that re-render the edit modal.
+# Sourced from `HOME_ACTION_IDS` rather than re-listed, so a control added to the tab
+# is routable here the moment it exists.
+_AI_PREFERENCES_ACTION_IDS = HOME_ACTION_IDS | {MODAL_ACTION_RUNTIME_ADAPTER, MODAL_ACTION_MODEL}
 _AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID})
 
 
@@ -3426,73 +3425,6 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
     except Exception as e:
         logger.warning("slack_app_repo_none_signal_failed", workflow_id=workflow_id, error=str(e))
         return HttpResponse(status=200)
-
-
-def _handle_continue_as_bot(payload: dict) -> HttpResponse:
-    action = next(
-        (a for a in payload.get("actions", []) if a.get("action_id") == "posthog_code_continue_as_bot"),
-        None,
-    )
-    if not action:
-        return HttpResponse(status=200)
-
-    try:
-        value = json.loads(action.get("value") or "{}")
-    except (TypeError, ValueError):
-        value = {}
-
-    workflow_id = value.get("workflow_id")
-    integration_id = value.get("integration_id")
-    expected_user_id = value.get("mentioning_slack_user_id")
-
-    if not workflow_id:
-        logger.info("slack_app_continue_as_bot_missing_workflow_id")
-        return HttpResponse(status=200)
-
-    clicker_id = payload.get("user", {}).get("id")
-    if not expected_user_id or clicker_id != expected_user_id:
-        logger.info(
-            "slack_app_continue_as_bot_user_mismatch",
-            workflow_id=workflow_id,
-            expected_user_id=expected_user_id,
-            clicker_id=clicker_id,
-        )
-        return HttpResponse(status=200)
-
-    try:
-        client = sync_connect()
-        handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.authorship_confirmed))
-    except Exception as e:
-        logger.warning("slack_app_continue_as_bot_signal_failed", workflow_id=workflow_id, error=str(e))
-        return HttpResponse(status=200)
-
-    # Best-effort: replace the prompt so it can't be clicked twice.
-    slack_team_id = payload.get("team", {}).get("id")
-    channel = payload.get("channel", {}).get("id")
-    message_ts = payload.get("message", {}).get("ts")
-    if integration_id and slack_team_id and channel and message_ts:
-        try:
-            # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-            integration = Integration.objects.get(
-                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-            )
-            text = "Continuing as PostHog — the PR will be authored by the PostHog bot."
-            SlackIntegration(integration).client.chat_update(
-                channel=channel,
-                ts=message_ts,
-                text=text,
-                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
-            )
-        except Exception:
-            logger.warning(
-                "slack_app_continue_as_bot_picker_update_failed",
-                workflow_id=workflow_id,
-                channel=channel,
-                message_ts=message_ts,
-            )
-
-    return HttpResponse(status=200)
 
 
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
@@ -4183,7 +4115,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
-    authorship_integration_id, _ = _extract_action_value_hints(payload, "posthog_code_continue_as_bot")
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
@@ -4208,13 +4139,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
-    elif slack_team_id and authorship_integration_id:
-        # Mentioner check lives in the handler, so routing only confirms we own the integration.
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=authorship_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -4341,8 +4265,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
-            if action_id == "posthog_code_continue_as_bot":
-                return _handle_continue_as_bot(payload)
             if action_id == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:

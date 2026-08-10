@@ -119,7 +119,7 @@ export type EmailMetric =
     | 'email_spam'
     | 'email_untracked'
 
-export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
+export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed' | 'push_opened'
 
 export type PushMetricRow = {
     id: string
@@ -127,6 +127,7 @@ export type PushMetricRow = {
     sent: number
     skipped: number
     failed: number
+    opened: number
 }
 
 export type EmailMetricRow = {
@@ -332,6 +333,13 @@ export const WORKFLOW_PUSH_METRICS: Record<
         color: METRIC_COLORS['Failed'],
         metricNames: ['push_failed'],
     },
+    push_opened: {
+        name: 'Opened',
+        description:
+            'Total number of push notifications a recipient opened, captured by the mobile SDK when the user taps the notification. Requires the SDK open-tracking integration in your app.',
+        color: METRIC_COLORS['Opened'],
+        metricNames: ['push_opened'],
+    },
 }
 
 // How each drillable email metric maps onto the Invocations tab. Each SES event also writes a
@@ -387,7 +395,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_untracked',
 ]
 
-const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed']
+const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']
 
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
@@ -1476,6 +1484,7 @@ export function buildPushMetricRows(
             sent: totals.push_sent ?? 0,
             skipped: totals.push_skipped ?? 0,
             failed: totals.push_failed ?? 0,
+            opened: totals.push_opened ?? 0,
         }
     })
 }

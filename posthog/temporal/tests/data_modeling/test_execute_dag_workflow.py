@@ -140,6 +140,32 @@ class TestGetDagStructureActivity:
         source_node = dag_nodes[0]
         assert str(source_node.id) not in dag.executable_nodes
 
+    async def test_excludes_nodes_whose_saved_query_was_deleted(
+        self, activity_environment, ateam, saved_queries, dag_nodes, adag
+    ):
+        ghost_query, ghost_node = saved_queries[0], dag_nodes[1]
+        ghost_query.deleted = True
+        await database_sync_to_async(ghost_query.save)()
+
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
+        dag = await activity_environment.run(get_dag_structure_activity, inputs)
+
+        assert str(ghost_node.id) not in dag.executable_nodes
+        assert len(dag.executable_nodes) == 2
+
+    async def test_keeps_nodes_whose_saved_query_has_no_deleted_flag(
+        self, activity_environment, ateam, saved_queries, dag_nodes, adag
+    ):
+        # deleted is nullable and null on most rows, a case an exclude() can silently take with it
+        for query in saved_queries:
+            query.deleted = None
+            await database_sync_to_async(query.save)()
+
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
+        dag = await activity_environment.run(get_dag_structure_activity, inputs)
+
+        assert len(dag.executable_nodes) == 3
+
     @pytest.mark.parametrize("enforced", [True, False])
     async def test_reports_suspended_nodes_only_when_enforced(
         self, activity_environment, ateam, dag_nodes, adag, enforced
