@@ -435,3 +435,70 @@ class TestEmitTaskEvent(TestCase):
         emit_task_event(self.task, event="pr_created", content="two", event_key=f"{prefix}/2")
 
         self.assertEqual(len(self._events()), 2)
+
+
+class TestLifecycleEvents(TestCase):
+    """The events the activity timeline renders for a task's own lifecycle."""
+
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_user(
+            email="creator@example.com", first_name="Casey", last_name="Creator", password="password"
+        )
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="Ship activity events",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+
+    def _events(self, event: str) -> list[TaskThreadMessage]:
+        return list(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=self.task, event=event).order_by("created_at")
+        )
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_creating_a_run_records_a_start(self, _flag) -> None:
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, branch="casey/activity")
+
+        events = self._events("run_started")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(
+            events[0].payload,
+            {"run_id": str(run.id), "environment": "cloud", "branch": "casey/activity"},
+        )
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_each_run_gets_its_own_start(self, _flag) -> None:
+        # Numbering is the client's job, from the ordered feed: counting runs here would race
+        # two concurrent creations onto the same number.
+        first = self.task.create_run()
+        second = self.task.create_run()
+
+        events = self._events("run_started")
+        self.assertEqual([event.payload["run_id"] for event in events], [str(first.id), str(second.id)])
+        self.assertNotIn("run_number", events[0].payload)
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_failure_carries_the_first_line_of_the_error(self, _flag) -> None:
+        # The rest of a traceback belongs on the run: a timeline row is not a log viewer,
+        # and later lines are where pasted credentials tend to live.
+        run = self.task.create_run()
+        run.mark_failed("Command failed: pnpm build\n  at line 3\n  token=abc123")
+
+        events = self._events("run_failed")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].payload["error_summary"], "Command failed: pnpm build")
+        self.assertNotIn("abc123", events[0].content)
+
+    @parameterized.expand([("flag_off", False), ("flag_on", True)])
+    @patch(_FLAG_TARGET)
+    def test_events_follow_the_agent_thread_updates_flag(self, _name, flag_on, flag_mock) -> None:
+        flag_mock.return_value = flag_on
+
+        self.task.create_run()
+
+        self.assertEqual(len(self._events("run_started")), 1 if flag_on else 0)

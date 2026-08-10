@@ -24,6 +24,15 @@ from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
 
+
+def _post_artifact_event(artifact: TaskArtifact, *, revised: bool, run: TaskRun) -> None:
+    """Announce the write on the task's timeline. Deferred import keeps the facade off this
+    module's import path, the way the rest of the service's cross-module calls do."""
+    from products.tasks.backend.facade.api import post_artifact_event  # noqa: PLC0415
+
+    post_artifact_event(artifact, revised=revised, run_id=run.id)
+
+
 # Both scopes are approved (see posthog/helpers/slack_scopes.py), so the canvas and file adapters
 # stay behind the slack-app-canvas-file-artifacts flag: scope checks alone would turn the feature
 # on for every install that has them, with no rollout control.
@@ -145,6 +154,7 @@ def create_living_artifact(
             current_version=1,
             export_asset_id=export_asset_id,
         )
+    _post_artifact_event(artifact, revised=False, run=run)
     return artifact
 
 
@@ -222,7 +232,8 @@ def edit_living_artifact(
                 "updated_at",
             ]
         )
-        return locked
+    _post_artifact_event(locked, revised=True, run=run)
+    return locked
 
 
 def resolve_artifact_content(

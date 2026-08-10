@@ -442,6 +442,10 @@ class Task(DeletedMetaFields, models.Model):
         )
         task_run.publish_stream_state_event()
         observe_task_run_created(task_run)
+        # Deferred: the facade imports this module, so a module-level import would cycle.
+        from products.tasks.backend.facade.api import post_run_started_event  # noqa: PLC0415
+
+        post_run_started_event(task_run)
         self.capture_event(
             "task_run_created",
             {
@@ -2365,8 +2369,11 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+        # Deferred: the facade imports this module, so a module-level import would cycle.
+        from products.tasks.backend.facade.api import post_run_failed_event  # noqa: PLC0415
         from products.tasks.backend.push_dispatcher import notify_task_run_failed
 
+        post_run_failed_event(self, error)
         notify_task_run_failed(self)
 
     def build_stream_state_event(self) -> dict[str, Any]:

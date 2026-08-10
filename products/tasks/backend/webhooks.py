@@ -16,7 +16,11 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
-from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
+from products.tasks.backend.facade.api import (
+    post_pr_closed_event,
+    post_pr_created_thread_update,
+    signal_workflow_completion,
+)
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
@@ -213,6 +217,16 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
+        # The claim list was read before that backfill. When the first webhook we see for a PR
+        # is its close, the url is persisted here but missing from the stale list, so the close
+        # would go unrecorded — and GitHub is not obliged to redeliver.
+        #
+        # Only a run that claimed nothing at all counts this url as its own. A run that already
+        # claims another PR keeps the equality rule below: a same-branch webhook for a
+        # different PR must not speak for the PR this run does claim.
+        backfilled_output = task_run.output if isinstance(task_run.output, dict) else {}
+        if not claimed_pr_urls and pr_url in read_pr_urls(backfilled_output):
+            claimed_pr_urls = [pr_url]
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
@@ -224,6 +238,12 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # same-branch webhook for a different PR from marking this run's PR as merged.
         if pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
+            post_pr_closed_event(
+                task_run,
+                pr_url,
+                merged=True,
+                actor=((payload.get("pull_request") or {}).get("merged_by") or {}).get("login"),
+            )
         # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
         # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
         # doesn't apply — a merged PR resolves its report.
@@ -235,6 +255,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
         if pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
+            post_pr_closed_event(task_run, pr_url, merged=False, actor=(payload.get("sender") or {}).get("login"))
         # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
         # archives (suppresses) its report so it leaves the inbox instead of lingering.
         _transition_signal_reports_for_task(
