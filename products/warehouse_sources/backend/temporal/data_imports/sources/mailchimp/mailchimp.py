@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from requests import Request, Response, Session
-from requests.exceptions import RequestException
+from requests.exceptions import HTTPError, RequestException
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -45,10 +45,17 @@ def _get_with_retry(
     # already in `make_tracked_session`, so back off further here on 429/5xx.
     response = session.get(url, params=params, timeout=timeout)
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise MailchimpRetryableError(f"Mailchimp API error (retryable): status={response.status_code}, url={url}")
+    try:
+        response.raise_for_status()
+    except HTTPError as e:
+        # Reraise 429/5xx under a retryable type but keep `raise_for_status`'s wording verbatim:
+        # a failure that outlives this retry budget is classified downstream by message
+        # (`import_data_sync` matching `MailchimpSource.get_retryable_errors`), so rephrasing it
+        # here would make those "429 Client Error"/"Server Error" prefixes stop matching.
+        if response.status_code == 429 or response.status_code >= 500:
+            raise MailchimpRetryableError(str(e)) from e
+        raise
 
-    response.raise_for_status()
     return response
 
 

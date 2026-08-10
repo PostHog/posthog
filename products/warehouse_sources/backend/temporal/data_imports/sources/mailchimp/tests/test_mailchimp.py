@@ -126,6 +126,30 @@ class TestGetWithRetry:
 
         assert session.get.call_count == expected_call_count
 
+    @pytest.mark.parametrize(
+        ("status_code", "reason", "expected_prefix"),
+        [
+            (429, "Too Many Requests", "429 Client Error"),
+            (503, "Service Unavailable", "503 Server Error"),
+        ],
+    )
+    def test_retryable_error_keeps_raise_for_status_wording(self, status_code, reason, expected_prefix):
+        # A failure that outlives the retry budget is classified by message in `import_data_sync`
+        # (via `MailchimpSource.get_retryable_errors`), so the wrapper must reraise the wording
+        # `raise_for_status` produced rather than a phrasing of its own.
+        url = "https://us6.api.mailchimp.com/3.0/automations"
+        response = _make_http_response({}, status_code=status_code)
+        response.reason = reason
+        response.url = url
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(MailchimpRetryableError) as excinfo:
+            _get_with_retry(session, url)
+
+        assert str(excinfo.value).startswith(expected_prefix)
+        assert url in str(excinfo.value)
+
     def test_success_returns_response_unchanged(self):
         session = MagicMock()
         response = _make_http_response({"total_items": 0}, status_code=200)
