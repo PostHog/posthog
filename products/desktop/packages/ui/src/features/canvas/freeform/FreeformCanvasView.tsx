@@ -31,6 +31,7 @@ import {
   EmptyTitle,
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
@@ -60,6 +61,7 @@ import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
   Flex,
@@ -96,6 +98,15 @@ import { usePinnedArtifact } from "./usePinnedArtifact";
 // history), and an edit composer. Generation runs as a dedicated task; while
 // one is in flight the empty canvas shows a "Generating…" state with the run's
 // chat panel open by default (in view mode too), so the work is watchable.
+// The canvas runtime error string is user/agent-authored and can carry source
+// fragments, query results, or secrets. Reduce it to the leading error class name
+// (e.g. "TypeError") for analytics, so no interpolated content crosses the boundary.
+function canvasErrorType(message: string): string {
+  return (
+    message.match(/^([A-Z][A-Za-z0-9]*(?:Error|Exception))\b/)?.[1] ?? "unknown"
+  );
+}
+
 export function FreeformCanvasView({
   threadId,
   interactive,
@@ -424,15 +435,38 @@ export function FreeformCanvasView({
     [queryClient],
   );
 
+  // Dedupes the runtime-error capture without a store dependency: reading
+  // runtimeError in the callbacks would change their identity on every
+  // error set/clear, and the warm-frame pool assumes stable callbacks.
+  const lastRuntimeErrorRef = useRef<string | null>(null);
+  const canvasTrackProps = useMemo(
+    () => ({
+      channel_id: channelId || undefined,
+      dashboard_id: dashboardId,
+      build_id: pinnedArtifact?.buildId,
+    }),
+    [channelId, dashboardId, pinnedArtifact?.buildId],
+  );
   const onError = useCallback(
-    (message: string) => setRuntimeError(threadId, message),
-    [threadId, setRuntimeError],
+    (message: string) => {
+      if (message !== lastRuntimeErrorRef.current) {
+        lastRuntimeErrorRef.current = message;
+        track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
+          ...canvasTrackProps,
+          error_type: canvasErrorType(message),
+        });
+      }
+      setRuntimeError(threadId, message);
+    },
+    [threadId, setRuntimeError, canvasTrackProps],
   );
   const onRendered = useCallback(() => {
     // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
     onArtifactReady();
+    lastRuntimeErrorRef.current = null;
     setRuntimeError(threadId, null);
-  }, [threadId, setRuntimeError, onArtifactReady]);
+    track(ANALYTICS_EVENTS.CANVAS_RENDERED, canvasTrackProps);
+  }, [threadId, setRuntimeError, onArtifactReady, canvasTrackProps]);
   const clearHistoricalArtifactError = useCallback(() => {
     onHistoricalArtifactReady();
     setRuntimeError(threadId, null);

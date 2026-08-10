@@ -56,14 +56,27 @@ class TestImpactSourceClass:
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = ImpactSource().get_schemas(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
         names = {s.name for s in schemas}
-        assert names == {"Campaigns", "MediaPartners", "Invoices", "Actions"}
+        assert names == {
+            "Campaigns",
+            "MediaPartners",
+            "Invoices",
+            "Actions",
+            "ActionUpdates",
+            "Contracts",
+            "InvoiceLineItems",
+            "InvoiceDetailedLineItems",
+        }
 
     @parameterized.expand(
         [
             ("Actions", True),
             ("MediaPartners", True),
+            ("ActionUpdates", True),
             ("Campaigns", False),
             ("Invoices", False),
+            ("Contracts", False),
+            ("InvoiceLineItems", False),
+            ("InvoiceDetailedLineItems", False),
         ]
     )
     def test_supports_incremental_per_endpoint(self, endpoint: str, expected: bool) -> None:
@@ -83,7 +96,16 @@ class TestImpactSourceClass:
     def test_documented_tables_render_without_credentials(self) -> None:
         tables = ImpactSource().get_documented_tables()
         names = {t["name"] for t in tables}
-        assert names == {"Campaigns", "MediaPartners", "Invoices", "Actions"}
+        assert names == {
+            "Campaigns",
+            "MediaPartners",
+            "Invoices",
+            "Actions",
+            "ActionUpdates",
+            "Contracts",
+            "InvoiceLineItems",
+            "InvoiceDetailedLineItems",
+        }
 
     @parameterized.expand(
         [
