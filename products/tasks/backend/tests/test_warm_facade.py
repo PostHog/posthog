@@ -52,6 +52,12 @@ class TestWarmTaskSandbox(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
+        # The warm endpoint gates on Desktop access; these tests cover warm forwarding, not the gate.
+        access_patcher = patch(
+            "products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=True
+        )
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
 
     def _warm(self, **overrides):
         kwargs: dict[str, Any] = {
