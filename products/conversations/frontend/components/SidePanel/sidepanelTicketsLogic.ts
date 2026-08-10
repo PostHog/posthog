@@ -465,19 +465,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 clearTimeout(cache.conversationsRetryTimer)
                 cache.conversationsRetryTimer = null
             }
-            // The wrapper exists from init; isAvailable() stays false until the lazy script and
-            // remote config both arrive, so readiness has to be checked here, not the wrapper
-            if (!posthog.conversations?.isAvailable()) {
+            if (!posthog.conversations) {
                 // Conversations extension loads lazily — retry until it's ready
                 if ((cache.conversationsRetries ?? 0) < 20) {
                     cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
-                    // Marks the wait as loading so TicketsList shows a spinner, not "not available"
-                    actions.setTicketsLoading(true)
                     cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
-                    return
-                }
-                actions.setTicketsLoading(false)
-                if (!cache.conversationsUnavailableWarned) {
+                } else if (!cache.conversationsUnavailableWarned) {
                     // Out of retries. Kept separate from the send-failure event because nothing was
                     // submitted here, and recorded even when we stay quiet so the rate is measurable.
                     cache.conversationsUnavailableWarned = true

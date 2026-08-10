@@ -391,27 +391,6 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.view).toBe('list')
     })
 
-    // The wrapper exists from init but reports unavailable until the lazy extension arrives; a
-    // slow load must read as loading, not as "not available"
-    it('waits for the extension to become available instead of fetching too early', async () => {
-        let available = false
-        ;(posthog as any).conversations.isAvailable = () => available
-
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect((posthog as any).conversations.getTickets).not.toHaveBeenCalled()
-        expect(logic.values.ticketsLoading).toBe(true)
-
-        // Simulates the scheduled retry firing
-        available = true
-        logic.actions.loadTickets()
-        await expectLogic(logic).toFinishAllListeners()
-        expect((posthog as any).conversations.getTickets).toHaveBeenCalled()
-        expect(logic.values.ticketsLoading).toBe(false)
-    })
-
     // The panel already shows free plans the community and upgrade options, and they have no email
     // channel, so warning them the chat failed would offer support they don't actually get.
     it.each([
