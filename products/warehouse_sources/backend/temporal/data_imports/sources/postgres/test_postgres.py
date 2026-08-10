@@ -787,6 +787,23 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed for user "u"',
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed\nuser "u"',
+            "connection failed: error received from server in SCRAM exchange: Wrong password",
+        ],
+    )
+    def test_password_authentication_failure_surfaces_a_host_free_message(self, source, error_msg):
+        # The raw driver string embeds the host/IP and port; the surfaced message must be actionable
+        # and carry neither. Guards a regression back to the raw error (value `None`).
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "A rejected password should surface an actionable message"
+        assert "username or password" in friendly[0]
+        assert "203.0.113.30" not in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],
