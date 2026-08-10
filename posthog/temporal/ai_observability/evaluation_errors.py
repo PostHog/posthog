@@ -1,8 +1,9 @@
 """Shared taxonomy for evaluation execution errors.
 
-The split between user-actionable and PostHog-owned errors is load-bearing:
-user errors disable the evaluation without failing the Temporal activity, while
-PostHog-owned errors still raise so Temporal/Grafana stays useful.
+The split between user-actionable and PostHog-owned errors is load-bearing: most user errors
+disable the evaluation without failing the Temporal activity, while PostHog-owned errors still
+raise so Temporal/Grafana stays useful. `hog_input_error` is the one user error that disables
+nothing — it describes a single unit, not the evaluation.
 """
 
 from dataclasses import dataclass
@@ -104,14 +105,15 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         status_reason=EvaluationStatusReason.HOG_ERROR,
         disables_evaluation=True,
     ),
-    # The only user-actionable spec that neither disables the evaluation nor sets a status reason:
-    # one event carried data the Hog source could not handle, which says nothing about whether the
-    # evaluation works on the next event. Leaving `status_reason` unset is what keeps the workflow
-    # from calling `disable_evaluation_activity` for it.
+    # The one user-actionable spec that neither disables the evaluation nor sets a status reason:
+    # a single unit carried data the Hog source could not handle, which says nothing about whether
+    # the evaluation works on the next one. What keeps the workflow off `disable_evaluation_activity`
+    # is the result omitting `terminal_user_error` (see `is_terminal_user_error_result`); the unset
+    # `status_reason` is a second guard behind that.
     "hog_input_error": EvaluationErrorSpec(
         error_type="hog_input_error",
         owner="user",
-        safe_message="The evaluation code could not read this event's data, so this run was skipped.",
+        safe_message="The evaluation code could not handle the data for this run, so it was skipped.",
     ),
 }
 

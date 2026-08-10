@@ -24,19 +24,25 @@ from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededExcepti
 
 logger = structlog.get_logger(__name__)
 
-# Python-level errors the Hog standard library raises when an event's data is not the shape the
+# Python-level errors the Hog standard library raises when a unit's data is not the shape the
 # evaluation source assumed: `ilike` against a list rather than a string, `jsonParse` on truncated
-# model output, indexing past the end of an array. The evaluation is not broken and neither are we,
-# so these skip the one event instead of paging us or disabling the evaluation.
+# model output, a property chain that walks into a string. The evaluation is not broken and neither
+# are we, so these skip the one unit instead of paging us or disabling the evaluation.
 #
-# `ValueError` at large is deliberately excluded, and `json.JSONDecodeError` (a subclass of it) is
-# listed instead: our own code raises plain ValueError, and treating that as an input error would
-# hide real bugs behind a skip.
-HOG_INPUT_ERROR_TYPES: tuple[type[BaseException], ...] = (
+# The list stays narrow, because classifying by Python type cannot tell a bad value apart from a bug
+# that happens to fail the same way. Two exclusions are load-bearing:
+#
+# - `ValueError` at large, with `json.JSONDecodeError` (a subclass) listed instead: our own code
+#   raises plain ValueError, and skipping on that would hide real bugs.
+# - `IndexError`, which no user data reaches: Hog indexing is bounds-safe (`get_nested_value`
+#   returns null past the end of an array). What does raise it is an STL call compiled with the
+#   wrong arity, which nothing validates at save time, so a source like `jsonParse()` reaches the
+#   VM and fails on every unit. Listing it here would skip that source silently and forever, and
+#   blame the customer's data for it; left out, it stays loud.
+HOG_INPUT_ERROR_TYPES: tuple[type[Exception], ...] = (
     TypeError,
     AttributeError,
     KeyError,
-    IndexError,
     ZeroDivisionError,
     json.JSONDecodeError,
 )
@@ -142,9 +148,9 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
 
     Shared by the single-event and trace-level Hog activities — only the globals differ.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}, plus "applicable"
-    when allows_na and a `return null` is treated as N/A, "user_input_error": True when this
-    event's data defeated the user's Hog source, and "unexpected": True when the failure was a
-    bug in our code rather than in the user's Hog source or its input.
+    when allows_na and a `return null` is treated as N/A, "user_input_error": True when this unit's
+    data defeated the user's Hog source, and "unexpected": True when the failure was a bug in our
+    code rather than in the user's Hog source or its input.
     """
     try:
         response = execute_bytecode(
@@ -160,14 +166,10 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
     except HogVMException as e:
         return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
     except HOG_INPUT_ERROR_TYPES as e:
-        logger.warning(
-            "Hog eval could not read event data",
-            error=f"{type(e).__name__}: {e}",
-        )
         return {
             "verdict": None,
             "reasoning": "",
-            "error": f"Could not read this event's data: {type(e).__name__}: {e}",
+            "error": f"{type(e).__name__}: {e}",
             "user_input_error": True,
         }
     except Exception as e:
@@ -199,16 +201,16 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
 
 
 def finalize_hog_eval_result(
-    result: dict[str, Any], *, allows_na: bool, unit_label: str | None = None
+    result: dict[str, Any], *, evaluation: dict[str, Any], allows_na: bool, unit_label: str | None
 ) -> EvaluationActivityResult:
     """Turn raw Hog bytecode output into an activity result.
 
     Shared by the generation, trace, and session Hog activities: this is the block that decides
-    whether a failure is our bug, this event's data, or a broken evaluation, and a drifted copy
+    whether a failure is our bug, this unit's data, or a broken evaluation, and a drifted copy
     would mean a broken evaluation silently retrying against every unit instead of disabling
     itself. `unit_label` ("trace" / "session") reaches only the raised our-bug message, so whoever
-    triages the page can tell which target produced it; the generation path leaves it unset
-    because it has no second target to disambiguate.
+    triages the page can tell which target produced it; the generation path passes None to keep its
+    message, and so the error tracking issue it groups into, unchanged.
     """
     if result["error"]:
         if result.get("unexpected"):
@@ -227,10 +229,22 @@ def finalize_hog_eval_result(
             # evaluation running and leaves the run visible as skipped rather than failed.
             input_error_spec = require_user_error_spec("hog_input_error")
             increment_user_errors(input_error_spec.error_type)
+            # This path raises nothing and emails nobody, and the counter can't carry ids at this
+            # cardinality, so without these fields there is no way to find the offending evaluation.
+            logger.warning(
+                "Hog eval could not handle unit data",
+                team_id=evaluation.get("team_id"),
+                evaluation_id=evaluation.get("id"),
+                unit=unit_label or "generation",
+                error=result["error"],
+            )
+            detail = truncate_error_detail(result["error"])
             skipped_result: EvaluationActivityResult = {
                 "result_type": "boolean",
                 "verdict": None if allows_na else False,
-                "reasoning": truncate_error_detail(result["error"]) or input_error_spec.safe_message,
+                # Leads with the safe message: `detail` is a Python exception repr, which is not a
+                # Hog concept, and `reasoning` is the only text the run shows the user.
+                "reasoning": f"{input_error_spec.safe_message} ({detail})" if detail else input_error_spec.safe_message,
                 "allows_na": allows_na,
                 "skipped": True,
                 "skip_reason": input_error_spec.error_type,
@@ -277,8 +291,9 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
     When allows_na=True, a `return null` is treated as N/A (not an error).
     Sets "user_input_error": True when this event's data defeated the user's Hog source, and
-    "unexpected": True only when the bytecode raised something other than a HogVM error or an
-    input error — i.e. a bug in our code rather than in the user's Hog source or its input.
+    "unexpected": True only when the bytecode raised something other than a HogVM error or one of
+    `HOG_INPUT_ERROR_TYPES` — i.e. a bug in our code rather than in the user's Hog source or its
+    input.
     """
     properties = event_data["properties"]
     if isinstance(properties, str):
@@ -340,4 +355,4 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
 
     result = await database_sync_to_async(_execute, thread_sensitive=False)()
 
-    return finalize_hog_eval_result(result, allows_na=allows_na)
+    return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label=None)
