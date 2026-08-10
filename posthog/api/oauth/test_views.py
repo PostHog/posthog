@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
@@ -670,12 +671,7 @@ class TestOAuthAPI(APIBaseTest):
         )
         return app, grant, private_key
 
-    @freeze_time("2025-01-01 00:00:00")
-    @override_settings(SITE_URL="https://us.posthog.com")
-    def test_private_key_jwt_cimd_client_completes_token_exchange(self):
-        # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
-        # paths can never authenticate it and only the assertion path can finish an install.
-        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+    def _signed_assertion_and_jwks(self, app: OAuthApplication, private_key: rsa.RSAPrivateKey) -> tuple[str, dict]:
         now = int(timezone.now().timestamp())
         assertion = jwt.encode(
             {
@@ -690,34 +686,82 @@ class TestOAuthAPI(APIBaseTest):
             algorithm="RS256",
             headers={"kid": "partner-key-1"},
         )
-        jwks = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key()))
-        jwks.update({"kid": "partner-key-1", "use": "sig", "alg": "RS256"})
+        jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key()))
+        jwk.update({"kid": "partner-key-1", "use": "sig", "alg": "RS256"})
+        return assertion, {"keys": [jwk]}
+
+    def _post_assertion_exchange(self, app: OAuthApplication, grant: OAuthGrant, assertion: str):
+        return self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "https://partner.example.com/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+                "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                "client_assertion": assertion,
+            },
+        )
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_private_key_jwt_cimd_client_completes_token_exchange(self):
+        # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
+        # paths can never authenticate it and only the assertion path can finish an install.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
 
         with (
             patch(
                 "posthog.api.oauth.client_assertion.fetch_client_json_document",
-                return_value=({"keys": [jwks]}, None),
+                return_value=(jwks, None),
             ),
             patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale") as refresh,
         ):
-            response = self.post(
-                "/oauth/token/",
-                {
-                    "grant_type": "authorization_code",
-                    "client_id": app.client_id,
-                    "redirect_uri": "https://partner.example.com/callback",
-                    "code_verifier": self.code_verifier,
-                    "code": grant.code,
-                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
-                    "client_assertion": assertion,
-                },
-            )
+            response = self._post_assertion_exchange(app, grant, assertion)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertIn("access_token", response.json())
         # Token exchanges are the only traffic a refresh-grant-only client sends, so the
         # assertion path has to be what keeps its CIMD registration fresh.
         refresh.assert_called_once_with(app.cimd_metadata_url)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_private_key_jwt_exchange_survives_refresh_enqueue_failure(self):
+        # Metadata freshness is best-effort: a broker outage must not fail a valid exchange.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch(
+                "posthog.api.oauth.views.enqueue_cimd_refresh_if_stale",
+                side_effect=Exception("broker down"),
+            ),
+        ):
+            response = self._post_assertion_exchange(app, grant, assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_private_key_jwt_exchange_maps_redis_failure_to_retryable(self):
+        # The assertion path reads Redis for the JWKS and jti caches, so an outage must
+        # produce the retryable temporarily_unavailable response, not an unhandled 500.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, _ = self._signed_assertion_and_jwks(app, private_key)
+
+        with patch("posthog.api.oauth.client_assertion.cache") as mock_cache:
+            mock_cache.get.side_effect = RedisError("connection refused")
+            response = self._post_assertion_exchange(app, grant, assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE, response.content)
+        self.assertEqual(response.json()["error"], "temporarily_unavailable")
 
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_cimd_client_rejected_without_assertion(self):

@@ -236,7 +236,13 @@ def _select_key_allowing_rotation(jwks_uri: str, assertion: str) -> PyJWK:
         marker = f"{JWKS_CACHE_PREFIX}rotation-refresh:{jwks_uri}"
         if not cache.add(marker, True, timeout=JWKS_ROTATION_REFRESH_MIN_INTERVAL_SECONDS):
             raise
-        return _select_key(load_jwks(jwks_uri, force_refresh=True), assertion)
+        # Fetched directly rather than through load_jwks(force_refresh=True), whose failure
+        # path writes the negative sentinel over the cached set: one assertion naming a bogus
+        # kid while the client's JWKS endpoint is down would then lock out every assertion
+        # signed with an already-cached key for the negative-cache window.
+        parsed = _fetch_jwks_document(jwks_uri)
+        cache.set(f"{JWKS_CACHE_PREFIX}{jwks_uri}", parsed, timeout=JWKS_CACHE_TTL_SECONDS)
+        return _select_key(PyJWKSet.from_dict(parsed), assertion)
 
 
 def _consume_jti(client_id: str, jti: str, expires_at: int) -> None:

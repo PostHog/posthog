@@ -161,6 +161,23 @@ class TestClientAssertion(BaseTest):
             # The cached set doesn't hold the new kid, so exactly one forced re-fetch runs.
             fetch.assert_called_once()
 
+    def test_failed_rotation_refresh_keeps_cached_keys(self):
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)):
+            load_jwks(JWKS_URI)
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            side_effect=CIMDFetchError("unreachable"),
+        ):
+            with self.assertRaises(ClientAssertionError):
+                verify_client_assertion(self.app, self._assertion(kid="bogus-kid"))
+
+        # The failed forced fetch must not evict the cached set: an assertion signed with the
+        # already-cached key still verifies, without another outbound fetch.
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document") as fetch:
+            verify_client_assertion(self.app, self._assertion())
+            fetch.assert_not_called()
+
     def test_unknown_kid_refresh_is_rate_limited(self):
         with patch(
             "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)

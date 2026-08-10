@@ -32,6 +32,7 @@ from oauth2_provider.views import (
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauthlib.oauth2 import InvalidGrantError
+from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -402,7 +403,16 @@ class OAuthValidator(OAuth2Validator):
             # Token and refresh exchanges never pass through validate_client_id, which is
             # where a CIMD document is normally re-read, so a client living on refresh
             # grants alone would otherwise keep a stale auth method or key source forever.
-            enqueue_cimd_refresh_if_stale(app.cimd_metadata_url)
+            # Best-effort: a broker outage must not fail an otherwise valid exchange.
+            try:
+                enqueue_cimd_refresh_if_stale(app.cimd_metadata_url)
+            except Exception as e:
+                logger.warning(
+                    "oauth_cimd_refresh_enqueue_error",
+                    client_id=client_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
         try:
             verify_client_assertion(
@@ -1447,6 +1457,17 @@ class OAuthTokenView(TokenView):
                 grant_type=grant_type,
                 client_id_prefix=client_id_prefix,
                 redirect_uri=redirect_uri,
+                error=str(e),
+            )
+            return _temporarily_unavailable_response()
+        except RedisError as e:
+            # Client authentication reads Redis on the private_key_jwt path (JWKS cache, jti
+            # replay cache), so a transient Redis failure otherwise surfaces as an unhandled
+            # 500 instead of a retryable response.
+            logger.warning(
+                "oauth_token_redis_unavailable",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
                 error=str(e),
             )
             return _temporarily_unavailable_response()
