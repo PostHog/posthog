@@ -22,9 +22,14 @@ positions with differently-shaped files. Writers therefore call
 past the position the retry re-reads from is superseded and removed. A schema
 reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
 
-Retention: no TTL exists yet; resets purge, and disable flows should purge. An
-S3 lifecycle rule on `cdc_producer/` is tracked for the fleet-wide soak — until
-it exists, keep CDC_BUFFER_SHADOW_WRITE scoped to validation sources.
+Enablement is two gates ANDed: `settings.CDC_BUFFER_SHADOW_WRITE` (deployment kill
+switch, set per environment in charts) and the `dwh-cdc-buffer-shadow` feature flag
+(per project, so a soak covers a couple of projects rather than every CDC source on
+the worker). Evaluated once per extraction run, never per flush.
+
+Retention: no TTL exists yet; resets and CDC-disable purge, ordinary settled files
+do not expire. An S3 lifecycle rule on `cdc_producer/` is tracked for the fleet-wide
+soak — until it exists, keep the flag on a handful of projects.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ from django.conf import settings
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.facade.api import get_s3_client
@@ -50,12 +56,52 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 BUFFER_ROOT_FOLDER = "cdc_producer"
 
+# Per-project gate for the shadow lane, ANDed with settings.CDC_BUFFER_SHADOW_WRITE (the
+# deployment kill switch). Both must be true to write, so the soak can run on a couple of
+# projects rather than every CDC source on the worker.
+SHADOW_WRITE_FLAG = "dwh-cdc-buffer-shadow"
+
 _SEQ_WIDTH = 20  # zero-pad width covering the full u64 range
 _INDEX_WIDTH = 6
 
 # ASCII digits only: int() also accepts "+", "_", whitespace, and Unicode digits,
 # any of which would break "lexicographic order equals numeric order".
 _FILE_NAME_RE = re.compile(rf"([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_INDEX_WIDTH}}})\.parquet")
+
+
+def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
+    """Whether the shadow lane may write for this team, evaluated once per run.
+
+    Never raises: a flag-service failure leaves the lane off, which costs a gap in
+    validation data — the legacy path is unaffected either way.
+    """
+    if not settings.CDC_BUFFER_SHADOW_WRITE:
+        return False
+
+    from posthog.models.team import Team
+
+    try:
+        team = Team.objects.get(pk=team_id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                SHADOW_WRITE_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                # team_id drives the release conditions (the warehouse convention for
+                # per-team rollouts); the group context is passed for consistency with
+                # the other warehouse flags and for org-wide kill switches.
+                person_properties={"team_id": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.warning("cdc_shadow_flag_check_failed", team_id=team_id, exc_info=True)
+        return False
 
 
 def get_buffer_prefix(team_id: int, schema_id: str) -> str:

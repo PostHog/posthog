@@ -18,7 +18,6 @@ import datetime as dt
 import dataclasses
 from collections.abc import Callable
 
-from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 import psycopg
@@ -56,7 +55,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
-from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    CDCBufferWriter,
+    is_shadow_write_enabled,
+    purge_buffer_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
@@ -238,6 +241,9 @@ class CDCExtractActivity:
         self._shadow_cleaned_schemas: set[str] = set()
         self._shadow_write_failures: int = 0
         self._shadow_disabled_for_run: bool = False
+        # Resolved once in _setup (setting AND per-project flag) so neither the flush
+        # path nor the batcher re-evaluates a flag per micro-batch.
+        self._shadow_enabled: bool = False
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -620,7 +626,7 @@ class CDCExtractActivity:
         slot-advance rules are untouched — gaps in the buffer are expected and
         surfaced by the validate_cdc_buffer command, not guarded against here.
         """
-        if not settings.CDC_BUFFER_SHADOW_WRITE or self._shadow_disabled_for_run:
+        if not self._shadow_enabled or self._shadow_disabled_for_run:
             return
         # The engine seq column is always LAST when the batcher appended it; a
         # same-named source column (collision → append skipped) is never last.
@@ -911,6 +917,7 @@ class CDCExtractActivity:
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
         self.adapter = get_cdc_adapter(self.source)
         self.reader = self.adapter.create_reader(self.source)
+        self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log)
         return True
 
     def _delete_own_schedule(self) -> None:
@@ -1166,7 +1173,7 @@ class CDCExtractActivity:
         # must not gain the seq column's per-event cost or its parse/overflow
         # crash surface.
         self.batcher = ChangeEventBatcher(
-            position_to_seq=self.adapter.position_to_seq if settings.CDC_BUFFER_SHADOW_WRITE else None
+            position_to_seq=self.adapter.position_to_seq if self._shadow_enabled else None
         )
         on_row = self._make_read_heartbeat()
 

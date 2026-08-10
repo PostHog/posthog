@@ -7,7 +7,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.db.utils import InterfaceError, OperationalError
-from django.test import override_settings
 
 import pyarrow as pa
 import psycopg.errors
@@ -570,7 +569,11 @@ class TestBuildEventNameMap:
 
 
 class TestShadowBufferWrite:
-    """Shadow buffered-ingress writes (CDC_BUFFER_SHADOW_WRITE) around _process_flush."""
+    """Shadow buffered-ingress writes around _process_flush.
+
+    Enablement is the setting AND the per-project flag, resolved once in _setup;
+    these drive it end-to-end through the real gate (`is_shadow_write_enabled`).
+    """
 
     def _run(self, MockBufferWriter, events, shadow_on: bool):
         with (
@@ -590,7 +593,10 @@ class TestShadowBufferWrite:
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer"
             ) as MockProducer,
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
-            override_settings(CDC_BUFFER_SHADOW_WRITE=shadow_on),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.is_shadow_write_enabled",
+                return_value=shadow_on,
+            ),
         ):
             MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
             source = _make_source()
@@ -679,7 +685,8 @@ class TestShadowBufferWrite:
             Exception("s3 down"),
             MagicMock(write_duration_seconds=0.01),
         ]
-        with override_settings(CDC_BUFFER_SHADOW_WRITE=True):
+        act._shadow_enabled = True
+        with nullcontext():
             act._maybe_shadow_write_buffer(schema, "users", table)
             act._maybe_shadow_write_buffer(schema, "users", table)
             act._maybe_shadow_write_buffer(schema, "users", table)
@@ -694,7 +701,8 @@ class TestShadowBufferWrite:
     def test_shadow_disables_for_run_after_consecutive_failures(self, MockBufferWriter):
         act, schema, table = self._hook_activity()
         MockBufferWriter.return_value.write_batch.side_effect = Exception("s3 down")
-        with override_settings(CDC_BUFFER_SHADOW_WRITE=True):
+        act._shadow_enabled = True
+        with nullcontext():
             for _ in range(5):
                 act._maybe_shadow_write_buffer(schema, "users", table)
 
@@ -706,7 +714,8 @@ class TestShadowBufferWrite:
     def test_first_write_per_schema_cleans_superseded_files(self, MockBufferWriter):
         act, schema, table = self._hook_activity()
         MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
-        with override_settings(CDC_BUFFER_SHADOW_WRITE=True):
+        act._shadow_enabled = True
+        with nullcontext():
             act._maybe_shadow_write_buffer(schema, "users", table)
             act._maybe_shadow_write_buffer(schema, "users", table)
 

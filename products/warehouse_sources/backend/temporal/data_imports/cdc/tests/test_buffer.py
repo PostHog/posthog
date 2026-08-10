@@ -56,6 +56,61 @@ class TestBufferFileName:
         assert sorted(shuffled) == [build_buffer_file_name(*r) for r in sorted(ranges)]
 
 
+class TestIsShadowWriteEnabled:
+    """Both gates must agree: the deployment setting AND the per-project flag."""
+
+    def _call(self, *, setting: bool, flag, team_lookup_ok: bool = True) -> bool:
+        from django.test import override_settings
+
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import is_shadow_write_enabled
+
+        team = MagicMock(uuid="team-uuid", id=2, organization_id="org-uuid")
+        team_manager = MagicMock()
+        team_manager.objects.get.return_value = team
+        if not team_lookup_ok:
+            team_manager.objects.get.side_effect = Exception("db down")
+
+        flag_fn = MagicMock(side_effect=flag) if callable(flag) else MagicMock(return_value=flag)
+        with (
+            override_settings(CDC_BUFFER_SHADOW_WRITE=setting),
+            patch.dict("sys.modules", {"posthog.models.team": MagicMock(Team=team_manager)}),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.posthoganalytics.feature_enabled",
+                flag_fn,
+            ),
+        ):
+            result = is_shadow_write_enabled(2, MagicMock())
+        self._last_flag_call = flag_fn
+        return result
+
+    def test_requires_both_gates(self):
+        assert self._call(setting=True, flag=True) is True
+        assert self._call(setting=True, flag=False) is False
+        assert self._call(setting=False, flag=True) is False
+
+    def test_setting_off_skips_the_flag_call_entirely(self):
+        # The kill switch must not depend on the flag service being reachable.
+        self._call(setting=False, flag=True)
+        self._last_flag_call.assert_not_called()
+
+    def test_passes_team_scoped_targeting_context(self):
+        # team_id drives the release conditions (warehouse per-team rollout convention),
+        # so a soak covers single teams rather than whole orgs.
+        self._call(setting=True, flag=True)
+        kwargs = self._last_flag_call.call_args.kwargs
+        assert kwargs["person_properties"]["team_id"] == "2"
+        assert kwargs["groups"]["project"] == "2"
+
+    def test_flag_service_failure_disables_rather_than_raises(self):
+        def boom(*_a, **_k):
+            raise RuntimeError("flag service down")
+
+        assert self._call(setting=True, flag=boom) is False
+
+    def test_team_lookup_failure_disables_rather_than_raises(self):
+        assert self._call(setting=True, flag=True, team_lookup_ok=False) is False
+
+
 class TestCDCBufferWriter:
     def _writer_with_captured_files(self) -> tuple[CDCBufferWriter, dict[str, io.BytesIO]]:
         files: dict[str, io.BytesIO] = {}
