@@ -322,14 +322,21 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     const outcome = response.results?.[0]?.scan_outcome
                     const { level, message } = summarizeOutcomeMessage(outcome)
                     lemonToast[level](message)
-                    if (outcome === 'started') {
+                    if (outcome === 'started' || outcome === 'already_running') {
+                        // A scan is in flight either way — ours, or one this project already had running
+                        // against the shared inline scanner — so the poll window has a row to wait for.
                         actions.summarizeSuccess()
                         afterScanStarted()
-                    } else {
-                        // Nothing started, so the poll window would watch for a row that never arrives.
-                        // An existing summary is already in the list, so still open the dock to show it.
+                    } else if (outcome === 'already_scanned') {
+                        // Settled server-side, but the scanner is shared, so the row may have landed after
+                        // this dock loaded. Re-read rather than trusting what is already on screen.
                         actions.summarizeFailure()
                         actions.setDockOpen(true)
+                        actions.loadObservations()
+                    } else {
+                        // Nothing started and nothing to read, so the poll window would watch for a row
+                        // that never arrives.
+                        actions.summarizeFailure()
                     }
                 } catch (error) {
                     reportTriggerFailure(

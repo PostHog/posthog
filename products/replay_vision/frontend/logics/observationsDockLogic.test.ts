@@ -13,10 +13,12 @@ describe('observationsDockLogic', () => {
     let releaseObserve: () => void
     let releaseInlineScan: () => void
     let releaseScanners: () => void
+    let inlineScanOutcome: string
 
     beforeEach(() => {
         observeCalls = 0
         inlineScanCalls = 0
+        inlineScanOutcome = 'started'
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': async () => {
@@ -45,8 +47,8 @@ describe('observationsDockLogic', () => {
                         202,
                         {
                             scan_id: 'scanner-x',
-                            started: 1,
-                            results: [{ session_id: 'sess-1', scan_outcome: 'started' }],
+                            started: inlineScanOutcome === 'started' ? 1 : 0,
+                            results: [{ session_id: 'sess-1', scan_outcome: inlineScanOutcome }],
                         },
                     ]
                 },
@@ -99,5 +101,18 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(inlineScanCalls).toBe(1)
+    })
+
+    it('re-reads observations when the recording was already summarized', async () => {
+        // The inline scanner is shared across the project, so the existing row can postdate this dock's
+        // mount-time load. Without the refetch the user reads "already summarized" over an empty dock.
+        inlineScanOutcome = 'already_scanned'
+        logic.actions.summarize()
+        // The mock holds the request open, and its release hook only exists once the handler runs.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+
+        await expectLogic(logic).toDispatchActions(['summarizeFailure', 'loadObservations'])
+        await expectLogic(logic).toMatchValues({ dockOpen: true })
     })
 })
