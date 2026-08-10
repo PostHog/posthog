@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     AppStoreConnectResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
+    ANALYTICS_LOOKBACK_SECONDS,
     APP_STORE_CONNECT_ENDPOINTS,
     ENDPOINTS,
     REPORT_ENDPOINTS,
@@ -93,13 +94,19 @@ class TestAppStoreConnectSource:
         schemas = {schema.name: schema for schema in AppStoreConnectSource().get_schemas(_config(), team_id=1)}
 
         for name, schema in schemas.items():
-            is_report = name in REPORT_ENDPOINTS
+            kind = APP_STORE_CONNECT_ENDPOINTS[name].kind
+            is_report_stream = kind in ("sales_report", "analytics_report")
             # Apple exposes no server-side timestamp filter on the JSON:API collections, so only the
-            # report streams (filtered by reportDate) can sync incrementally.
-            assert schema.supports_incremental is is_report
-            assert schema.should_sync_default is not is_report
-            if is_report:
+            # report streams (walked by report date or instance processing date) sync incrementally.
+            assert schema.supports_incremental is is_report_stream
+            assert schema.should_sync_default is not is_report_stream
+            if kind == "sales_report":
                 assert [field["field"] for field in schema.incremental_fields] == ["report_date"]
+            if kind == "analytics_report":
+                assert [field["field"] for field in schema.incremental_fields] == ["processing_date"]
+                # Instances can be listed before their files exist; the trailing re-read
+                # window is what lets those gaps self-heal.
+                assert schema.default_incremental_lookback_seconds == ANALYTICS_LOOKBACK_SECONDS
 
     def test_canonical_descriptions_cover_the_catalog(self) -> None:
         descriptions = AppStoreConnectSource().get_canonical_descriptions()

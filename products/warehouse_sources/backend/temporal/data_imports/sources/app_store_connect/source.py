@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     check_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
+    ANALYTICS_LOOKBACK_SECONDS,
     APP_STORE_CONNECT_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -144,7 +145,14 @@ Sales and subscription reports also need your vendor number (App Store Connect â
             },
         )
         for schema in schemas:
-            schema.detected_primary_keys = APP_STORE_CONNECT_ENDPOINTS[schema.name].primary_keys
+            endpoint_config = APP_STORE_CONNECT_ENDPOINTS[schema.name]
+            schema.detected_primary_keys = endpoint_config.primary_keys
+            if endpoint_config.kind == "analytics_report":
+                # An analytics instance can be listed before its file segments exist, and the
+                # table-level watermark can pass such a gap while other apps' newer instances
+                # process. Re-reading a short trailing window each run lets those gaps
+                # self-heal; the merge on the primary key keeps the re-read idempotent.
+                schema.default_incremental_lookback_seconds = ANALYTICS_LOOKBACK_SECONDS
         return schemas
 
     def get_endpoint_permissions(
