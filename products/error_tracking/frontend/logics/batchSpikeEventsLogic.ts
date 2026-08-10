@@ -3,8 +3,10 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { DateRange } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dateRangeToIsoBounds } from '../utils'
 
@@ -60,7 +62,10 @@ export const batchSpikeEventsLogic = kea<batchSpikeEventsLogicType>([
             [] as ErrorTrackingSpikeEvent[],
             {
                 loadSpikeEventsForIssues: async ({ issueIds, dateRange }, breakpoint) => {
-                    if (issueIds.length === 0) {
+                    if (
+                        issueIds.length === 0 ||
+                        !userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+                    ) {
                         return []
                     }
                     await breakpoint(100)
