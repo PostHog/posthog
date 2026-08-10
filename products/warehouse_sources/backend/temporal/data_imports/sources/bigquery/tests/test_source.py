@@ -1518,6 +1518,13 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
             "?maxResults=0&location=US&prettyPrint=false: The job encountered an error during execution. "
             "Retrying the job may solve the problem."
         ),
+        # A second wording for the same transient `jobInternalError` condition, with no
+        # retry-recommendation suffix (volatile project/job id redacted).
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=US&prettyPrint=false: The job encountered an internal error during "
+            "execution and was unable to complete successfully."
+        ),
         # The library default's own retryable reasons must still be honoured.
         BadRequest("query failed", errors=[{"reason": "backendError", "message": "internal error"}]),
         BadRequest("query failed", errors=[{"reason": "rateLimitExceeded", "message": "slow down"}]),
