@@ -19,11 +19,14 @@ from products.tasks.backend.models import Channel, Task
 # - HOGDESK: support-desk Code threads. The task is pinned to the support ticket via a
 #   shared ticket tag, so any agent opening the ticket resumes the same thread — it must
 #   be viewable by the whole team, not just the agent who started it.
+# - SIGNALS_CHAT: Inbox scout-chat kickoffs. The conversation is about the team's shared
+#   scout fleet, so any team member may open and continue it.
 TEAM_VISIBLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.SIGNAL_REPORT,
     Task.OriginProduct.SIGNALS_SCOUT,
     Task.OriginProduct.ONBOARDING,
     Task.OriginProduct.HOGDESK,
+    Task.OriginProduct.SIGNALS_CHAT,
 ]
 
 # Origin products whose tasks are team-readable but stay creator-driven, like

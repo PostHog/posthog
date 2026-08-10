@@ -229,6 +229,7 @@ __all__ = [
     "soft_delete_task",
     "start_task_run",
     "task_accessible_for_run_view",
+    "task_exempt_from_code_access",
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
@@ -614,6 +615,32 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
+def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
+    """Whether this task's cloud runs are entitled outside PostHog Desktop.
+
+    The run/command endpoints gate on Desktop access (``code_access_required_response``) but
+    also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
+    server-verifiable Inbox shapes qualify:
+
+    - ``SIGNAL_REPORT`` linked to a report in this team (Inbox "Create PR" / "Discuss").
+      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
+      caller can't forge one. Acting on a report is entitled through self-driving
+      (`product-autonomy`), matching auto-start, which runs the same tasks server-side.
+    - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
+      scout-chat endpoint; the write serializer rejects it from API callers.
+
+    A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
+    ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
+    bypass.
+    """
+    return Task.objects.filter(
+        Q(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report__isnull=False)
+        | Q(origin_product=Task.OriginProduct.SIGNALS_CHAT),
+        id=task_id,
+        team_id=team_id,
+    ).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:

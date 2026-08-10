@@ -14688,6 +14688,20 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `author_scout` - author_scout
+     * * `fleet_overview` - fleet_overview
+     * * `recent_signals` - recent_signals
+     */
+    export type ChatTypeEnum = typeof ChatTypeEnum[keyof typeof ChatTypeEnum];
+
+
+    export const ChatTypeEnum = {
+      AuthorScout: 'author_scout',
+      FleetOverview: 'fleet_overview',
+      RecentSignals: 'recent_signals',
+    } as const;
+
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
@@ -45749,6 +45763,7 @@ export namespace Schemas {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -45772,6 +45787,7 @@ export namespace Schemas {
       ImageBuilder: 'image_builder',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
+      SignalsChat: 'signals_chat',
     } as const;
 
     /**
@@ -58813,7 +58829,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -67045,6 +67062,20 @@ export namespace Schemas {
       base_version?: number;
     }
 
+    export interface ScoutChatTask {
+      /** The created chat task. Open it on the task detail page to continue. */
+      task_id: string;
+    }
+
+    export interface ScoutChatTaskCreate {
+      /** Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.
+       *
+       * * `author_scout` - author_scout
+       * * `fleet_overview` - fleet_overview
+       * * `recent_signals` - recent_signals */
+      chat_type: ChatTypeEnum;
+    }
+
     /**
      * * `no_output` - No output
      * * `ignored` - Ignored
@@ -74202,7 +74233,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -75307,7 +75339,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

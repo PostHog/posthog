@@ -58,7 +58,7 @@ from products.tasks.backend.facade import (
     cancellation as tasks_cancellation,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.access import usage_limit_response
+from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
@@ -779,7 +779,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             404: OpenApiResponse(description="Task not found"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
@@ -799,10 +802,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # Usage limits only, no `has_tasks_access` check: that gate is the Desktop waitlist (the
-        # `tasks` flag or a redeemed invite), and this is the endpoint the generally-available Inbox
-        # runs tasks through (report "Create PR" / "Discuss", scout chat). Waitlisting a released
-        # surface would 403 it; cost is covered by usage-based billing.
+        # The generally-available Inbox runs tasks through this endpoint too (report "Create PR" /
+        # "Discuss", scout chat), so the Desktop waitlist gate applies only to tasks whose Inbox
+        # entitlement the server can't verify — see task_exempt_from_code_access.
+        if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
+            access_response := code_access_required_response(request.user)
+        ):
+            return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
@@ -840,6 +846,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=WarmTaskResponseSerializer,
                 description="Warm Run provisioned (`task_id`/`run_id` to activate on submit), or an empty body when the feature is off, capped, or the integration didn't resolve.",
             ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="PostHog Desktop access is required"
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -858,6 +867,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def warm(self, request, **kwargs):
         if not self._warm_enabled():
             return Response(status=status.HTTP_200_OK)
+
+        # Warming is a Desktop-composer feature with no Inbox caller, so no exemption applies.
+        if access_response := code_access_required_response(request.user):
+            return access_response
 
         user_id = self._user_id()
         if user_id is None:
@@ -989,6 +1002,10 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskAutomationWriteSerializer, responses={201: TaskAutomationSerializer})
     def create(self, request, **kwargs):
+        # Automations schedule cloud runs, so creating one needs the same Desktop access as
+        # running a task. No Inbox surface creates automations, so no exemption applies.
+        if access_response := code_access_required_response(request.user):
+            return access_response
         serializer = self._write_serializer(request.data)
         automation = tasks_facade.create_task_automation(
             self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
@@ -998,6 +1015,9 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=TaskAutomationWriteSerializer, responses={200: TaskAutomationSerializer})
     def partial_update(self, request, pk=None, **kwargs):
         serializer = self._write_serializer(request.data, partial=True)
+        if serializer.validated_data.get("enabled") is True:
+            if access_response := code_access_required_response(request.user):
+                return access_response
         automation = tasks_facade.update_task_automation(
             pk, self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
         )
@@ -1014,6 +1034,8 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={200: TaskAutomationSerializer})
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
+        if access_response := code_access_required_response(request.user):
+            return access_response
         automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))
         if automation is None:
             raise NotFound()
@@ -1149,7 +1171,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -1168,6 +1193,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 task_id, self.team_id, self._user_id(), for_control=True
             ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
                 return _pi_cloud_runtime_disabled_response()
+            if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+                access_response := code_access_required_response(request.user)
+            ):
+                return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
@@ -1185,7 +1214,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid start payload"),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             404: OpenApiResponse(description="Task run not found"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
@@ -1222,7 +1254,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Backstop: don't launch the cloud workflow for an over-limit team.
+        # Backstop: don't launch the cloud workflow without Desktop access or for an over-limit team.
+        if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+            access_response := code_access_required_response(request.user)
+        ):
+            return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
@@ -1925,6 +1961,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="Invalid command or no active sandbox",
             ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required to message this run's agent",
+            ),
             404: OpenApiResponse(description="Task run not found"),
             502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
         },
@@ -1966,9 +2006,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
-            # No `has_tasks_access` check, for the same reason as `TaskViewSet.run`:
-            # the Inbox starts interactive runs and drops the user straight into this composer, so
-            # "Discuss" would 403 on its first reply if this required Code access.
+            # The Inbox starts interactive runs and drops the user straight into this composer,
+            # so "Discuss" and scout chat replies must not require Desktop access. Their tasks
+            # are server-verifiable Inbox shapes (task_exempt_from_code_access); everything else
+            # is a Desktop conversation and follows the same gate as TaskViewSet.run.
+            if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+                access_response := code_access_required_response(request.user)
+            ):
+                return access_response
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
@@ -2288,7 +2333,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
             ),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -2312,6 +2360,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _pi_cloud_runtime_disabled_response()
 
         # Resume also runs in cloud: gate before handoff.
+        if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+            access_response := code_access_required_response(request.user)
+        ):
+            return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
