@@ -233,9 +233,9 @@ async def maybe_flag_for_coarsening(
             return
         if max_bytes * COARSEN_TRIGGER_DIVISOR > budget:
             return
-        # Any OOM history at all disqualifies coarsening unprompted: bigger partitions are the wrong
-        # direction for a table that has shown memory trouble, and this is the one change that can
-        # cause the failure it is meant to prevent.
+        # Cheap short-circuit on the count the caller already has. NOT the OOM-free guarantee: this
+        # count is rule-filtered, so a table whose deaths were all explained away passes it — the
+        # authoritative raw-signal gate is `has_recent_occurrences` further down.
         if recent_oom_count > 0:
             return
         layout_age = _seconds_since_last_repartition(schema)
@@ -269,12 +269,12 @@ async def maybe_flag_for_coarsening(
         return
 
     if requested is None:
-        # The 7-day window the caller already checked can miss an OOM that a repartition has since
-        # reset, so re-ask over the longer window before making partitions bigger.
-        long_window_oom_count = await asyncio.to_thread(
-            ExternalDataSchemaOOMEvent.recent_count, schema, days=COARSEN_OOM_FREE_DAYS
-        )
-        if long_window_oom_count > 0:
+        # Raw occurrences, not the rule-filtered `recent_count`: the rules exist to withhold splits,
+        # and a death they explain away (victim, deploy, extract) is still death evidence — coarsening
+        # doubles the merge working set, so any of it blocks the automatic path.
+        if await asyncio.to_thread(
+            ExternalDataSchemaOOMEvent.has_recent_occurrences, schema, days=COARSEN_OOM_FREE_DAYS
+        ):
             return
 
         if not await asyncio.to_thread(is_auto_coarsen_enabled, schema):
