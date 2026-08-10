@@ -26,7 +26,11 @@ export type SurfaceKey = (typeof SURFACE_KEYS)[number]
 export type SurfacePrompts = {
     toast: string
     examples: string[]
+    copyablePrompt?: string
 }
+
+const AI_OBSERVABILITY_EVALUATION_PROMPT =
+    "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything."
 
 export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
     'feature_flags.create': {
@@ -166,10 +170,9 @@ export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'ai_observability_evaluations.create': {
-        toast: '"Use the connected PostHog MCP server and this project\'s AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything."',
-        examples: [
-            '"Use the connected PostHog MCP server and this project\'s AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything."',
-        ],
+        toast: `"${AI_OBSERVABILITY_EVALUATION_PROMPT}"`,
+        examples: [`"${AI_OBSERVABILITY_EVALUATION_PROMPT}"`],
+        copyablePrompt: AI_OBSERVABILITY_EVALUATION_PROMPT,
     },
 }
 

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 
+import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
@@ -61,7 +62,7 @@ export function MCPUseCaseCard({
         return null
     }
 
-    const { examples } = getSurfacePrompts(surfaceKey, { role: userRole, topEvents })
+    const { examples, copyablePrompt } = getSurfacePrompts(surfaceKey, { role: userRole, topEvents })
 
     return (
         <div
@@ -72,19 +73,43 @@ export function MCPUseCaseCard({
         >
             <div className="flex items-center gap-2">
                 <IconSparkles className="size-4 shrink-0" />
-                <h4 className="m-0 text-sm font-semibold">Or do it from your agent</h4>
+                <h4 className="m-0 text-sm font-semibold">
+                    {copyablePrompt ? 'Create evaluations with your AI agent' : 'Or do it from your agent'}
+                </h4>
             </div>
-            <div className="text-sm text-default">
-                Ask <AgentBadgeRotator />:
-            </div>
-            <ul className="m-0 pl-5 list-disc text-xs text-muted leading-relaxed">
-                {examples.map((example) => (
-                    <li key={example}>{example}</li>
-                ))}
-            </ul>
-            <div className="pt-1">
-                <MCPInstallCommand size="sm" />
-            </div>
+            {copyablePrompt ? (
+                <>
+                    <p className="m-0 text-sm text-secondary">
+                        Connect PostHog MCP so your agent can inspect this project's traces, then copy the prompt below.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                        <div className="text-sm font-medium">1. Connect PostHog MCP</div>
+                        <MCPInstallCommand size="sm" />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <div className="text-sm font-medium">
+                            2. Ask <AgentBadgeRotator />
+                        </div>
+                        <CodeSnippet compact wrap thing="evaluation prompt" className="w-full">
+                            {copyablePrompt}
+                        </CodeSnippet>
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div className="text-sm text-default">
+                        Ask <AgentBadgeRotator />:
+                    </div>
+                    <ul className="m-0 pl-5 list-disc text-xs text-muted leading-relaxed">
+                        {examples.map((example) => (
+                            <li key={example}>{example}</li>
+                        ))}
+                    </ul>
+                    <div className="pt-1">
+                        <MCPInstallCommand size="sm" />
+                    </div>
+                </>
+            )}
         </div>
     )
 }
