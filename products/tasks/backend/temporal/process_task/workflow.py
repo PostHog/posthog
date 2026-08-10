@@ -102,7 +102,12 @@ from .activities.start_agent_server import (
     start_agent_server,
 )
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
-from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
+from .activities.update_task_run_status import (
+    SANDBOX_GONE_STATE_KEY,
+    TIMED_OUT_WALL_CLOCK_STATE_KEY,
+    UpdateTaskRunStatusInput,
+    update_task_run_status,
+)
 from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExitReason, run_credential_refresh_loop
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
@@ -141,6 +146,9 @@ class ResumedSandboxState:
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
     accepted_message_ids: list[str] = field(default_factory=list)
+    # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
+    # reset by a continuation. None on payloads written before this field existed.
+    chain_started_at: Optional[str] = None
 
 
 @dataclass
@@ -190,6 +198,7 @@ class ProcessTaskOutput:
 class TaskEvent(StrEnum):
     SIGNAL_RECEIVED = "signal_received"
     TIMEOUT_REACHED = "timeout_reached"
+    MAX_DURATION_REACHED = "max_duration_reached"
     CI_FOLLOW_UP = "ci_follow_up"
     SANDBOX_GONE = "sandbox_gone"
     QUOTA_RECHECK = "quota_recheck"
@@ -287,6 +296,16 @@ _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 _PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
 _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
 
+# Gates the run lifecycle bounds: the hard wall-clock timer added to `_wait_for_event`
+# (a new Timer command, so replays of pre-rollout histories must not schedule it) and the
+# onboarding-origin FAILED terminalizations for the inactivity and sandbox-gone paths.
+# Same two-step deprecate-then-delete cleanup lifecycle as the patches above.
+_PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
+
+# `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
+# Django model imports.
+_ONBOARDING_ORIGIN_PRODUCT = "onboarding"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
@@ -304,6 +323,12 @@ def _complete_stream_after_cleanup_failure() -> bool:
     return workflow.patched(_PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE)
 
 
+def _run_lifecycle_bounds_enabled() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_RUN_LIFECYCLE_BOUNDS)
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
@@ -318,6 +343,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
         self._completion_error_type: Optional[str] = None
+        # State marker recorded with the terminal status (e.g. sandbox_gone), so the
+        # reason a run ended stays machine-readable without abusing error_message.
+        self._completion_timeout_marker: Optional[str] = None
         self._heartbeat_received: bool = False
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
@@ -332,6 +360,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
+        # Start of the continue_as_new chain, carried across continuations so the
+        # wall-clock cap measures the whole chain rather than restarting per run.
+        # None on the first execution, where workflow.info().start_time is the anchor.
+        self._chain_started_at: Optional[datetime] = None
         # Tracks which progress step is currently in-progress (step, label,
         # group) so we can emit a "failed" transition from the workflow-level
         # exception handler onto the right card.
@@ -496,6 +528,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.sleep(timeout.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
+    async def _wait_for_max_run_duration(self, cap: timedelta):
+        """Hard wall-clock cap, measured from the chain start and never reset by heartbeats.
+
+        The inactivity timer restarts on every heartbeat, so a wedged-but-heartbeating
+        agent never trips it; this ceiling catches that case. The anchor comes from
+        `_chain_start_time`, which survives continue_as_new; both it and
+        `workflow.info().start_time` are deterministic across replays, so recomputing the
+        remaining time on each loop iteration is replay-safe.
+        """
+        elapsed = workflow.now() - self._chain_start_time()
+        remaining = (cap - elapsed).total_seconds()
+        if remaining > 0:
+            await workflow.sleep(remaining)
+        return TaskEvent.MAX_DURATION_REACHED
+
     async def _wait_for_ci_follow_up(self):
         if self._last_active_time:
             elapsed = workflow.now() - self._last_active_time
@@ -596,6 +643,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
         ]
+        # Hard wall-clock cap, independent of the heartbeat-reset inactivity timer. The
+        # patch gate keeps replays of pre-rollout histories from scheduling the new timer;
+        # None means the run is exempt (interactive sessions a human may keep open for hours).
+        if _run_lifecycle_bounds_enabled():
+            max_run_duration = self.context.max_run_duration()
+            if max_run_duration is not None:
+                possible_events.append(asyncio.create_task(self._wait_for_max_run_duration(max_run_duration)))
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         if not warm_idle and self._self_driving_quota_recheck_scheduled():
@@ -729,7 +783,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         sandbox_id = None
         sandbox_cleaned = False
         run_stream_completed = False
-        timed_out = False
+        timeout_event: Optional[TaskEvent] = None
         # Handing the live sandbox to the next execution — the finally must not tear it down.
         continuing_as_new = False
         run_id = input.run_id
@@ -824,7 +878,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 event = await self._wait_for_event()
                 match event:
                     case TaskEvent.TIMEOUT_REACHED:
-                        timed_out = True
+                        timeout_event = event
+                        break
+                    case TaskEvent.MAX_DURATION_REACHED:
+                        workflow.logger.warning(
+                            "max_run_duration_reached",
+                            extra={"run_id": self.context.run_id},
+                        )
+                        timeout_event = event
                         break
                     case TaskEvent.CI_FOLLOW_UP:
                         workflow.logger.info(
@@ -954,9 +1015,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._completion_status,
                     error_message=self._completion_error,
                     error_type=self._completion_error_type,
+                    timeout_marker=self._completion_timeout_marker,
                 )
-            elif timed_out:
-                await self._update_task_run_status("completed", timed_out_inactivity=True)
+            elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
+                # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
+                # A run that outlived the hard cap is a failure, not a completion, and the
+                # state marker carries the reason so error_message stays empty.
+                await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
+            elif timeout_event is not None:
+                inactivity_status = "failed" if self._onboarding_exit_is_failure() else "completed"
+                await self._update_task_run_status(inactivity_status, timed_out_inactivity=True)
 
             # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
             if self._pr_progress_emitted:
@@ -1220,10 +1288,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 is_agent_design_enabled=self._is_agent_design_enabled,
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
                 accepted_message_ids=self._accepted_message_ids,
+                chain_started_at=self._chain_start_time().isoformat(),
             ),
         )
 
+    def _chain_start_time(self) -> datetime:
+        """Start of the continue_as_new chain, falling back to this run's start time.
+
+        `workflow.info().start_time` is per-run, so a continuation would otherwise restart
+        the wall-clock cap from zero, and continuations are triggered by history growth,
+        which heartbeats drive.
+        """
+        return self._chain_started_at or workflow.info().start_time
+
     def _restore_resumed_state(self, resumed: ResumedSandboxState) -> None:
+        self._chain_started_at = datetime.fromisoformat(resumed.chain_started_at) if resumed.chain_started_at else None
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
         self._ci_repetitions = resumed.ci_repetitions
         self._pr_fingerprint = resumed.pr_fingerprint
@@ -1782,6 +1861,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id: Optional[str] = None,
         timed_out_inactivity: bool = False,
         error_type: Optional[str] = None,
+        timeout_marker: Optional[str] = None,
     ) -> None:
         await workflow.execute_activity(
             update_task_run_status,
@@ -1791,6 +1871,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 error_message=error_message,
                 timed_out_inactivity=timed_out_inactivity,
                 error_type=error_type,
+                timeout_marker=timeout_marker,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1819,9 +1900,36 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # of leaving it waiting on signals that can never arrive.
             self._sandbox_gone = True
 
+    def _onboarding_exit_is_failure(self) -> bool:
+        """Whether a non-signal exit should terminalize an onboarding run as FAILED.
+
+        Onboarding runs are one-shot: nobody resumes them, so a run that stopped without
+        delivering anything is a failed setup and must read as one. A run that already
+        opened its PR did deliver, and the wizard keys its success headline and PR CTA off
+        the terminal status, so downgrading that run would report a failed install over a
+        perfectly good PR. Other origins keep completing either way, because their resume
+        flows treat the stopped run as the resumable snapshot.
+
+        `_pr_progress_emitted` only ever flips inside the CI follow-up loop's `get_pr_context`
+        call, so a false latch means "no PR" only once that loop has actually looked. A run
+        whose loop never ran (disabled for the org, or the exit landed inside the first
+        `CI_FOLLOW_UP_DELAY`) has no observation either way, and downgrading on the unobserved
+        latch would report a failed install over a PR sitting on the user's repo. Requiring a
+        completed follow-up round makes the downgrade evidence-based; a run that never intended
+        to open a PR needs no observation, since there is nothing for it to have delivered.
+        """
+        if self.context.origin_product != _ONBOARDING_ORIGIN_PRODUCT or not _run_lifecycle_bounds_enabled():
+            return False
+        if self._pr_progress_emitted:
+            return False
+        return not self.context.create_pr or self._ci_repetitions > 0
+
     def _mark_sandbox_gone(self) -> None:
-        self._completion_status = "completed"
+        # A sandbox that vanished mid-setup is a failed setup for onboarding; see
+        # _onboarding_exit_is_failure for why a run that already opened its PR is exempt.
+        self._completion_status = "failed" if self._onboarding_exit_is_failure() else "completed"
         self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
+        self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
         self._task_completed = True
 
     async def _relay_sandbox_events(

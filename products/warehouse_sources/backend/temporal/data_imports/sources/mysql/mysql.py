@@ -104,6 +104,22 @@ _LOST_CONNECTION_DURING_QUERY_CODE = 2013
 # resolves it.
 _OUT_OF_SORT_MEMORY_CODE = 1038
 
+# Raised in place of the raw pymysql 2013 when a lost-connection bad plan can't be dodged by the
+# FORCE INDEX fallback because the incremental field has no usable index. The un-indexed full-table
+# sort re-times-out on every run, so it's deterministic — distinct from a genuine transient mid-query
+# drop, which the raw 2013 stays retryable for. `MySQLSource.get_non_retryable_errors` matches this
+# marker to pause the schema with an actionable message.
+UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR = "MySQL lost the connection during an unavoidable full-table sort"
+
+
+class MySQLUnavoidableFilesortError(Exception):
+    """A lost-connection bad plan (error 2013) the FORCE INDEX fallback can't avoid — the incremental
+    field has no usable index, so every run repeats the same doomed full-table sort."""
+
+    def __init__(self, message: str = UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR) -> None:
+        super().__init__(message)
+
+
 # pymysql error code for "Can't connect to MySQL server on '...'" — raised at
 # connect time when the socket connect can't be established. The parenthesised
 # suffix carries the underlying cause (a timeout vs. a refused connection vs. a
@@ -1548,6 +1564,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
                         f"Customer should add an index on the incremental field."
                     )
+                    # A lost connection here recurs every run: with no usable index the incremental
+                    # sort is unavoidable and re-times-out. Re-raise it as a deterministic error so
+                    # the schema is paused with guidance instead of looping. Out-of-sort-memory
+                    # (1038) is already classified by its own code, so leave it raw.
+                    if e.args and e.args[0] == _LOST_CONNECTION_DURING_QUERY_CODE:
+                        raise MySQLUnavoidableFilesortError() from e
                     raise
 
                 logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad query plan")
