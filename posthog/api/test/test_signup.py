@@ -537,6 +537,40 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
+    def test_cant_sign_up_with_blank_first_name(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        for first_name in ["", "   "]:
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": first_name,
+                    "email": "invalid@posthog.com",
+                    "password": VALID_TEST_PASSWORD,
+                },
+            )
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_400_BAD_REQUEST,
+                f"first_name {first_name!r} may not be blank",
+            )
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "blank",
+                    "detail": "This field may not be blank.",
+                    "attr": "first_name",
+                },
+                f"first_name {first_name!r} may not be blank",
+            )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
     def test_cant_sign_up_with_short_password(self):
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
