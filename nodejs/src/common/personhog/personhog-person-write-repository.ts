@@ -8,21 +8,19 @@ import { timedGrpc } from './metrics'
 import { FoldedPersonUpdate } from './persons'
 
 /**
- * Write-side person repository backed by personhog gRPC — the
- * counterpart to PersonHogPersonReadRepository, speaking personhog's own
- * vocabulary rather than the Postgres-shaped contract. No verb here
- * touches the replica: resolution goes to the identity service (primary),
- * person state and folded updates go through the router to the
- * partition's leader, and deletes run the lifecycle saga. The ingestion
- * personhog store is its consumer, and it grows a verb whenever the
- * services do.
+ * Write-side person repository backed by personhog gRPC, the
+ * counterpart to PersonHogPersonReadRepository speaking personhog's own
+ * vocabulary rather than the Postgres-shaped contract. No verb touches
+ * the replica: resolution goes to the identity service (primary), person
+ * state and folded updates go through the router to the partition's
+ * leader, and deletes run the lifecycle saga.
  *
  * Two endpoints sit behind it: person operations go through the router;
- * identity resolution, get-or-create, and the co-served lifecycle service
- * go to the identity server's own address — the router does not proxy
- * either API.
+ * identity resolution, get-or-create, and the co-served lifecycle
+ * service go to the identity server's own address. The router proxies
+ * neither API.
  *
- * Every verb here is idempotent (folds, get-or-create, reads, saga-keyed
+ * Every verb is idempotent (folds, get-or-create, reads, saga-keyed
  * deletes), so transient-error retries are safe.
  */
 export class PersonHogPersonWriteRepository {

@@ -57,14 +57,14 @@ const CREATE_EVENT_NAME = '$create_person'
 const DIRECT_UPDATE_EVENT_NAME = '$direct_update'
 
 /**
- * A store verb whose leader support does not exist yet. Reaching one is a
- * wiring error — merge execution must stay gated off the personhog world
- * until the leader grows these — so it fails loudly instead of no-oping
- * into silent divergence.
+ * A store verb with no personhog RPC behind it. The shadow gates the
+ * events that reach these verbs off this store, so hitting one is a
+ * wiring bug; it fails loudly instead of no-oping into silent
+ * divergence.
  */
 export class PersonhogPendingRpcError extends Error {
     constructor(method: string, needs: string) {
-        super(`PersonhogPersonsStore.${method} requires leader support that does not exist yet: ${needs}`)
+        super(`PersonhogPersonsStore.${method} has no personhog RPC: ${needs}`)
         this.name = 'PersonhogPendingRpcError'
     }
 }
@@ -75,10 +75,9 @@ interface OpsLaneEntry {
     distinctId: string
     /**
      * Folded ops in arrival order. Almost always one segment; a new one
-     * starts only when foldOps reports a composition the ops vocabulary
-     * cannot represent, and flush ships segments sequentially so the
-     * leader refines between them — restoring sequential semantics for
-     * exactly the case folding would corrupt.
+     * starts only when foldOps cannot represent the composition, and
+     * flush ships segments sequentially so the leader refines between
+     * them.
      */
     segments: EventOps[]
 }
@@ -91,14 +90,13 @@ interface OpsLaneEntry {
  * them against authoritative state under the per-person lock.
  *
  * Where the Postgres store refines ops against a fetched snapshot before
- * writing, this store ships them as stated — the leader is this world's
- * refinement engine, so no version-race machinery exists here at all.
- * Fetches memoize per batch; folded ops accumulate per (batch, person)
- * and flush as one call per person.
+ * writing, this store ships them as stated, so no version-race machinery
+ * exists here. Fetches memoize per batch; folded ops accumulate per
+ * (batch, person) and flush as one call per person.
  *
- * Person uuids are derived deterministically from team_id:distinct_id by
- * the identity service — the uuid argument to createPerson is advisory
- * and the returned person carries the authoritative one.
+ * Person uuids derive deterministically from team_id:distinct_id on the
+ * identity service; the uuid argument to createPerson is advisory and
+ * the returned person carries the authoritative one.
  */
 export class PersonhogPersonsStore {
     private options: PersonhogPersonsStoreOptions
@@ -113,10 +111,9 @@ export class PersonhogPersonsStore {
     private resolutions: Map<number, Map<string, string | null>> = new Map()
     /**
      * Person state per batch, keyed by `${teamId}:${personId}`. Once ops
-     * fold for a person this holds the pending projection — the batch's
-     * read-your-write view, exactly as the Postgres store's cache holds
-     * its accumulating PersonUpdate — and fetches must not clobber it
-     * with service state.
+     * fold for a person this holds the pending projection (the batch's
+     * read-your-write view), and fetches must not clobber it with
+     * service state.
      */
     private personState: Map<number, Map<string, InternalPerson>> = new Map()
 
@@ -148,9 +145,9 @@ export class PersonhogPersonsStore {
     /**
      * Update reads split resolution from state: identity resolves the
      * distinct id on the primary, then the person's state comes from the
-     * partition leader — the write-path authority, which the primary
-     * lags by writer apply lag. The projection this feeds enriches the
-     * batch's events, so the baseline must be the leader's.
+     * partition leader, which the primary lags by writer apply lag. The
+     * projection this feeds enriches the batch's events, so the baseline
+     * must be the leader's.
      */
     async fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         const cached = this.lookupMemo(teamId, distinctId, batchId)
@@ -323,13 +320,11 @@ export class PersonhogPersonsStore {
         const refined = refineEventOps(ops, person.properties ?? {}, this.options.updateAllProperties, false)
         const [projected] = applyEventPropertyUpdates(refined, person)
         Object.assign(projected, computeOpsScalarUpdates(ops, projected))
-        // Person state now holds the pending projection, exactly as the
-        // Postgres store's cache holds its accumulating PersonUpdate:
-        // every distinct id resolving to this person sees the change
-        // pre-flush, and the next event's projection composes on top.
-        // Merges depend on this — merged properties are computed from
-        // the projection, so pending ops travel to the merge target
-        // through it.
+        // The memo now holds the pending projection: every distinct id
+        // resolving to this person sees the change pre-flush, and the
+        // next event composes on top. Merged properties are computed
+        // from the projection, so pending ops travel to the merge
+        // target through it.
         this.personStateMemo(batchId).set(personKey, projected)
         this.resolutionMemo(batchId).set(`${person.team_id}:${distinctId}`, personKey)
         return Promise.resolve([projected, []])
@@ -337,16 +332,14 @@ export class PersonhogPersonsStore {
 
     /**
      * Deletion runs the lifecycle saga on the identity server: sync-plane
-     * work committed and the owning leaders' death documents produced
-     * before the RPC returns — the changelog carries the deletion to
-     * every downstream, ClickHouse included, so no message is emitted
-     * here. The op id derives deterministically from the delete's
-     * identity, so a retry after a timeout or a mixed-outcome throw
-     * attaches to the same operation and observes its recorded outcome
-     * instead of starting a fresh one (a recreated person has a new row
-     * id, so re-deletes never collide with a completed operation). A
-     * person held by another live lifecycle operation fails the batch so
-     * redelivery retries after that operation finishes.
+     * work commits and the owning leaders produce the death documents
+     * before the RPC returns, and the changelog carries the deletion to
+     * every downstream (ClickHouse included), so nothing is emitted here.
+     * The op id derives deterministically from the delete's identity, so
+     * a retry attaches to the same operation and observes its recorded
+     * outcome; a recreated person has a new row id, so re-deletes never
+     * collide. A person held by another live lifecycle operation fails
+     * the batch so redelivery retries after it finishes.
      */
     async deletePersons(persons: InternalPerson[], _distinctId: string, batchId?: number): Promise<PersonMessage[]> {
         if (persons.length === 0) {
@@ -367,10 +360,9 @@ export class PersonhogPersonsStore {
                 )
             }
             // deleted or not_found: the person is gone either way. Purge
-            // the batch's view of it so a later fetch cannot serve the
-            // deleted person from memo, and drop any pending fold lane —
-            // flushing it would manufacture a guaranteed not_found, and
-            // that counter means "bug" while merges are gated.
+            // the batch's view so a later fetch cannot serve it from
+            // memo, and drop any pending fold lane, whose flush would
+            // manufacture a guaranteed not_found.
             if (batchId !== undefined) {
                 const personKey = `${person.team_id}:${person.id}`
                 this.personStateMemo(batchId).delete(personKey)
@@ -509,23 +501,19 @@ export class PersonhogPersonsStore {
     /**
      * Ships the batch's folded lanes to the leader, one entry per
      * person, segments in order. There is deliberately no Postgres
-     * fallback: this store's world is the leader's. A missing person
-     * (deleted or merged mid-batch) and the leader's size rejection are
-     * counted and skipped — neither can succeed on retry — but whatever
-     * earlier segments already applied still publishes. Publication is
-     * gated on the version floor rather than the last response's
-     * no-change flag: a retried call whose lost first attempt landed
-     * replays into the leader's no-change fast path, and the version is
-     * what still tells the truth. Any other failure fails the flush so
-     * the batch retries whole. Batch-scoped, so one batch's failure can
-     * never discard a sibling batch's shipped results.
+     * fallback. A missing person (deleted or merged mid-batch) and the
+     * leader's size rejection are counted and skipped, since neither can
+     * succeed on retry, but segments already applied still publish.
+     * Publication gates on the version floor rather than the last
+     * response's no-change flag: a retried call whose lost first attempt
+     * landed replays into the leader's no-change fast path, and the
+     * version still tells the truth. Any other failure fails the flush
+     * so the batch retries whole; lanes are batch-scoped, so one batch's
+     * failure never discards a sibling's shipped results.
      *
-     * Known parity gap, leader-side: the wire carries no force flag and
-     * the leader's refinement omits the filtered-property rules, so the
-     * no-op classification the Postgres world applies to filtered-only
-     * changes does not exist in this world yet. Closing it is leader
-     * work (a force field on the RPC plus the filter port), tracked
-     * with the merge-enablement items.
+     * The leader's refinement does not apply the filtered-property rules
+     * and the wire carries no force flag, so a filtered-only change the
+     * Postgres store classifies as a no-op still updates the person here.
      */
     async flush(batchId: number): Promise<FlushResult[]> {
         const lane = this.lanes.get(batchId)
@@ -560,22 +548,18 @@ export class PersonhogPersonsStore {
                         personhogStoreFlushCounter.inc({ outcome: 'success' })
                     } catch (error) {
                         if (error instanceof NoRowsUpdatedError) {
-                            // The person was merged or deleted since the
-                            // fold. In-batch that is fine — the merge
-                            // carried the pending projection to its
-                            // target. Cross-batch it drops the ops where
-                            // the Postgres store re-resolves and
-                            // re-applies; that re-resolution joins the
-                            // merge-enablement work, and until merges
-                            // are gated on, this counter firing means a
-                            // bug, not a race.
+                            // The person was merged or deleted since
+                            // the fold. In-batch that is fine: the
+                            // merge carried the pending projection to
+                            // its target. Merge events are gated off
+                            // this store, so this counter firing means
+                            // a bug, not a cross-batch race.
                             personhogStoreFlushCounter.inc({ outcome: 'not_found' })
                         } else if (error instanceof PersonhogPropertiesSizeError) {
-                            // Counted but not yet surfaced as the
-                            // person_properties_size_violation ingestion
-                            // warning the Postgres store emits — the
-                            // store holds no outputs handle; warning
-                            // parity lands with the shadow wiring.
+                            // Counted only: the store holds no outputs
+                            // handle, so the size-violation ingestion
+                            // warning the Postgres store emits has no
+                            // path from here.
                             personhogStoreFlushCounter.inc({ outcome: 'size_violation' })
                         } else {
                             personhogStoreFlushCounter.inc({ outcome: 'error' })
@@ -643,11 +627,11 @@ export class PersonhogPersonsStore {
 
 /**
  * The batch-bound view: batchId curried. It doubles as its own
- * transaction view — `inTransaction` is a passthrough, because this
- * world has no client-side transactions. Merge safety comes from the
- * merge flow's own progress tracking over idempotent leader verbs, and
- * the merge-execution verbs themselves throw until the leader grows
- * them, so the passthrough cannot silently half-merge today.
+ * transaction view: `inTransaction` is a passthrough, because there are
+ * no client-side transactions here. Merge safety comes from the merge
+ * flow's own progress tracking over idempotent leader verbs, and the
+ * merge-execution verbs throw, so the passthrough cannot silently
+ * half-merge.
  */
 class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTransactionForBatch {
     constructor(
@@ -758,17 +742,14 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
         return this.store.fetchPersonDistinctIds(person, limit)
     }
 
-    // Merge execution pends leader support; each verb names what it waits
-    // on. Shadow processing must gate merge events off this world until
-    // these land.
+    // Merge execution is unsupported: each verb throws, naming the RPC
+    // it lacks, and shadow processing gates merge events off this store.
     //
-    // Contract for the eventual implementations: clear the source
-    // persons' fold lanes as the last step. The lanes' pending content
-    // already traveled to the merge target through the memo projection
-    // that merged-property computation reads, so a same-batch merge or
-    // delete must not flush a guaranteed-NotFound update — the flush's
-    // not_found outcome exists to signal cross-batch races, and routine
-    // merges would drown that signal.
+    // An implementation must clear the source persons' fold lanes as its
+    // last step: the lanes' pending content already traveled to the
+    // merge target through the memo projection, so flushing them after
+    // the merge would manufacture not_found outcomes and drown the
+    // cross-batch race signal that counter exists to carry.
 
     updatePersonForMerge(
         _person: InternalPerson,
@@ -834,16 +815,15 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
         return Promise.resolve(0)
     }
 
-    // The personless writers cannot no-op: their caller marks the
+    // Personless writes are unsupported here: the caller marks its
     // process-global personless LRU as inserted after each call, and
-    // that cache is shared with the Postgres path — a silent no-op here
-    // records rows that were never written, permanently skipping the
-    // real insert if the Postgres world ever serves the team. Personless
-    // is slated for deletion; until then the shadow must gate these
-    // events off this world, and reaching one is a wiring bug.
+    // that LRU is shared with the Postgres path, so a silent no-op would
+    // record rows that were never written. The shadow gates personless
+    // events off this store, so reaching one of these methods is a
+    // wiring bug.
 
     addPersonlessDistinctId(_teamId: number, _distinctId: string): Promise<boolean> {
-        throw new PersonhogPendingRpcError('addPersonlessDistinctId', 'personless support (slated for deletion)')
+        throw new PersonhogPendingRpcError('addPersonlessDistinctId', 'personless support')
     }
 
     addPersonlessDistinctIdForMerge(
@@ -851,17 +831,11 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
         _distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
-        throw new PersonhogPendingRpcError(
-            'addPersonlessDistinctIdForMerge',
-            'personless support (slated for deletion)'
-        )
+        throw new PersonhogPendingRpcError('addPersonlessDistinctIdForMerge', 'personless support')
     }
 
     processPersonlessDistinctIdsBatch(_entries: { teamId: number; distinctId: string }[]): Promise<void> {
-        throw new PersonhogPendingRpcError(
-            'processPersonlessDistinctIdsBatch',
-            'personless support (slated for deletion)'
-        )
+        throw new PersonhogPendingRpcError('processPersonlessDistinctIdsBatch', 'personless support')
     }
 
     /** A read with a "no batch result" answer; safe to leave callers falling back. */

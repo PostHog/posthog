@@ -146,11 +146,11 @@ export class PersonHogPersonOperations {
     }
 
     /**
-     * Person state by id. Eventual reads go to the replica; strong reads are
-     * routed to the partition's leader, whose cache is the write-path
-     * authority — the primary lags it by writer apply lag, so a caller that
-     * must observe its own writes asks for strong. Returns null for a person
-     * that does not exist (deleted, or merged away).
+     * Person state by id. Eventual reads go to the replica; strong reads
+     * are routed to the partition's leader, whose cache the primary lags
+     * by writer apply lag, so a caller that must observe its own writes
+     * asks for strong. Returns null for a person that does not exist
+     * (deleted, or merged away).
      */
     async fetchPersonById(
         teamId: number,

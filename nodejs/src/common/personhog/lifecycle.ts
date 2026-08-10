@@ -10,10 +10,9 @@ import {
 export type PersonDeleteOutcome = 'deleted' | 'not_found' | 'skipped_conflict'
 
 /**
- * Client wrapper for the lifecycle saga service. Co-served on the identity
- * server, so it shares the identity endpoint's transport; a separate class
- * because it is a separate gRPC service and callers are insulated from any
- * future split.
+ * Client wrapper for the lifecycle saga service. Co-served on the
+ * identity server, so it shares the identity endpoint's transport; a
+ * separate class because it is a separate gRPC service.
  */
 export class PersonhogLifecycleOperations {
     constructor(private client: Client<typeof PersonHogLifecycle>) {}
@@ -22,9 +21,9 @@ export class PersonhogLifecycleOperations {
      * Destroy persons through the durable delete saga. An OK response
      * means the sync-plane work is committed and the owning leaders have
      * produced the death documents. The saga is keyed by op_id and the
-     * caller must supply one derived from the delete's identity — the
+     * caller must supply one derived from the delete's identity: the
      * same id across retries attaches to the existing operation instead
-     * of starting a new one, which is what keeps a retried delete from
+     * of starting a new one, which keeps a retried delete from
      * misreading its own earlier success as not_found.
      */
     async deletePersons(

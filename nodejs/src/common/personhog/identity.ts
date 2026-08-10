@@ -14,12 +14,12 @@ import { InternalPerson } from '~/types'
 import { encodeJsonBytes, protoPersonToDomain } from './persons'
 
 /**
- * A single get-or-create key: resolve distinct_id within team_id, creating
- * a person stub when absent. The properties and scalars apply on the
- * creation branch only — for an existing person the caller sends its ops
- * through the normal update path instead. The person UUID derives
- * deterministically from team_id:distinct_id on the identity service's
- * side; no id is supplied here.
+ * A single get-or-create key: resolve distinct_id within team_id,
+ * creating a person stub when absent. The properties and scalars apply
+ * on the creation branch only; an existing person takes its ops through
+ * the normal update path. The person UUID derives deterministically from
+ * team_id:distinct_id on the identity service's side; no id is supplied
+ * here.
  */
 export interface GetOrCreatePersonEntry {
     teamId: number
@@ -152,7 +152,7 @@ export class PersonhogIdentityOperations {
             return { person: protoPersonToDomain(response.person), created: response.created }
         } catch (error) {
             // A size rejection must surface as the domain error the
-            // create service already handles — it emits the customer
+            // create service already handles, which emits the customer
             // ingestion warning and stops retrying. Left untranslated,
             // the raw gRPC error matches no non-retriable class and the
             // batch redelivers the same oversized event forever.

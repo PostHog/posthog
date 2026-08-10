@@ -21,10 +21,10 @@ export interface PropertyUpdates {
 /**
  * What one event asks of a person, extracted without consulting person
  * state: the ops as the event stated them. Interpretation of the event
- * (denylist, force semantics) happens here; what the ops mean *given
- * current state* is each store's concern — the Postgres store refines
- * them against its snapshot, the personhog store ships them for the
- * leader to resolve authoritatively.
+ * (denylist, force semantics) happens here; what the ops mean given
+ * current state is each store's concern. The Postgres store refines them
+ * against its snapshot; the personhog store ships them for the leader to
+ * resolve authoritatively.
  */
 export interface EventOps {
     /** $set values, as stated on the event. */
@@ -111,15 +111,14 @@ export function extractEventOps(event: PluginEvent, updateAllProperties: boolean
  * Postgres write shape: set_once resolves locally (only absent keys
  * survive, as sets), sets are filtered to values that differ, unsets to
  * keys that exist, and the ignored-property rules decide whether the
- * surviving changes deserve a write. This is write-shape preparation for
- * a snapshot-based store — the personhog path never calls it; the leader
- * refines authoritatively on its side.
+ * surviving changes deserve a write. The personhog flush path never
+ * calls this; the leader refines authoritatively on its side.
  */
 /**
  * The scalar half of an op against current person state: identity ORs
- * (never reverts) and last-seen max-advances — the same merge the
- * leader performs. Returns only the fields that change, so callers can
- * both gate on "anything to write" and apply the delta. Deliberately
+ * (never reverts) and last-seen max-advances, the same merge the leader
+ * performs. Returns only the fields that change, so callers can both
+ * gate on "anything to write" and apply the delta. Deliberately
  * indifferent to `ops.denied`: the denylist gates property writes only.
  */
 export function computeOpsScalarUpdates(ops: EventOps, person: InternalPerson): Partial<InternalPerson> {
@@ -222,28 +221,23 @@ export function refineEventOps(
 /**
  * Folds a later event's ops onto accumulated ops for the same person,
  * preserving sequential semantics per key: a set wins over any prior
- * state; among set_onces the first wins; an unset clears prior pending
- * lanes; a value after an unset applies unconditionally (the key is
- * definitely absent). Identity ORs and last-seen max-merges, mirroring
- * the leader's own merge rules.
+ * state, the first set_once wins, an unset clears prior lanes, and a
+ * value after an unset applies unconditionally (the key is definitely
+ * absent). Identity ORs and last-seen max-merges, mirroring the leader's
+ * merge rules.
  *
- * One event may pair an unset with a set or set_once on the same key.
- * The pair's outcome is snapshot-dependent — refinement drops an unset
- * of an absent key and a set_once of a present one, so present means
- * gone and absent means the value lands. The fold keeps both lanes for
- * such a key (the refinement engines on both sides resolve the pair the
- * same way for a folded op as for a single event), which makes the
- * accumulator's per-key state one of: a value, an unset, or a
- * snapshot-dependent pair.
+ * One event may pair an unset with a set or set_once of the same key.
+ * Refinement resolves that pair against the snapshot (present means
+ * gone, absent means the value lands), so the fold keeps both lanes as
+ * a unit. A key's accumulated state is therefore a value, an unset, or
+ * a snapshot-dependent pair.
  *
  * Returns null when composition would lose information: a later
- * set_once — alone or in a pair — over a key already in the pair state
- * needs "present resolves one way, absent another with a different
- * value", which no lane combination expresses. The caller cuts a
- * segment: ship the accumulated ops as their own leader call and fold
- * onward from the incoming event, so authoritative refinement happens
- * between the two — exactly sequential semantics, paid only on this
- * vanishing case.
+ * set_once over a key already in the pair state needs "present resolves
+ * one way, absent another with a different value", which no lane
+ * combination expresses. The caller then cuts a segment, shipping the
+ * accumulated ops as their own leader call so authoritative refinement
+ * happens between the two.
  */
 export function foldOps(existing: EventOps, incoming: EventOps): EventOps | null {
     if (incoming.denied || existing.denied) {
