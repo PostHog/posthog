@@ -443,11 +443,12 @@ class TestAuthService:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "access_rows,role_rows,expected_team",
+        "access_rows,role_rows,features,expected_team",
         [
             pytest.param(
                 [{"access_level": "none", "organization_member_id": None, "role_id": None}],
                 None,
+                ['{"key": "access_control"}'],
                 None,
                 id="restricted_default_denies",
             ),
@@ -457,6 +458,7 @@ class TestAuthService:
                     {"access_level": "member", "organization_member_id": "mem-1", "role_id": None},
                 ],
                 None,
+                ['{"key": "access_control"}'],
                 789,
                 id="member_grant_allows",
             ),
@@ -466,6 +468,7 @@ class TestAuthService:
                     {"access_level": "member", "organization_member_id": "mem-other", "role_id": None},
                 ],
                 None,
+                ['{"key": "access_control"}'],
                 None,
                 id="other_members_grant_does_not_allow",
             ),
@@ -475,6 +478,7 @@ class TestAuthService:
                     {"access_level": "member", "organization_member_id": None, "role_id": "role-1"},
                 ],
                 [{"role_id": "role-1"}],
+                ['{"key": "access_control"}', '{"key": "role_based_access"}'],
                 789,
                 id="role_grant_allows",
             ),
@@ -484,8 +488,19 @@ class TestAuthService:
                     {"access_level": "member", "organization_member_id": None, "role_id": "role-1"},
                 ],
                 [{"role_id": "role-other"}],
+                ['{"key": "access_control"}', '{"key": "role_based_access"}'],
                 None,
                 id="unheld_role_grant_does_not_allow",
+            ),
+            pytest.param(
+                [
+                    {"access_level": "none", "organization_member_id": None, "role_id": None},
+                    {"access_level": "member", "organization_member_id": None, "role_id": "role-1"},
+                ],
+                None,
+                ['{"key": "access_control"}'],
+                None,
+                id="role_grant_inert_without_rbac_feature",
             ),
         ],
     )
@@ -495,6 +510,7 @@ class TestAuthService:
         mock_pool: MagicMock,
         access_rows: list[dict],
         role_rows: list[dict] | None,
+        features: list[str],
         expected_team: int | None,
     ) -> None:
         request = MagicMock(spec=Request)
@@ -506,7 +522,7 @@ class TestAuthService:
         conn.fetchrow = AsyncMock(
             side_effect=[
                 _token_row(),
-                _project_row(789, features=['{"key": "access_control"}']),
+                _project_row(789, features=features),
             ]
         )
         conn.fetch = AsyncMock(side_effect=[access_rows] + ([role_rows] if role_rows is not None else []))

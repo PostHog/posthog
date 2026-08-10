@@ -177,6 +177,9 @@ class AuthService:
         admins bypass, rows apply only when the organization has the
         access_control feature, no rows means the open project default, and the
         effective level is the highest of the default, member, and role rows.
+        Role rows count only when the organization also has the
+        role_based_access feature and the user holds the role in the project's
+        organization (UserAccessControl._user_role_ids).
         """
         async with acquire_connection(pool) as conn:
             project = await conn.fetchrow(
@@ -203,7 +206,8 @@ class AuthService:
 
             if project["membership_level"] >= ORG_ADMIN_MEMBERSHIP_LEVEL:
                 return True
-            if "access_control" not in _feature_keys(project["available_product_features"]):
+            features = _feature_keys(project["available_product_features"])
+            if "access_control" not in features:
                 return True
 
             rows = await conn.fetch(
@@ -232,10 +236,16 @@ class AuthService:
             levels = [default_level]
             if member_level is not None:
                 levels.append(member_level)
-            if role_grants:
+            if role_grants and "role_based_access" in features:
                 user_roles = await conn.fetch(
-                    "SELECT role_id FROM ee_rolemembership WHERE user_id = $1",
+                    """
+                    SELECT rm.role_id
+                    FROM ee_rolemembership rm
+                    JOIN ee_role r ON r.id = rm.role_id
+                    WHERE rm.user_id = $1 AND r.organization_id = $2
+                    """,
                     user.user_id,
+                    project["organization_id"],
                 )
                 levels.extend(
                     role_grants[str(row["role_id"])] for row in user_roles if str(row["role_id"]) in role_grants
