@@ -439,12 +439,18 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
         .await?;
     }
 
-    sqlx::query!(
-        "DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
-        &victims
-    )
-    .execute(&mut *tx)
-    .await?;
+    // posthog_cohortpeople has no shadow mirror and no team_id column, so it
+    // is only addressable by real posthog_person ids. On any other person
+    // table the victim ids come from that table's own sequence and would
+    // collide with unrelated persons' cohort rows — skip the clear entirely.
+    if tables.person == "posthog_person" {
+        sqlx::query!(
+            "DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
+            &victims
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     let delete_overrides_sql = format!(
         "DELETE FROM {} WHERE team_id = $1 AND person_id = ANY($2)",

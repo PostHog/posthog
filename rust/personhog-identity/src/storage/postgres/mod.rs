@@ -101,6 +101,7 @@ impl IdentityStorage for PostgresIdentityStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
         distinct_ids::get_distinct_ids_for_persons(
             &self.primary_pool,
+            &self.tables.person_distinct_id,
             team_id,
             person_ids,
             limit_per_person,

@@ -478,6 +478,28 @@ async fn full_flow_works_on_a_configured_person_table() {
         .expect("resolve succeeds");
     assert_eq!(resolved.get(&key).map(|p| p.id), Some(person_id));
 
+    // Distinct id expansion must read the configured mapping table too.
+    let mappings = ctx
+        .storage
+        .get_distinct_ids_for_persons(ctx.team_id, &[person_id], None)
+        .await
+        .expect("distinct id expansion succeeds");
+    assert_eq!(
+        mappings
+            .iter()
+            .map(|m| m.distinct_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![distinct_id.as_str()]
+    );
+
+    // A cohort row whose person_id collides numerically belongs to the real
+    // namespace; a delete on the validation set must not touch it.
+    sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES (1, $1)")
+        .bind(person_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("insert colliding cohort row");
+
     let response = service
         .delete_persons(Request::new(delete_request(
             ctx.team_id,
@@ -509,6 +531,22 @@ async fn full_flow_works_on_a_configured_person_table() {
         .await
         .expect("resolve after delete succeeds");
     assert!(resolved.is_empty(), "tombstoned person must not resolve");
+
+    let colliding_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_cohortpeople WHERE person_id = $1")
+            .bind(person_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("count cohort rows");
+    assert_eq!(
+        colliding_rows, 1,
+        "a validation-set delete must not clear real-namespace cohort rows"
+    );
+    sqlx::query("DELETE FROM posthog_cohortpeople WHERE person_id = $1")
+        .bind(person_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("remove colliding cohort row");
 
     ctx.cleanup().await.expect("cleanup");
 }
