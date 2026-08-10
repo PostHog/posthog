@@ -110,6 +110,7 @@ describe('Error Display', () => {
             lib: 'posthog-js',
             libVersion: '1.0.0',
             level: 'info',
+            levelKey: '$level',
             os: 'Windows',
             osVersion: '10',
             sentryUrl:
@@ -161,6 +162,7 @@ describe('Error Display', () => {
             lib: 'posthog-js',
             libVersion: '1.0.0',
             level: undefined,
+            levelKey: '$exception_level',
             os: 'Windows',
             osVersion: '10',
             url: undefined,
@@ -169,6 +171,24 @@ describe('Error Display', () => {
             ingestionErrors: undefined,
             handled: true,
         })
+    })
+
+    // Both keys have to resolve: $exception_level is what SDKs and ingestion write, while $level
+    // only appears on events forwarded from Sentry.
+    it.each([
+        ['$exception_level', { $exception_level: 'warning' }, 'warning', '$exception_level'],
+        ['$level for events forwarded from Sentry', { $level: 'info' }, 'info', '$level'],
+        [
+            '$exception_level ahead of $level',
+            { $exception_level: 'fatal', $level: 'info' },
+            'fatal',
+            '$exception_level',
+        ],
+        ['neither key', {}, undefined, '$exception_level'],
+    ])('getExceptionAttributes reads level from %s', (_name, properties, expectedLevel, expectedLevelKey) => {
+        const result = getExceptionAttributes(properties)
+        expect(result.level).toEqual(expectedLevel)
+        expect(result.levelKey).toEqual(expectedLevelKey)
     })
 
     // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
