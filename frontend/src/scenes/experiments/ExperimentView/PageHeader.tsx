@@ -125,6 +125,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     >
                                         {item.icon}
                                         {item.label}
+                                        {item.sideIcon}
                                     </ButtonPrimitive>
                                 ))}
                             </Fragment>

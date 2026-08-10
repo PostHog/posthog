@@ -5,6 +5,7 @@ import {
     IconArchive,
     IconCopy,
     IconDashboard,
+    IconExternal,
     IconLock,
     IconMessage,
     IconPause,
@@ -137,7 +138,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                     data-attr={`${RESOURCE_TYPE}-menubar-view-exposure-cohort`}
                                 >
                                     <IconPeople />
-                                    View exposure cohort as new tab
+                                    View exposure cohort
+                                    <IconExternal />
                                 </SceneMenuBarItem>
                             ) : (
                                 <SceneMenuBarItem

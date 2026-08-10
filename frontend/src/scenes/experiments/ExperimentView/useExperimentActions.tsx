@@ -5,6 +5,7 @@ import {
     IconArchive,
     IconCopy,
     IconDashboard,
+    IconExternal,
     IconLock,
     IconMessage,
     IconPause,
@@ -110,8 +111,9 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
         isExperimentLaunched &&
             (exposureCohortId
                 ? {
-                      label: 'View exposure cohort as new tab',
+                      label: 'View exposure cohort',
                       icon: <IconPeople />,
+                      sideIcon: <IconExternal />,
                       onClick: () => newInternalTab(urls.cohort(exposureCohortId)),
                       'data-attr': `${dataAttrPrefix}view-exposure-cohort`,
                   }
