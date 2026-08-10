@@ -9,7 +9,7 @@ function snapshot(secrets: SecretsSnapshot['secrets']): SecretsSnapshot {
     return {
         fetchedAt: '2026-08-06T00:00:00.000Z',
         versionId: 'v1',
-        versionCreatedAt: '2026-01-01T00:00:00.000Z',
+        changedAt: '2026-01-01T00:00:00.000Z',
         secrets,
     }
 }

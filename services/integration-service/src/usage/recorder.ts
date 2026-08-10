@@ -1,133 +1,153 @@
-// Per-key, per-caller usage counters, kept in Redis so they survive a replica restart
-// and aggregate across the whole deployment.
+// Per-key, per-deployment usage counters, held in Postgres.
 //
-// This is what answers "who actually reads this credential, and is the old value still
-// needed" — the two questions a rotation turns on. Prometheus already carries the same
-// signal, but per-replica and per-region, and the secrets UI runs in the internal
-// cluster; rolling it up here means the UI reads one S3 object instead of querying
-// metrics across clusters.
+// This answers "who actually reads this credential, and have they picked up the new value"
+// — the two questions a rotation turns on. Prometheus carries the same signal, but
+// per-replica and per-region, and the secrets UI runs in the internal cluster. Rolling it
+// up here means the UI reads one S3 object instead of querying metrics across clusters.
 //
-// Counters are bucketed by hour so a rolling 24h window is a sum of 24 hashes rather
-// than a scan. Stored in plaintext deliberately: these are caller names, key NAMES,
-// counts and timestamps — the same sensitivity class as the consumption map the
-// secrets UI already publishes. No credential value ever reaches this module.
+// Writes are batched in memory and flushed on a timer rather than issued per read. Callers
+// no longer cache, so every credential read reaches this service; an upsert per read would
+// put a write on the hot path for no benefit. A crash loses at most one flush interval of
+// counts, which is acceptable for usage totals and does not affect `last_seen` materially.
+//
+// No credential value ever reaches this module. It stores key NAMES, deployment names,
+// counts and timestamps.
 
-import type { Redis } from 'ioredis'
+import type { Pool } from 'pg'
 
 import { logger } from '../lib/logging.js'
 
-/** Hourly buckets kept around long enough to serve a 7-day view with room to spare. */
-const BUCKET_TTL_SECONDS = 9 * 24 * 60 * 60
-
-export const READS_SUFFIX = 'reads'
-
-export function hourBucket(at: number): string {
-    return new Date(at).toISOString().slice(0, 13).replace(/[-T]/g, '')
+interface Pending {
+    reads: number
+    lastSeen: number
 }
 
-export function bucketKey(env: string, bucket: string): string {
-    return `integration-service:v1:${env}:usage:${bucket}`
-}
-
-export function lastSeenKey(env: string): string {
-    return `integration-service:v1:${env}:usage:lastseen`
-}
-
-/** Hash field name. `|` is safe: neither a credential key name nor a caller name contains one. */
-export function usageField(key: string, caller: string, suffix: string): string {
-    return `${key}|${caller}|${suffix}`
+/** Truncate to the hour, so a rolling window is a sum over a small number of rows. */
+function hourBucket(at: number): Date {
+    const d = new Date(at)
+    d.setUTCMinutes(0, 0, 0)
+    return d
 }
 
 export interface UsageRecorderOptions {
-    redis?: Redis | undefined
-    env: string
+    pool?: Pool | undefined
     now?: () => number
 }
 
 export class UsageRecorder {
-    private readonly redis: Redis | undefined
-    private readonly env: string
+    private readonly pool: Pool | undefined
     private readonly now: () => number
+    private pending = new Map<string, Pending>()
 
     constructor(opts: UsageRecorderOptions) {
-        this.redis = opts.redis
-        this.env = opts.env
+        this.pool = opts.pool
         this.now = opts.now ?? Date.now
     }
 
-    /**
-     * Record a batch of reads for one caller. Fire-and-forget from the request path:
-     * usage accounting must never be the reason a credential read fails.
-     */
-    record(caller: string, servedKeys: readonly string[]): void {
-        if (!this.redis || servedKeys.length === 0) {
+    /** Accumulate a batch of reads. Never touches the database on the request path. */
+    record(deployment: string, servedKeys: readonly string[]): void {
+        if (servedKeys.length === 0) {
             return
         }
         const at = this.now()
-        const bucket = bucketKey(this.env, hourBucket(at))
-        const lastSeen = lastSeenKey(this.env)
-        const pipeline = this.redis.pipeline()
-
         for (const key of servedKeys) {
-            pipeline.hincrby(bucket, usageField(key, caller, READS_SUFFIX), 1)
-            pipeline.hset(lastSeen, usageField(key, caller, READS_SUFFIX), String(at))
+            const field = `${key}|${deployment}`
+            const entry = this.pending.get(field)
+            if (entry) {
+                entry.reads += 1
+                entry.lastSeen = Math.max(entry.lastSeen, at)
+            } else {
+                this.pending.set(field, { reads: 1, lastSeen: at })
+            }
         }
-        pipeline.expire(bucket, BUCKET_TTL_SECONDS)
-
-        pipeline.exec().catch((err: unknown) => {
-            logger.warn('usage:record_failed', { error: err instanceof Error ? err.message : String(err) })
-        })
     }
 
-    /** Read back the last `hours` buckets, summed per key/caller. */
+    /** Write what has accumulated. Safe to call when nothing is pending. */
+    async flush(): Promise<void> {
+        if (!this.pool || this.pending.size === 0) {
+            return
+        }
+        // Swap first: a failed write must not block the next request from accumulating,
+        // and re-queueing on failure would let a broken database grow this map without
+        // bound. Losing a flush costs counts, not correctness of `last_seen` ordering.
+        const batch = this.pending
+        this.pending = new Map()
+
+        const keys: string[] = []
+        const deployments: string[] = []
+        const buckets: Date[] = []
+        const reads: number[] = []
+        const lastSeen: Date[] = []
+        for (const [field, entry] of batch) {
+            const sep = field.lastIndexOf('|')
+            keys.push(field.slice(0, sep))
+            deployments.push(field.slice(sep + 1))
+            buckets.push(hourBucket(entry.lastSeen))
+            reads.push(entry.reads)
+            lastSeen.push(new Date(entry.lastSeen))
+        }
+
+        try {
+            await this.pool.query(
+                `INSERT INTO integration_secret_usage (secret_key, deployment, bucket, reads, last_seen)
+                 SELECT * FROM unnest($1::text[], $2::text[], $3::timestamptz[], $4::bigint[], $5::timestamptz[])
+                 ON CONFLICT (secret_key, deployment, bucket) DO UPDATE
+                 SET reads = integration_secret_usage.reads + EXCLUDED.reads,
+                     last_seen = GREATEST(integration_secret_usage.last_seen, EXCLUDED.last_seen)`,
+                [keys, deployments, buckets, reads, lastSeen]
+            )
+        } catch (err) {
+            logger.warn('usage:flush_failed', {
+                entries: batch.size,
+                error: err instanceof Error ? err.message : String(err),
+            })
+        }
+    }
+
+    /** Sum the last `hours` buckets per key/deployment, with the newest last-seen. */
     async summarize(hours: number): Promise<{
         reads: Map<string, number>
         lastSeen: Map<string, number>
     }> {
         const reads = new Map<string, number>()
         const lastSeen = new Map<string, number>()
-        if (!this.redis) {
+        if (!this.pool) {
             return { reads, lastSeen }
         }
 
-        const at = this.now()
-        const pipeline = this.redis.pipeline()
-        for (let i = 0; i < hours; i++) {
-            pipeline.hgetall(bucketKey(this.env, hourBucket(at - i * 60 * 60 * 1000)))
-        }
-        pipeline.hgetall(lastSeenKey(this.env))
-        const results = await pipeline.exec()
+        const { rows } = await this.pool.query<{
+            secret_key: string
+            deployment: string
+            reads: string
+            last_seen: Date
+        }>(
+            `SELECT secret_key, deployment, SUM(reads) AS reads, MAX(last_seen) AS last_seen
+             FROM integration_secret_usage
+             WHERE bucket >= now() - make_interval(hours => $1)
+             GROUP BY secret_key, deployment`,
+            [hours]
+        )
 
-        if (!results) {
-            return { reads, lastSeen }
+        for (const row of rows) {
+            const field = `${row.secret_key}|${row.deployment}`
+            reads.set(field, Number(row.reads))
+            lastSeen.set(field, row.last_seen.getTime())
         }
-
-        for (let i = 0; i < hours; i++) {
-            const entry = results[i]
-            const hash = entry?.[1] as Record<string, string> | undefined
-            if (!hash) {
-                continue
-            }
-            for (const [field, raw] of Object.entries(hash)) {
-                const count = Number.parseInt(raw, 10)
-                if (Number.isNaN(count)) {
-                    continue
-                }
-                const stripped = field.slice(0, field.lastIndexOf('|'))
-                reads.set(stripped, (reads.get(stripped) ?? 0) + count)
-            }
-        }
-
-        const lastSeenHash = results[hours]?.[1] as Record<string, string> | undefined
-        if (lastSeenHash) {
-            for (const [field, raw] of Object.entries(lastSeenHash)) {
-                const at2 = Number.parseInt(raw, 10)
-                if (!Number.isNaN(at2)) {
-                    lastSeen.set(field.slice(0, field.lastIndexOf('|')), at2)
-                }
-            }
-        }
-
         return { reads, lastSeen }
+    }
+
+    /** Drop buckets past the retention window, so the table stays small. */
+    async prune(retentionDays: number): Promise<void> {
+        if (!this.pool) {
+            return
+        }
+        try {
+            await this.pool.query(
+                `DELETE FROM integration_secret_usage WHERE bucket < now() - make_interval(days => $1)`,
+                [retentionDays]
+            )
+        } catch (err) {
+            logger.warn('usage:prune_failed', { error: err instanceof Error ? err.message : String(err) })
+        }
     }
 }

@@ -1,16 +1,18 @@
 // The storage seam.
 //
-// Phase 1 keeps everything in ONE AWS secret, the way every other PostHog service does it:
-// `integration-service-secrets`, holding flat `KEY: value` pairs. OpenBao is the eventual
-// destination (already deployed in dev via PostHog/charts) but is not in prod yet, so it
-// becomes a second implementation of this interface rather than a rewrite.
+// Everything lives in ONE AWS secret, the way every other PostHog service does it:
+// `integration-service-secrets`, holding flat `KEY: value` pairs. External Secrets Operator
+// syncs it into a Kubernetes Secret and the service reads the mount — see fileStore.ts.
+//
+// OpenBao is the eventual destination (already deployed in dev via PostHog/charts) but is
+// not in prod yet, so it becomes a second implementation of this interface, not a rewrite.
 
 import type { SecretsSnapshot } from '../types.js'
 
 export interface SecretStore {
     /**
-     * Load every credential field the manifest defines. Returns null when the secret does
-     * not exist in this environment — a configuration gap, not an error.
+     * Load every credential the manifest defines. Returns null when the mount is absent or
+     * empty — a configuration gap, not an error.
      */
     load(): Promise<SecretsSnapshot | null>
 }
@@ -33,10 +35,10 @@ export const RECOVERY_KEYS = 'INTEGRATION_RECOVERY_KEYS'
  * a key whose `_FALLBACKS` sibling is present, so the UI warns about an unsafe in-place
  * edit for free.
  *
- * It replaces what AWS staging labels used to do here, and has to. `AWSPREVIOUS` applies
- * to a whole secret version, so with every credential in one secret, rotating Google — or
+ * It replaces what AWS staging labels used to do here, and has to. `AWSPREVIOUS` applies to
+ * a whole secret version, so with every credential in one secret, rotating Google — or
  * simply adding an unrelated key — would consume the slot Stripe's in-flight rotation was
- * using and end its overlap silently. An explicit sibling is unaffected by edits to
- * anything else in the secret.
+ * using and end its overlap silently. A mount cannot see staging labels at all, which
+ * settles it.
  */
 export const FALLBACK_SUFFIX = '_FALLBACKS'

@@ -2,176 +2,150 @@
 //
 // Startup sequence:
 //   1. Load and validate configuration.
-//   2. Build the AWS clients (Secrets Manager, KMS, S3).
-//   3. Load the client registry — a hard failure, since the service cannot authenticate
-//      anybody without it.
-//   4. Connect Redis (optional; without it the service runs on L1 alone).
-//   5. Warm every provider, then flip readiness.
-//   6. Start the HTTP server and the background refresh + usage publish timers.
+//   2. Connect Postgres and apply the schema.
+//   3. Load the signing keys off the secret mount — a hard failure, since the service
+//      cannot authenticate anybody without them.
+//   4. Read the credentials once, then flip readiness.
+//   5. Start the HTTP server and the background reload, flush and publish timers.
 
-import { KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
-import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager'
 import { serve } from '@hono/node-server'
-import Redis from 'ioredis'
+import type { Pool } from 'pg'
 
 import { JwtVerifier } from './auth/jwt.js'
 import { SigningKeyLoader } from './auth/registry.js'
 import { credentialProvider } from './aws/credentials.js'
-import { EnvelopeCipher } from './cache/envelope.js'
-import { SecretCache } from './cache/secretCache.js'
+import { createPool, observeVersion } from './db/client.js'
 import { createApp, type Lifecycle } from './http/app.js'
 import { loadConfig } from './lib/config.js'
 import { logger } from './lib/logging.js'
-import { observeKms } from './metrics.js'
-import { createSecretsManagerStore } from './store/secretsManager.js'
+import { createFileStore } from './store/fileStore.js'
+import type { SecretsSnapshot } from './types.js'
 import { UsagePublisher } from './usage/publisher.js'
 import { UsageRecorder } from './usage/recorder.js'
 
-/** Spread a periodic task over its interval so replicas do not sync up on the store. */
-function jittered(intervalMs: number): number {
-    return intervalMs / 2 + Math.random() * intervalMs
-}
-
-function scheduleJittered(intervalMs: number, task: () => Promise<void>): NodeJS.Timeout {
-    const timer = setTimeout(function run() {
-        void task().finally(() => timer.refresh?.())
-    }, jittered(intervalMs))
+/** Spread a periodic task over its interval so replicas do not sync up. */
+function scheduleJittered(intervalMs: number, task: () => Promise<void>): void {
+    const timer = setTimeout(
+        function run() {
+            void task().finally(() => timer.refresh?.())
+        },
+        intervalMs / 2 + Math.random() * intervalMs
+    )
     // Unref so a pending timer never holds the process open during shutdown.
     timer.unref()
-    return timer
 }
 
 async function main(): Promise<void> {
     const config = loadConfig()
-    // `credentials` is passed explicitly so the SDK never consults its default chain —
-    // see src/aws/credentials.ts for why that matters on this service in particular.
-    const awsCommon = {
-        region: config.awsRegion,
-        credentials: credentialProvider(),
-        ...(config.awsEndpoint ? { endpoint: config.awsEndpoint, forcePathStyle: true } : {}),
+
+    let pool: Pool | undefined
+    if (config.databaseUrl) {
+        try {
+            pool = await createPool(config.databaseUrl)
+            logger.info('db:connected', {})
+        } catch (err) {
+            // Guarded in loadConfig for production. Locally the service runs without usage
+            // recording, which costs the rollup and nothing else.
+            logger.error('db:connect_failed', { error: err instanceof Error ? err.message : String(err) })
+            process.exit(1)
+        }
+    } else {
+        logger.warn('db:disabled', { reason: 'INTEGRATION_SERVICE_DATABASE_URL is unset — no usage recording' })
     }
 
-    const secretsManager = new SecretsManagerClient(awsCommon)
-    const kms = new KMSClient(awsCommon)
-    const s3 = new S3Client(awsCommon)
-
-    const signingKeys = new SigningKeyLoader(secretsManager, config.secretId)
+    const signingKeys = new SigningKeyLoader(config.secretsDir)
     try {
         await signingKeys.load()
     } catch (err) {
         logger.error('startup:signing_keys_load_failed', {
-            secretId: config.secretId,
+            dir: config.secretsDir,
             error: err instanceof Error ? err.message : String(err),
         })
         process.exit(1)
     }
 
-    let redis: Redis | undefined
-    if (config.redisUrl) {
-        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-        redis = new Redis(config.redisUrl, {
-            lazyConnect: true,
-            maxRetriesPerRequest: 3,
-            enableOfflineQueue: false,
-            connectTimeout: 5000,
-            commandTimeout: 2000,
-            keepAlive: 30000,
-            retryStrategy: (times: number) => Math.min(times * 200, 2000),
-        })
-        redis.on('error', (err: Error) => logger.error('redis:error', { error: err.message }))
-        try {
-            await redis.connect()
-            logger.info('redis:connected', {})
-        } catch (err) {
-            // Redis is a cache tier, not the source of truth. Losing it costs latency
-            // and extra Secrets Manager reads; it must not stop the service booting.
-            logger.error('redis:connect_failed', { error: err instanceof Error ? err.message : String(err) })
-            redis = undefined
-        }
-    } else {
-        logger.warn('redis:disabled', { reason: 'INTEGRATION_SERVICE_REDIS_URL is unset — L1 cache only' })
-    }
-
-    const cipher = new EnvelopeCipher({
-        kms,
-        // Guarded in loadConfig: a configured Redis without a KMS key exits at boot.
-        keyId: config.kmsKeyId ?? '',
-        env: config.env,
-        rotationMs: config.dekRotationMs,
-        onKms: observeKms,
+    const store = createFileStore({
+        dir: config.secretsDir,
+        // Without Postgres there is no shared record of when content first appeared, so the
+        // retirement verdict simply stays false rather than guessing.
+        observeVersion: (hash) => (pool ? observeVersion(pool, hash) : Promise.resolve(null)),
     })
 
-    const cache = new SecretCache({
-        store: createSecretsManagerStore({ client: secretsManager, secretId: config.secretId }),
-        cipher,
-        redis,
-        env: config.env,
-        ttlSeconds: config.cacheTtlSeconds,
-    })
+    // The mount is a handful of small files on tmpfs, so there is no cache tier here: the
+    // snapshot is re-read on a timer and held in memory between reads.
+    let snapshot: SecretsSnapshot | null = null
 
-    const recorder = new UsageRecorder({ redis, env: config.env })
+    const recorder = new UsageRecorder({ pool })
     const lifecycle: Lifecycle = { shuttingDown: false, ready: false }
 
     const app = createApp({
         verifier: new JwtVerifier(signingKeys),
         lifecycle,
-        resolveDeps: {
-            loadSecrets: () => cache.get(),
-            recorder,
-        },
+        resolveDeps: { loadSecrets: () => Promise.resolve(snapshot), recorder },
         metricsToken: config.metricsToken,
     })
 
-    // Readiness tracks whether this pod actually holds a snapshot, not merely that warm()
-    // ran. A pod with no credentials at all must fail its probe: every resolve would come
-    // back all-missing, which callers treat as terminal rather than retryable. `warm()`
-    // still returns true while serving a last known good snapshot through a store blip,
-    // so a transient AWS wobble does not take a warm fleet out of rotation.
-    const warmAndSetReady = async (): Promise<void> => {
-        const holdsSnapshot = await cache.warm()
-        if (!holdsSnapshot && lifecycle.ready) {
-            logger.error('cache:snapshot_lost', {})
+    // Readiness tracks whether this pod actually holds a snapshot, not merely that a reload
+    // ran. A pod with no credentials must fail its probe: every resolve would come back
+    // all-missing, which callers treat as terminal rather than retryable. An unreadable
+    // mount keeps the previous snapshot, so a transient blip does not take a warm fleet
+    // out of rotation — and an empty mount at boot recovers on its own once ESO syncs,
+    // without a crash loop.
+    const reloadAndSetReady = async (): Promise<void> => {
+        const next = await store.load()
+        if (next) {
+            snapshot = next
+        } else if (lifecycle.ready) {
+            logger.error('secrets:snapshot_lost', { dir: config.secretsDir })
         }
-        lifecycle.ready = holdsSnapshot
+        lifecycle.ready = snapshot !== null
     }
 
-    await warmAndSetReady()
+    await reloadAndSetReady()
     if (!lifecycle.ready) {
-        logger.error('startup:no_snapshot', { secretId: config.secretId })
+        logger.error('startup:no_credentials_on_mount', { dir: config.secretsDir })
     }
 
     const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
         logger.info('server:started', { host: config.host, port: info.port, env: config.env })
     })
 
-    // Background refresh keeps the cache warm ahead of expiry, so a rotation reaches
-    // callers within a TTL without anyone paying a cold read.
-    scheduleJittered(config.cacheTtlSeconds * 1000, warmAndSetReady)
-    scheduleJittered(config.cacheTtlSeconds * 1000, async () => {
+    scheduleJittered(config.reloadSeconds * 1000, async () => {
+        await reloadAndSetReady()
         await signingKeys.reload()
     })
 
+    scheduleJittered(config.usageFlushMs, () => recorder.flush())
+    scheduleJittered(24 * 60 * 60 * 1000, () => recorder.prune(config.retentionDays))
+
     if (config.usageBucket) {
         const publisher = new UsagePublisher({
-            s3,
+            s3: new S3Client({
+                region: config.awsRegion,
+                // Explicit, so the SDK never consults its default chain — see
+                // src/aws/credentials.ts for why that matters on this service.
+                credentials: credentialProvider(),
+                ...(config.awsEndpoint ? { endpoint: config.awsEndpoint, forcePathStyle: true } : {}),
+            }),
             bucket: config.usageBucket,
             kmsKeyId: config.usageKmsKeyId,
             env: config.env,
             quietWindowHours: config.retireQuietHours,
             recorder,
-            loadSnapshot: () => cache.get(),
+            loadSnapshot: () => Promise.resolve(snapshot),
         })
         scheduleJittered(config.usagePublishIntervalMs, () => publisher.publish())
     }
 
-    registerShutdown({ server, lifecycle, redis, config })
+    registerShutdown({ server, lifecycle, recorder, pool, config })
 }
 
 function registerShutdown(opts: {
     server: { close: (cb: () => void) => void }
     lifecycle: Lifecycle
-    redis: Redis | undefined
+    recorder: UsageRecorder
+    pool: Pool | undefined
     config: { shutdownGraceMs: number; shutdownPrestopDelayMs: number }
 }): void {
     let started = false
@@ -192,14 +166,15 @@ function registerShutdown(opts: {
         const drainBudget = Math.max(opts.config.shutdownGraceMs - (Date.now() - startedAt), 1000)
         await Promise.race([new Promise<void>((resolve) => opts.server.close(() => resolve())), sleep(drainBudget)])
 
-        if (opts.redis) {
-            try {
-                await opts.redis.quit()
-            } catch (err) {
-                logger.error('shutdown:redis_quit_failed', {
+        // Write what accumulated since the last flush, so a rolling restart does not lose
+        // the reads that prove a caller has moved onto a new value.
+        await opts.recorder.flush()
+        if (opts.pool) {
+            await opts.pool.end().catch((err: unknown) => {
+                logger.error('shutdown:db_close_failed', {
                     error: err instanceof Error ? err.message : String(err),
                 })
-            }
+            })
         }
         logger.info('shutdown:complete', {})
         process.exit(0)

@@ -31,13 +31,15 @@ export interface ResolvedSecret {
 /** Every credential field, as loaded from the one integration-service secret. */
 export interface SecretsSnapshot {
     fetchedAt: string
+    /** Hash of the whole mounted key set. Identifies the content, not an AWS version. */
     versionId: string
     /**
-     * When the secret last changed. Used as the "have callers picked up the new value"
-     * threshold — see safeToRetirePrevious. Not per-field: an unrelated edit moves it
+     * When this content was first seen, from the version table so every replica agrees and
+     * a restart does not reset it. Used as the "have callers picked up the new value"
+     * threshold — see safeToRetirePrevious. Not per-key: an unrelated edit moves it
      * forward, which only delays a retirement verdict.
      */
-    versionCreatedAt: string | null
+    changedAt: string | null
     secrets: Record<string, ResolvedSecret>
 }
 

@@ -40,8 +40,8 @@ export interface UsageKeyEntry {
     currentActivatedAt: string | null
     callers: UsageCallerEntry[]
     /**
-     * True when every deployment known to read this key has read it since the current
-     * value became AWSCURRENT, and at least one such deployment exists.
+     * True when every deployment known to read this key has read it since the secret last
+     * changed, and at least one such deployment exists.
      *
      * "Known to read" spans every caller with a last-seen record, not only those active
      * inside the rolling window, so a deployment that reads the key rarely still holds
@@ -97,7 +97,7 @@ export function buildUsageMap(opts: {
                 }
             }
 
-            const activatedAt = snapshot.versionCreatedAt ? Date.parse(snapshot.versionCreatedAt) : null
+            const activatedAt = snapshot.changedAt ? Date.parse(snapshot.changedAt) : null
             for (const [field, at] of opts.lastSeen) {
                 const [fieldKey, caller] = field.split('|')
                 // Deliberately not gated on a read inside the rolling window: last-seen is
@@ -120,7 +120,7 @@ export function buildUsageMap(opts: {
                 provider: providerForKey(key) ?? 'unknown',
                 state: resolved.state,
                 currentVersionId: resolved.versionId,
-                currentActivatedAt: snapshot.versionCreatedAt,
+                currentActivatedAt: snapshot.changedAt,
                 callers: entries,
                 safeToRetirePrevious:
                     resolved.state === 'rotating' &&

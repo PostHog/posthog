@@ -12,15 +12,14 @@ import { resolve } from 'path'
 export const integrationServiceOutfile = resolve(process.cwd(), 'dist/integration-service.mjs')
 export const integrationServiceMetafile = resolve(process.cwd(), 'dist/meta.json')
 
-// The AWS SDK's runtimeConfig statically imports the entire default credential chain, so
-// esbuild would bundle SSO, shared-INI, credential_process and IMDS even though this
-// service always passes an explicit provider (src/aws/credentials.ts) and can never
-// reach them. Alias them to a stub that throws if anything ever does.
+// The AWS SDK's runtimeConfig statically imports the whole default credential chain, so
+// esbuild would bundle SSO, shared-INI, credential_process and IMDS even though the S3
+// client always gets an explicit provider (src/aws/credentials.ts) and can never reach
+// them. Alias them to a stub that throws if anything ever does.
 //
-// This is a security control, not only a size optimisation: the service must not be able
-// to silently authenticate as an EC2 instance role or as whatever a developer last ran
-// `aws sso login` against. It also keeps those packages' transitive tree out of the way
-// of the monorepo's pinned @smithy/* overrides.
+// This is a security control, not only a size optimisation: the service must not be able to
+// authenticate silently as an EC2 instance role, or as whatever a developer last ran
+// `aws sso login` against.
 const UNREACHABLE_CREDENTIAL_PROVIDERS = [
     '@aws-sdk/credential-provider-sso',
     '@aws-sdk/credential-provider-ini',

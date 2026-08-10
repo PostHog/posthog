@@ -9,7 +9,7 @@
 // logged into with `aws sso login`, is a failure mode worth removing rather than
 // documenting.
 //
-// So there are exactly two ways in:
+// The only AWS client left is S3, for the usage artifact. So there are exactly two ways in:
 //   - in the cluster: the IRSA web identity token, which is how the pod is meant to
 //     assume its role;
 //   - against a local mock (moto): static throwaway credentials, when AWS_ENDPOINT_URL is

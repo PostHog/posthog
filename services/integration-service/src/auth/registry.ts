@@ -1,101 +1,73 @@
-// The service's own signing keys, one entry per calling deployment.
+// The service's signing keys, one per calling deployment.
 //
-// They live in the same secret as the credentials, as flat uppercase keys, which is what
-// the PostHog/secrets CLI and UI can manage:
+// They sit in the same mounted secret as the credentials, as flat uppercase keys, which is
+// what the PostHog/secrets CLI and UI can manage:
 //
 //   integration-service-secrets
 //     STRIPE_APP_SECRET_KEY                      = "<credential>"
 //     CALLER_KEY_POSTHOG_DJANGO                  = "<new>,<old>"
 //     CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE  = "<new>,<old>"
 //
-// The same value is also set as INTEGRATION_SERVICE_JWT_SECRET in that deployment's own
-// secret. Duplicating one value per deployment is inherent to shared-secret auth, and it
-// replaces 26 duplicated credentials with one.
+// The same value goes into that deployment's own secret as INTEGRATION_SERVICE_JWT_SECRET.
+// Duplicating one value per deployment is inherent to shared-secret auth, and it replaces
+// 26 duplicated credentials with one.
 //
-// Deployment names are DERIVED from the entries present, not declared in code. Onboarding
-// a caller or revoking a compromised one is therefore a secrets edit with no deploy — and
+// Deployment names are DERIVED from the entries present, not declared in code. Onboarding a
+// caller or revoking a compromised one is therefore a secrets edit with no deploy — and
 // revoking one deployment's key leaves every other deployment working, which is the
 // containment this design relies on.
 //
-// Held in process memory only, never written to Redis. Everything else this service
-// caches is a credential sealed under KMS; these are the keys that authenticate callers.
-
-import { GetSecretValueCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager'
+// Held in process memory only. These are the keys that authenticate callers.
 
 import { logger } from '../lib/logging.js'
 import { signingKeyReloadFailuresTotal, signingKeysLastLoadedTimestamp } from '../metrics.js'
+import { readSigningKeys } from '../store/fileStore.js'
 import type { SigningKeys } from './types.js'
 
-const KEY_PREFIX = 'CALLER_KEY_'
+export const CALLER_KEY_PREFIX = 'CALLER_KEY_'
 
 /** `temporal-worker-data-warehouse` -> `CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE`. */
 export function secretKeyFor(deployment: string): string {
-    return `${KEY_PREFIX}${deployment.toUpperCase().replaceAll('-', '_')}`
+    return `${CALLER_KEY_PREFIX}${deployment.toUpperCase().replaceAll('-', '_')}`
 }
 
-/** `CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE` -> `temporal-worker-data-warehouse`. */
-function deploymentFor(secretKey: string): string {
-    return secretKey.slice(KEY_PREFIX.length).toLowerCase().replaceAll('_', '-')
-}
-
-function parseSigningKeys(raw: string): SigningKeys {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new Error('signing key secret is not a JSON object')
+/**
+ * Reject a key value listed under more than one deployment.
+ *
+ * Two deployments sharing a value would collapse into one identity: the verifier stops at
+ * the first entry that verifies, so both resolve to whichever CALLER_KEY_* came first.
+ * Revoking one would then not cut it off, because the same value is still listed under the
+ * other name — and revocation is the containment this design relies on. Attribution goes
+ * with it: the audit log, the usage rollup and safeToRetirePrevious would all name the
+ * wrong caller. Fail at load instead; a paste error is the likely cause, and it is not
+ * visible in an opaque value.
+ */
+export function assertNoSharedKeys(keys: SigningKeys): void {
+    const owner = new Map<string, string>()
+    for (const [deployment, values] of Object.entries(keys)) {
+        for (const value of values) {
+            const existing = owner.get(value)
+            if (existing && existing !== deployment) {
+                throw new Error(`signing key for ${deployment} is also listed for ${existing}`)
+            }
+            owner.set(value, deployment)
+        }
     }
-    const flat = parsed as Record<string, unknown>
-
-    const keys: SigningKeys = {}
-    for (const [secretKey, value] of Object.entries(flat)) {
-        if (!secretKey.startsWith(KEY_PREFIX) || typeof value !== 'string') {
-            continue
-        }
-        // Comma-separated `new,old`, whitespace-trimmed. Same convention as
-        // RECORDING_API_JWT_SECRET and the minting side.
-        const parts = value
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean)
-        if (parts.length === 0) {
-            continue
-        }
-        const deployment = deploymentFor(secretKey)
-        // Two deployments sharing a key value would collapse into one identity: the
-        // verifier breaks on the first entry that verifies, so both would resolve to
-        // whichever CALLER_KEY_* came first. Revoking one would then not cut it off,
-        // because the same value is still listed under the other name — and revocation is
-        // the containment this design relies on. Attribution goes with it: the audit log,
-        // the usage rollup and safeToRetirePrevious would all name the wrong caller.
-        // Fail the edit at boot instead; a paste error is the likely cause and it is not
-        // visible in an opaque value.
-        const clash = Object.entries(keys).find(([, existing]) => existing.some((key) => parts.includes(key)))
-        if (clash) {
-            throw new Error(`signing key for ${deployment} is also listed for ${clash[0]}`)
-        }
-        keys[deployment] = parts
-    }
-    return keys
 }
 
 export class SigningKeyLoader {
     private keys: SigningKeys = {}
     private loaded = false
 
-    constructor(
-        private readonly client: SecretsManagerClient,
-        private readonly secretId: string
-    ) {}
+    constructor(private readonly dir: string) {}
 
     /** Replace the in-memory key set. Throws on the first load so boot fails closed. */
     async load(): Promise<void> {
-        const response = await this.client.send(new GetSecretValueCommand({ SecretId: this.secretId }))
-        if (!response.SecretString) {
-            throw new Error(`signing key secret ${this.secretId} has no value`)
-        }
-        const keys = parseSigningKeys(response.SecretString)
+        const keys = await readSigningKeys(this.dir, CALLER_KEY_PREFIX)
         if (Object.keys(keys).length === 0) {
-            throw new Error(`signing key secret ${this.secretId} defines no deployment keys`)
+            throw new Error(`no ${CALLER_KEY_PREFIX}* entries on the secret mount at ${this.dir}`)
         }
+        assertNoSharedKeys(keys)
         this.keys = keys
         this.loaded = true
         signingKeysLastLoadedTimestamp.set(Date.now() / 1000)
@@ -103,16 +75,11 @@ export class SigningKeyLoader {
     }
 
     /**
-     * Reload, keeping the previous keys if the new value is unreadable. A malformed edit
-     * must not lock every caller out of a running fleet.
+     * Reload, keeping the previous keys if the mount is unreadable or invalid. A malformed
+     * edit must not lock every caller out of a running fleet.
      *
-     * That makes this the one path a revocation ever travels, and it fails open — so it
-     * has to be alertable rather than a log line. The failure counter and the
-     * last-loaded gauge above are the two signals: `time() -
-     * integration_service_signing_keys_last_loaded_timestamp` exceeding a couple of
-     * refresh intervals means "a revocation has not landed on this pod", whatever the
-     * cause (an unreadable secret, a malformed edit, or one that leaves no CALLER_KEY_*
-     * entries at all).
+     * That fail-open is what the two metrics exist for: staleness on the gauge means "a
+     * revocation has not landed on this pod".
      */
     async reload(): Promise<void> {
         try {

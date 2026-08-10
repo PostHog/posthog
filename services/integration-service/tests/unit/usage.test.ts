@@ -10,7 +10,7 @@ const AFTER = Date.parse('2026-08-02T00:00:00.000Z')
 const ROTATING: SecretsSnapshot = {
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v-new',
-    versionCreatedAt: ACTIVATED_AT,
+    changedAt: ACTIVATED_AT,
     secrets: {
         GOOGLE_ADS_APP_CLIENT_SECRET: {
             state: 'rotating',
@@ -130,7 +130,7 @@ describe('usage map', () => {
         })
 
         it('is false when the current version has no activation time to compare against', () => {
-            const undated: SecretsSnapshot = { ...ROTATING, versionCreatedAt: null }
+            const undated: SecretsSnapshot = { ...ROTATING, changedAt: null }
             const usage = build({
                 snapshot: undated,
                 reads: { [`${KEY}|${WORKER}`]: 100 },

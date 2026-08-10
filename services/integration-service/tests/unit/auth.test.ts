@@ -1,5 +1,8 @@
 import { SignJWT } from 'jose'
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { JwtVerifier, bearerToken } from '@/auth/jwt.js'
 import { SigningKeyLoader } from '@/auth/registry.js'
@@ -150,35 +153,52 @@ describe('jwt verification', () => {
 })
 
 describe('signing key registry', () => {
-    function loader(fields: Record<string, unknown>): SigningKeyLoader {
-        const client = {
-            send: () => Promise.resolve({ SecretString: JSON.stringify(fields) }),
-        }
-        return new SigningKeyLoader(client as never, 'integration-service-secrets')
+    const dirs: string[] = []
+
+    afterEach(async () => {
+        await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+    })
+
+    /** A directory shaped the way kubelet projects a Kubernetes Secret: one file per key. */
+    async function mount(values: Record<string, string>): Promise<string> {
+        const dir = await mkdtemp(join(tmpdir(), 'signing-keys-'))
+        dirs.push(dir)
+        await Promise.all(Object.entries(values).map(([k, v]) => writeFile(join(dir, k), v)))
+        return dir
     }
 
     it('derives one deployment per CALLER_KEY_ entry and ignores everything else', async () => {
-        const keys = loader({
-            CALLER_KEY_POSTHOG_DJANGO: `${DJANGO_KEY}`,
-            CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW}, ${DW_KEY_OLD}`,
-            STRIPE_APP_SECRET_KEY: 'not-a-signing-key',
-        })
+        const keys = new SigningKeyLoader(
+            await mount({
+                CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
+                CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW}, ${DW_KEY_OLD}`,
+                STRIPE_APP_SECRET_KEY: 'not-a-signing-key',
+            })
+        )
         await keys.load()
 
         expect(Object.fromEntries(keys.entries())).toEqual(KEYS)
     })
 
-    // The verifier breaks on the first key set that verifies, so two deployments sharing a
-    // value collapse into one identity: revoking either leaves the other working, and
-    // every attribution names the wrong caller. A paste error is invisible in an opaque
-    // value, so it has to fail at boot.
-    it('refuses to load when two deployments are given the same signing key', async () => {
-        const keys = loader({
-            CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
-            CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW},${DJANGO_KEY}`,
-        })
+    it('refuses to boot when the mount carries no caller keys at all', async () => {
+        const keys = new SigningKeyLoader(await mount({ STRIPE_APP_SECRET_KEY: 'sec' }))
+        await expect(keys.load()).rejects.toThrow(/no CALLER_KEY_\* entries/)
+        expect(keys.isLoaded).toBe(false)
+    })
 
-        await expect(keys.load()).rejects.toThrow(/also listed for posthog-django/)
+    // The verifier stops at the first key set that verifies, so two deployments sharing a
+    // value collapse into one identity: revoking either leaves the other working, and every
+    // attribution names the wrong caller. A paste error is invisible in an opaque value, so
+    // it has to fail at boot.
+    it('refuses to load when two deployments are given the same signing key', async () => {
+        const keys = new SigningKeyLoader(
+            await mount({
+                CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
+                CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW},${DJANGO_KEY}`,
+            })
+        )
+
+        await expect(keys.load()).rejects.toThrow(/also listed for/)
         expect(keys.isLoaded).toBe(false)
     })
 
@@ -186,17 +206,11 @@ describe('signing key registry', () => {
     // keys. That makes it the one path a revocation travels and it fails open — see the
     // last-loaded gauge and the failure counter in metrics.ts.
     it('keeps the previous keys when a reload fails', async () => {
-        let healthy = true
-        const client = {
-            send: () =>
-                healthy
-                    ? Promise.resolve({ SecretString: JSON.stringify({ CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY }) })
-                    : Promise.reject(new Error('access denied')),
-        }
-        const keys = new SigningKeyLoader(client as never, 'integration-service-secrets')
+        const dir = await mount({ CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY })
+        const keys = new SigningKeyLoader(dir)
         await keys.load()
 
-        healthy = false
+        await rm(dir, { recursive: true, force: true })
         await keys.reload()
 
         expect(Object.fromEntries(keys.entries())).toEqual({ [DJANGO]: [DJANGO_KEY] })
