@@ -1,15 +1,13 @@
 """Reconstructs an organization's AI training opt-in history for the Django admin.
 
-Everything here is derived from what was recorded: the organization's current field values and
-the `ActivityLog` rows that changed `is_ai_training_opted_in`. The rules that decide the starting
-value (region, license, HIPAA) are deliberately not reproduced here. A value with no recorded
-change is reported as "no change recorded", and the raw flags are shown as-is for support to read.
+Everything here is derived from what was recorded: the organization's current value and the
+`ActivityLog` rows that changed `is_ai_training_opted_in`. The rules that decide the starting
+value (region, license, HIPAA) are deliberately not reproduced here.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Optional
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
@@ -26,14 +24,10 @@ class OptInChange:
     changed_at: datetime
     before: Optional[bool]
     after: Optional[bool]
-    action: str
     actor: str
     origin: str
-    was_impersonated: bool
     client: Optional[str]
     ip_address: Optional[str]
-    activity_log_id: str
-    raw_detail: Any
 
     @property
     def changed_at_display(self) -> str:
@@ -43,15 +37,10 @@ class OptInChange:
     def transition_display(self) -> str:
         return f"{_describe_value(self.before)} → {_describe_value(self.after)}"
 
-    @property
-    def raw_detail_json(self) -> str:
-        return json.dumps(self.raw_detail, indent=2, default=str)
-
 
 @dataclass(frozen=True)
 class OptInHistory:
     headline: str
-    lines: list[str]
     changes: list[OptInChange]
     truncated: bool = False
     error: Optional[str] = None
@@ -91,20 +80,16 @@ def _to_change(entry: ActivityLog, change: dict) -> OptInChange:
         changed_at=entry.created_at,
         before=change.get("before"),
         after=change.get("after"),
-        action=change.get("action") or "changed",
         actor=_describe_actor(entry),
         origin=_describe_origin(entry),
-        was_impersonated=bool(entry.was_impersonated),
         client=entry.client,
         ip_address=entry.ip_address,
-        activity_log_id=str(entry.id),
-        raw_detail=entry.detail,
     )
 
 
 def _fetch_changes(organization: Organization) -> tuple[list[OptInChange], bool]:
     # Newest-first so an organization over the cap keeps its most recent changes, which are the ones
-    # support is asking about. Reversed below so the panel and the summary read oldest to newest.
+    # support is asking about. Reversed below so the panel reads oldest to newest.
     entries = list(
         ActivityLog.objects.filter(
             organization_id=organization.id,
@@ -129,66 +114,25 @@ def _timestamp(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _build_summary(current: Optional[bool], changes: list[OptInChange], truncated: bool) -> tuple[str, list[str]]:
-    ever_opted_in = current is True or any(c.after is True or c.before is True for c in changes)
-
+def _build_headline(current: Optional[bool], changes: list[OptInChange]) -> str:
     if current is True:
-        headline = "Currently opted in"
-    elif not ever_opted_in and not truncated:
-        headline = "Never opted in"
-    elif current is None:
-        headline = "Currently not set"
-    else:
-        headline = "Currently opted out"
+        return "Currently opted in"
 
-    # The headline already states the current value, so only spell it out when it is null, which
-    # the headline cannot distinguish from opted out.
-    current_value_lines = ["The value is null rather than false."] if current is None else []
-
-    if not changes:
-        return headline, [
-            *current_value_lines,
-            "No change to this setting has ever been recorded, so it still holds the value the "
-            "organization was given automatically.",
-        ]
-
-    lines = list(current_value_lines)
-
-    if truncated:
-        lines.append(
-            f"More than {MAX_ENTRIES_SHOWN} changes recorded. Only the most recent {len(changes)} are "
-            "summarized here, so anything before them is missing from this panel."
-        )
-    else:
-        lines.append(f"{len(changes)} recorded change(s).")
-        lines.append(
-            f"Before the first recorded change it was {_describe_value(changes[0].before)}, with no "
-            "earlier change recorded, so that value was set automatically."
-        )
-
-    first_opt_in = next((c for c in changes if c.after is True), None)
-    if first_opt_in is None:
-        if changes[0].before is not True:
-            lines.append("None of these changes switched it on.")
-    else:
-        lines.append(
-            f"{'Earliest shown opt-in' if truncated else 'First opted in'} on "
-            f"{_timestamp(first_opt_in.changed_at)} by {first_opt_in.actor} ({first_opt_in.origin})."
-        )
-
-    last = changes[-1]
-    lines.append(
-        f"Last changed on {_timestamp(last.changed_at)} by {last.actor} ({last.origin}): {last.transition_display}."
-    )
-
-    return headline, lines
+    was_opted_in = any(c.after is True or c.before is True for c in changes)
+    headline = "Currently opted out, was opted in previously" if was_opted_in else "Never opted in"
+    # The column is nullable, and null reads as opted out everywhere else. Say so rather than let
+    # support assume someone set it to false.
+    return f"{headline} (value is null)" if current is None else headline
 
 
 def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
     try:
         changes, truncated = _fetch_changes(organization)
     except Exception as e:
-        return OptInHistory(headline="Could not load history", lines=[], changes=[], error=str(e))
+        return OptInHistory(headline="Could not load history", changes=[], error=str(e))
 
-    headline, lines = _build_summary(organization.is_ai_training_opted_in, changes, truncated)
-    return OptInHistory(headline=headline, lines=lines, changes=changes, truncated=truncated)
+    return OptInHistory(
+        headline=_build_headline(organization.is_ai_training_opted_in, changes),
+        changes=changes,
+        truncated=truncated,
+    )
