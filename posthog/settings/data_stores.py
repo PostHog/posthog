@@ -10,7 +10,7 @@ import dj_database_url
 
 from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, resolve_clickhouse_database, str_to_bool
 from posthog.utils import str_to_int_set
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -301,7 +301,12 @@ CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKH
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+CLICKHOUSE_DATABASE: str = resolve_clickhouse_database(
+    env_value=os.getenv("CLICKHOUSE_DATABASE"),
+    test=TEST,
+    test_db=CLICKHOUSE_TEST_DB,
+    is_collect_static=IS_COLLECT_STATIC,
+)
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
 CLICKHOUSE_SATELLITE_CLUSTERS: list[str] = [

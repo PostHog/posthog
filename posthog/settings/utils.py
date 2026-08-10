@@ -11,6 +11,7 @@ __all__ = [
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
+    "resolve_clickhouse_database",
     "str_to_bool",
 ]
 
@@ -46,6 +47,32 @@ def generate_rsa_private_key_pem() -> str:
         encryption_algorithm=serialization.NoEncryption(),
     )
     return pem.decode("utf-8")
+
+
+def resolve_clickhouse_database(
+    *,
+    env_value: Optional[str],
+    test: bool,
+    test_db: str,
+    is_collect_static: bool,
+) -> str:
+    """Resolve which ClickHouse database PostHog connects to, and fail loudly when it is unset.
+
+    HogQL prints table names without a database prefix, so the connection's database decides where
+    every query resolves. A silent fallback to the "default" database (which holds no PostHog tables)
+    turns a config mistake into a confusing "table does not exist" error at query time, so raise here.
+    """
+    if test:
+        return test_db
+    if env_value:
+        return env_value
+    if is_collect_static:
+        # collectstatic runs during the image build with no runtime env and never queries ClickHouse.
+        return "default"
+    raise ImproperlyConfigured(
+        "CLICKHOUSE_DATABASE is not set. Set it to the ClickHouse database that holds your PostHog "
+        "tables. The dev stack and self-hosted deployments use 'posthog'."
+    )
 
 
 def get_from_env(
