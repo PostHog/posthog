@@ -62,19 +62,30 @@ jobs:
     # no longer resolves there. It cannot catch golden movement — a legitimate
     # shared-layer change shifts cloud goldens at the next base-ref bump, and
     # that bump PR owns the regen.
+    #
+    # Credential blast radius: any same-repo branch can edit this workflow and
+    # run it with repo secrets, so the App key must be worth as little as
+    # possible. The gate therefore triggers cloud-infra via workflow_dispatch —
+    # which needs only the Actions permission — and the App is provisioned with
+    # Actions: read & write on posthog-cloud-infra ONLY, no contents access. A
+    # stolen key can start or cancel that repo's workflow runs; it cannot read
+    # or write its code.
     cloud-compose-gate:
         name: Cloud compose gate
         runs-on: ubuntu-24.04
         timeout-minutes: 25
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request'
         env:
             # secrets is unavailable in step `if:` — surface presence through env.
-            HAS_GATE_CREDS: ${{ secrets.GH_APP_HCL_COMPOSE_GATE_APP_ID != '' }}
+            # Both halves checked: a provisioned App ID with a missing key must
+            # read as "not provisioned" (skip), not as a red minting step.
+            HAS_GATE_CREDS: ${{ secrets.GH_APP_HCL_COMPOSE_GATE_APP_ID != '' && secrets.GH_APP_HCL_COMPOSE_GATE_PRIVATE_KEY != '' }}
+            IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         steps:
             - name: Mint cloud-infra token
               id: app-token
-              # Secrets are absent on forks (already excluded above) and until the
-              # App is provisioned — in both cases the gate reports skipped, not red.
+              # Secrets are empty on fork PRs and until the App is provisioned —
+              # in both cases the gate reports skipped (with a summary), not red.
               if: env.HAS_GATE_CREDS == 'true'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -95,18 +106,22 @@ jobs:
                   workflow="ci-clickhouse-hcl-compose-gate.yaml"
                   correlation_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
-                  gh api "repos/$repo/dispatches" \
-                    -f event_type=posthog-hcl-compose-check \
-                    -f "client_payload[posthog_ref]=$POSTHOG_REF" \
-                    -f "client_payload[correlation_id]=$correlation_id" \
-                    -f "client_payload[pr]=$PR_NUMBER"
-                  echo "dispatched posthog-hcl-compose-check ref=$POSTHOG_REF correlation=$correlation_id"
+                  # workflow_dispatch, not repository_dispatch: the latter needs a
+                  # token with contents write; this needs only actions write (see
+                  # the job comment). ref=main pins the gate to cloud-infra main's
+                  # workflow definition and overrides.
+                  gh api "repos/$repo/actions/workflows/$workflow/dispatches" \
+                    -f ref=main \
+                    -f "inputs[posthog_ref]=$POSTHOG_REF" \
+                    -f "inputs[correlation_id]=$correlation_id" \
+                    -f "inputs[pr]=$PR_NUMBER"
+                  echo "dispatched $workflow ref=$POSTHOG_REF correlation=$correlation_id"
 
                   # The run-name echoes the correlation id; find our run, then wait it out.
                   run_id=""
                   for _ in $(seq 1 24); do  # up to ~2 min for the run to appear
                     sleep 5
-                    run_id="$(gh api "repos/$repo/actions/workflows/$workflow/runs?event=repository_dispatch&per_page=30" \
+                    run_id="$(gh api "repos/$repo/actions/workflows/$workflow/runs?event=workflow_dispatch&per_page=30" \
                       --jq ".workflow_runs[] | select(.name | contains(\"$correlation_id\")) | .id" | head -1)"
                     if [ -n "$run_id" ]; then break; fi
                   done
@@ -144,6 +159,10 @@ jobs:
                   {
                     echo "## Cloud compose gate"
                     echo
-                    echo "Skipped: the GH_APP_HCL_COMPOSE_GATE_* secrets are not provisioned."
+                    if [ "$IS_FORK" = "true" ]; then
+                      echo "Skipped: fork PRs have no repository secrets, so the gate cannot dispatch."
+                    else
+                      echo "Skipped: the GH_APP_HCL_COMPOSE_GATE_* secrets are not provisioned."
+                    fi
                     echo "The cloud composition is NOT verified for this PR."
                   } >> "$GITHUB_STEP_SUMMARY"
