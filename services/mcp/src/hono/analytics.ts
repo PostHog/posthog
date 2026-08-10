@@ -362,24 +362,22 @@ export async function trackToolSpan(toolName: string, state: ResolvedState, meta
 }
 
 /**
- * Emits `mcp_auth_failed` for a request the PostHog API refused. These requests die
+ * Emits `$mcp_auth_failed` for a request the PostHog API refused. These requests die
  * before `RequestStateResolver.resolve` returns, so they never reach
  * `trackInitEvent`/`trackToolCall` and are otherwise invisible in analytics — a
  * connector stuck in an authorize loop looks like a gap in the data rather than a
  * failure. Keyed on `userHash` (a hash of the bearer token, never the token itself)
  * so affected credentials can be counted without identifying anyone.
  *
- * Deliberately not `$`-prefixed: no SDK emits this, so it is PostHog's own
- * instrumentation and belongs with the `oauth_*` events rather than in the customer
- * MCP vocabulary. Its own fields use plain names for the same reason; the shared
- * client-identity fields keep their canonical `$mcp_*` names so one query can group
- * this event and real MCP traffic by the same dimensions.
+ * Only PostHog's own server emits this; no SDK does. It reuses the canonical `$mcp_*`
+ * client-identity fields so one query can group it and real MCP traffic by the same
+ * dimensions.
  */
 export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailure): void {
     try {
         getPostHogClient().capture({
             distinctId: props.userHash,
-            event: 'mcp_auth_failed',
+            event: '$mcp_auth_failed',
             properties: {
                 $ai_product: 'mcp',
                 $mcp_source: MCP_ANALYTICS_SOURCE,
@@ -399,9 +397,9 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
                 $mcp_auth_method: classifyAuthMethod(props.apiToken),
                 mcp_runtime: 'hono',
                 mcp_vendor_client: props.mcpVendorClient,
-                reason: failure.reason,
-                ...(failure.status ? { response_status: failure.status } : {}),
-                ...(failure.missingScope ? { missing_scope: failure.missingScope } : {}),
+                $mcp_auth_failure_reason: failure.reason,
+                ...(failure.status ? { $mcp_auth_status: failure.status } : {}),
+                ...(failure.missingScope ? { $mcp_missing_scope: failure.missingScope } : {}),
                 has_organization_id: !!props.organizationId,
                 has_project_id: !!props.projectId,
             },

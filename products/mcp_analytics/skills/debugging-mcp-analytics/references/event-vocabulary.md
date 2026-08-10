@@ -11,21 +11,19 @@ dogfood traffic, and exec-mode ones only appear when a server runs a single `exe
 
 ## Events
 
-Every event a customer's instrumented server emits is `$`-prefixed — a non-`$` name would be
-a customer event. The two exceptions in the table below are PostHog's own: the frozen legacy
-aliases, and `mcp_auth_failed`.
+All `$`-prefixed — a non-`$` name would be treated as a customer event.
 
-| Event                                        | Notes                                                                                                                                                                                                                                                  |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `$mcp_tool_call`                             | The primary event. Almost every metric aggregates over it.                                                                                                                                                                                             |
-| `$mcp_tools_list`                            | A `tools/list` request. Carries the advertised catalog — the basis for zombie-tool queries.                                                                                                                                                            |
-| `$mcp_initialize`                            | The `initialize` handshake. **Not emitted by clients on the MCP 2026-07-28 stateless revision**, which removes the handshake — do not use it as a universal session anchor.                                                                            |
-| `$mcp_missing_capability`                    | The agent wanted something the server does not offer. The clearest roadmap signal in the dataset.                                                                                                                                                      |
-| `mcp_auth_failed`                            | Non-`$` on purpose, and **not** one of the frozen legacy aliases below: no SDK emits it, so it is PostHog's own instrumentation, a sibling of the `oauth_*` events rather than part of this vocabulary. See the server-stamped section for its fields. |
-| `$mcp_resource_read` / `$mcp_resources_list` | Resource access. Not emitted by `instrument()` in either SDK.                                                                                                                                                                                          |
-| `$mcp_prompt_get` / `$mcp_prompts_list`      | Prompt access. Same caveat as resources.                                                                                                                                                                                                               |
-| `$identify`                                  | Person identity. Since TS 0.9.1 this fires at most once per session, not before every tool call.                                                                                                                                                       |
-| `$exception`                                 | Error sibling event. Can be disabled, and is not emitted when no error value is passed — see the failures rule below.                                                                                                                                  |
+| Event                                        | Notes                                                                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$mcp_tool_call`                             | The primary event. Almost every metric aggregates over it.                                                                                                                                                            |
+| `$mcp_tools_list`                            | A `tools/list` request. Carries the advertised catalog — the basis for zombie-tool queries.                                                                                                                           |
+| `$mcp_initialize`                            | The `initialize` handshake. **Not emitted by clients on the MCP 2026-07-28 stateless revision**, which removes the handshake — do not use it as a universal session anchor.                                           |
+| `$mcp_missing_capability`                    | The agent wanted something the server does not offer. The clearest roadmap signal in the dataset.                                                                                                                     |
+| `$mcp_auth_failed`                           | A request refused before a session existed — a rejected credential, or a scope the API denied. **PostHog's own server only, not the SDK.** The one MCP event with no organization/project, because none was resolved. |
+| `$mcp_resource_read` / `$mcp_resources_list` | Resource access. Not emitted by `instrument()` in either SDK.                                                                                                                                                         |
+| `$mcp_prompt_get` / `$mcp_prompts_list`      | Prompt access. Same caveat as resources.                                                                                                                                                                              |
+| `$identify`                                  | Person identity. Since TS 0.9.1 this fires at most once per session, not before every tool call.                                                                                                                      |
+| `$exception`                                 | Error sibling event. Can be disabled, and is not emitted when no error value is passed — see the failures rule below.                                                                                                 |
 
 `$mcp_custom` is registered in the enum, but `analytics.capture()` sends the verbatim event
 name it is given rather than `$mcp_custom`.
@@ -75,15 +73,13 @@ connection, which matters when reading a recovery: a user who works around a bro
 flow by pasting a personal API key produces traffic that otherwise looks identical to the
 connector having been fixed.
 
-`mcp_auth_failed` (PostHog's own instrumentation, not in `taxonomy.py`) carries the same
-`$mcp_*` client-identity fields as the events above, so one query can group it and real MCP
-traffic by the same dimensions. Its own fields use plain names because nothing else emits
-them: `reason` (`insufficient_scope`, `inactive_oauth_token`, `invalid_api_key`, `unknown`),
-`missing_scope` when the API named one, and `response_status` (401 or 403). It deliberately
-does **not** set `$mcp_is_error` or `$mcp_error_status` — those mean "a tool call failed",
-and reusing them would fold auth refusals into tool error rates. Its `distinct_id` is the
-token hash, not a user id, so it joins to other MCP events by client and time, never by
-person.
+On `$mcp_auth_failed`: `$mcp_auth_failure_reason` (`insufficient_scope`,
+`inactive_oauth_token`, `invalid_api_key`, `unknown`), `$mcp_missing_scope` when the API named
+one, and `$mcp_auth_status` (401 or 403). It deliberately does **not** set `$mcp_is_error` or
+`$mcp_error_status` — those mean "a tool call failed", and reusing them would fold auth
+refusals into tool error rates, which is also why the status has its own field. Its
+`distinct_id` is the token hash, not a user id, so it joins to other MCP events by client and
+time, never by person.
 
 Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
 `$mcp_validation_fields` and `$mcp_validation_input_keys` (which fields failed validation, and
