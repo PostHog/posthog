@@ -211,7 +211,8 @@ class TestSelectRepartitionTarget:
                 {"partition_mode": None, "primary_key_columns": ["id"]},
                 {None: 5000},
                 1000,
-                {"partition_mode": None, "partition_keys": ["id"]},
+                # The sized count is what makes md5 reachable when auto-detection finds nothing else.
+                {"partition_mode": None, "partition_keys": ["id"], "partition_count": 5},
             ),
             (
                 "unpartitioned_without_keys_noop",
@@ -648,6 +649,72 @@ class TestRewriteIntoTemp:
         )
 
         assert rows_written == rows
+        assert resolved.partition_mode == "datetime"
+        assert resolved.partition_keys == ["created_at"]
+
+    def test_uuid_key_without_a_datetime_column_resolves_md5(self, tmp_path):
+        # The production failure: a UUID primary key and no `created_at`-style column matches none of
+        # the detectors, so the rewrite died with "No supported partition mode" and the table stayed
+        # unpartitioned, over budget, and OOM-killing its pod on every merge.
+        rows = 10
+        table = pa.table(
+            {
+                "id": pa.array([f"0198d931-1efe-73b9-aad5-feb84ed767{i:02d}" for i in range(rows)], type=pa.string()),
+                "endTimestamp": pa.array(
+                    [datetime.datetime(2024, 1, (i % 27) + 1) for i in range(rows)], type=pa.timestamp("us")
+                ),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+
+        rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["id"], trigger_reason="test", partition_mode=None, partition_count=4
+                ),
+                batch_size=3,
+                logger=logger,
+            )
+        )
+
+        assert rows_written == rows
+        assert resolved.partition_mode == "md5"
+        # Hashing the primary key, not the timestamp: a primary key never changes, so a row keeps its
+        # bucket when a later merge updates it.
+        assert resolved.partition_keys == ["id"]
+
+    def test_datetime_still_wins_over_the_md5_fallback(self, tmp_path):
+        # The count only supplies a floor. A table auto-detection can partition properly must still
+        # get that scheme, or every table would collapse onto hashed buckets.
+        rows = 10
+        table = pa.table(
+            {
+                "id": pa.array([f"0198d931-1efe-73b9-aad5-feb84ed767{i:02d}" for i in range(rows)], type=pa.string()),
+                "created_at": pa.array(
+                    [datetime.datetime(2024, 1, (i % 27) + 1) for i in range(rows)], type=pa.timestamp("us")
+                ),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+
+        _rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["id"], trigger_reason="test", partition_mode=None, partition_count=4
+                ),
+                batch_size=3,
+                logger=logger,
+            )
+        )
+
         assert resolved.partition_mode == "datetime"
         assert resolved.partition_keys == ["created_at"]
 

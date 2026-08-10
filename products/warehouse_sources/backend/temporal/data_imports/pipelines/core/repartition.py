@@ -340,9 +340,11 @@ def select_repartition_target(
 
     Computes the target directly from measured bytes so one repartition lands under budget rather
     than stepping blindly: md5 grows the bucket count, numerical shrinks the row-size, datetime steps
-    one format tier finer. When no target is chosen the reason explains why (reported in metrics so a
-    skipped table is diagnosable): `within_budget`, `datetime_at_finest_tier`, `numerical_cannot_shrink`,
-    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+    one format tier finer. An unpartitioned table gets an auto target, which sizes its bucket count
+    the same way so md5 is reachable whatever its keys turn out to be. When no target is chosen the
+    reason explains why (reported in metrics so a skipped table is diagnosable): `within_budget`,
+    `datetime_at_finest_tier`, `numerical_cannot_shrink`, `numerical_no_size`, or
+    `unpartitionable_no_keys`. A chosen target carries reason `selected`.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -395,7 +397,18 @@ def select_repartition_target(
     # Unpartitioned but over budget: attempt to enable partitioning via auto-detection. Needs keys.
     if not keys:
         return None, "unpartitionable_no_keys"
-    return RepartitionTarget(partition_keys=keys, trigger_reason="", partition_mode=None), "selected"
+    # Carry a bucket count so md5 is always reachable. Auto-detection prefers numerical, then
+    # datetime, and falls through to md5 only when neither applies — but md5 needs a count, and
+    # without one a table whose keys suit none of the detectors (a UUID primary key and no
+    # `created_at`-style column) has no scheme at all. It flags as over budget every day, fails the
+    # rewrite with "No supported partition mode", and grows unbounded. Hashed keys bucket any key
+    # type, and a primary key never changes, so a row keeps its bucket across merges.
+    return RepartitionTarget(
+        partition_keys=keys,
+        trigger_reason="",
+        partition_mode=None,
+        partition_count=max(1, math.ceil(total_bytes / target_partition_bytes)),
+    ), "selected"
 
 
 # Coarsening (the reverse direction) rebuilds an over-fragmented table into fewer, larger partitions.
