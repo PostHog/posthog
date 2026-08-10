@@ -447,7 +447,7 @@ class TestCreateObservationActivity:
     def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.compute_quota_snapshot"
+            "products.replay_vision.backend.temporal.activities.create_observation.quota_state"
         ) as mock_snapshot:
             mock_snapshot.return_value = QuotaSnapshot(
                 credit_limit=5,
@@ -820,7 +820,6 @@ class TestObservationStateActivities:
         assert receipt.observation_created_at == observation.created_at
         assert receipt.model == observation.scanner_snapshot["model"]
         assert receipt.credits == observation_credits_for_model(observation.scanner_snapshot["model"])
-        assert receipt.scanner_id == scanner.id
 
     def test_mark_succeeded_usage_receipt_is_idempotent(self) -> None:
         scanner = _make_scanner()

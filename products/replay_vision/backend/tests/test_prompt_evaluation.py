@@ -27,7 +27,6 @@ from products.replay_vision.backend.prompt_evaluation import (
     classify_outcome,
     evaluation_supported,
     in_flight_evaluation_credits,
-    in_flight_evaluation_credits_by_scanner,
     is_preview_evaluation,
     primary_outcome,
     select_evaluation_observations,
@@ -264,7 +263,6 @@ class TestPromptEvaluation(_VisionAPITestCase):
         # The retried run charged the org's quota exactly once, priced by the re-run's model.
         receipts = ReplayObservationUsage.objects.filter(organization_id=self.team.organization_id)
         self.assertEqual(receipts.count(), 1)
-        self.assertEqual(receipts.get().scanner_id, self.scanner.id)
         self.assertEqual(
             compute_quota_snapshot(self.team.organization_id).credits_used,
             observation_credits_for_model(self.scanner.model),
@@ -526,7 +524,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
-            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
         ):
             resp = self.client.post(self._url(suggestion.id))
 
@@ -551,7 +549,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
-            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
         ):
             # The default limit plans 3 re-runs but only 2 observations remain this month.
             resp = self.client.post(self._url(suggestion.id))
@@ -607,25 +605,6 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         scanner.save(update_fields=["model"])
         self.assertEqual(in_flight_evaluation_credits(self.team.organization_id), reserved)
         self.assertEqual(reserved, 3 * observation_credits_for_model(expensive))
-
-    def test_per_scanner_reservation_prices_from_the_frozen_model(self) -> None:
-        # The per-scanner split must price like the org total: from the model frozen at workflow start.
-        expensive, cheap = ScannerModel.GEMINI_3_6_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
-        scanner = self._create_scanner(name="frozen-model-per-scanner", model=expensive)
-        ReplayScannerPromptSuggestion.objects.create(
-            scanner=scanner,
-            team=self.team,
-            suggested_prompt="p",
-            status=SuggestionStatus.PENDING,
-            scanner_version=1,
-            evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
-        )
-        scanner.model = cheap
-        scanner.save(update_fields=["model"])
-
-        reserved = in_flight_evaluation_credits_by_scanner(self.team.organization_id, [scanner.id])
-
-        self.assertEqual(reserved, {scanner.id: 3 * observation_credits_for_model(expensive)})
 
     @parameterized.expand([("zero", 0), ("above_cap", EVALUATION_SESSION_CAP + 1)])
     def test_evaluate_rejects_out_of_range_session_limit(self, _name: str, limit: int) -> None:
