@@ -7,6 +7,7 @@
 //! All tests run against a real etcd at localhost:2379 with per-test key
 //! prefixes, matching the conventions in `integration.rs`.
 
+use personhog_coordination::authority::AuthorityClock;
 mod common;
 
 use std::collections::HashMap;
@@ -322,8 +323,16 @@ async fn pod_resumes_partition_when_cancelled_handoff_leaves_it_assigned() {
     // (which writes the assignment atomically) and clean up the record.
     put_handoff(&store, 0, None, "resume-pod-a", HandoffPhase::Warming).await;
     wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+    let warming = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
     assert!(
-        store.complete_handoff(0).await.expect("complete"),
+        store
+            .complete_handoff(0, &warming.handoff_id, HandoffPhase::Warming)
+            .await
+            .expect("complete"),
         "complete_handoff must succeed"
     );
     store.delete_handoff(0).await.expect("cleanup");
@@ -2126,6 +2135,7 @@ async fn a_pod_attempt_failure_preserves_registration_and_partitions() {
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     tokio::spawn(async move { pod.run(token).await });
@@ -2794,6 +2804,7 @@ async fn lease_loss_during_attempt_backoff_self_fences_promptly() {
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     tokio::spawn(async move { pod.run(token).await });
@@ -2851,6 +2862,7 @@ async fn lease_loss_during_graceful_drain_self_fences_promptly() {
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     let join = tokio::spawn(async move { pod.run(token).await });
@@ -2931,6 +2943,7 @@ async fn a_connection_blip_does_not_fence_the_pod() {
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     tokio::spawn(async move { pod.run(token).await });
@@ -2990,6 +3003,7 @@ async fn a_sustained_outage_fences_at_the_renewal_margin() {
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     tokio::spawn(async move { pod.run(token).await });
@@ -3058,6 +3072,7 @@ async fn progress_between_failures_keeps_the_run_alive() {
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     tokio::spawn(async move { pod.run(token).await });
@@ -3117,6 +3132,7 @@ async fn budget_exhaustion_fences_before_deregistering() {
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     let join = tokio::spawn(async move { pod.run(token).await });
@@ -3170,7 +3186,15 @@ async fn pod_retries_resume_after_a_failed_attempt() {
 
     put_handoff(&store, 0, None, "resume-flaky-a", HandoffPhase::Warming).await;
     wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
-    assert!(store.complete_handoff(0).await.expect("complete"));
+    let warmed = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+    assert!(store
+        .complete_handoff(0, &warmed.handoff_id, HandoffPhase::Warming)
+        .await
+        .expect("complete"));
     store.delete_handoff(0).await.expect("cleanup");
 
     put_handoff(
@@ -3187,6 +3211,357 @@ async fn pod_retries_resume_after_a_failed_attempt() {
     // to it rather than treating the partition as resumed.
     store.delete_handoff(0).await.expect("delete handoff");
     wait_for_event(&pod.events, HandoffEvent::Resumed(0)).await;
+
+    cancel.cancel();
+}
+
+/// The authority clock is what the data plane reads to decide whether it
+/// may still answer as a partition's owner, so it has to lapse on the
+/// strength of missing renewals alone — no coordination task has to run
+/// for it to become invalid. This severs etcd and watches the claim
+/// expire while the process is otherwise perfectly healthy.
+#[tokio::test]
+async fn authority_lapses_when_renewals_stop() {
+    let proxy = FlakyProxy::start("127.0.0.1:2379").await;
+    let prefix = format!("/test-authority-lapse-{}/", uuid::Uuid::new_v4());
+    let pod_store = store_at(&proxy.endpoint, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    // TTL 9 puts the renewal margin at 6s, so the lapse is observable
+    // well inside the test's patience.
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&pod_store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "lapse-pod".to_string(),
+            lease_ttl: 9,
+            heartbeat_interval: Duration::from_secs(1),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::clone(&authority),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+    put_handoff(&store, 0, None, "lapse-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+    assert!(
+        authority.is_valid(),
+        "a registered pod renewing normally must hold authority"
+    );
+
+    // A reconnectable blip must not cost the pod its claim: the lease is
+    // alive in etcd and the keepalive rebuilds its stream. Waiting past
+    // the renewal margin (6s at this TTL) is what makes the assertion
+    // mean something — surviving it requires renewals to have been
+    // confirmed *and* published through the rebuilt stream, not merely
+    // the stamp taken when the session began.
+    proxy.sever();
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    assert!(
+        authority.is_valid(),
+        "authority must survive a blip the keepalive can ride out, on the strength of \
+         renewals published through the rebuilt stream"
+    );
+
+    // Now a real outage: new connections are refused too, so no renewal
+    // can be confirmed however hard the keepalive tries.
+    proxy.set_blackholed(true);
+    proxy.sever();
+
+    // Past the renewal margin, nothing confirms the lease any more.
+    //
+    // This deliberately does not assert *how* the claim went: with a
+    // keepalive still running, the stamp ages out and the keepalive
+    // declares lease loss at the same margin — they are the same
+    // fraction of the same TTL — so surrender and staleness coincide and
+    // no assertion here can separate them. The case where they diverge
+    // is a keepalive that is not running at all, which no amount of
+    // network fault injection produces, and which
+    // `authority_lapses_without_renewal` covers directly against the
+    // clock.
+    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+        let authority = Arc::clone(&authority);
+        async move { !authority.is_valid() }
+    })
+    .await;
+
+    // And it must have *surrendered*, not merely aged out. With etcd
+    // dark the registration watch dies without seeing a deletion, so the
+    // only thing that can set this is the lease-loss branch giving the
+    // claim up before it drains — which is what stops the pod acking
+    // writes for a partition the coordinator may already be reassigning.
+    assert!(
+        authority.is_surrendered(),
+        "losing the lease must give the claim up, not just let it go stale"
+    );
+
+    cancel.cancel();
+}
+
+/// A lease revoked out from under a pod deletes its registration at once,
+/// but the keepalive only learns on its next round — and the coordinator,
+/// which sees the deletion immediately, can reassign inside that gap. The
+/// pod must stop claiming ownership on the deletion, not a heartbeat
+/// later.
+#[tokio::test]
+async fn authority_is_surrendered_when_the_registration_is_deleted() {
+    let prefix = format!("/test-registration-delete-{}/", uuid::Uuid::new_v4());
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    // A long heartbeat is the point: without the watch, nothing would
+    // notice for this long, and the test would time out.
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "revoked-pod".to_string(),
+            lease_ttl: 60,
+            heartbeat_interval: Duration::from_secs(20),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::clone(&authority),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "revoked-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+    assert!(authority.is_valid(), "a registered pod holds authority");
+
+    revoke_lease_of_key(&format!("{prefix}pods/revoked-pod")).await;
+
+    wait_for_condition(Duration::from_secs(10), POLL_INTERVAL, || {
+        let authority = Arc::clone(&authority);
+        async move { !authority.is_valid() }
+    })
+    .await;
+    // The margin here is forty seconds, so nothing could have aged out in
+    // ten — this is the watch giving the claim up on the deletion.
+    assert!(
+        authority.is_surrendered(),
+        "a deleted registration must surrender the claim, not wait for it to lapse"
+    );
+
+    cancel.cancel();
+}
+
+/// A deleted registration must put the pod back to work, not just stop
+/// it serving.
+///
+/// Surrendering alone would leave a pod holding a live lease, refusing
+/// every read, and never registering again — idle with nothing to
+/// escalate. Ending the session is what makes it re-register and take
+/// partitions back.
+#[tokio::test]
+async fn a_deleted_registration_starts_a_new_session() {
+    let prefix = format!("/test-registration-resession-{}/", uuid::Uuid::new_v4());
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "resession-pod".to_string(),
+            lease_ttl: 60,
+            // Long enough that the keepalive cannot be what notices.
+            heartbeat_interval: Duration::from_secs(20),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::clone(&authority),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "resession-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/resession-pod")).await;
+
+    // The pod must come back: a fresh session re-registers and claims
+    // authority again.
+    let check = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+        let store = Arc::clone(&check);
+        let authority = Arc::clone(&authority);
+        async move {
+            let registered = store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "resession-pod"))
+                .unwrap_or(false);
+            registered && authority.is_valid()
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// The watch is a prefix watch, so it sees every deletion under
+/// `pods/`. Only the pod's own registration key may cost it the session
+/// — matching anything looser (say, a final path segment) would let an
+/// unrelated key deletion release and re-warm every partition the pod
+/// holds.
+#[tokio::test]
+async fn a_foreign_deletion_under_the_pods_prefix_does_not_cost_the_session() {
+    let prefix = format!("/test-registration-foreign-{}/", uuid::Uuid::new_v4());
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "exact-pod".to_string(),
+            lease_ttl: 60,
+            // Long enough that only the watch could be reacting.
+            heartbeat_interval: Duration::from_secs(20),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::clone(&authority),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "exact-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    // A key under the prefix whose final segment matches the pod's name,
+    // but which is not its registration.
+    let mut raw = etcd_client::Client::connect([common::ETCD_ENDPOINT], None)
+        .await
+        .expect("connect raw etcd client");
+    let decoy = format!("{prefix}pods/decoy/exact-pod");
+    raw.put(decoy.as_str(), "{}", None)
+        .await
+        .expect("put decoy");
+    raw.delete(decoy.as_str(), None)
+        .await
+        .expect("delete decoy");
+
+    // The deletion must pass through the watch without costing the
+    // session: no release, and the claim stays standing. The window is a
+    // bounded observation, long enough for the watch to have delivered
+    // the decoy event many times over.
+    let observe_until = std::time::Instant::now() + Duration::from_millis(1_500);
+    while std::time::Instant::now() < observe_until {
+        assert!(
+            authority.is_valid(),
+            "an unrelated deletion under the prefix must not surrender the claim"
+        );
+        assert!(
+            !events.lock().await.contains(&HandoffEvent::Released(0)),
+            "an unrelated deletion under the prefix must not end the session"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    // And the watch must still be live and exact: deleting the real
+    // registration ends the session.
+    raw.delete(format!("{prefix}pods/exact-pod").as_str(), None)
+        .await
+        .expect("delete the registration");
+    wait_for_event(&events, HandoffEvent::Released(0)).await;
+
+    cancel.cancel();
+}
+
+/// A registration deleted out from under a live lease (an operator
+/// `del`, not a revoke) lands the pod on the lease-loss branch with the
+/// lease still standing. The branch must revoke it: otherwise the next
+/// session grants a second lease while the first sits alive and
+/// unreferenced for its full TTL.
+#[tokio::test]
+async fn an_operator_delete_of_a_live_registration_revokes_its_lease() {
+    let prefix = format!("/test-registration-operator-del-{}/", uuid::Uuid::new_v4());
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "operator-del-pod".to_string(),
+            // Long enough that an unrevoked lease would outlive the test
+            // by a wide margin — the assertion below can only pass
+            // because the branch revoked it.
+            lease_ttl: 60,
+            heartbeat_interval: Duration::from_secs(20),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::clone(&authority),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "operator-del-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    let key = format!("{prefix}pods/operator-del-pod");
+    let mut raw = etcd_client::Client::connect([common::ETCD_ENDPOINT], None)
+        .await
+        .expect("connect raw etcd client");
+    let resp = raw.get(key.as_str(), None).await.expect("get registration");
+    let orphaned_lease = resp.kvs().first().expect("registration exists").lease();
+    assert_ne!(orphaned_lease, 0, "the registration is lease-backed");
+
+    // The operator's `del`: the key goes, the lease stays.
+    raw.delete(key.as_str(), None)
+        .await
+        .expect("delete the registration");
+
+    // The pod notices via the watch, takes the lease-loss branch, and
+    // must revoke the now-orphaned lease on its way to a new session.
+    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+        let mut raw = raw.clone();
+        async move {
+            raw.lease_time_to_live(orphaned_lease, None)
+                .await
+                .map(|resp| resp.ttl() <= 0)
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // And the new session is live on a fresh lease.
+    let check = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+        let store = Arc::clone(&check);
+        let authority = Arc::clone(&authority);
+        async move {
+            let registered = store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "operator-del-pod"))
+                .unwrap_or(false);
+            registered && authority.is_valid()
+        }
+    })
+    .await;
 
     cancel.cancel();
 }
@@ -3624,4 +3999,90 @@ async fn a_failed_release_is_retried_rather_than_forgotten() {
     .await;
 
     cancel.cancel();
+}
+
+/// Completion must apply to the handoff whose warm was verified, not to
+/// whatever record is at the key when the write lands.
+///
+/// The coordinator reads a handoff, checks its warmed acks, and then
+/// completes it. In between, cancellation can replace the record with a
+/// successor and delete the old acks in one transaction. Completing that
+/// successor would write the assignment to a pod that never froze,
+/// drained, or warmed — while the old owner is still admitting writes —
+/// and routers would cut over to it. A `mod_revision` guard cannot see
+/// this: it only proves nothing changed since the store's own re-read.
+#[tokio::test]
+async fn completion_refuses_a_handoff_that_was_replaced() {
+    let store = test_store("complete-replaced").await;
+
+    // The attempt the caller validated.
+    put_handoff(&store, 0, Some("pod-a"), "pod-b", HandoffPhase::Warming).await;
+    let validated = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+
+    // Cancellation replaces it with a successor carrying a fresh id,
+    // exactly as `handle_pod_change_static` does.
+    store.delete_handoff(0).await.expect("delete");
+    put_handoff_with_id(&store, 0, "pod-c", HandoffPhase::Freezing, "successor").await;
+
+    let completed = store
+        .complete_handoff(0, &validated.handoff_id, HandoffPhase::Warming)
+        .await
+        .expect("complete_handoff");
+    assert!(
+        !completed,
+        "a replaced handoff must not be completed by its predecessor's verification"
+    );
+
+    // The successor must still be Freezing, and no assignment written.
+    let current = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+    assert_eq!(current.phase, HandoffPhase::Freezing);
+    assert!(
+        store
+            .get_assignment(0)
+            .await
+            .expect("get assignment")
+            .is_none(),
+        "no assignment may be written for a handoff that never completed"
+    );
+}
+
+/// The same guard on the phase advances: a successor at the same phase
+/// must not inherit its predecessor's verification.
+#[tokio::test]
+async fn phase_advance_refuses_a_handoff_that_was_replaced() {
+    let store = test_store("advance-replaced").await;
+
+    put_handoff(&store, 0, Some("pod-a"), "pod-b", HandoffPhase::Freezing).await;
+    let validated = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+
+    store.delete_handoff(0).await.expect("delete");
+    // Same phase, different attempt: the id is the only thing that can
+    // tell them apart, which is the point.
+    put_handoff_with_id(&store, 0, "pod-c", HandoffPhase::Freezing, "successor").await;
+
+    let advanced = store
+        .cas_handoff_phase(
+            0,
+            &validated.handoff_id,
+            HandoffPhase::Freezing,
+            HandoffPhase::Draining,
+        )
+        .await
+        .expect("cas_handoff_phase");
+    assert!(
+        !advanced,
+        "a replaced handoff must not be advanced by its predecessor's quorum"
+    );
 }

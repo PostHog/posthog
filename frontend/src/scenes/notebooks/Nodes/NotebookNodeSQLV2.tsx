@@ -19,7 +19,7 @@ import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamB
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { outputHeightForShape } from './notebookNodeOutputHeight'
+import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
@@ -110,7 +110,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage, isEditable } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
@@ -179,11 +179,15 @@ const Component = ({
     // Grow a still-too-short node to fit the result each run lands, so output is readable without
     // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
     // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
-    // resize (or a reload of an already-sized cell) is left untouched.
-    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
+    // resize is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(
+        initialSizedRunId({ hasResult: !!result, height: attributes.height, runId: attributes.runId ?? null })
+    )
     useEffect(() => {
         const runId = attributes.runId ?? null
-        if (!result || runId === sizedRunIdRef.current) {
+        // A read-only notebook lays the node out from its content, so there is no fixed height to
+        // outgrow — and no editor to persist one into.
+        if (!result || !isEditable || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -195,7 +199,7 @@ const Component = ({
             updateAttributes({ height: target })
         }
         // oxlint-disable-next-line exhaustive-deps
-    }, [result, attributes.runId])
+    }, [result, attributes.runId, isEditable])
 
     if (!expanded) {
         return null

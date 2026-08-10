@@ -16,6 +16,8 @@ interface ObjectTagsPropsBase {
     className?: string
     actionButtonSize?: ComponentProps<typeof LemonTag>['size']
     'data-attr'?: string
+    /** Makes each displayed tag clickable, e.g. to filter by it. */
+    onTagClick?: (tag: string) => void
 }
 
 export type ObjectTagsProps =
@@ -53,6 +55,7 @@ export function ObjectTags({
     className,
     actionButtonSize = 'small',
     'data-attr': dataAttr,
+    onTagClick,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -99,7 +102,11 @@ export function ObjectTags({
                               .filter((t) => !!t)
                               .map((tag, index) => {
                                   return (
-                                      <LemonTag key={index} type={COLOR_OVERRIDES[tag] || colorForString(tag)}>
+                                      <LemonTag
+                                          key={index}
+                                          type={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                          onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                                      >
                                           {tag}
                                       </LemonTag>
                                   )

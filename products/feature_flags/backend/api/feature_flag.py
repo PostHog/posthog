@@ -133,6 +133,8 @@ EARLY_EXIT_FLAG = "feature-flag-early-exit"
 # to 100%. Remove the gate and make enforcement unconditional once fully rolled out.
 ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
 
+ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for flags with encrypted payloads."
+
 
 def parse_created_by_ids(value: Any) -> list[int]:
     """Parse a `created_by_id` filter value into a list of user IDs.
@@ -3185,7 +3187,7 @@ class FeatureFlagViewSet(
         ],
         responses={
             200: FeatureFlagVersionResponseSerializer,
-            400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
+            400: OpenApiResponse(description=ENCRYPTED_VERSION_HISTORY_UNAVAILABLE),
             404: OpenApiResponse(description="Version not found."),
             422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
         },
@@ -3199,9 +3201,11 @@ class FeatureFlagViewSet(
     def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
         feature_flag: FeatureFlag = self.get_object()
 
-        if feature_flag.is_remote_configuration or feature_flag.has_encrypted_payloads:
+        # Only encrypted payloads are withheld. A plaintext remote configuration payload is already
+        # served to every SDK through normal flag evaluation, so gating it here protects nothing.
+        if feature_flag.has_encrypted_payloads:
             return Response(
-                {"detail": "Version history is not available for remote configuration or encrypted flags."},
+                {"detail": ENCRYPTED_VERSION_HISTORY_UNAVAILABLE},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -3222,6 +3226,15 @@ class FeatureFlagViewSet(
             return Response(
                 {"detail": str(e)},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        # `has_encrypted_payloads` is mutable: a flag can be downgraded to plaintext, which strips
+        # ciphertext from the live row but not from the activity log the reconstruction reads. Gate
+        # on the reconstructed version's own state so pre-downgrade versions don't return ciphertext.
+        if result["has_encrypted_payloads"]:
+            return Response(
+                {"detail": ENCRYPTED_VERSION_HISTORY_UNAVAILABLE},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(FeatureFlagVersionResponseSerializer(instance=result).data)

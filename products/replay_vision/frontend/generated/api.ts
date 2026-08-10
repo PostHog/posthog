@@ -19,7 +19,10 @@ import type {
     EstimateRequestApi,
     EstimateResponseApi,
     EvaluatePromptSuggestionRequestApi,
+    InlineScanRequestApi,
+    InlineScanResponseApi,
     ObservationStatsApi,
+    ObserveAlreadyScannedApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
@@ -599,8 +602,8 @@ export const visionScannersObserveCreate = async (
     id: string,
     observeRequestApi: ObserveRequestApi,
     options?: RequestInit
-): Promise<ObserveResponseApi> => {
-    return apiMutator<ObserveResponseApi>(getVisionScannersObserveCreateUrl(projectId, id), {
+): Promise<ObserveAlreadyScannedApi | ObserveResponseApi> => {
+    return apiMutator<ObserveAlreadyScannedApi | ObserveResponseApi>(getVisionScannersObserveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1003,6 +1006,29 @@ export const visionScannersEstimateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(estimateRequestApi),
+    })
+}
+
+export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/inline_scan/`
+}
+
+/**
+ * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
+ *
+ * The config resolves to a scanner minted on first use, so asking the same question twice reuses
+ * the observations it already has, while a different question about the same session gets its own.
+ */
+export const visionScannersInlineScanCreate = async (
+    projectId: string,
+    inlineScanRequestApi: InlineScanRequestApi,
+    options?: RequestInit
+): Promise<InlineScanResponseApi> => {
+    return apiMutator<InlineScanResponseApi>(getVisionScannersInlineScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inlineScanRequestApi),
     })
 }
 

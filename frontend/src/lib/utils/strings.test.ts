@@ -5,6 +5,7 @@ import {
     identifierToHuman,
     midEllipsis,
     pluralize,
+    splitFullName,
     wordPluralize,
 } from 'lib/utils/strings'
 
@@ -105,6 +106,30 @@ describe('strings utils', () => {
         it('handles happy case', () => {
             expect(ensureStringIsNotBlank('happyboy')).toEqual('happyboy')
             expect(ensureStringIsNotBlank('  happy boy  ')).toEqual('  happy boy  ')
+        })
+    })
+
+    describe('splitFullName()', () => {
+        it('splits a simple two-part name', () => {
+            expect(splitFullName('John Smith')).toEqual({ first_name: 'John', last_name: 'Smith' })
+        })
+        it('returns no last name for a single name', () => {
+            expect(splitFullName('John')).toEqual({ first_name: 'John', last_name: undefined })
+        })
+        it('trims surrounding whitespace before splitting', () => {
+            expect(splitFullName(' John')).toEqual({ first_name: 'John', last_name: undefined })
+            expect(splitFullName('  John Smith  ')).toEqual({ first_name: 'John', last_name: 'Smith' })
+        })
+        it('collapses internal whitespace', () => {
+            expect(splitFullName('John  Smith')).toEqual({ first_name: 'John', last_name: 'Smith' })
+            expect(splitFullName('\tJohn\tSmith')).toEqual({ first_name: 'John', last_name: 'Smith' })
+        })
+        it('keeps multi-part surnames intact', () => {
+            expect(splitFullName('  Ada Van Der Berg ')).toEqual({ first_name: 'Ada', last_name: 'Van Der Berg' })
+        })
+        it('returns a blank first name for blank input', () => {
+            expect(splitFullName('')).toEqual({ first_name: '', last_name: undefined })
+            expect(splitFullName('   ')).toEqual({ first_name: '', last_name: undefined })
         })
     })
 })

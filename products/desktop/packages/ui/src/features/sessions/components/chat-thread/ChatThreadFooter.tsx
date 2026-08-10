@@ -9,6 +9,7 @@ import {
   useSessionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { resolvePendingPermissionVisibility } from "./pendingPermissionVisibility";
 
 interface ChatThreadFooterProps {
   events: AcpMessage[];
@@ -17,6 +18,7 @@ interface ChatThreadFooterProps {
   task?: Task;
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
+  hasPendingPermission?: boolean;
 }
 
 /**
@@ -35,6 +37,7 @@ export function ChatThreadFooter({
   task,
   taskId,
   footerState,
+  hasPendingPermission,
 }: ChatThreadFooterProps) {
   const showDebugLogs = useSettingsStore((s) => s.debugLogsCloudRuns);
   const eventFooterState = useConversationItems(events, isPromptPending, {
@@ -48,6 +51,10 @@ export function ChatThreadFooter({
     footerState?.completedToolCallCount ??
     eventFooterState.completedToolCallCount;
   const pendingPermissions = usePendingPermissionsForTask(taskId ?? "");
+  const pendingPermissionVisible = resolvePendingPermissionVisibility(
+    hasPendingPermission,
+    pendingPermissions.size,
+  );
   const queuedCount = useQueuedMessagesForTask(taskId).length;
   const session = useSessionForTask(taskId);
   const pausedDurationMs = session?.pausedDurationMs ?? 0;
@@ -65,7 +72,7 @@ export function ChatThreadFooter({
         }
         lastStopReason={lastTurnInfo?.stopReason}
         queuedCount={queuedCount}
-        hasPendingPermission={pendingPermissions.size > 0}
+        hasPendingPermission={pendingPermissionVisible}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
         completedToolCallCount={completedToolCallCount}

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -607,6 +607,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`\/`disabled`.'),
+    experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -642,6 +643,10 @@ export const visionScannersCreateBodyDescriptionMax = 1000
 
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
+
+export const visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax = 400
+
+export const visionScannersCreateBodyExperimentTargetingOneVariantKeysMax = 50
 
 export const VisionScannersCreateBody = /* @__PURE__ */ zod
     .object({
@@ -713,6 +718,29 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
             ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant_keys: zod
+                            .array(zod.string().max(visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax))
+                            .max(visionScannersCreateBodyExperimentTargetingOneVariantKeysMax)
+                            .describe('Targeted experiment variants. Empty means every variant.'),
+                        use_exposure_fallback: zod
+                            .boolean()
+                            .describe(
+                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                            ),
+                    })
+                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+            ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
 
@@ -746,6 +774,10 @@ export const visionScannersPartialUpdateBodyDescriptionMax = 1000
 
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
+
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax = 400
+
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax = 50
 
 export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -820,6 +852,33 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
+            ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant_keys: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax)
+                            )
+                            .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax)
+                            .describe('Targeted experiment variants. Empty means every variant.'),
+                        use_exposure_fallback: zod
+                            .boolean()
+                            .describe(
+                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                            ),
+                    })
+                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
@@ -1248,3 +1307,67 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
+
+/**
+ * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
+ *
+ * The config resolves to a scanner minted on first use, so asking the same question twice reuses
+ * the observations it already has, while a different question about the same session gets its own.
+ */
+export const VisionScannersInlineScanCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
+
+export const visionScannersInlineScanCreateBodySessionIdsMax = 200
+
+export const visionScannersInlineScanCreateBodyPromptMax = 20000
+
+export const visionScannersInlineScanCreateBodyScannerTypeDefault = `monitor`
+export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
+
+export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
+            .max(visionScannersInlineScanCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
+            ),
+        prompt: zod
+            .string()
+            .max(visionScannersInlineScanCreateBodyPromptMax)
+            .describe(
+                'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
+            ),
+        scanner_type: zod
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .describe(
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            )
+            .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
+            .describe(
+                'What the scan produces. Defaults to monitor, an open-ended observation against the prompt.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        scanner_config: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
+            ),
+        model: zod
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .describe(
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            )
+            .default(visionScannersInlineScanCreateBodyModelDefault)
+            .describe(
+                'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')

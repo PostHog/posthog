@@ -32,6 +32,9 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
@@ -128,12 +131,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertIn("JSONExtractString(e.properties, '$exception_fingerprint')", response["hogql"])
         self.assertNotIn("mat_$exception_fingerprint", response["hogql"])
-
-    def test_user_aggregation_does_not_resolve_person_overrides(self):
-        response = self._calculate(withAggregations=True)
-
-        self.assertIn("e.event_person_id", response["hogql"])
-        self.assertNotIn("person_distinct_id_overrides", response["hogql"])
 
     def setUp(self):
         super().setUp()
@@ -591,6 +588,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual(results[1]["id"], self.issue_id_two)
         self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
+
+    def test_issue_id_uses_current_fingerprint_state(self):
+        issue_id = "01936e80-f594-7a2e-8545-7bcb491aa61f"
+        fingerprint = "event_without_issue_id"
+        distinct_id = "event_without_issue_id_user"
+        self.create_issue(issue_id, fingerprint)
+        _create_event(
+            distinct_id=distinct_id,
+            event="$exception",
+            team=self.team,
+            properties={"$exception_fingerprint": fingerprint},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT toString(issue_id), toString(issue_id_v2) FROM events WHERE distinct_id = {distinct_id}",
+            team=self.team,
+            placeholders={"distinct_id": ast.Constant(value=distinct_id)},
+        )
+
+        self.assertEqual(response.results, [(issue_id, issue_id)])
 
     @freeze_time("2022-01-10T12:11:00")
     def test_user_assignee(self):

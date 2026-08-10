@@ -47,6 +47,7 @@ uuid = { workspace = true }
 test-support = []
 
 [dev-dependencies]
+personhog-coordination = { path = "../personhog-coordination", features = ["test-support"] }
 health = { path = "../common/health" }
 personhog-leader = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }

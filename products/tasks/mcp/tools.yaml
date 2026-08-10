@@ -44,6 +44,25 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
+    channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update channel instructions
+        description: >
+            Publish a complete replacement for a channel's CONTEXT.md. Read the current version with
+            channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if
+            another update changes the document.
+        param_overrides:
+            id:
+                description: ID of the channel whose instructions to update.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
         operation: task_channels_list
         enabled: true
@@ -311,6 +330,15 @@ tools:
     tasks-active-wizard-run-retrieve:
         operation: tasks_active_wizard_run_retrieve
         enabled: false
+    tasks-artifacts-list:
+        operation: tasks_artifacts_list
+        enabled: false
+    tasks-comments-list:
+        operation: tasks_comments_list
+        enabled: false
+    tasks-comments-retrieve:
+        operation: tasks_comments_retrieve
+        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: true
@@ -435,12 +463,21 @@ tools:
     tasks-runs-artifacts-create:
         operation: tasks_runs_artifacts_create
         enabled: false
+    tasks-runs-artifacts-dismiss-create:
+        operation: tasks_runs_artifacts_dismiss_create
+        enabled: false
     tasks-runs-artifacts-download-create:
         operation: tasks_runs_artifacts_download_create
+        enabled: false
+    tasks-runs-artifacts-download-retrieve:
+        operation: tasks_runs_artifacts_download_retrieve
         enabled: false
     tasks-runs-artifacts-finalize-upload-create:
         operation: tasks_runs_artifacts_finalize_upload_create
         enabled: false
+        description: >
+            Finalize a task run artifact uploaded through a prepared form. Before revising a file under the same name,
+            read its latest version because an interactive user may have edited it since the agent's last upload.
     tasks-runs-artifacts-prepare-upload-create:
         operation: tasks_runs_artifacts_prepare_upload_create
         enabled: false

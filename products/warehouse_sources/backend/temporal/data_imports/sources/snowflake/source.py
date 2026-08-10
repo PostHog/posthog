@@ -314,6 +314,15 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # previous attempt doesn't carry over. Self-recovering, so keep retrying instead of
             # stopping the sync. The errno prefix is volatile, so we match the stable status text.
             "HTTP 400: Bad Request",
+            # Snowflake error 250001 (08001): the login-request endpoint itself responded with a
+            # generic "Internal error" (`auth/_auth.py` formats this as "Failed to connect to DB:
+            # {host}:{port}. {message}", where `message` is Snowflake's own internal-error text) —
+            # a transient blip on Snowflake's authentication service, not a credential or config
+            # problem. It isn't retried inside the connector's own auth flow, so without this marker
+            # every Temporal-level retry logs it as unclassified error-tracking noise instead of the
+            # self-recovering failure it is. The request id in brackets is volatile, so we match the
+            # stable phrase.
+            "Internal error:",
         }
 
     def reconcile_schema_metadata(
