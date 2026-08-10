@@ -83,9 +83,8 @@ export default async function beforePack(context: BeforePackContext) {
       copyDep(dep, rootNodeModules, localNodeModules);
     }
 
-    // copyDep, not copyRequiredDep: koffi only powers the Mission Control
-    // overlay, which degrades to "never shows" on its own. A missing prebuild
-    // shouldn't fail a release build.
+    // copyDep, not copyRequiredDep: a missing koffi prebuild only loses the
+    // Mission Control overlay and should not fail a release build.
     const koffiPkg = koffiPackageFor(platformName, arch);
     if (koffiPkg) {
       copyDep(koffiPkg, rootNodeModules, localNodeModules);

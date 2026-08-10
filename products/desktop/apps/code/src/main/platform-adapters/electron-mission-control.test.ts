@@ -23,8 +23,6 @@ vi.mock("../services/mission-control/cg-window-list", () => ({
   createWindowListSampler: sampler.create,
 }));
 
-// One 2560x1440 display, so the full-display coverage test has something to
-// match against.
 vi.mock("electron", () => ({
   screen: {
     getAllDisplays: () => [
@@ -35,21 +33,18 @@ vi.mock("electron", () => ({
 
 import { MissionControlService } from "./electron-mission-control";
 
-/** The full-display Dock window Mission Control puts up, below the Dock's level. */
 const MISSION_CONTROL_BACKING: CgWindow = {
   ownerName: "Dock",
   layer: 18,
   bounds: { x: 0, y: 0, width: 2560, height: 1440 },
 };
 
-/** The Dock's own strip, present with or without Mission Control. */
 const DOCK_STRIP: CgWindow = {
   ownerName: "Dock",
   layer: 20,
   bounds: { x: 1030, y: 1330, width: 500, height: 110 },
 };
 
-/** A sampler whose next return value the test controls. */
 function fakeSampler(initial: CgWindow[] = []) {
   const state = { windows: initial, error: null as Error | null };
   const impl: WindowListSampler = {
@@ -61,7 +56,6 @@ function fakeSampler(initial: CgWindow[] = []) {
   return { state, impl };
 }
 
-/** MissionControlService is macOS-only; pretend we're there unless told not to. */
 function pretendPlatform(platform: string) {
   Object.defineProperty(process, "platform", {
     value: platform,
@@ -102,7 +96,6 @@ describe("MissionControlService", () => {
     state.windows = [];
     vi.advanceTimersByTime(1000);
 
-    // Four ticks per state, one event per transition.
     expect(seen).toEqual([true, false]);
   });
 
@@ -118,7 +111,6 @@ describe("MissionControlService", () => {
     service.disarm();
     expect(service.getState().active).toBe(false);
 
-    // Mission Control is still "open", but nothing is watching any more.
     state.windows = [MISSION_CONTROL_BACKING];
     vi.advanceTimersByTime(5000);
     expect(service.getState().active).toBe(false);
@@ -155,14 +147,11 @@ describe("MissionControlService", () => {
     service.arm();
     vi.advanceTimersByTime(5000);
 
-    // Resolved once, then never retried.
     expect(sampler.create).toHaveBeenCalledTimes(1);
     expect(service.getState().active).toBe(false);
   });
 
   it("survives a window list that fails to bind", () => {
-    // arm() runs from a BrowserWindow event handler, so a throw here would take
-    // the main process down over an easter egg.
     sampler.create.mockImplementation(() => {
       throw new Error("dlopen refused");
     });
@@ -199,15 +188,11 @@ describe("MissionControlService", () => {
   });
 
   it("reports the window that appeared mid-recording, and when", async () => {
-    // The whole point of recording rather than sampling on demand: Mission
-    // Control is only ever open while the app is unclickable, so the window that
-    // identifies it can only be caught by a probe that is already running.
     const { state, impl } = fakeSampler([DOCK_STRIP]);
     sampler.create.mockReturnValue(impl);
     const service = new MissionControlService();
 
     const probe = service.probe(2000);
-    // Ordinary desktop for the first stretch, then Mission Control opens.
     await vi.advanceTimersByTimeAsync(500);
     state.windows = [DOCK_STRIP, MISSION_CONTROL_BACKING];
     await vi.advanceTimersByTimeAsync(2000);
@@ -216,14 +201,11 @@ describe("MissionControlService", () => {
     expect(result).toMatchObject({ available: true });
     expect(result.appeared).toHaveLength(1);
 
-    // Timings are what let one recording cover several gestures, so the window
-    // must be stamped with when it showed up, not with the recording's start.
     const [seen] = result.appeared;
     expect(seen).toMatchObject(MISSION_CONTROL_BACKING);
     expect(seen.firstSeenMs).toBeGreaterThan(0);
     expect(seen.lastSeenMs).toBeGreaterThanOrEqual(seen.firstSeenMs);
 
-    // Detection tracks the same window, so it cannot have fired before it.
     expect(result.detectedAtMs.length).toBeGreaterThan(0);
     expect(Math.min(...result.detectedAtMs)).toBe(seen.firstSeenMs);
   });

@@ -2,20 +2,13 @@ import type { CgWindow, Rect } from "./window-list";
 
 const DOCK = "Dock";
 
-/**
- * The Dock's own window level, historically `NSDockWindowLevel`. Its window
- * spans the entire display — a long-standing CoreGraphics quirk — so this level
- * is what has to be excluded rather than matched.
- */
+// The Dock's own window level, historically NSDockWindowLevel. Its window
+// spans the entire display, so this level must be excluded rather than matched.
 const DOCK_WINDOW_LEVEL = 20;
 
-/**
- * A window can sit a pixel outside the display it covers, so compare with slack
- * rather than for equality.
- */
+// A window can sit a pixel outside the display it covers.
 const COVERAGE_SLACK_PX = 2;
 
-/** Whether `bounds` spans the whole of `display`. */
 function coversDisplay(bounds: Rect, display: Rect): boolean {
   return (
     bounds.x <= display.x + COVERAGE_SLACK_PX &&
@@ -25,27 +18,13 @@ function coversDisplay(bounds: Rect, display: Rect): boolean {
   );
 }
 
-/**
- * macOS exposes no API, public or private, for "is Mission Control on screen".
- * The signal is that opening it makes the Dock put up a full-display window
- * between the normal window level and the Dock's own — layer 18 on macOS 26.
- *
- * Each clause earns its place, and the loose versions had visible symptoms:
- *
- *   - Below the Dock's level, because the Dock's own window is full-display too.
- *     Without this, hovering the Dock and Cmd-Tab both showed the overlay.
- *   - Above the normal level, which excludes the desktop wallpaper and a
- *     full-display Dock-owned window that also sits at layer 0.
- *   - Full-display, which excludes the Dock strip and the per-window badges
- *     Mission Control draws at layer 17.
- *
- * Undocumented and version-specific: an earlier revision keyed off a y origin of
- * -1, true on OS X 10.10 and false now. Re-derive it from a
- * `dev.probeMissionControl` recording rather than reasoning about it.
- *
- * App Exposé, Launchpad and Show Desktop are untested and may match. Harmless:
- * each either hides our window or slides it off screen.
- */
+// macOS has no API for "is Mission Control on screen". The tell is that opening
+// it makes the Dock put up a full-display window between the normal level and
+// the Dock's own (layer 18 on macOS 26). The level bounds exclude the Dock's own
+// full-display window (raised by Dock hover and Cmd-Tab too) and the desktop at
+// layer 0; the coverage check excludes the Dock strip and the grid badges.
+// Undocumented and version-specific: re-derive from a dev.probeMissionControl
+// recording when a macOS release breaks it.
 export function detectMissionControl(
   windows: CgWindow[],
   displays: Rect[],
@@ -59,10 +38,8 @@ export function detectMissionControl(
   );
 }
 
-/**
- * Identity for diffing samples. Rounded, so a window that drifts a subpixel does
- * not read as a new one and bury the window that actually appeared.
- */
+// Rounded so a window that drifts a subpixel between samples does not read as
+// a new one.
 export function windowKey(window: CgWindow): string {
   const { x, y, width, height } = window.bounds;
   return [

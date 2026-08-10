@@ -182,10 +182,7 @@ export const devRouter = router({
       getActionsService().triggerToast(input.variant, input.message),
     ),
 
-  // Mission Control detection can't be driven from a test, and only exists on
-  // macOS, so these two are how the feature gets checked by hand: one pins the
-  // overlay on to review the visuals, the other records what the window list
-  // does while you open Mission Control.
+  // Manual checks for a macOS-only feature no automated test can drive.
   setForceMissionControlOverlay: devProcedure
     .input(z.object({ enabled: z.boolean() }))
     .output(missionControlStateSchema)

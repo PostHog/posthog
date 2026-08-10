@@ -22,31 +22,17 @@ import { logger } from "../utils/logger";
 
 const log = logger.scope("mission-control");
 
-/**
- * Mission Control's zoom animation runs about 300ms, so a shorter interval buys
- * nothing a user can perceive while a longer one lands the overlay after the grid
- * has settled.
- */
+// Mission Control's zoom animation runs about 300ms; polling faster gains
+// nothing a user can perceive.
 const POLL_INTERVAL_MS = 250;
 
-/** Give up rather than log a failing CoreGraphics call four times a second. */
+// Give up rather than log a failing CoreGraphics call four times a second.
 const MAX_CONSECUTIVE_ERRORS = 3;
 
-/**
- * Detects when the app window is showing inside macOS Mission Control, so the
- * renderer can put up a branded overlay and make the window easy to pick out of a
- * grid of near-identical dark windows.
- *
- * Best-effort by construction, since detection rests on undocumented Dock window
- * geometry reached through FFI. Every failure — wrong platform, missing prebuild,
- * changed macOS internals — degrades to "the overlay never appears".
- */
+// Best-effort by design: detection rests on undocumented Dock window geometry
+// reached through FFI, and every failure degrades to the overlay never showing.
 @injectable()
 export class MissionControlService extends TypedEventEmitter<MissionControlServiceEvents> {
-  /**
-   * Resolved once. A wrong platform or a refused dlopen does not get better on a
-   * retry, so null after `resolved` means detection is off for this run.
-   */
   private sampler: WindowListSampler | null = null;
   private resolved = false;
   private timer: NodeJS.Timeout | null = null;
@@ -58,10 +44,6 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
     return { active: this.active };
   }
 
-  /**
-   * Called when the window becomes visible. A hidden or minimized window cannot
-   * appear in Mission Control, so polling then would be waste.
-   */
   arm(): void {
     if (this.timer || !this.resolveSampler()) return;
     this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
@@ -72,18 +54,15 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
     this.setActive(false);
   }
 
-  /** Dev-only: pin the overlay on to review it without opening Mission Control. */
+  // Dev-only: pins the overlay on without opening Mission Control.
   setForced(forced: boolean): MissionControlState {
     this.forced = forced;
     this.setActive(forced);
     return this.getState();
   }
 
-  /**
-   * Record what the window list does for `durationMs`, to re-derive the detection
-   * heuristic when a macOS release breaks it. Start it, run the gestures, and read
-   * which windows appeared and when.
-   */
+  // Records the window list so the detection heuristic can be re-derived when
+  // a macOS release breaks it.
   async probe(durationMs: number): Promise<MissionControlProbe> {
     const sampler = this.resolveSampler();
     if (!sampler) {
@@ -122,8 +101,7 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
           (a, b) => a.firstSeenMs - b.firstSeenMs,
         ),
       };
-      // The clipboard copy is the intended way to read this, but it can fail
-      // silently, and renderer log lines never reach the dev toolbar's panel.
+      // Logged as well because the clipboard copy can fail silently.
       log.info("Probe finished", { ...result, displays: this.displayBounds() });
       return result;
     } catch (error) {
@@ -140,20 +118,18 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
   private resolveSampler(): WindowListSampler | null {
     if (this.resolved) return this.sampler;
     this.resolved = true;
-    // Checked here so the FFI module is never even reached off macOS.
     if (process.platform !== "darwin") return null;
 
     try {
       this.sampler = createWindowListSampler();
     } catch (error) {
-      // Almost always a missing @koromix/koffi-darwin-* prebuild or a dlopen the
+      // Usually a missing @koromix/koffi-darwin-* prebuild or a dlopen the
       // hardened runtime refused, neither of which has any other symptom.
       log.warn("Could not bind the CoreGraphics window list", { error });
     }
     return this.sampler;
   }
 
-  /** Read per sample, so attaching a monitor needs no invalidation. */
   private displayBounds(): Rect[] {
     return screen.getAllDisplays().map((display) => display.bounds);
   }

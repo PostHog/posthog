@@ -1,14 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseWindowListPlist } from "./cg-window-list";
 
-/**
- * A binary plist shaped like a real `CGWindowListCopyWindowInfo` result: a
- * Dock-owned Mission Control backing window, an app window, and a system
- * surface with no owner name. Regenerate with:
- *
- *   python3 -c "import plistlib,base64; print(base64.b64encode(
- *     plistlib.dumps([...], fmt=plistlib.FMT_BINARY)).decode())"
- */
+// A CGWindowListCopyWindowInfo-shaped binary plist. Regenerate with:
+//   python3 -c "import plistlib,base64; print(base64.b64encode(plistlib.dumps([...], fmt=plistlib.FMT_BINARY)).decode())"
 const WINDOW_LIST_PLIST = Buffer.from(
   "YnBsaXN0MDCjARYf1gIDBAUGBwgREhMUFV8QD2tDR1dpbmRvd0JvdW5kc18QE2tDR1dpbmRvd0lzT25zY3JlZW5ea0NHV2luZG93TGF5ZXJfEA9rQ0dXaW5kb3dOdW1iZXJfEBJrQ0dXaW5kb3dPd25lck5hbWVfEBFrQ0dXaW5kb3dPd25lclBJRNQJCgsMDQ4PEFZIZWlnaHRVV2lkdGhRWFFZI0CMKAAAAAAAI0CWgAAAAAAAIwAAAAAAAAAAI7/wAAAAAAAACRAUEHtURG9jaxEBLNQCBAYHFxwdHtQJCgsMGBkaGyNAgsAAAAAAACNAiQAAAAAAACNAKAAAAAAAACNAQwAAAAAAABAAV1Bvc3RIb2cREHLTAgQHICIj1AkKCwwhDg8PI0A4AAAAAAAAEBkRARMACAAMABkAKwBBAFAAYgB3AIsAlACbAKEAowClAK4AtwDAAMkAygDMAM4A0wDWAN8A6ADxAPoBAwEMAQ4BFgEZASABKQEyATQAAAAAAAACAQAAAAAAAAAkAAAAAAAAAAAAAAAAAAABNw==",
   "base64",
@@ -16,9 +10,6 @@ const WINDOW_LIST_PLIST = Buffer.from(
 
 describe("parseWindowListPlist", () => {
   it("maps CoreGraphics' capitalised bounds keys onto our window type", () => {
-    // The whole heuristic keys off bounds.y, so reading X/Y/Width/Height as if
-    // they were lowercase would silently report every window at the origin and
-    // the overlay would never fire.
     expect(parseWindowListPlist(WINDOW_LIST_PLIST)).toEqual([
       {
         ownerName: "Dock",
@@ -31,8 +22,6 @@ describe("parseWindowListPlist", () => {
         bounds: { x: 12, y: 38, width: 800, height: 600 },
       },
       {
-        // Absent for some system surfaces, and must not become the string
-        // "undefined" and accidentally match the owner check.
         ownerName: "",
         layer: 25,
         bounds: { x: 0, y: 0, width: 1440, height: 24 },

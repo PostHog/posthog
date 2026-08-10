@@ -1,14 +1,7 @@
-/**
- * CoreGraphics window-list binding — the only file that touches koffi.
- *
- * `CGWindowListCopyWindowInfo` returns a CFArray of CFDictionaries, which is also
- * a valid property list. Serialising that to a binary plist and parsing the bytes
- * in JS takes five bound functions; hand-marshalling the CoreFoundation types
- * would take a dozen plus manual retain and release.
- *
- * Owner name, layer and bounds need no permission. Only window *titles* require
- * Screen Recording, so this triggers no prompt.
- */
+// CGWindowListCopyWindowInfo output is also a valid property list, so
+// round-tripping through a binary plist avoids hand-marshalling CoreFoundation
+// types. Owner name, layer and bounds need no Screen Recording permission;
+// only window titles do, so this triggers no prompt.
 
 import { parseBuffer } from "bplist-parser";
 import type { CgWindow, WindowListSampler } from "./window-list";
@@ -22,7 +15,6 @@ const CORE_GRAPHICS =
 const CORE_FOUNDATION =
   "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 
-/** Every field is optional in practice, including the owner name. */
 interface RawWindow {
   kCGWindowOwnerName?: unknown;
   kCGWindowLayer?: unknown;
@@ -43,7 +35,6 @@ function toCgWindow(raw: RawWindow): CgWindow {
     ownerName:
       typeof raw.kCGWindowOwnerName === "string" ? raw.kCGWindowOwnerName : "",
     layer: num(raw.kCGWindowLayer),
-    // CoreGraphics capitalises these; our own type does not.
     bounds: {
       x: num(bounds.X),
       y: num(bounds.Y),
@@ -53,15 +44,13 @@ function toCgWindow(raw: RawWindow): CgWindow {
   };
 }
 
-/** Split out from the FFI so the mapping can be tested off macOS. */
 export function parseWindowListPlist(bytes: Buffer): CgWindow[] {
   const [root] = parseBuffer(bytes);
   return Array.isArray(root) ? (root as RawWindow[]).map(toCgWindow) : [];
 }
 
 function bind() {
-  // Required lazily so loading a native module is paid for only on macOS, and
-  // only once something actually samples.
+  // Required lazily so the native module only loads once something samples.
   const koffi = require("koffi") as typeof import("koffi");
 
   const cg = koffi.load(CORE_GRAPHICS);
@@ -81,11 +70,8 @@ function bind() {
   };
 }
 
-/**
- * Returns null off macOS, and throws when the binding cannot be set up — a missing
- * koffi prebuild and a dlopen the hardened runtime refused look identical from
- * outside, so the caller logs the reason rather than losing it.
- */
+// Returns null off macOS; throws when the binding cannot be set up so the
+// caller can log the reason.
 export function createWindowListSampler(): WindowListSampler | null {
   if (process.platform !== "darwin") return null;
 

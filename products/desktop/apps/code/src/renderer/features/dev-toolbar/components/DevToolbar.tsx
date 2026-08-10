@@ -103,9 +103,8 @@ export function DevToolbar() {
   };
 
   return (
-    // Above the Mission Control overlay (z-300). That overlay covers the whole
-    // window, so with the dev toggle forcing it on the toolbar would be hidden
-    // and the button to turn it back off unfindable.
+    // Above the Mission Control overlay (z-300), so forcing the overlay on
+    // cannot hide the toggle that turns it back off.
     <div className="relative z-[400] h-10 shrink-0 border-(--gray-6) border-t bg-(--gray-2)">
       {openPanel && (
         <PanelChrome
@@ -806,11 +805,8 @@ function formatRttCompact(ms: number): string {
 
 const SLOW_PRESETS_MS = [0, 250, 1000, 3000] as const;
 
-/**
- * Long enough to run several gestures in one recording — Mission Control, then
- * an app switch, then a Dock hover. Each one's windows separate out afterwards by
- * their firstSeenMs, which is how a false positive gets told from the real thing.
- */
+// Long enough to run several gestures (Mission Control, app switch, Dock
+// hover) in one recording.
 const MISSION_CONTROL_PROBE_MS = 20_000;
 
 function QuickActionsMenu() {
@@ -834,10 +830,8 @@ function QuickActionsMenu() {
     void trpcClient.dev.setForceMissionControlOverlay.mutate({ enabled: next });
   };
 
-  // Mission Control is modal, so a sample taken when the menu item is clicked can
-  // only ever show the ordinary desktop. This records instead, and copies the
-  // result out, since the log panel captures nothing from before developer mode
-  // was switched on.
+  // Mission Control is modal, so a sample taken on click would only ever show
+  // the ordinary desktop; record over a window instead.
   const [probing, setProbing] = useState(false);
   const probeMissionControl = async () => {
     setProbing(true);
@@ -993,7 +987,7 @@ function QuickActionsMenu() {
               className={`mr-2 ${probing ? "text-(--accent-11)" : "text-(--gray-9)"}`}
             />
             {probing
-              ? "Recording — run the gestures"
+              ? "Recording, run the gestures now"
               : `Record the window list (${MISSION_CONTROL_PROBE_MS / 1000}s)`}
           </DropdownMenuItem>
         </DropdownMenuGroup>

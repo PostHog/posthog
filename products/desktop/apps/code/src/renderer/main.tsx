@@ -114,10 +114,8 @@ try {
         <ServiceProvider container={container}>
           <Providers>
             <App devToolbar={<DevToolbarHost />} />
-            {/* Mounted beside the app rather than inside a route. The overlay is
-                chrome for the OS window, so it has to outlive every branch the
-                app renders instead of the router — the loading, auth and
-                onboarding gates, and __root's separate settings shell. */}
+            {/* Beside the app, not in a route: the overlay must outlive every
+                gate and shell the router renders. */}
             <MissionControlOverlay />
           </Providers>
         </ServiceProvider>

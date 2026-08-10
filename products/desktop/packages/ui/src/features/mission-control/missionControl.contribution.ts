@@ -6,14 +6,8 @@ import {
 } from "./identifiers";
 import { useMissionControlStore } from "./missionControlStore";
 
-/**
- * Mirrors the host's Mission Control state into the UI store. Subscribed at boot
- * rather than from the overlay component, so entering Mission Control does not
- * also wait on a mount.
- *
- * No initial state is fetched. The store starts hidden, which is right except for
- * a renderer that reloads mid-gesture, and the next transition corrects that.
- */
+// No initial state is fetched: the store starts hidden and the next transition
+// corrects a renderer that reloaded mid-gesture.
 @injectable()
 export class MissionControlContribution implements Contribution {
   constructor(

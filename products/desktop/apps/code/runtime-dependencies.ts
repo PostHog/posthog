@@ -37,8 +37,7 @@ export const requiredNativeModules = [
   "better-sqlite3",
 ];
 
-// file-icon is only used on macOS; koffi only reads the macOS window list for
-// the Mission Control overlay.
+// file-icon is only used on macOS; koffi only reads the macOS window list.
 export const macOnlyNativeModules = ["file-icon", "koffi"];
 
 // The subset that ships compiled .node binaries and must be unpacked from asar.
@@ -125,12 +124,8 @@ export function watcherPackageFor(
   return null;
 }
 
-/**
- * koffi's prebuilt binary for the target arch. It lives in an optional
- * per-platform package that koffi's loader requires by name, so the packaged app
- * needs the matching one staged beside it. macOS only — the FFI exists solely to
- * read the macOS window list.
- */
+// koffi's loader requires its optional per-platform prebuild package by name,
+// so the packaged app must stage the matching one beside it.
 export function koffiPackageFor(
   platformName: string,
   arch: number,
