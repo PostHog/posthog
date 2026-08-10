@@ -32,6 +32,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
@@ -1977,7 +1978,7 @@ class TestObserveAction(_VisionAPITestCase):
         mock_async_to_sync.return_value = MagicMock()
 
         exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.observe_url(str(self.scanner.id)), data={"session_id": "sess-quota"}, format="json"
@@ -2313,7 +2314,7 @@ class TestRetryActions(_VisionAPITestCase):
         observation = self._create_failed("sess-quota")
 
         exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
@@ -2712,6 +2713,35 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
         self.assertEqual(edit_body["other_enabled_scanners_monthly_credits"], 250 * 15)
+
+    def test_estimate_reports_active_backfill_commitment(self) -> None:
+        # The editor replaces the fleet total with `others + this scanner`, which drops the backfill credits the
+        # quota snapshot carries. Without this field the forecast understates period-end spend while one runs.
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="backfilled",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        ReplayScannerBackfill.objects.for_team(self.team.id).create(
+            scanner=scanner,
+            team=self.team,
+            window_start=timezone.now() - timedelta(days=5),
+            window_end=timezone.now(),
+            scanner_snapshot={},
+            credits_per_observation=5,
+            total_count=100,
+            dispatched_count=40,
+        )
+
+        body = self.client.post(self.estimate_url, data={}, format="json").json()
+
+        assert body["active_backfill_credits"] == 60 * 5
+
+    def test_estimate_reports_no_backfill_commitment_when_none_are_active(self) -> None:
+        body = self.client.post(self.estimate_url, data={}, format="json").json()
+        assert body["active_backfill_credits"] == 0
 
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.
