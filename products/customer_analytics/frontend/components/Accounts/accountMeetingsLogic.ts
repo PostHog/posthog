@@ -6,7 +6,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AccessControlLevel } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 
 import {
@@ -234,9 +233,8 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
         canEditMeetingMatching: [
             (selectors) => [selectors.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
-                (!!currentTeam?.effective_membership_level &&
-                    currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
-                currentTeam?.user_access_level === AccessControlLevel.Admin,
+                !!currentTeam?.effective_membership_level &&
+                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
         ],
     }),
     listeners(({ actions, values, props }) => ({
