@@ -30,13 +30,27 @@ export const NotebooksListQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Filter for notebooks created after this date & time'),
+        .describe('Filter for notebooks last modified after this date & time'),
     date_to: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Filter for notebooks created before this date & time'),
+        .describe('Filter for notebooks last modified before this date & time'),
+    excluded_tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Excludes notebooks carrying any of the given tags, even when they also carry non-excluded tags.'
+        ),
+    last_modified_by: zod.string().optional().describe('UUID of the user who last modified the notebook'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('Full-text search on notebook title and text content'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Returns notebooks carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.'
+        ),
     user: zod
         .string()
         .optional()
@@ -59,20 +73,31 @@ export const notebooksCreateBodyTitleMax = 256
 export const notebooksCreateBodyVersionMin = -2147483648
 export const notebooksCreateBodyVersionMax = 2147483647
 
-export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksCreateBodyVersionMin)
-        .max(notebooksCreateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-})
+export const notebooksCreateBodyTagsItemMax = 255
+
+export const notebooksCreateBodyTagsMax = 100
+
+export const NotebooksCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
+        content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+        text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+        version: zod
+            .number()
+            .min(notebooksCreateBodyVersionMin)
+            .max(notebooksCreateBodyVersionMax)
+            .optional()
+            .describe(
+                'Version number for optimistic concurrency control. Must match the current version when updating content.'
+            ),
+        deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+        tags: zod
+            .array(zod.string().max(notebooksCreateBodyTagsItemMax))
+            .max(notebooksCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this notebook (up to 100, 255 characters each).'),
+    })
+    .describe('Serializer mixin that handles tags for objects.')
 
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
@@ -103,20 +128,31 @@ export const notebooksPartialUpdateBodyTitleMax = 256
 export const notebooksPartialUpdateBodyVersionMin = -2147483648
 export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
-export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksPartialUpdateBodyVersionMin)
-        .max(notebooksPartialUpdateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-})
+export const notebooksPartialUpdateBodyTagsItemMax = 255
+
+export const notebooksPartialUpdateBodyTagsMax = 100
+
+export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
+        content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+        text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+        version: zod
+            .number()
+            .min(notebooksPartialUpdateBodyVersionMin)
+            .max(notebooksPartialUpdateBodyVersionMax)
+            .optional()
+            .describe(
+                'Version number for optimistic concurrency control. Must match the current version when updating content.'
+            ),
+        deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+        tags: zod
+            .array(zod.string().max(notebooksPartialUpdateBodyTagsItemMax))
+            .max(notebooksPartialUpdateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this notebook (up to 100, 255 characters each).'),
+    })
+    .describe('Serializer mixin that handles tags for objects.')
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true

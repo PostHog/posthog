@@ -64,6 +64,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface NotebookMinimalApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -85,6 +88,12 @@ export interface NotebookMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Organizational tags for this notebook (up to 100, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     _create_in_folder?: string
 }
 
@@ -106,6 +115,9 @@ export type NotebookApiParentResource = {
     readonly id: string
 } | null
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface NotebookApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -146,6 +158,12 @@ export interface NotebookApi {
      * @nullable
      */
     readonly parent_resource: NotebookApiParentResource
+    /**
+     * Organizational tags for this notebook (up to 100, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     _create_in_folder?: string
 }
 
@@ -158,6 +176,9 @@ export type PatchedNotebookApiParentResource = {
     readonly id: string
 } | null
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedNotebookApi {
     /** UUID of the notebook. */
     readonly id?: string
@@ -198,6 +219,12 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     readonly parent_resource?: PatchedNotebookApiParentResource
+    /**
+     * Organizational tags for this notebook (up to 100, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     _create_in_folder?: string
 }
 
@@ -610,13 +637,21 @@ export type NotebooksListParams = {
      */
     created_by?: string
     /**
-     * Filter for notebooks created after this date & time
+     * Filter for notebooks last modified after this date & time
      */
     date_from?: string
     /**
-     * Filter for notebooks created before this date & time
+     * Filter for notebooks last modified before this date & time
      */
     date_to?: string
+    /**
+     * JSON-encoded list of tag names. Excludes notebooks carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string
+    /**
+     * UUID of the user who last modified the notebook
+     */
+    last_modified_by?: string
     /**
      * Number of results to return per page.
      */
@@ -625,6 +660,14 @@ export type NotebooksListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Full-text search on notebook title and text content
+     */
+    search?: string
+    /**
+     * JSON-encoded list of tag names. Returns notebooks carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string
     /**
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */

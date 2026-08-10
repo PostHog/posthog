@@ -80,6 +80,9 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUr
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
@@ -145,8 +148,12 @@ const notebooksList = (): ToolBase<
                 created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                excluded_tags: params.excluded_tags,
+                last_modified_by: params.last_modified_by,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
+                tags: params.tags,
                 user: params.user,
             },
         })
@@ -207,6 +214,9 @@ const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema,
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',

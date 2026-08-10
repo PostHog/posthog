@@ -45049,6 +45049,9 @@ export namespace Schemas {
       readonly id: string;
     } | null;
 
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -45089,6 +45092,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource: NotebookParentResource;
+      /**
+         * Organizational tags for this notebook (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       _create_in_folder?: string;
     }
 
@@ -45329,6 +45338,9 @@ export namespace Schemas {
       cursor?: NotebookCollabCursor;
     }
 
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
     export interface NotebookMinimal {
       /** UUID of the notebook. */
       readonly id: string;
@@ -45350,6 +45362,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Organizational tags for this notebook (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       _create_in_folder?: string;
     }
 
@@ -56414,6 +56432,9 @@ export namespace Schemas {
       readonly id: string;
     } | null;
 
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
     export interface PatchedNotebook {
       /** UUID of the notebook. */
       readonly id?: string;
@@ -56454,6 +56475,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource?: PatchedNotebookParentResource;
+      /**
+         * Organizational tags for this notebook (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       _create_in_folder?: string;
     }
 
@@ -86713,13 +86740,21 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Filter for notebooks created after this date & time
+     * Filter for notebooks last modified after this date & time
      */
     date_from?: string;
     /**
-     * Filter for notebooks created before this date & time
+     * Filter for notebooks last modified before this date & time
      */
     date_to?: string;
+    /**
+     * JSON-encoded list of tag names. Excludes notebooks carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string;
+    /**
+     * UUID of the user who last modified the notebook
+     */
+    last_modified_by?: string;
     /**
      * Number of results to return per page.
      */
@@ -86728,6 +86763,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Full-text search on notebook title and text content
+     */
+    search?: string;
+    /**
+     * JSON-encoded list of tag names. Returns notebooks carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string;
     /**
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
