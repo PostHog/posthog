@@ -50,6 +50,12 @@ jobs:
         name: Compute impacted targets
         runs-on: ubuntu-24.04
         timeout-minutes: 10
+        # The upload is an optimization: `upload` treats a missing result as ALL
+        # and still queues the PR. So a transient fault in this job must not fail
+        # the run. The steps below tolerate their own faults and degrade to ALL;
+        # this job-level flag also keeps a fault they cannot catch (for example
+        # runner provisioning) from failing the parent workflow.
+        continue-on-error: true
         # Runs PR-controlled code, so it gets read access to the repo and
         # nothing else. No secret is available to this job.
         permissions:
@@ -58,17 +64,24 @@ jobs:
             targets: ${{ steps.targets.outputs.targets }}
             telemetry: ${{ steps.telemetry.outputs.properties }}
         steps:
+            # Shallow on purpose: this job needs history only back to the PR's
+            # merge base, and a smaller fetch is a smaller window for a transient
+            # network fault. The compute step deepens on demand when the merge
+            # base is not yet in reach.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              continue-on-error: true
               with:
-                  fetch-depth: 1000
+                  fetch-depth: 100
                   filter: blob:none
 
             - name: Fetch PR base for the changed-file diff
+              continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+              run: git fetch --no-tags --depth=100 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              continue-on-error: true
               with:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
@@ -80,30 +93,39 @@ jobs:
               run: |
                   set -uo pipefail
 
-                  # A missing merge base (branch older than the fetched depth) or
-                  # any diff failure has to widen to ALL rather than upload a
-                  # partial file list, which Trunk cannot distinguish from a
-                  # complete one.
-                  if ! merge_base="$(git merge-base "refs/remotes/origin/$BASE_REF" HEAD 2>/dev/null)"; then
-                      echo "::warning::No merge base against $BASE_REF within the fetched depth; reporting ALL."
-                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
+                  # Any pre-work fault degrades to ALL rather than uploading a
+                  # partial file list, which Trunk cannot tell from a complete
+                  # one. ALL only costs lane parallelism, so it is the safe
+                  # direction, and it lets the steps above tolerate their faults.
+                  report_all() {
+                      echo "::warning::$1 Reporting ALL."
+                      printf 'targets=%s\n' '{"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
                       exit 0
+                  }
+
+                  # The checkout and base fetch are shallow. Deepen both once to
+                  # the full reach when the merge base is not yet in history.
+                  if ! merge_base="$(git merge-base "refs/remotes/origin/$BASE_REF" HEAD 2>/dev/null)"; then
+                      git fetch --no-tags --deepen=900 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF" 2>/dev/null || true
+                      git fetch --no-tags --deepen=900 --filter=blob:none 2>/dev/null || true
+                      merge_base="$(git merge-base "refs/remotes/origin/$BASE_REF" HEAD 2>/dev/null)" \
+                          || report_all "No merge base against $BASE_REF within the fetched depth;"
                   fi
 
-                  if ! changed="$(git diff --name-only "$merge_base" HEAD)"; then
-                      echo "::warning::Could not diff against the merge base; reporting ALL."
-                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
+                  changed="$(git diff --name-only "$merge_base" HEAD)" \
+                      || report_all "Could not diff against the merge base;"
 
                   echo "$changed" | sed 's/^/  /'
                   printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
 
-                  # The script prints a JSON array on stdout, or the JSON string "ALL" when it
-                  # could not enumerate the targets, and never exits non-zero;
-                  # it degrades to "ALL" internally on any error.
-                  computed="$(printf '%s\n' "$changed" | node .github/scripts/trunk-impacted-targets.js)"
-                  printf 'targets=%s\n' "$(jq -cn --argjson t "$computed" '{impactedTargets: $t}')" >> "$GITHUB_OUTPUT"
+                  # The script prints a JSON array on stdout, or the JSON string
+                  # "ALL" when it could not enumerate the targets, and never exits
+                  # non-zero. A missing node or an unreadable script still widens.
+                  computed="$(printf '%s\n' "$changed" | node .github/scripts/trunk-impacted-targets.js)" \
+                      || report_all "Could not run the impacted-targets script;"
+                  encoded="$(jq -cn --argjson t "$computed" '{impactedTargets: $t}')" \
+                      || report_all "Could not encode the impacted targets;"
+                  printf 'targets=%s\n' "$encoded" >> "$GITHUB_OUTPUT"
 
             # Summarizes the change set and the targets for the lane-cost
             # dashboard. Never gates: a telemetry problem must not keep a PR out
