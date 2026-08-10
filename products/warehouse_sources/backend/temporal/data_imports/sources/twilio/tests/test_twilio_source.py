@@ -101,7 +101,7 @@ class TestTwilioSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
         incremental = {s.name for s in schemas if s.supports_incremental}
-        assert incremental == {"messages", "calls", "recordings", "conferences"}
+        assert incremental == {"messages", "calls", "recordings", "conferences", "verification_attempts"}
 
     def test_incremental_schemas_advertise_their_fields(self):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}

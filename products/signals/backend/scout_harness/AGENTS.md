@@ -114,7 +114,12 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 ## Where the rest of the system meets this directory
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
-  Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose per-scout schedule (`run_interval_minutes`, default every 24 hours, or an optional project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
+  Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose per-scout schedule (`run_interval_minutes`, default every 24 hours, or an optional project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap `MAX_RUNS_PER_TICK` per tick (flag-tunable via `max_runs_per_tick_global`), `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
+  A dispatched rolling-interval scout has its `last_run_at` stamped at its own stable slot on the tick grid (`_slot_anchor`, keyed on a digest of the config id), not at the post-fan-out wall clock.
+  That is what keeps dispatch spread across the day: a wall-clock anchor accumulated each tick's planning and fan-out latency, so a cohort eventually slipped onto the next tick and merged into that tick's cohort, and every merge made the resulting wave slower to fan out and more likely to slip again.
+  Anchoring on the grid also returns a run deferred by a per-team cap or a missed tick to the slot it was meant to have, instead of re-anchoring wherever it happened to land.
+  `slot_aligned_dispatch: false` in the flag payload reverts to wall-clock stamping.
+  Cron scouts and breaker-paused lanes under probe keep the wall clock, because their `last_run_at` is a croniter reference and a probe cooldown clock respectively, not a schedule anchor.
   A lane paused by the failure-streak breaker (`status=paused_by_system`, `pause_reason=repeated_failures`) is excluded by the `enabled=True` dispatch filter like any other pause; the coordinator additionally dispatches one probe per `AUTO_PAUSE_PROBE_INTERVAL_S` to such lanes (`_collect_probe_runs`).
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`, `SignalScoutNote`, `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with `SourceType.CROSS_SOURCE_ISSUE`.
