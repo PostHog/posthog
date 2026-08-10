@@ -41,7 +41,10 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import (
     ACCOUNTS_TABLE_MAX_COLUMNS,
+    ACCOUNTS_TABLE_MAX_FILTER_VALUES,
+    ACCOUNTS_TABLE_MAX_FILTERS,
     ACCOUNTS_TABLE_MAX_PAGE_SIZE,
+    ACCOUNTS_TABLE_MAX_STRING_LENGTH,
     AccountsTableQueryRunner,
 )
 from products.customer_analytics.backend.models import (
@@ -359,7 +362,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             (
                 "date",
                 DisplayType.DATE,
-                {"value_datetime": datetime(2026, 1, 1, tzinfo=UTC)},
+                {"value_datetime": datetime(2026, 1, 1, 14, 30, tzinfo=UTC)},
                 AccountsTableCustomPropertyOperator.IS_DATE_BEFORE,
                 ["2026-02-01T00:00:00Z"],
                 {"Set"},
@@ -403,6 +406,44 @@ class TestAccountsTableQueryRunner(BaseTest):
         )
 
         assert {row.name for row in response.results} == expected_names
+
+    def test_rejects_excessive_filter_count_and_string_length(self) -> None:
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[AccountsTableSearchFilter(query="a")] * (ACCOUNTS_TABLE_MAX_FILTERS + 1),
+                )
+            )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[AccountsTableSearchFilter(query="a" * (ACCOUNTS_TABLE_MAX_STRING_LENGTH + 1))],
+                )
+            )
+
+    def test_rejects_excessive_custom_property_filter_values(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="Health score",
+            display_type=DisplayType.NUMBER,
+        )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[
+                        AccountsTableCustomPropertyFilter(
+                            definitionId=str(definition.id),
+                            operator=AccountsTableCustomPropertyOperator.EXACT,
+                            values=list(range(ACCOUNTS_TABLE_MAX_FILTER_VALUES + 1)),
+                        )
+                    ],
+                )
+            )
 
     def test_sorts_before_paginating_across_supported_column_kinds(self) -> None:
         alpha = create_account(team_id=self.team.id, name="Alpha", _properties={"stripe_customer_id": "cus_z"})

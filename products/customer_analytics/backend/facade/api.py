@@ -2310,8 +2310,10 @@ def _custom_property_filter_predicate(
             raise InvalidAccountTableColumn("Date operators require a date or datetime custom property.")
         if len(values) != 1:
             raise InvalidAccountTableColumn("Date comparison filters require one value.")
+        if operator == contracts.AccountTableCustomPropertyOperator.DATE_EXACT:
+            target_date = cast(datetime, values[0]).replace(hour=0, minute=0, second=0, microsecond=0)
+            return Q(value_datetime__gte=target_date, value_datetime__lt=target_date + timedelta(days=1)), False
         lookup = {
-            contracts.AccountTableCustomPropertyOperator.DATE_EXACT: "exact",
             contracts.AccountTableCustomPropertyOperator.DATE_BEFORE: "lt",
             contracts.AccountTableCustomPropertyOperator.DATE_AFTER: "gt",
         }[operator]

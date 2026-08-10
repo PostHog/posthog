@@ -32,7 +32,10 @@ from posthog.rbac.user_access_control import UserAccessControl, UserAccessContro
 from products.customer_analytics.backend.facade import api, contracts
 
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
+ACCOUNTS_TABLE_MAX_FILTERS = 50
+ACCOUNTS_TABLE_MAX_FILTER_VALUES = 100
 ACCOUNTS_TABLE_MAX_PAGE_SIZE = 500
+ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
 
 
 class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse]):
@@ -88,9 +91,39 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         )
 
     def _filters(self) -> tuple[contracts.AccountTableFilter, ...]:
+        query_filters = self.query.filters or []
+        if len(query_filters) > ACCOUNTS_TABLE_MAX_FILTERS:
+            raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_FILTERS} filters.")
+
         filters: list[contracts.AccountTableFilter] = []
         try:
-            for filter_ in self.query.filters or []:
+            for filter_ in query_filters:
+                if (
+                    isinstance(filter_, AccountsTableSearchFilter)
+                    and len(filter_.query) > ACCOUNTS_TABLE_MAX_STRING_LENGTH
+                ):
+                    raise ValidationError(
+                        f"Account table filter strings support up to {ACCOUNTS_TABLE_MAX_STRING_LENGTH} characters."
+                    )
+                filter_values = (
+                    filter_.tagNames
+                    if isinstance(filter_, AccountsTableTagsFilter)
+                    else filter_.userIds
+                    if isinstance(filter_, AccountsTableAssignedToFilter)
+                    else filter_.values or []
+                    if isinstance(filter_, AccountsTableCustomPropertyFilter)
+                    else []
+                )
+                if len(filter_values) > ACCOUNTS_TABLE_MAX_FILTER_VALUES:
+                    raise ValidationError(
+                        f"Account table filters support up to {ACCOUNTS_TABLE_MAX_FILTER_VALUES} values."
+                    )
+                if any(
+                    isinstance(value, str) and len(value) > ACCOUNTS_TABLE_MAX_STRING_LENGTH for value in filter_values
+                ):
+                    raise ValidationError(
+                        f"Account table filter strings support up to {ACCOUNTS_TABLE_MAX_STRING_LENGTH} characters."
+                    )
                 if isinstance(filter_, AccountsTableSearchFilter):
                     filters.append(contracts.AccountTableSearchFilter(query=filter_.query))
                 elif isinstance(filter_, AccountsTableTagsFilter):
