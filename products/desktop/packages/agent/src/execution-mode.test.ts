@@ -17,6 +17,7 @@ describe("execution modes", () => {
       "plan",
       "read-only",
       "auto",
+      "multitask",
       "full-access",
     ]);
   });
