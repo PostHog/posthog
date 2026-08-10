@@ -162,9 +162,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
                 "`can_receive_email_marketing`, `suppression` (global suppressions as "
                 "{reason, timestamp} entries, with reason one of HARD_BOUNCE, INVALID_EMAIL, "
                 "SPAM_COMPLAINT, UNSUBSCRIBE, or USER_SUPPRESSED), and `list_suppressions` "
-                "(per-list suppressions as {list_id, reason, timestamp} entries). `sms.marketing`, "
-                "`sms.transactional`, and `mobile_push.marketing` hold the SMS and push "
-                "equivalents (`consent`, `consent_timestamp`, and a `can_receive_*` flag). Use "
+                "(per-list suppressions as {list_id, reason, timestamp} entries). `sms.marketing` "
+                "and `sms.transactional` hold `consent`, `consent_timestamp`, and a `can_receive_*` "
+                "flag, while `mobile_push.marketing` holds `consent` and `can_receive_push_marketing`. Use "
                 "this column to export unsubscribe, suppression, and consent state, e.g. when "
                 "migrating to another sending platform."
             ),
