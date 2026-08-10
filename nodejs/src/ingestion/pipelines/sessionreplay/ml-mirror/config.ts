@@ -1,6 +1,7 @@
 import os from 'node:os'
 
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
+import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
@@ -24,6 +25,17 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: number
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
+
+    /**
+     * Host of a Redis dedicated to this lane. Empty sends the mirror to the shared session-replay
+     * cluster instead, so clearing this value is the supported rollback.
+     *
+     * The mirror's per-session keys otherwise sit on the cluster that also serves the primary replay
+     * lane, so memory pressure from the mirror reaches the lane that gates replay ingestion. Pointing
+     * the mirror at its own instance removes that path.
+     */
+    SESSION_RECORDING_ML_REDIS_HOST: string
+    SESSION_RECORDING_ML_REDIS_PORT: number
 
     /**
      * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
@@ -95,6 +107,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
+        SESSION_RECORDING_ML_REDIS_HOST: '',
+        SESSION_RECORDING_ML_REDIS_PORT: 6379,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
@@ -129,4 +143,27 @@ export function resolveMlAnonymizeMaxConcurrency(
         return configured
     }
     return Math.max(1, Math.min(availableParallelism, uvThreadpoolSize))
+}
+
+/**
+ * A host of whitespace counts as unset: chart values render to an empty string when the underlying
+ * secret key is missing, and connecting to `""` would fail every command rather than return `null`.
+ */
+export function resolveMlMirrorRedisConnection(
+    config: Pick<MlMirrorConfig, 'SESSION_RECORDING_ML_REDIS_HOST' | 'SESSION_RECORDING_ML_REDIS_PORT'> & {
+        SESSION_RECORDING_REDIS_TIMEOUT_MS: number
+    }
+): RedisConnectionConfig | null {
+    const host = config.SESSION_RECORDING_ML_REDIS_HOST.trim()
+    if (!host) {
+        return null
+    }
+    return {
+        url: host,
+        options: {
+            port: config.SESSION_RECORDING_ML_REDIS_PORT,
+            commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
+        },
+        name: 'session-recording-ml-redis',
+    }
 }
