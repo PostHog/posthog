@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 from functools import partial
 
@@ -136,6 +137,16 @@ def update_external_job_status(
     return model
 
 
+def _is_cancellation(error: BaseException) -> bool:
+    """Whether `error` is an activity cancellation, however it surfaced.
+
+    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into the
+    thread this runs on when the calling activity is cancelled mid-sweep — match on the type name too
+    so it isn't mistaken for a genuine queue-DB failure.
+    """
+    return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
+
+
 def _sweep_v3_queue_batches_swallowing_errors(
     *, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger
 ) -> None:
@@ -144,6 +155,10 @@ def _sweep_v3_queue_batches_swallowing_errors(
     try:
         _sweep_v3_queue_batches(job_id=job_id, status=status, logger=logger)
     except Exception as e:
+        if _is_cancellation(e):
+            # Activity cancellation, not a sweep failure — propagate so the caller's own cancellation
+            # handling runs, instead of reporting it as `dwh_finalize_queue_sweep_failed` noise.
+            raise
         FINALIZE_QUEUE_SWEEP_ERRORS.inc()
         logger.exception("dwh_finalize_queue_sweep_failed", job_id=job_id)
         capture_exception(e)
