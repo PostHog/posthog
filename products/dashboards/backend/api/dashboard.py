@@ -1599,7 +1599,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
             )
 
-        validated_data.pop("use_template", None)  # Remove attribute if present
+        validated_data.pop("use_template", None)
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:
@@ -2348,10 +2348,7 @@ class DashboardsViewSet(
             )
         )
 
-        # Any write that sets `deleted` (a delete or a restore) targets the flag itself, so the row may
-        # already be in that state — e.g. re-deleting a dashboard another tab, a teammate, or a folder
-        # cascade already soft-deleted. Include soft-deleted rows for those writes so the mutation is
-        # idempotent (a no-op delete returns 200) instead of 404ing on an already-deleted dashboard.
+        # Include soft-deleted dashboards when PATCH updates `deleted`, so repeated deletes and restores remain idempotent.
         include_deleted = (
             self.action in ("partial_update", "update")
             and hasattr(self, "request")
