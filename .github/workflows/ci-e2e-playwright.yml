@@ -127,6 +127,15 @@ jobs:
               if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Filter on the pushed commits rather than the whole PR, so a follow-up
+                  # push touching nothing this suite exercises doesn't boot the stack again.
+                  # The cost: PR runs cancel in progress, so an earlier push's E2E run can be
+                  # cancelled while this one filters itself out, leaving the suite unrun on
+                  # this PR. Trunk's merge queue opens a fresh trunk-merge/** PR whose full
+                  # diff against master is the merge gate, which is what still catches that,
+                  # so the queue's own runs must keep filtering on the full diff.
+                  # See .github/actions/paths-filter/README.md.
+                  since-last-push: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   filters: |
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
@@ -171,9 +180,11 @@ jobs:
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the full E2E stack for that bot push is pure waste;
-            # the `playwright_tests` aggregator treats the resulting skip as success. Key
-            # off the push delta (this push's commits), not the whole-PR diff the filter reports,
-            # so it fires even when the PR also carries real code changes.
+            # the `playwright_tests` aggregator treats the resulting skip as success.
+            # The filter above can't express this on its own: snapshots.yml sits under
+            # frontend/, so the push delta it reports still matches the `frontend/**/*`
+            # include. This step vetoes the run by looking at who pushed and at nothing
+            # but the baseline file being in the delta.
             - name: Detect Visual Review baseline-only push
               id: baseline_push
               if: github.event_name == 'pull_request' && github.event.action == 'synchronize'

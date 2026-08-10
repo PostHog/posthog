@@ -20,6 +20,17 @@ inputs:
             If it references same branch it was pushed to, changes are detected against the most recent commit before the push.
             This option is ignored if action is triggered by pull_request event.
         required: false
+    since-last-push:
+        description: |
+            Detect changes from the commits of the triggering push only, instead of from the
+            whole pull request. Takes effect on `pull_request` `synchronize` events when `token`
+            is set, and silently falls back to the full pull request diff everywhere else, so a
+            filter can only ever report more changes than it would have, never fewer.
+            The full diff is also used when the push cannot be compared reliably: a force-push or
+            rebase, a comparison at the API's 300-file cap, or an API error.
+            Read the trade-off in README.md before enabling this on a workflow.
+        required: false
+        default: 'false'
     filters:
         description: 'Path to the configuration file or YAML string with filters definition'
         required: true

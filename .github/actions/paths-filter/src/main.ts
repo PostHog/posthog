@@ -7,6 +7,7 @@ import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 import {Filter, FilterResults} from './filter'
 import {File, ChangeStatus} from './file'
 import * as git from './git'
+import {COMPARE_FILE_LIMIT, getPushDeltaRange, isComparisonTruncated} from './push-delta'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
 
@@ -26,6 +27,10 @@ async function run(): Promise<void> {
     const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput
     const listFiles = core.getInput('list-files', {required: false}).toLowerCase() || 'none'
     const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', {required: false})) || 10
+    // Parsed leniently rather than with getBooleanInput: an unexpected value degrades
+    // to the full diff, which over-reports changes, instead of failing the job that
+    // every other job in the workflow waits on.
+    const sinceLastPush = core.getInput('since-last-push', {required: false}).toLowerCase() === 'true'
 
     if (!isExportFormat(listFiles)) {
       core.setFailed(`Input parameter 'list-files' is set to invalid value '${listFiles}'`)
@@ -33,7 +38,7 @@ async function run(): Promise<void> {
     }
 
     const filter = new Filter(filtersYaml)
-    const files = await getChangedFiles(token, base, ref, initialFetchDepth)
+    const files = await getChangedFiles(token, base, ref, initialFetchDepth, sinceLastPush)
     core.info(`Detected ${files.length} changed files`)
     const results = filter.match(files)
     exportResults(results, listFiles)
@@ -58,7 +63,13 @@ function getConfigFileContent(configPath: string): string {
   return fs.readFileSync(configPath, {encoding: 'utf8'})
 }
 
-async function getChangedFiles(token: string, base: string, ref: string, initialFetchDepth: number): Promise<File[]> {
+async function getChangedFiles(
+  token: string,
+  base: string,
+  ref: string,
+  initialFetchDepth: number,
+  sinceLastPush: boolean
+): Promise<File[]> {
   // if base is 'HEAD' only local uncommitted changes will be detected
   // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
   if (base === git.HEAD) {
@@ -83,7 +94,18 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       }
       const pr = github.context.payload.pull_request as PullRequest
       if (token) {
+        if (sinceLastPush) {
+          const pushed = await getPushDeltaFromApi(token)
+          if (pushed) {
+            return pushed
+          }
+        }
         return await getChangedFilesFromApi(token, pr)
+      }
+      if (sinceLastPush) {
+        core.warning(
+          `'token' input parameter is required by 'since-last-push' - the full pull request diff will be used`
+        )
       }
       if (github.context.eventName === 'pull_request_target') {
         // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
@@ -186,36 +208,84 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
       }
       core.info(`Received ${response.data.length} items`)
 
-      for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
-        core.info(`[${row.status}] ${row.filename}`)
-        // There's no obvious use-case for detection of renames
-        // Therefore we treat it as if rename detection in git diff was turned off.
-        // Rename is replaced by delete of original filename and add of new filename
-        if (row.status === ChangeStatus.Renamed) {
-          files.push({
-            filename: row.filename,
-            status: ChangeStatus.Added
-          })
-          files.push({
-            // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-            filename: (<any>row).previous_filename as string,
-            status: ChangeStatus.Deleted
-          })
-        } else {
-          // Github status and git status variants are same except for deleted files
-          const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
-          files.push({
-            filename: row.filename,
-            status
-          })
-        }
-      }
+      files.push(
+        ...apiFilesToChanges(response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>)
+      )
     }
 
     return files
   } finally {
     core.endGroup()
   }
+}
+
+// Lists the files a single push added to the pull request, rather than everything
+// the pull request changes. Returns null whenever that comparison can't be trusted,
+// which leaves the caller on the full pull request diff.
+async function getPushDeltaFromApi(token: string): Promise<File[] | null> {
+  const range = getPushDeltaRange(github.context.eventName, github.context.payload)
+  if (!range.usable) {
+    core.info(`Changes since last push are not available (${range.reason}) - using the full pull request diff`)
+    return null
+  }
+
+  const basehead = `${range.before}...${range.after}`
+  core.startGroup(`Fetching list of files changed by the push ${basehead} from Github API`)
+  try {
+    const client = github.getOctokit(token)
+    // Three dots so the comparison starts from merge-base(before, after): for an
+    // appended push that is exactly the pushed commits, while a force-push or a
+    // rebase widens it to the whole branch delta rather than reporting a bogus one.
+    const response = await client.rest.repos.compareCommitsWithBasehead({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      basehead
+    })
+
+    if (isComparisonTruncated(response.data.files)) {
+      core.warning(
+        `Comparison of ${basehead} reports ${response.data.files?.length ?? 0} files and is capped at ` +
+          `${COMPARE_FILE_LIMIT} - using the full pull request diff instead of a possibly truncated list`
+      )
+      return null
+    }
+
+    return apiFilesToChanges(response.data.files ?? [])
+  } catch (error) {
+    core.warning(`Failed to compare ${basehead} (${getErrorMessage(error)}) - using the full pull request diff instead`)
+    return null
+  } finally {
+    core.endGroup()
+  }
+}
+
+function apiFilesToChanges(rows: {filename: string; status: string}[]): File[] {
+  const files: File[] = []
+  for (const row of rows) {
+    core.info(`[${row.status}] ${row.filename}`)
+    // There's no obvious use-case for detection of renames
+    // Therefore we treat it as if rename detection in git diff was turned off.
+    // Rename is replaced by delete of original filename and add of new filename
+    if (row.status === ChangeStatus.Renamed) {
+      files.push({
+        filename: row.filename,
+        status: ChangeStatus.Added
+      })
+      files.push({
+        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
+        filename: (<any>row).previous_filename as string,
+        status: ChangeStatus.Deleted
+      })
+    } else {
+      // Github status and git status variants are same except for deleted files
+      const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
+      files.push({
+        filename: row.filename,
+        status
+      })
+    }
+  }
+  return files
 }
 
 function exportResults(results: FilterResults, format: ExportFormat): void {

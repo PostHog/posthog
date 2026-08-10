@@ -65,6 +65,50 @@ changed:
   - added|modified: ['src/**', '!src/vendor/**']
 ```
 
+## `since-last-push`: filtering on the pushed commits only
+
+By default a `pull_request` run filters on everything the pull request changes,
+so a follow-up push that touches only docs still re-runs every suite the earlier commits matched.
+`since-last-push: true` narrows detection to the commits the triggering push added:
+
+```yaml
+- uses: ./.github/actions/paths-filter
+  with:
+    token: ${{ steps.app-token.outputs.token || github.token }}
+    # Trunk's merge queue is the merge gate, so its runs always see the full diff.
+    since-last-push: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+    filters: |
+      frontend:
+        - 'frontend/**'
+```
+
+It reads `before`/`after` off the `synchronize` payload and asks the compare API for `before...after`.
+Three dots means the comparison starts from `merge-base(before, after)`,
+so an appended push reports exactly its own commits,
+while a force-push or rebase widens to the whole branch delta instead of reporting a wrong one.
+
+The full pull request diff is used instead whenever the push delta isn't available or isn't trustworthy:
+any event other than `synchronize` (including `opened` and `ready_for_review`),
+a missing or null `before`/`after`,
+no `token`,
+an API error,
+or a comparison at the API's 300-file cap, where the file list may be truncated.
+Every fallback reports more changes than the push delta would, never fewer.
+
+**Know the trade-off before enabling this.**
+Pull request runs cancel in progress on a new push.
+If push A touches Rust and push B touches only docs,
+A's Rust job can be cancelled while B's run filters it out,
+so nothing tests A on this pull request.
+What makes that survivable here is that Trunk's merge queue re-runs CI on a fresh `trunk-merge/**` pull request,
+whose full diff against master is the actual merge gate.
+The cost is that the breakage surfaces in the queue rather than on the pull request.
+Enable this on suites where that trade is worth the runner time, and keep the merge queue on the full diff.
+
+Detection is per invocation,
+so a workflow can gate cheap jobs on the push delta
+while a second step keeps the whole-pull-request `*_files` lists that test selection and lint scoping need.
+
 ## Rebuilding after source changes
 
 The action runs the committed `dist/index.js` bundle. After editing anything under `src/`,
