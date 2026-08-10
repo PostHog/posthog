@@ -445,7 +445,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-05-12',
         pageUrl: urls.replayVision(),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION],
     },
     decorators: [
         mswDecorator({
@@ -508,15 +507,11 @@ export const ScannerConfiguration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration` },
 }
 
-// Test arm of the model tier-naming experiment: models labeled Basic/Pro/Ultra instead of provider
-// names. A per-story featureFlags replaces the meta's, so REPLAY_VISION must be re-listed.
+// Test arm of the model tier-naming experiment: models labeled Basic/Pro/Ultra instead of provider names.
 export const ScannerConfigurationTierNames: StoryObj = {
     parameters: {
         pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION]: true,
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
-        },
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
     },
 }
 
@@ -528,7 +523,6 @@ export const ScannerCalibration: StoryObj = {
 export const ScannerDigests: StoryObj = {
     parameters: {
         pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=actions`,
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 
@@ -543,10 +537,7 @@ export const ScannerEditorConfigure: StoryObj = {
 export const ScannerEditorConfigureTierNames: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION]: true,
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
-        },
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
     },
 }
 
@@ -557,7 +548,6 @@ export const ScannerEditorTriggers: StoryObj = {
 export const ActionEditorAlert: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionActionNew(summarizerScanner.id, 'alert'),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 
@@ -565,14 +555,12 @@ export const ActionEditorAlert: StoryObj = {
 export const ActionEditorDigest: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionActionEdit(digestAction.id),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 
 export const ActionDetail: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionAction(digestAction.id),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 

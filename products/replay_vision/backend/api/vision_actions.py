@@ -33,10 +33,6 @@ from products.replay_vision.backend.api.delivery import archive_delivery, provis
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
-from products.replay_vision.backend.feature_flag import (
-    ReplayVisionActionsEnabledPermission,
-    ReplayVisionEnabledPermission,
-)
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
@@ -645,7 +641,6 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_action"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionAction.objects.unscoped()
@@ -970,7 +965,6 @@ class VisionActionRunViewSet(
     scope_object = "vision_action"
     # Runs surface recording-derived summaries, so reading them requires session_recording read too.
     required_scopes = ["vision_action:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionRunSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionActionRun.objects.unscoped()

@@ -26,11 +26,6 @@ from products.replay_vision.backend.tests.helpers import snapshot_for as _snapsh
 class _VisionQuotaTestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         self.scanner = ReplayScanner.objects.create(
             team=self.team,
             name="quota-test-scanner",
@@ -40,7 +35,6 @@ class _VisionQuotaTestCase(APIBaseTest):
         )
 
     def tearDown(self) -> None:
-        self.flag_patcher.stop()
         super().tearDown()
 
     def _make_observation(
@@ -394,14 +388,6 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         resp = self.client.get(self.quota_url)
         assert resp.json()["credits_used"] == 45
         assert resp.json()["remaining"] == MONTHLY_CREDIT_QUOTA - 45
-
-    def test_requires_feature_flag(self) -> None:
-        with patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            resp = self.client.get(self.quota_url)
-        assert resp.status_code == 404
 
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
