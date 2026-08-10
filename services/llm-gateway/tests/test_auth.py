@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -86,6 +87,33 @@ class TestExtractToken:
         request = MagicMock(spec=Request)
         request.headers = {}
         assert extract_token(request) is None
+
+
+def _token_row(**overrides) -> dict:
+    row = {
+        "id": 1,
+        "user_id": 123,
+        "scope": "llm_gateway:read",
+        "expires": datetime.now(UTC) + timedelta(hours=1),
+        "current_team_id": 456,
+        "application_id": 789,
+        "distinct_id": "test-distinct-id",
+        "is_staff": False,
+        "scoped_teams": None,
+        "scoped_organizations": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def _project_row(project_id: int, membership_level: int = 1, features: list[str] | None = None) -> dict:
+    return {
+        "id": project_id,
+        "organization_id": "org-2",
+        "membership_id": "mem-1",
+        "membership_level": membership_level,
+        "available_product_features": features,
+    }
 
 
 class TestAuthService:
@@ -197,7 +225,13 @@ class TestAuthService:
                     "scoped_teams": scoped_teams,
                     "scoped_organizations": scoped_organizations,
                 },
-                {"id": 789, "organization_id": "org-2"},
+                {
+                    "id": 789,
+                    "organization_id": "org-2",
+                    "membership_id": "mem-1",
+                    "membership_level": 1,
+                    "available_product_features": None,
+                },
             ]
         )
 
@@ -230,7 +264,13 @@ class TestAuthService:
                     "scoped_teams": [],
                     "scoped_organizations": ["org-1"],
                 },
-                {"id": 789, "organization_id": "org-2"},
+                {
+                    "id": 789,
+                    "organization_id": "org-2",
+                    "membership_id": "mem-1",
+                    "membership_level": 1,
+                    "available_product_features": None,
+                },
             ]
         )
 
@@ -299,8 +339,20 @@ class TestAuthService:
                     "scoped_teams": None,
                     "scoped_organizations": None,
                 },
-                {"id": 789, "organization_id": "org-2"},
-                {"id": 790, "organization_id": "org-2"},
+                {
+                    "id": 789,
+                    "organization_id": "org-2",
+                    "membership_id": "mem-1",
+                    "membership_level": 1,
+                    "available_product_features": None,
+                },
+                {
+                    "id": 790,
+                    "organization_id": "org-2",
+                    "membership_id": "mem-1",
+                    "membership_level": 1,
+                    "available_product_features": None,
+                },
             ]
         )
 
@@ -336,7 +388,13 @@ class TestAuthService:
                     "scoped_organizations": None,
                 },
                 None,
-                {"id": 999, "organization_id": "org-2"},
+                {
+                    "id": 999,
+                    "organization_id": "org-2",
+                    "membership_id": "mem-1",
+                    "membership_level": 1,
+                    "available_product_features": None,
+                },
             ]
         )
 
@@ -354,6 +412,173 @@ class TestAuthService:
         assert granted is not None
         assert granted.team_id == 999
         assert conn.fetchrow.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_oauth_project_scope_enforces_both_ceilings_when_both_set(
+        self, auth_service: AuthService, mock_pool: MagicMock
+    ) -> None:
+        def request_for(project_id: str) -> MagicMock:
+            request = MagicMock(spec=Request)
+            request.headers = {
+                "authorization": "Bearer pha_valid_token",
+                "x-posthog-project-id": project_id,
+            }
+            return request
+
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                _token_row(scoped_teams=[789], scoped_organizations=["org-2"]),
+                _project_row(790),
+                _project_row(789),
+            ]
+        )
+
+        with pytest.raises(UnauthorizedProjectScopeError):
+            await auth_service.authenticate_request(request_for("790"), mock_pool)
+
+        allowed = await auth_service.authenticate_request(request_for("789"), mock_pool)
+        assert allowed is not None
+        assert allowed.team_id == 789
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "access_rows,role_rows,expected_team",
+        [
+            pytest.param(
+                [{"access_level": "none", "organization_member_id": None, "role_id": None}],
+                None,
+                None,
+                id="restricted_default_denies",
+            ),
+            pytest.param(
+                [
+                    {"access_level": "none", "organization_member_id": None, "role_id": None},
+                    {"access_level": "member", "organization_member_id": "mem-1", "role_id": None},
+                ],
+                None,
+                789,
+                id="member_grant_allows",
+            ),
+            pytest.param(
+                [
+                    {"access_level": "none", "organization_member_id": None, "role_id": None},
+                    {"access_level": "member", "organization_member_id": "mem-other", "role_id": None},
+                ],
+                None,
+                None,
+                id="other_members_grant_does_not_allow",
+            ),
+            pytest.param(
+                [
+                    {"access_level": "none", "organization_member_id": None, "role_id": None},
+                    {"access_level": "member", "organization_member_id": None, "role_id": "role-1"},
+                ],
+                [{"role_id": "role-1"}],
+                789,
+                id="role_grant_allows",
+            ),
+            pytest.param(
+                [
+                    {"access_level": "none", "organization_member_id": None, "role_id": None},
+                    {"access_level": "member", "organization_member_id": None, "role_id": "role-1"},
+                ],
+                [{"role_id": "role-other"}],
+                None,
+                id="unheld_role_grant_does_not_allow",
+            ),
+        ],
+    )
+    async def test_oauth_project_scope_applies_project_access_control(
+        self,
+        auth_service: AuthService,
+        mock_pool: MagicMock,
+        access_rows: list[dict],
+        role_rows: list[dict] | None,
+        expected_team: int | None,
+    ) -> None:
+        request = MagicMock(spec=Request)
+        request.headers = {
+            "authorization": "Bearer pha_valid_token",
+            "x-posthog-project-id": "789",
+        }
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                _token_row(),
+                _project_row(789, features=['{"key": "access_control"}']),
+            ]
+        )
+        conn.fetch = AsyncMock(side_effect=[access_rows] + ([role_rows] if role_rows is not None else []))
+
+        if expected_team is None:
+            with pytest.raises(UnauthorizedProjectScopeError):
+                await auth_service.authenticate_request(request, mock_pool)
+        else:
+            result = await auth_service.authenticate_request(request, mock_pool)
+            assert result is not None
+            assert result.team_id == expected_team
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "membership_level,features",
+        [
+            pytest.param(8, ['{"key": "access_control"}'], id="org_admin_bypasses_rbac"),
+            pytest.param(1, None, id="rbac_rows_ignored_without_entitlement"),
+        ],
+    )
+    async def test_oauth_project_scope_skips_access_control_rows(
+        self,
+        auth_service: AuthService,
+        mock_pool: MagicMock,
+        membership_level: int,
+        features: list[str] | None,
+    ) -> None:
+        request = MagicMock(spec=Request)
+        request.headers = {
+            "authorization": "Bearer pha_valid_token",
+            "x-posthog-project-id": "789",
+        }
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                _token_row(),
+                _project_row(789, membership_level=membership_level, features=features),
+            ]
+        )
+        conn.fetch = AsyncMock()
+
+        result = await auth_service.authenticate_request(request, mock_pool)
+
+        assert result is not None
+        assert result.team_id == 789
+        conn.fetch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_oauth_project_scope_cache_hit_rebinds_current_user(
+        self, auth_service: AuthService, mock_pool: MagicMock
+    ) -> None:
+        request = MagicMock(spec=Request)
+        request.headers = {
+            "authorization": "Bearer pha_valid_token",
+            "x-posthog-project-id": "789",
+        }
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(side_effect=[_token_row(), _project_row(789)])
+
+        first = await auth_service.authenticate_request(request, mock_pool)
+        assert first is not None
+        assert first.is_staff is False
+
+        token_hash = OAuthAccessTokenAuthenticator().hash_token("pha_valid_token")
+        auth_service._cache.set(token_hash, replace(first, team_id=456, is_staff=True), ttl=60)
+
+        second = await auth_service.authenticate_request(request, mock_pool)
+
+        assert second is not None
+        assert second.is_staff is True
+        assert second.team_id == 789
+        assert conn.fetchrow.await_count == 2
 
 
 class TestPersonalApiKeyAuthenticator:

@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import replace
 from functools import lru_cache
@@ -19,6 +20,25 @@ MAX_PROJECT_ID = 2_147_483_647
 # usable within a minute, while the short window still absorbs repeated denied
 # requests. Allows keep the full OAuth auth TTL.
 PROJECT_SCOPE_DENIAL_TTL_SECONDS = 60
+ORG_ADMIN_MEMBERSHIP_LEVEL = 8  # OrganizationMembership.Level.ADMIN
+_PROJECT_ACCESS_LEVEL_RANK = {"none": 0, "member": 1, "admin": 2}
+
+
+def _feature_keys(raw: object) -> set[str]:
+    """Feature keys from posthog_organization.available_product_features —
+    a jsonb[] column, so asyncpg yields each element as a JSON string."""
+    if not isinstance(raw, list | tuple):
+        return set()
+    keys: set[str] = set()
+    for item in raw:
+        if isinstance(item, str):
+            try:
+                item = json.loads(item)
+            except ValueError:
+                continue
+        if isinstance(item, dict) and isinstance(item.get("key"), str):
+            keys.add(item["key"])
+    return keys
 
 
 class InvalidProjectScopeError(Exception):
@@ -119,14 +139,13 @@ class AuthService:
     async def _resolve_project_scope(
         self, user: AuthenticatedUser, project_id: int, token: str, pool: asyncpg.Pool
     ) -> AuthenticatedUser:
-        """Rebind the user to the selected project when live org membership and
-        the token's scoped teams/organizations allow it.
+        """Rebind the user to the selected project when the token's scope
+        ceilings, live org membership, and project-level access control allow it.
 
-        Allows are cached per token-and-project for the OAuth auth TTL, so the
-        steady-state path adds no per-request database query and a membership
-        revocation propagates within the same window as a token revocation.
-        Denials are cached for PROJECT_SCOPE_DENIAL_TTL_SECONDS so newly
-        granted access becomes usable within a minute.
+        Only the allow/deny decision is cached per token-and-project (allows for
+        the OAuth auth TTL, denials for PROJECT_SCOPE_DENIAL_TTL_SECONDS so newly
+        granted access becomes usable within a minute); the returned user is
+        rebuilt from this request's authentication, never the cached snapshot.
         """
         token_hash = next(auth.hash_token(token) for auth in self._authenticators if auth.matches(token))
         cache_key = f"{token_hash}:project:{project_id}"
@@ -136,35 +155,93 @@ class AuthService:
             AUTH_CACHE_HITS.labels(auth_type="oauth_project_scope").inc()
             if cached is None:
                 raise UnauthorizedProjectScopeError
-            return cached
+            return replace(user, team_id=project_id)
         AUTH_CACHE_MISSES.labels(auth_type="oauth_project_scope").inc()
 
+        if not await self._project_scope_allowed(user, project_id, pool):
+            self._cache.set(cache_key, None, ttl=PROJECT_SCOPE_DENIAL_TTL_SECONDS)
+            raise UnauthorizedProjectScopeError
+
+        # Stored as a user object so token expiry evicts the entry; reads above
+        # use it only as the allow marker.
+        self._cache.set(cache_key, replace(user, team_id=project_id), ttl=get_settings().auth_cache_ttl_oauth)
+        return replace(user, team_id=project_id)
+
+    async def _project_scope_allowed(self, user: AuthenticatedUser, project_id: int, pool: asyncpg.Pool) -> bool:
+        """Mirror of the Django checks a project-nested request passes.
+
+        Scope ceilings follow APIScopePermission.check_team_and_org_permissions:
+        scoped_teams and scoped_organizations are independent ceilings, each
+        enforced whenever non-empty. Project access follows
+        UserAccessControl.access_level_for_object for resource="project": org
+        admins bypass, rows apply only when the organization has the
+        access_control feature, no rows means the open project default, and the
+        effective level is the highest of the default, member, and role rows.
+        """
         async with acquire_connection(pool) as conn:
             project = await conn.fetchrow(
                 """
-                SELECT t.id, t.organization_id
+                SELECT t.organization_id, om.id AS membership_id, om.level AS membership_level,
+                       o.available_product_features
                 FROM posthog_team t
                 JOIN posthog_organizationmembership om ON om.organization_id = t.organization_id
+                JOIN posthog_organization o ON o.id = t.organization_id
                 WHERE t.id = $1 AND om.user_id = $2
                 """,
                 project_id,
                 user.user_id,
             )
+            if project is None:
+                return False
 
-        scoped_teams = user.scoped_teams or []
-        scoped_organizations = user.scoped_organizations or []
-        denied = project is None or (
-            (scoped_teams or scoped_organizations)
-            and project_id not in scoped_teams
-            and str(project["organization_id"]) not in scoped_organizations
-        )
-        if denied:
-            self._cache.set(cache_key, None, ttl=PROJECT_SCOPE_DENIAL_TTL_SECONDS)
-            raise UnauthorizedProjectScopeError
+            scoped_teams = user.scoped_teams or []
+            scoped_organizations = user.scoped_organizations or []
+            if scoped_teams and project_id not in scoped_teams:
+                return False
+            if scoped_organizations and str(project["organization_id"]) not in scoped_organizations:
+                return False
 
-        rebound = replace(user, team_id=project_id)
-        self._cache.set(cache_key, rebound, ttl=get_settings().auth_cache_ttl_oauth)
-        return rebound
+            if project["membership_level"] >= ORG_ADMIN_MEMBERSHIP_LEVEL:
+                return True
+            if "access_control" not in _feature_keys(project["available_product_features"]):
+                return True
+
+            rows = await conn.fetch(
+                """
+                SELECT access_level, organization_member_id, role_id
+                FROM ee_accesscontrol
+                WHERE team_id = $1 AND resource = 'project'
+                """,
+                project_id,
+            )
+            if not rows:
+                return True
+
+            default_level = "admin"
+            member_level: str | None = None
+            role_grants: dict[str, str] = {}
+            for row in rows:
+                if row["organization_member_id"] is None and row["role_id"] is None:
+                    default_level = row["access_level"]
+                elif row["organization_member_id"] is not None:
+                    if str(row["organization_member_id"]) == str(project["membership_id"]):
+                        member_level = row["access_level"]
+                elif row["role_id"] is not None:
+                    role_grants[str(row["role_id"])] = row["access_level"]
+
+            levels = [default_level]
+            if member_level is not None:
+                levels.append(member_level)
+            if role_grants:
+                user_roles = await conn.fetch(
+                    "SELECT role_id FROM ee_rolemembership WHERE user_id = $1",
+                    user.user_id,
+                )
+                levels.extend(
+                    role_grants[str(row["role_id"])] for row in user_roles if str(row["role_id"]) in role_grants
+                )
+
+            return any(_PROJECT_ACCESS_LEVEL_RANK.get(level, 0) > 0 for level in levels)
 
 
 @lru_cache
