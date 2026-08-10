@@ -4,11 +4,12 @@ import { router } from 'kea-router'
 import {
     IconArchive,
     IconCopy,
-    IconEye,
+    IconDashboard,
     IconLock,
+    IconMessage,
     IconPause,
+    IconPeople,
     IconPlay,
-    IconPlusSmall,
     IconRefresh,
     IconTrash,
     IconUnlock,
@@ -110,19 +111,19 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             (exposureCohortId
                 ? {
                       label: 'View exposure cohort as new tab',
-                      icon: <IconEye />,
+                      icon: <IconPeople />,
                       onClick: () => newInternalTab(urls.cohort(exposureCohortId)),
                       'data-attr': `${dataAttrPrefix}view-exposure-cohort`,
                   }
                 : {
                       label: 'Create exposure cohort',
-                      icon: <IconPlusSmall />,
+                      icon: <IconPeople />,
                       onClick: () => createExposureCohort(),
                       'data-attr': `${dataAttrPrefix}create-exposure-cohort`,
                   }),
         isExperimentLaunched && {
             label: 'Create dashboard',
-            icon: <IconPlusSmall />,
+            icon: <IconDashboard />,
             onClick: () => createExperimentDashboard(),
             disabledReason: isCreatingExperimentDashboard ? 'Creating dashboard...' : undefined,
             'data-attr': `${dataAttrPrefix}create-experiment-dashboard`,
@@ -130,7 +131,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
         isExperimentLaunched &&
             !!experiment.feature_flag && {
                 label: 'Create survey',
-                icon: <IconPlusSmall />,
+                icon: <IconMessage />,
                 onClick: () => {
                     openQuickSurveyModal()
                     void addProductIntentForCrossSell({
