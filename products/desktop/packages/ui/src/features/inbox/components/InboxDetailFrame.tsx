@@ -1,6 +1,9 @@
 import type { IconProps } from "@phosphor-icons/react";
+import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
+import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
+import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
 import { InboxDetailPageHeader } from "@posthog/ui/features/inbox/components/InboxDetailPageHeader";
 import {
   InboxMetaSeparator,
@@ -22,8 +25,7 @@ import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBa
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportSignals } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { Flex, Text } from "@radix-ui/themes";
-import type { ComponentType, ReactNode } from "react";
+import { type ComponentType, type ReactNode, useState } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
@@ -50,14 +52,21 @@ interface InboxDetailFrameProps {
     Icon: ComponentType<IconProps>;
     title: string;
   };
-  /** Sections rendered in the main column under the summary (e.g. PR files changed). */
+  /** Sections rendered in the main column under the summary (e.g. PR comments). */
   belowSummary?: ReactNode;
   /** Optional "Evidence" section icon + title; null hides it. */
   evidenceSection: {
     Icon: ComponentType<IconProps>;
     title: string;
   } | null;
-  /** Sections rendered alongside the summary (Tasks, Suggested reviewers, …). */
+  /** Right-column cards rendered above the Evidence card (checks, reviewers). */
+  aboveEvidence?: ReactNode;
+  /**
+   * Second tab beside Overview (the web detail's "Files changed"). Its content
+   * replaces the whole overview grid while selected.
+   */
+  secondaryTab?: { label: ReactNode; content: ReactNode };
+  /** Sections rendered alongside the summary (Tasks, Activity, …). */
   children?: ReactNode;
 }
 
@@ -81,9 +90,12 @@ export function InboxDetailFrame({
   summarySection,
   belowSummary,
   evidenceSection,
+  aboveEvidence,
+  secondaryTab,
   showDismiss = true,
   children,
 }: InboxDetailFrameProps) {
+  const [activeTab, setActiveTab] = useState("overview");
   const { data: signalsResp } = useInboxReportSignals(report.id);
   const signals = signalsResp?.signals ?? [];
   const signalsLoaded = signalsResp !== undefined;
@@ -101,7 +113,7 @@ export function InboxDetailFrame({
     evidenceSection != null && EvidenceIcon != null && evidenceCount > 0;
 
   return (
-    <Flex direction="column" className="min-h-full">
+    <div className="flex min-h-full flex-col">
       <InboxDetailPageHeader
         backTo={backTo}
         backLabel={backLabel}
@@ -159,12 +171,29 @@ export function InboxDetailFrame({
           </>
         }
         actions={
-          <Flex align="center" className="gap-2.5">
-            {showDismiss && dismissButton}
+          <div className="flex items-center gap-2.5">
             {primaryAction}
-          </Flex>
+            {showDismiss && dismissButton}
+          </div>
         }
       />
+
+      {secondaryTab && (
+        <div className="border-(--gray-5) border-b px-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList variant="line" className="h-auto gap-0.5">
+              <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
+                <span className="font-medium text-[13px]">Overview</span>
+              </TabsTrigger>
+              <TabsTrigger value="secondary" className="gap-1.5 px-2.5 py-2">
+                <span className="flex items-center gap-1.5 font-medium text-[13px]">
+                  {secondaryTab.label}
+                </span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
 
       {/*
          The detail body is a container-query grid:
@@ -176,43 +205,64 @@ export function InboxDetailFrame({
              of total width. Wider viewports just get larger side gutters.
         */}
       <div className="@container mx-auto w-full max-w-[calc(160ch+5rem)] px-6 py-5 text-[13px]">
-        <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
+        {secondaryTab && activeTab === "secondary" ? (
           <div className="flex min-w-0 flex-col gap-5">
-            <DetailSection Icon={SummaryIcon} title={summarySection.title}>
-              <SignalReportSummaryMarkdown
-                content={report.summary}
-                fallback="No summary yet – the agent is still investigating."
-                variant="detail"
-                pending={report.status === "in_progress"}
-              />
-            </DetailSection>
-            {belowSummary}
+            {secondaryTab.content}
           </div>
-
-          <div className="flex min-w-0 flex-col gap-5">
-            {hasEvidence && (
-              <RightColumnSection
-                Icon={EvidenceIcon}
-                title={evidenceSection.title}
-                rightSlot={
-                  <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
-                    {evidenceCount} signal
-                    {evidenceCount === 1 ? "" : "s"}
-                  </Text>
-                }
+        ) : (
+          <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
+            <div className="flex min-w-0 flex-col gap-5">
+              <DetailSection
+                Icon={SummaryIcon}
+                title={summarySection.title}
+                collapsible
               >
-                {signals.length > 0 ? (
-                  <SignalsList signals={signals} />
-                ) : (
-                  <SignalsListSkeleton count={evidenceCount} />
+                <SignalReportSummaryMarkdown
+                  content={report.summary}
+                  fallback="No summary yet. The agent is still investigating."
+                  variant="detail"
+                  pending={report.status === "in_progress"}
+                  chartIds={renderableReportChartIds(report.charts)}
+                />
+                {report.charts && report.charts.length > 0 && (
+                  <div className="mt-4">
+                    <ReportChartsSection
+                      reportId={report.id}
+                      charts={report.charts}
+                    />
+                  </div>
                 )}
-              </RightColumnSection>
-            )}
-            {children}
+              </DetailSection>
+              {belowSummary}
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-5">
+              {aboveEvidence}
+              {hasEvidence && (
+                <RightColumnSection
+                  Icon={EvidenceIcon}
+                  title={evidenceSection.title}
+                  collapsible
+                  rightSlot={
+                    <span className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
+                      {evidenceCount} signal
+                      {evidenceCount === 1 ? "" : "s"}
+                    </span>
+                  }
+                >
+                  {signals.length > 0 ? (
+                    <SignalsList signals={signals} />
+                  ) : (
+                    <SignalsListSkeleton count={evidenceCount} />
+                  )}
+                </RightColumnSection>
+              )}
+              {children}
+            </div>
           </div>
-        </div>
+        )}
         {showDismiss && dismissDialog}
       </div>
-    </Flex>
+    </div>
   );
 }
