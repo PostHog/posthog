@@ -6,10 +6,6 @@ interface FenceState {
 
 const NO_FENCE: FenceState = { inFence: false, fenceChar: "", fenceLen: 0 };
 
-function orderedListMarker(line: string): string | null {
-  return /^ {0,3}(\d+)[.)]\s+/.exec(line)?.[1] ?? null;
-}
-
 /**
  * Advance the fenced-code-block state machine by one line. A ``` / ~~~ line
  * opens a fence; it closes only on a line of the same marker char, at least as
@@ -69,18 +65,6 @@ export function splitMarkdownBlocks(src: string): string[] {
         if (nl2 === -1) nl2 = n;
         if (src.slice(j, nl2).trim() !== "") break;
         j = nl2 < n ? nl2 + 1 : n;
-      }
-      const nextLineEnd = src.indexOf("\n", j);
-      const nextLine = src.slice(j, nextLineEnd === -1 ? n : nextLineEnd);
-      const continuesOrderedList =
-        orderedListMarker(nextLine) !== null &&
-        src
-          .slice(blockStart, i)
-          .split("\n")
-          .some((candidate) => orderedListMarker(candidate) !== null);
-      if (continuesOrderedList) {
-        i = j;
-        continue;
       }
       blocks.push(src.slice(blockStart, j));
       blockStart = j;
