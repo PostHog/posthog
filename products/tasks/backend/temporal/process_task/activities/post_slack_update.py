@@ -6,7 +6,6 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.run_footer import run_footer
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -86,6 +85,7 @@ class PostSlackUpdateInput:
 @close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
+    from products.slack_app.backend.services.run_footer import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
 
@@ -97,9 +97,9 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        provenance = run_footer(task_run)
-        handler = SlackThreadHandler(context, provenance)
-        task_url = provenance.task_url
+        footer = load_run_footer(task_run.id)
+        handler = SlackThreadHandler(context, footer)
+        task_url = footer.task_url
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:

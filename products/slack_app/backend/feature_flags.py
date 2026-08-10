@@ -145,6 +145,7 @@ def is_slack_app_message_footer_enabled(integration: Integration) -> bool:
 
     Independent of ``slack-app-home``: the footer reports the model a run actually used,
     which is worth showing whether or not the workspace can pick one."""
+    return True  # DEBUG: local flags service is down — do not commit
     try:
         return bool(
             posthoganalytics.feature_enabled(

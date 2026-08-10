@@ -102,11 +102,8 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
     """Mark the last step complete, stream the final answer, append @-mention, close."""
+    from products.slack_app.backend.services.run_footer import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
-
-    # Deferred alongside the Slack import: this module is loaded by the workflow sandbox,
-    # and `run_footer` reaches the tasks ORM.
-    from products.tasks.backend.run_footer import load_run_footer  # noqa: PLC0415
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)

@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.services.message_footer import RunFooter
+from products.slack_app.backend.services.run_footer import RunFooter
 from products.slack_app.backend.slack_thread import (
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,

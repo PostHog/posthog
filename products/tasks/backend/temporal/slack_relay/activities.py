@@ -360,10 +360,10 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.services.run_footer import load_run_footer
     from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.run_footer import run_footer
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
 
     try:
@@ -419,7 +419,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
     if handler.footer_enabled():
-        handler.run_footer = run_footer(task_run)
+        handler.run_footer = load_run_footer(task_run.id)
 
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs.
