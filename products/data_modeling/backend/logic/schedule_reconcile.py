@@ -243,6 +243,7 @@ def apply_saved_query_frequency_target(
                     edges=graph.edges,
                     declared_targets=graph.declared_targets,
                     source_intervals=graph.source_intervals,
+                    names=graph.names,
                 )
                 set_declared_target(node, target)
             written += 1

@@ -178,6 +178,7 @@ class FrequencyGraph:
     declared_anchors: dict[str, int]  # declared per-node schedule anchors (minutes past Monday 00:00 UTC)
     source_intervals: dict[str, timedelta]  # per source (TABLE) node
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
+    names: dict[str, str]  # node id -> display name, so a bound can name what set it
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
@@ -209,6 +210,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         declared_anchors=declared_anchors,
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
+        names={str(node.id): node.name for node in nodes},
     )
 
 
