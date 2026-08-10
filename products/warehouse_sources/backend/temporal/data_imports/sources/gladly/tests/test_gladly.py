@@ -7,6 +7,7 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+import urllib3
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import (
@@ -54,16 +55,14 @@ def _job(job_id: str, updated_at: str, files: list[str] | None = None) -> dict[s
     return {"id": job_id, "updatedAt": updated_at, "files": files or ["customers.jsonl", "agents.jsonl"]}
 
 
-class _RawBytes(io.BytesIO):
-    """BytesIO subclass, so the transport can set decode_content on it."""
-
-
-def _csv_response(text: str) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.raw = _RawBytes(text.encode())
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _csv_response(text: str) -> requests.Response:
+    # A real urllib3-backed response so iter_content streams the body and an empty
+    # body closes the connection on EOF exactly as it does in production.
+    raw = urllib3.HTTPResponse(body=io.BytesIO(text.encode()), preload_content=False)
+    response = requests.Response()
+    response.raw = raw
+    response.status_code = 200
+    return response
 
 
 def _error_response(status_code: int) -> mock.MagicMock:
@@ -498,6 +497,19 @@ class TestGetReportRows:
             "2024-03-14",
             "2024-03-15",
         ]
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_report_body_yields_no_rows_and_advances(self, mock_session):
+        # A window with no data returns an empty body; urllib3 closes the stream on
+        # EOF, which used to surface as "ValueError: I/O operation on closed file".
+        mock_session.return_value.post.side_effect = [_csv_response("")]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "conversation_timestamps", mock.MagicMock(), manager))
+
+        assert batches == []
+        assert manager.save_state.call_args.args[0].last_report_window_end == "2024-03-15"
 
     @freeze_time("2024-03-15T10:00:00Z")
     @mock.patch(f"{_MODULE}.make_tracked_session")
