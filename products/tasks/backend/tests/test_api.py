@@ -352,6 +352,22 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(task.id))
 
+    def test_retrieve_signals_chat_task_owned_by_another_user_is_visible(self):
+        # Scout chat tasks are conversations about the team's shared scout fleet, so any
+        # team member can open a chat a teammate started.
+        other_user = self.create_organization_user("chat-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Scout chat",
+            description="How is my scout fleet performing?",
+            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
     def test_list_signal_report_tasks_hidden_by_default(self):
         # Signal-report tasks are always created with internal=True, so the
         # default list still hides them. The retrieve-by-ID path (and the
@@ -4634,6 +4650,23 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertEqual(automation.cron_expression, "30 14 * * *")
         self.assertFalse(automation.enabled)
         mock_sync_schedule.assert_called_once_with(automation)
+
+    @patch("products.tasks.backend.automation_service.sync_automation_schedule")
+    def test_update_automation_without_enabling_needs_no_code_access(self, _mock_sync_schedule):
+        # The gate only guards turning an automation on; editing or disabling one must stay
+        # possible for users without Desktop access, or they couldn't stop their own schedules.
+        automation = self.create_automation()
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.patch(
+            f"/api/projects/@current/task_automations/{automation.id}/",
+            {"cron_expression": "30 14 * * *"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        automation.refresh_from_db()
+        self.assertEqual(automation.cron_expression, "30 14 * * *")
 
     @patch("products.tasks.backend.automation_service.sync_automation_schedule")
     def test_enable_automation_requires_code_access(self, mock_sync_schedule):
@@ -11048,6 +11081,68 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "code_access_required")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_gate.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_create_cloud_run_on_inbox_task_needs_no_code_access(self, _mock_gate):
+        self.set_tasks_feature_flag(False)
+        task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_start_on_inbox_task_needs_no_code_access(self, _mock_gate, mock_workflow):
+        self.set_tasks_feature_flag(False)
+        task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
+        run = self._cloud_run(task)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/start/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
+    @patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_resume_in_cloud_on_inbox_task_needs_no_code_access(self, _mock_gate, _mock_reset, mock_resume):
+        self.set_tasks_feature_flag(False)
+        task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "bot"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_resume.assert_called_once()
+
+    def test_exemption_ignores_cross_team_report_link(self):
+        # The write serializer blocks cross-team report links, so forge one at the ORM level:
+        # the exemption query must re-check the report's team rather than trust the FK alone.
+        from products.signals.backend.models import SignalReport
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.signal_report = SignalReport.objects.create(team=other_team)
+        task.save()
+
+        self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_start_without_code_access_returns_403(self, mock_gate):

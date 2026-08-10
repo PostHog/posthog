@@ -633,10 +633,11 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
 
     A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
-    bypass.
+    bypass. The report's own team is re-checked here even though the write serializer
+    already enforces it, so a future write path can't silently widen the exemption.
     """
     return Task.objects.filter(
-        Q(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report__isnull=False)
+        Q(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report__team_id=team_id)
         | Q(origin_product=Task.OriginProduct.SIGNALS_CHAT),
         id=task_id,
         team_id=team_id,

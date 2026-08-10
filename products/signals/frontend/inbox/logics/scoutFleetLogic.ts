@@ -773,11 +773,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 return
             }
             captureScoutChatStarted({ chatType, surface: 'fleet_list' })
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.startScoutChatTaskFailure()
+                return
+            }
             try {
                 // The server owns the prompt template, creates the task repo-less with the
                 // reserved signals_chat origin (which exempts it from the Desktop access gate
                 // on the task run endpoints) and starts its interactive run in one call.
-                const teamId = teamLogic.values.currentTeamId
                 const task = await signalsScoutChatTasksCreate(String(teamId), { chat_type: chatType })
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))

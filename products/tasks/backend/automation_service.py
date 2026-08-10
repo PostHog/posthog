@@ -69,7 +69,9 @@ def run_task_automation(automation_id: str, trigger_workflow_id: str | None = No
 
         # Scheduled fires bypass the HTTP-layer gate, so re-check the creator here: an
         # automation must stop dispatching cloud runs once its creator loses Desktop access.
-        if task.created_by is not None and not has_tasks_access(task.created_by):
+        # A deleted creator (created_by SET_NULL) fails closed too: with no user there is no
+        # entitlement, and the run could not mint its sandbox OAuth token anyway.
+        if task.created_by is None or not has_tasks_access(task.created_by):
             raise PermissionDenied("PostHog Desktop access is required to run task automations")
 
         if trigger_workflow_id:
