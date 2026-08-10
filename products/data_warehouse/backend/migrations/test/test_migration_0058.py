@@ -111,3 +111,14 @@ class TestSetDefaultStripeApiVersion:
 
         github_source.refresh_from_db()
         assert github_source.job_inputs == {"personal_access_token": "ghp_test123"}
+
+    def test_sources_without_job_inputs_are_skipped(self, stripe_source_factory):
+        # An unconfigured source can carry a NULL job_inputs; the migration must walk past it
+        # rather than crash the whole deploy trying to index into it.
+        source = stripe_source_factory(None)
+
+        set_default_stripe_api_version(apps, None)
+        reverse_set_default_stripe_api_version(apps, None)
+
+        source.refresh_from_db()
+        assert source.job_inputs is None
