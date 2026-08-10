@@ -26,7 +26,9 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Tag, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rbac.user_access_control import UserAccessControl
 
+from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import AccountsTableQueryRunner
 from products.customer_analytics.backend.models import (
     AccountRelationship,
@@ -141,6 +143,42 @@ class TestAccountsTableQueryRunner(BaseTest):
             str(text_definition.id): None,
         }
         assert empty_row.customPropertyHistory == {str(numeric_definition.id): []}
+
+    def test_hydrates_custom_properties_with_bounded_queries(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="Health score",
+            display_type=DisplayType.NUMBER,
+        )
+        accounts = [create_account(team_id=self.team.id, name=f"Account {index}") for index in range(3)]
+        for index, account in enumerate(accounts):
+            CustomPropertyValue.objects.unscoped().create(
+                team=self.team,
+                account=account,
+                definition=definition,
+                value_num=index,
+            )
+
+        with self.assertNumQueries(6):
+            page = api.query_accounts_table(
+                team_id=self.team.id,
+                user_access_control=UserAccessControl(user=self.user, team=self.team),
+                selection=contracts.AccountTableColumnSelection(
+                    custom_property_definition_ids=frozenset({definition.id})
+                ),
+                offset=0,
+                limit=100,
+            )
+
+        assert sorted(
+            row.custom_properties[definition.id]
+            for row in page.rows
+            if row.custom_properties[definition.id] is not None
+        ) == [
+            0.0,
+            1.0,
+            2.0,
+        ]
 
     def test_applies_stable_limit_and_offset_pagination(self) -> None:
         accounts = [create_account(team_id=self.team.id, name=name) for name in ["First", "Second", "Third"]]

@@ -104,7 +104,11 @@ from products.customer_analytics.backend.models.account import (
     RETIRED_ROLE_KEYS,
     AccountProperties as _ModelAccountProperties,
 )
-from products.customer_analytics.backend.models.custom_property_definition import NUMERIC_DISPLAY_TYPES
+from products.customer_analytics.backend.models.custom_property_definition import (
+    DATA_TYPE_BY_DISPLAY_TYPE,
+    NUMERIC_DISPLAY_TYPES,
+    DataType,
+)
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -367,14 +371,27 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     )
 
 
+def _json_safe_scalar(value: Any) -> float | bool | str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, float | bool | str):
+        return value
+    return None
+
+
 def _scalar_value(row: "CustomPropertyValue") -> float | bool | str | None:
     """Return the row's value as a JSON-safe scalar; datetimes become ISO strings."""
-    v = _custom_property_values_logic.value_of(row)
-    if isinstance(v, datetime):
-        return v.isoformat()
-    if isinstance(v, float | bool | str):
-        return v
-    return None
+    return _json_safe_scalar(_custom_property_values_logic.value_of(row))
+
+
+def _scalar_value_for_display_type(row: "CustomPropertyValue", display_type: DisplayType) -> float | bool | str | None:
+    value_column = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
+    return _json_safe_scalar(getattr(row, value_column))
 
 
 def _get_external_account_by_external_id(team_id: int, external_id: str) -> Account | None:
@@ -2098,7 +2115,9 @@ def _account_table_field_values(
     return values
 
 
-def _validate_account_table_definitions(*, team_id: int, selection: contracts.AccountTableColumnSelection) -> None:
+def _validate_account_table_definitions(
+    *, team_id: int, selection: contracts.AccountTableColumnSelection
+) -> dict[UUID, DisplayType]:
     relationship_ids = selection.relationship_definition_ids
     if relationship_ids:
         valid_relationship_ids = set(
@@ -2115,13 +2134,14 @@ def _validate_account_table_definitions(*, team_id: int, selection: contracts.Ac
         selection.custom_property_history_windows
     )
     if not custom_property_ids:
-        return
+        return {}
 
-    custom_property_display_types = dict(
-        CustomPropertyDefinition.objects.for_team(team_id)
+    custom_property_display_types = {
+        definition_id: DisplayType(display_type)
+        for definition_id, display_type in CustomPropertyDefinition.objects.for_team(team_id)
         .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
         .values_list("id", "display_type")
-    )
+    }
     invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
     if invalid_custom_property_ids:
         invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_custom_property_ids))
@@ -2135,6 +2155,7 @@ def _validate_account_table_definitions(*, team_id: int, selection: contracts.Ac
     if non_numeric_history_ids:
         invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in non_numeric_history_ids))
         raise InvalidAccountTableColumn(f"Custom property history requires numeric definitions: {invalid_ids}")
+    return custom_property_display_types
 
 
 def query_accounts_table(
@@ -2145,7 +2166,7 @@ def query_accounts_table(
     offset: int,
     limit: int,
 ) -> contracts.AccountTablePage:
-    _validate_account_table_definitions(team_id=team_id, selection=selection)
+    custom_property_display_types = _validate_account_table_definitions(team_id=team_id, selection=selection)
 
     queryset = _accounts_queryset(team_id, user_access_control).order_by("-created_at", "-id")
     fetched_accounts = list(queryset[offset : offset + limit + 1])
@@ -2199,7 +2220,9 @@ def query_accounts_table(
             definition_id__in=custom_property_ids,
             is_deleted=False,
         ):
-            custom_properties_by_account[value.account_id][value.definition_id] = _scalar_value(value)
+            custom_properties_by_account[value.account_id][value.definition_id] = _scalar_value_for_display_type(
+                value, custom_property_display_types[value.definition_id]
+            )
 
     history_windows = selection.custom_property_history_windows
     custom_property_history_by_account: dict[
