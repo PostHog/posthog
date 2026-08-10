@@ -10,6 +10,7 @@ from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_ERROR
 
 from products.data_modeling.backend.facade.api import (
     clear_node_suspension,
@@ -30,8 +31,6 @@ from products.data_modeling.backend.facade.models import (
 # API and DAG-sync paths that clear it. Re-exported so the activities keep importing from here.
 __all__ = [
     "CONSECUTIVE_FAILURES_TO_SUSPEND",
-    "INFRASTRUCTURE_ERROR_MARKERS",
-    "SUSPENSION_ENFORCEMENT_FLAG",
     "bind_data_modeling_log_context",
     "clear_node_suspension",
     "clear_node_suspension_for_engine",
@@ -56,15 +55,15 @@ SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 INFRASTRUCTURE_ERROR_MARKERS = (
     "Code: 241",  # MEMORY_LIMIT_EXCEEDED
     "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
-    "MemoryLimitExceeded",
-    "TooManySimultaneousQueries",
-    "Too many simultaneous queries",
-    "QueueEmpty",
     "Cannot connect to host",
     "Connection refused",
-    "Workflow was cancelled",
     "Preempted",
+    ABANDONED_ERROR,
 )
+
+# A 241 raised by the customer's own query is their fault, unlike one raised by cluster pressure.
+# Same phrasings, and same fail-safe polarity, as errors.py: an unrecognized wording is pressure.
+PER_QUERY_MEMORY_LIMIT_PHRASINGS = ("(for query)", "Query memory limit exceeded")
 
 
 def is_suspension_enforced(team_id: int) -> bool:
@@ -84,7 +83,8 @@ def is_suspension_enforced(team_id: int) -> bool:
 
 
 def is_infrastructure_error(error: str) -> bool:
-    """Whether the failure was ours - a busy or unreachable cluster - rather than the customer's query."""
+    if any(phrasing in error for phrasing in PER_QUERY_MEMORY_LIMIT_PHRASINGS):
+        return False
     return any(marker in error for marker in INFRASTRUCTURE_ERROR_MARKERS)
 
 
@@ -161,8 +161,8 @@ def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | N
     rows = jobs.order_by("-created_at").values_list("status", "error")[:CONSECUTIVE_FAILURES_TO_SUSPEND]
     count = 0
     for status, error in rows:
-        # An outage breaks the streak rather than extending it. Suspending on our own failures stops
-        # a model the customer cannot restart, because their query was never the problem.
+        # Suspending on our own failures stops a model the customer cannot restart, because their
+        # query was never the problem.
         if status != DataModelingJobStatus.FAILED or is_infrastructure_error(error or ""):
             break
         count += 1
