@@ -882,9 +882,11 @@ def test_raise_on_nullability_drift_null_in_non_nullable_column_raises():
             "name": pa.array(["a", None], type=pa.string()),
         }
     )
-    delta_schema = deltalake.Schema.from_arrow(
-        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)])
-    )
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string(), nullable=False),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
     with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
         raise_on_nullability_drift(pa_table, delta_schema)
