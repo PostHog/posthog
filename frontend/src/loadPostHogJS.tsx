@@ -10,6 +10,20 @@ import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
+export const filterFirefoxInjectedExceptions: BeforeSendFn = (event) => {
+    const exceptionValues = event?.properties?.$exception_values
+
+    if (
+        event?.event === '$exception' &&
+        Array.isArray(exceptionValues) &&
+        exceptionValues.some((value) => typeof value === 'string' && value.includes('window.__firefox__.'))
+    ) {
+        return null
+    }
+
+    return event
+}
+
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
@@ -38,6 +52,13 @@ export interface LoadPostHogJSOptions {
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     if (window.JS_POSTHOG_API_KEY) {
+        const beforeSend = options.beforeSend
+            ? [
+                  filterFirefoxInjectedExceptions,
+                  ...(Array.isArray(options.beforeSend) ? options.beforeSend : [options.beforeSend]),
+              ]
+            : filterFirefoxInjectedExceptions
+
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
@@ -57,7 +78,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
