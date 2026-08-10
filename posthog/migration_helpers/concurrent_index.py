@@ -235,28 +235,6 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         return f"Concurrently create index {self.index_name} on {self.table_name}"
 
 
-class CreateIndexConcurrentlyPlainReverse(CreateIndexConcurrently):
-    """`CreateIndexConcurrently` whose reverse runs a plain (non-CONCURRENTLY) `DROP INDEX`.
-
-    `DROP INDEX CONCURRENTLY` cannot run inside a transaction block, but `TestMigrations`
-    (`posthog/test/base.py`) reverses migrations from inside the test's own wrapping
-    transaction — any test whose `migrate_to` sits below a migration using this operation
-    hits that error the moment the test needs to unapply it. A plain `DROP INDEX` locks only
-    briefly, nothing like the long build `CREATE INDEX CONCURRENTLY` protects against, so
-    giving up concurrency on rollback — real ones are rare, and the only other caller is
-    this same test harness — costs nothing worth guarding.
-
-    Forward (`database_forwards`) is untouched: CONCURRENTLY, IF NOT EXISTS, and
-    invalid-index recovery are all inherited from `CreateIndexConcurrently` as-is. Only
-    `reverse_sql` changes, so `database_backwards` (which just executes it) needs no
-    override either.
-    """
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.reverse_sql = f'DROP INDEX IF EXISTS "{self.index_name}"'
-
-
 class DropIndexConcurrently(_ConcurrentIndexOp):
     """Idempotent DROP INDEX CONCURRENTLY.
 

@@ -119,7 +119,6 @@ class AtomicFalsePolicy(MigrationPolicy):
         "RemoveIndexConcurrently",
         # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently",
-        "CreateIndexConcurrentlyPlainReverse",
         "DropIndexConcurrently",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",
@@ -303,7 +302,6 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
     # level, so they are explicitly exempt from the static SQL check.
     POSTHOG_SAFE_HELPER_OPS = {
         "CreateIndexConcurrently",
-        "CreateIndexConcurrentlyPlainReverse",
         "DropIndexConcurrently",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",

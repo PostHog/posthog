@@ -936,10 +936,6 @@ class CreateIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "CreateIndexConcurrently"
 
 
-class CreateIndexConcurrentlyPlainReverseAnalyzer(_SafeConcurrentIndexAnalyzer):
-    operation_type = "CreateIndexConcurrentlyPlainReverse"
-
-
 class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "DropIndexConcurrently"
 
