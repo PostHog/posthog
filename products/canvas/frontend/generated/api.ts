@@ -400,7 +400,11 @@ export const getCanvasesVersionsRetrieveUrl = (
 }
 
 /**
- * The canvas's source-version history, newest first (metadata only).
+ * The canvas's published source-version history, newest first (metadata only).
+ *
+ * Drafts are excluded: they are staged versions that have never been the
+ * head, so they are not part of the undo/revert timeline. Fetch a draft's
+ * files with `source?version_id=` to preview it before promoting.
  */
 export const canvasesVersionsRetrieve = async (
     projectId: string,
