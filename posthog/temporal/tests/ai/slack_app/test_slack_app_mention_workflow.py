@@ -393,8 +393,6 @@ async def test_duplicate_slack_event_id_is_processed_once():
 
 @pytest.mark.asyncio
 async def test_mention_resolving_no_repo_creates_a_task_without_the_github_gate():
-    """A mention that resolves no repository becomes a repo-less task rather than a
-    Connect-GitHub refusal, and neither the gate nor the needs-repo classifier runs."""
     rec = _Recorder()
     rec.cascade_modes["1.1"] = "no_repo"
 
