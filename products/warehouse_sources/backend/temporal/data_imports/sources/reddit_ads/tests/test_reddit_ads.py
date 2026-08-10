@@ -160,6 +160,7 @@ class TestBreakdownReportEndpoints:
         ("campaign_placement_report", "PLACEMENT", "placement"),
         ("campaign_community_report", "COMMUNITY", "community"),
         ("campaign_os_type_report", "OS_TYPE", "os_type"),
+        ("campaign_keyword_report", "KEYWORD", "keyword"),
     ]
 
     @parameterized.expand(BREAKDOWN_TABLES)
@@ -190,6 +191,9 @@ class TestBreakdownReportEndpoints:
             # `OS_TYPE` is a valid breakdown but is not a member of Reddit's `fields` enum — asking for
             # it as a field is rejected and fails the whole report request.
             ("campaign_os_type_report", "OS_TYPE", False),
+            # `KEYWORD`'s membership of the `fields` enum is unconfirmed, so it is requested as a
+            # breakdown only rather than risking a rejected report request.
+            ("campaign_keyword_report", "KEYWORD", False),
         ]
     )
     def test_dimension_is_requested_as_a_field_only_when_reddit_allows_it(

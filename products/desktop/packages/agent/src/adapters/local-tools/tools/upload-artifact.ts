@@ -17,6 +17,8 @@ export const uploadArtifactTool = defineLocalTool({
     "Deliver a file you created to the user as a downloadable task artifact. " +
     "Call this for every non-code deliverable (reports, images, archives, data files, and similar output) " +
     "before your final response. The file must be inside the session workspace. Repository changes belong in git and should not be uploaded. " +
+    "To revise a file you already delivered, read its current latest version first because the user may have edited it, " +
+    "then upload your revision under the same name. The app shows the newest version and keeps the earlier ones available. " +
     "On success the result includes a download URL for the uploaded file, which you can reference in your final response.",
   schema: {
     path: z
@@ -101,7 +103,10 @@ export const uploadArtifactTool = defineLocalTool({
       }
 
       const { name } = upload;
-      const linkText = downloadUrl ? ` Download URL: ${downloadUrl}` : "";
+      const referenceUrl = getArtifactReferenceUrl(downloadUrl);
+      const linkText = referenceUrl
+        ? ` Reference it as a markdown link: [${escapeMarkdownLinkLabel(name)}](<${referenceUrl}>)`
+        : "";
 
       return {
         content: [
@@ -219,6 +224,28 @@ async function uploadInline(
 // omit it.
 function readDownloadUrl(artifact: TaskRunArtifact): string | undefined {
   return (artifact as { url?: string }).url;
+}
+
+function getArtifactReferenceUrl(
+  downloadUrl: string | undefined,
+): string | null {
+  if (!downloadUrl) return null;
+
+  try {
+    const referenceUrl = new URL(downloadUrl);
+    // Legacy backends return bearer credentials in the query string; stable API URLs do not.
+    referenceUrl.search = "";
+    referenceUrl.hash = "";
+    referenceUrl.username = "";
+    referenceUrl.password = "";
+    return referenceUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+  return label.replace(/([\\[\]])/g, "\\$1");
 }
 
 function errorResult(message: string): LocalToolResult {

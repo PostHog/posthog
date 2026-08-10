@@ -47,7 +47,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import compute_quota_snapshot, quota_state
 from products.replay_vision.backend.scanner_access import (
     is_uuid,
     scanner_for_reading_observations,
@@ -769,7 +769,7 @@ def _truncate(text: str, limit: int = 120) -> str:
 def _credit_sentence(team: Team, cost: int, lead: str = "about") -> str:
     """Credits and dollars against what's left. One phrasing, so a conversation never prices the same
     number two different ways."""
-    return _price(cost, compute_quota_snapshot(team.organization_id).remaining, lead)
+    return _price(cost, quota_state(team.organization_id).remaining, lead)
 
 
 def _price(cost: int, remaining: int | None, lead: str = "about") -> str:
@@ -1765,7 +1765,7 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                 return "Couldn't work out the volume for that scanner just now.", {"error": "estimate_failed"}
             observations = project_monthly_observations(estimate, rate)
         cost = observation_credits_for_model(scanner.model) * observations
-        remaining = compute_quota_snapshot(self._team.organization_id).remaining
+        remaining = quota_state(self._team.organization_id).remaining
         return (
             f"About {observations} recordings a month at {rate:.0%} sampling, costing roughly "
             f"{_price(cost, remaining, lead='')}".strip(),

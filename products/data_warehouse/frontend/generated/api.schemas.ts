@@ -12,6 +12,7 @@
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
@@ -21,6 +22,7 @@ export const DataModelingJobStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
 } as const
 
 export interface DataModelingJobApi {
@@ -1784,6 +1786,7 @@ export interface CredentialApi {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -2745,6 +2748,7 @@ export interface CredentialApi {
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
  * * `Motion` - Motion
+ * * `ImpactPartner` - ImpactPartner
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3071,6 +3075,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
@@ -4032,6 +4037,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Wix: 'Wix',
     Sevalla: 'Sevalla',
     Motion: 'Motion',
+    ImpactPartner: 'ImpactPartner',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
