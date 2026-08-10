@@ -53,22 +53,15 @@ export function pickInitialProjectId(args: {
     preferredProjectId,
   } = args;
 
-  if (currentOrgId) {
-    const currentOrgProjectIds =
-      orgProjectsMap[currentOrgId]?.projects.map((project) => project.id) ?? [];
-    if (
-      preferredProjectId &&
-      currentOrgProjectIds.includes(preferredProjectId)
-    ) {
-      return preferredProjectId;
-    }
-    return currentOrgProjectIds[0] ?? null;
-  }
-
   const allProjectIds = flattenProjectIds(orgProjectsMap);
   if (preferredProjectId && allProjectIds.includes(preferredProjectId)) {
     return preferredProjectId;
   }
+
+  const fromCurrentOrg = currentOrgId
+    ? orgProjectsMap[currentOrgId]?.projects[0]?.id
+    : undefined;
+  if (fromCurrentOrg !== undefined) return fromCurrentOrg;
 
   const fromLastOrg = lastSelectedOrgId
     ? orgProjectsMap[lastSelectedOrgId]?.projects[0]?.id

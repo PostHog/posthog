@@ -910,7 +910,7 @@ describe("AuthService", () => {
     });
   });
 
-  it("uses a project from the server-selected organization after app restart", async () => {
+  it("restores the saved project and its organization after an external organization switch", async () => {
     seedStoredSession({ selectedProjectId: 11 });
     oauthFlow.refreshToken.mockResolvedValue(
       mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
@@ -929,14 +929,23 @@ describe("AuthService", () => {
       },
     });
 
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
     await service.initialize();
 
     expect(service.getState()).toMatchObject({
       status: "authenticated",
-      currentOrgId: "org-2",
-      currentProjectId: 22,
+      currentOrgId: "org-1",
+      currentProjectId: 11,
     });
-    expect(sessionPort.getCurrent()?.selectedProjectId).toBe(22);
+    expect(sessionPort.getCurrent()?.selectedProjectId).toBe(11);
+
+    const patchCall = fetchSpy.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
+    );
+    expect(patchCall?.[1]?.body).toBe(
+      JSON.stringify({ set_current_organization: "org-1" }),
+    );
   });
 
   describe("lifecycle: connectivity recovery", () => {

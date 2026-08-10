@@ -428,6 +428,47 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       throw new Error(`Failed to switch organization: ${response.statusText}`);
     }
   }
+  private async reconcileInitialSelection(input: {
+    accessToken: string;
+    cloudRegion: CloudRegion;
+    orgProjectsMap: OrgProjectsMap;
+    currentOrgId: string | null;
+    preferredProjectId: number | null;
+    lastSelectedOrgId: string | null;
+  }): Promise<{
+    currentOrgId: string | null;
+    currentProjectId: number | null;
+  }> {
+    const currentProjectId = pickInitialProjectId(input);
+    const projectOrgId = currentProjectId
+      ? findOrgForProject(
+          input.orgProjectsMap,
+          currentProjectId,
+          input.currentOrgId,
+        )
+      : null;
+    const currentOrgId = projectOrgId ?? input.currentOrgId;
+
+    if (currentOrgId && currentOrgId !== input.currentOrgId) {
+      const response = await this.executeAuthenticatedFetch(
+        fetch,
+        `${getCloudUrlFromRegion(input.cloudRegion)}/api/users/@me/`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ set_current_organization: currentOrgId }),
+        },
+        input.accessToken,
+      );
+      if (!response.ok) {
+        throw new Error(
+          `Failed to switch organization: ${response.statusText}`,
+        );
+      }
+    }
+
+    return { currentOrgId, currentProjectId };
+  }
   async logout(): Promise<AuthState> {
     const { cloudRegion, currentProjectId } = this.state;
 
@@ -712,7 +753,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
-    const currentProjectId = pickInitialProjectId({
+    const selection = await this.reconcileInitialSelection({
+      accessToken: tokenResponse.access_token,
+      cloudRegion: options.cloudRegion,
       orgProjectsMap,
       currentOrgId,
       preferredProjectId:
@@ -730,8 +773,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionType: refreshToken ? "persistent" : "impersonated",
       cloudRegion: options.cloudRegion,
       orgProjectsMap,
-      currentOrgId,
-      currentProjectId,
+      currentOrgId: selection.currentOrgId,
+      currentProjectId: selection.currentProjectId,
       orgProjectsIncomplete,
     };
 
@@ -1284,7 +1327,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           : null;
         const storedSelected =
           this.authSession.getCurrent()?.selectedProjectId ?? null;
-        const currentProjectId = pickInitialProjectId({
+        const selection = await this.reconcileInitialSelection({
+          accessToken: session.accessToken,
+          cloudRegion: session.cloudRegion,
           orgProjectsMap: map,
           currentOrgId: session.currentOrgId,
           preferredProjectId:
@@ -1296,8 +1341,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         });
         await this.commitSessionState(session, {
           orgProjectsMap: map,
-          currentOrgId: session.currentOrgId,
-          currentProjectId,
+          currentOrgId: selection.currentOrgId,
+          currentProjectId: selection.currentProjectId,
         });
         this.logger.info(
           "Recovered organizations/projects after incomplete sync",
