@@ -34,11 +34,8 @@ const CLIENT_NAME_HEADER: &str = "x-client-name";
 /// observability.
 pub const SEMANTIC_REFUSAL_METADATA_KEY: &str = "x-semantic-refusal";
 
-/// Build a semantic refusal: a FAILED_PRECONDITION carrying
-/// [`SEMANTIC_REFUSAL_METADATA_KEY`] so it survives the router's bounce
-/// classification (see the key's docs). The reason is a short slug from a
-/// fixed vocabulary; it is used as a metric label on both sides of the
-/// wire.
+/// Build a semantic refusal. The reason is a short slug used as a metric
+/// label.
 pub fn semantic_refusal(message: impl Into<String>, reason: &'static str) -> tonic::Status {
     let mut status = tonic::Status::failed_precondition(message.into());
     if let Ok(value) = reason.parse() {
@@ -49,9 +46,8 @@ pub fn semantic_refusal(message: impl Into<String>, reason: &'static str) -> ton
     status
 }
 
-/// Whether a status is a definitive semantic refusal (see
-/// [`SEMANTIC_REFUSAL_METADATA_KEY`]): a final answer about the request
-/// itself, as opposed to a transient failure a retry can outlive.
+/// Whether a status is a definitive semantic refusal rather than a
+/// transient failure a retry can outlive.
 pub fn is_semantic_refusal(status: &tonic::Status) -> bool {
     status.code() == tonic::Code::FailedPrecondition
         && status
@@ -59,7 +55,7 @@ pub fn is_semantic_refusal(status: &tonic::Status) -> bool {
             .contains_key(SEMANTIC_REFUSAL_METADATA_KEY)
 }
 
-/// The refusal's reason slug, when present and readable.
+/// The refusal's reason slug, when present.
 pub fn semantic_refusal_reason(status: &tonic::Status) -> Option<&str> {
     status
         .metadata()
