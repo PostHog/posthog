@@ -1,9 +1,12 @@
 import uuid
+from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -84,6 +87,141 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.distinct_id, self.distinct_id)
         self.assertEqual(ticket.status, "new")
         self.assertEqual(ticket.unread_team_count, 1)
+
+    def test_ticketless_retry_appends_to_recent_ticket(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            first = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "First wording of the question",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        ticket_id = first.json()["ticket_id"]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            second = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Retyped wording of the same question",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["ticket_id"], ticket_id)
+        self.assertNotEqual(second.json()["message_id"], first.json()["message_id"])
+
+        self.assertEqual(Ticket.objects.filter(team=self.team, widget_session_id=self.widget_session_id).count(), 1)
+        ticket = Ticket.objects.get(id=ticket_id)
+        self.assertEqual(
+            Comment.objects.filter(
+                team=self.team, scope="conversations_ticket", item_id=ticket_id, deleted=False
+            ).count(),
+            2,
+        )
+        self.assertEqual(ticket.unread_team_count, 2)
+        self.assertEqual(ticket.message_count, 2)
+
+    def test_identical_ticketless_resend_replays_message(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            first = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Identical body",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            second = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Identical body",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["ticket_id"], first.json()["ticket_id"])
+        self.assertEqual(second.json()["message_id"], first.json()["message_id"])
+
+        ticket = Ticket.objects.get(id=first.json()["ticket_id"])
+        self.assertEqual(
+            Comment.objects.filter(
+                team=self.team, scope="conversations_ticket", item_id=str(ticket.id), deleted=False
+            ).count(),
+            1,
+        )
+        self.assertEqual(ticket.unread_team_count, 1)
+        self.assertEqual(ticket.message_count, 1)
+
+    def test_identical_ticketless_resend_outside_replay_window_appends(self) -> None:
+        now = timezone.now()
+        with freeze_time(now - timedelta(seconds=31)), self.captureOnCommitCallbacks(execute=True):
+            first = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Identical body",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        with freeze_time(now), self.captureOnCommitCallbacks(execute=True):
+            second = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Identical body",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["ticket_id"], first.json()["ticket_id"])
+        self.assertNotEqual(second.json()["message_id"], first.json()["message_id"])
+        ticket = Ticket.objects.get(id=first.json()["ticket_id"])
+        self.assertEqual(ticket.message_count, 2)
+        self.assertEqual(ticket.unread_team_count, 2)
+
+    @patch("products.conversations.backend.api.widget.invalidate_unread_count_cache")
+    @patch("products.conversations.backend.api.widget.report_team_action")
+    @patch("products.conversations.backend.api.widget.try_lock_widget_session", return_value=False)
+    def test_session_lock_miss_fails_without_writing(
+        self,
+        _try_lock: MagicMock,
+        report_team_action_mock: MagicMock,
+        invalidate_unread_count_cache_mock: MagicMock,
+    ) -> None:
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Do not store this",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response["Retry-After"], "1")
+        self.assertEqual(response.json(), {"message": "Another message is still sending. Try again shortly."})
+        self.assertFalse(Ticket.objects.filter(team=self.team, widget_session_id=self.widget_session_id).exists())
+        self.assertFalse(Comment.objects.filter(team=self.team, scope="conversations_ticket").exists())
+        report_team_action_mock.assert_not_called()
+        invalidate_unread_count_cache_mock.assert_not_called()
 
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}
@@ -908,6 +1046,44 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_ticketless_coalesce_ownership_mismatch_creates_ticket(self) -> None:
+        derived_widget_session_id = str(uuid.UUID(self.identity_hash[:32]))
+        previous_ticket = self._create_ticket(
+            distinct_id="previous_distinct_id",
+            widget_session_id=derived_widget_session_id,
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(previous_ticket.id),
+            content="Earlier question",
+            item_context={"author_type": "customer"},
+        )
+
+        with patch(
+            "products.conversations.backend.api.widget.get_person_distinct_ids",
+            return_value=[self.distinct_id],
+        ) as get_person_distinct_ids_mock:
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "identity_distinct_id": self.distinct_id,
+                    "identity_hash": self.identity_hash,
+                    "message": "New question",
+                },
+                **self._get_headers(),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        get_person_distinct_ids_mock.assert_called_once_with(self.team.id, self.distinct_id)
+        self.assertNotEqual(response.json()["ticket_id"], str(previous_ticket.id))
+        self.assertEqual(
+            Ticket.objects.filter(team=self.team, widget_session_id=derived_widget_session_id).count(),
+            2,
+        )
+        created_ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(created_ticket.distinct_id, self.distinct_id)
 
     def test_send_message_invalid_hash_no_session_returns_forbidden(self):
         response = self.client.post(

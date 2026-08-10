@@ -4,6 +4,8 @@ from django.db import models, transaction
 
 from posthog.models.utils import UUIDTModel
 
+from products.conversations.backend.locks import lock_ticket_numbering
+
 from .constants import Channel, ChannelDetail, Priority, Status
 
 if TYPE_CHECKING:
@@ -14,17 +16,19 @@ class TicketManager(models.Manager):
     def create_with_number(self, **kwargs):
         """
         Create a ticket with an auto-incrementing ticket_number.
-        Uses SELECT FOR UPDATE on Team row to serialize ticket creation per team.
-        """
-        from posthog.models import Team
 
+        Serializes per team via a Postgres advisory lock so concurrent creates
+        cannot allocate the same number. An advisory lock is used instead of
+        SELECT FOR UPDATE on the Team row. An explicit foreign-key key-share lock
+        establishes deadlock-safe ordering and stays compatible with ordinary
+        updates to the team.
+        """
         team = kwargs.get("team")
         if not team:
             raise ValueError("team is required")
 
         with transaction.atomic():
-            # Lock team row to serialize ticket creation for this team
-            Team.objects.select_for_update().get(id=team.id)
+            lock_ticket_numbering(team.id)
 
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1

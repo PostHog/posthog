@@ -28,6 +28,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
+    from products.conversations.backend.locks import lock_ticket_numbering
     from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
     from products.conversations.backend.models.constants import Status
     from products.conversations.backend.services.attachments import (
@@ -439,8 +440,8 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     tags_by_name = {name: Tag.objects.get_or_create(name=name, team_id=team.id)[0] for name in all_tag_names}
 
     # Phase 3: Persist tickets + comments in a single transaction (no network I/O).
-    # Ticket numbers are assigned under the same lock that guards bulk_create, so
-    # concurrent batch activities can't collide on unique_ticket_number_per_team.
+    # Ticket numbers are assigned under the same advisory lock as create_with_number, so
+    # concurrent widget creates and batch activities can't collide on unique_ticket_number_per_team.
     #
     # IMPORTANT: persist historical rows with bulk_create/bulk_update ONLY. These bypass the
     # post_save/pre_save receivers in products/conversations/backend/signals.py, which is what
@@ -450,7 +451,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     # Comment.objects.create(), or .save() would fire those signals for every imported row —
     # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
     with transaction.atomic():
-        Team.objects.select_for_update().get(id=team.id)
+        lock_ticket_numbering(team.id)
         max_num = Ticket.objects.filter(team_id=team.id).aggregate(Max("ticket_number"))["ticket_number__max"] or 0
         for offset, ticket_to_number in enumerate(tickets_to_create):
             ticket_to_number.ticket_number = max_num + 1 + offset

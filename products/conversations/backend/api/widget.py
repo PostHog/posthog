@@ -13,8 +13,11 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 
 import uuid
 import logging
+from typing import Literal
 
+from django.db import transaction
 from django.db.models import F, Q
+from django.utils import timezone
 
 from prometheus_client import Counter
 from rest_framework import serializers, status
@@ -31,6 +34,7 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
 
+from products.conversations.backend import ticket_coalesce
 from products.conversations.backend.api.serializers import (
     WIDGET_TICKETS_DEFAULT_LIMIT,
     WidgetMarkReadSerializer,
@@ -48,6 +52,7 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
+from products.conversations.backend.locks import try_lock_widget_session
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
@@ -235,97 +240,166 @@ class WidgetMessageView(APIView):
             except ValidationError:
                 return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Find or create ticket
-        if ticket_id:
-            # Adding to existing ticket
-            try:
-                ticket = Ticket.objects.get(id=ticket_id, team=team)
+        coalesce_reason: Literal["replayed", "appended"] | None = None
+        created_ticket = False
+        session_busy = False
+        ticket: Ticket | None = None
+        comment: Comment | None = None
 
-                if verified_distinct_id is not None:
-                    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-                    if ticket.distinct_id not in allowed_ids:
-                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        # ATOMIC_REQUESTS is off: ticket + first message must commit together so a
+        # concurrent coalesce lookup sees both or neither. Side effects run after.
+        with transaction.atomic():
+            if not ticket_id:
+                if not try_lock_widget_session(team.id, widget_session_id):
+                    session_busy = True
                 else:
-                    # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
-                    if ticket.widget_session_id != widget_session_id:
-                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                    target = ticket_coalesce.resolve(
+                        team_id=team.id,
+                        widget_session_id=widget_session_id,
+                        content=message_content,
+                        now=timezone.now(),
+                    )
+                    if isinstance(target, ticket_coalesce.ReplayTarget):
+                        ticket = target.ticket
+                        comment = target.comment
+                        coalesce_reason = "replayed"
+                    elif isinstance(target, ticket_coalesce.AppendTarget):
+                        ticket_id = str(target.ticket.id)
+                        coalesce_reason = "appended"
 
-                # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
-                # Anonymous → identified continuity is still handled by person merging.
-                if verified_distinct_id is not None and ticket.distinct_id != distinct_id:
-                    ticket.distinct_id = distinct_id
+            if not session_busy and comment is None:
+                if ticket_id:
+                    try:
+                        # A coalesced append is serialized by the session advisory lock. Keep this
+                        # read unlocked because an ownership mismatch can proceed to ticket creation.
+                        ticket = Ticket.objects.get(id=ticket_id, team=team)
 
-                # Update traits if provided
-                if traits:
-                    ticket.anonymous_traits.update(traits)
+                        owned = True
+                        if verified_distinct_id is not None:
+                            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+                            if ticket.distinct_id not in allowed_ids:
+                                owned = False
+                        elif ticket.widget_session_id != widget_session_id:
+                            # CRITICAL: anonymous access is by widget_session_id, not distinct_id
+                            owned = False
 
-                # Update session data if provided
-                if session_id:
-                    ticket.session_id = session_id
-                if session_context:
-                    ticket.session_context.update(session_context)
+                        if not owned:
+                            # Coalesced append must not 403 a send that used to create a ticket.
+                            # Explicit ticket_id keeps the old Forbidden/Not-found behaviour.
+                            if coalesce_reason == "appended":
+                                ticket_id = None
+                                ticket = None
+                                coalesce_reason = None
+                            else:
+                                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-                # HMAC-verified requests are server-attested — mark the identity trusted.
-                if verified_distinct_id is not None:
-                    ticket.identity_verified = True
+                        if ticket is not None:
+                            # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
+                            # Anonymous → identified continuity is still handled by person merging.
+                            if verified_distinct_id is not None and ticket.distinct_id != distinct_id:
+                                ticket.distinct_id = distinct_id
 
-                # Increment unread count for team (customer sent a message)
-                ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(
-                    update_fields=[
-                        "distinct_id",
-                        "anonymous_traits",
-                        "session_id",
-                        "session_context",
-                        "unread_team_count",
-                        "identity_verified",
-                        "updated_at",
-                    ]
+                            # Update traits if provided
+                            if traits:
+                                ticket.anonymous_traits.update(traits)
+
+                            # Update session data if provided
+                            if session_id:
+                                ticket.session_id = session_id
+                            if session_context:
+                                ticket.session_context.update(session_context)
+
+                            # HMAC-verified requests are server-attested — mark the identity trusted.
+                            if verified_distinct_id is not None:
+                                ticket.identity_verified = True
+
+                            # Increment unread count for team (customer sent a message)
+                            ticket.unread_team_count = F("unread_team_count") + 1
+                            ticket.save(
+                                update_fields=[
+                                    "distinct_id",
+                                    "anonymous_traits",
+                                    "session_id",
+                                    "session_context",
+                                    "unread_team_count",
+                                    "identity_verified",
+                                    "updated_at",
+                                ]
+                            )
+                            ticket.refresh_from_db()
+
+                    except Ticket.DoesNotExist:
+                        if coalesce_reason == "appended":
+                            ticket_id = None
+                            coalesce_reason = None
+                        else:
+                            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+                if ticket is None:
+                    # No ticket_id and nothing to coalesce onto — create a new ticket
+                    conversations_settings = team.conversations_settings or {}
+                    widget_channel_detail = (
+                        ChannelDetail.WIDGET_EMBEDDED
+                        if conversations_settings.get("widget_enabled")
+                        else ChannelDetail.WIDGET_API
+                    )
+                    ticket = Ticket.objects.create_with_number(
+                        team=team,
+                        widget_session_id=widget_session_id,
+                        distinct_id=distinct_id,
+                        channel_source="widget",
+                        channel_detail=widget_channel_detail,
+                        status="new",
+                        anonymous_traits=traits,
+                        unread_team_count=1,
+                        session_id=session_id,
+                        session_context=session_context,
+                        identity_verified=verified_distinct_id is not None,
+                    )
+                    created_ticket = True
+
+                if ticket is None:
+                    raise RuntimeError("Widget message transaction has no ticket")
+
+                comment = Comment.objects.create(
+                    team=team,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content=message_content,
+                    item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
                 )
-                ticket.refresh_from_db()
 
-            except Ticket.DoesNotExist:
-                return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
-        else:
-            # No ticket_id provided - always create a new ticket
-            conversations_settings = team.conversations_settings or {}
-            widget_channel_detail = (
-                ChannelDetail.WIDGET_EMBEDDED
-                if conversations_settings.get("widget_enabled")
-                else ChannelDetail.WIDGET_API
-            )
-            ticket = Ticket.objects.create_with_number(
-                team=team,
-                widget_session_id=widget_session_id,
-                distinct_id=distinct_id,
-                channel_source="widget",
-                channel_detail=widget_channel_detail,
-                status="new",
-                anonymous_traits=traits,
-                unread_team_count=1,
-                session_id=session_id,
-                session_context=session_context,
-                identity_verified=verified_distinct_id is not None,
+        if session_busy:
+            return Response(
+                # posthog-js surfaces `message`; an `error` field falls back to generic copy.
+                {"message": "Another message is still sending. Try again shortly."},
+                status=status.HTTP_409_CONFLICT,
+                headers={"Retry-After": "1"},
             )
 
+        if ticket is None or comment is None:
+            raise RuntimeError("Widget message transaction completed without an outcome")
+
+        if created_ticket:
             try:
                 report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
-
-        # Create message
-        comment = Comment.objects.create(
-            team=team,
-            scope="conversations_ticket",
-            item_id=str(ticket.id),
-            content=message_content,
-            item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
-        )
+        elif coalesce_reason is not None:
+            try:
+                report_team_action(
+                    team,
+                    "support ticket coalesced",
+                    {"channel_source": ticket.channel_source, "reason": coalesce_reason},
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
 
         # tickets + messages caches are invalidated by the post_save signal
         # via transaction.on_commit (see signals.py). Only unread_count needs
         # explicit invalidation here since the signal doesn't cover it.
-        invalidate_unread_count_cache(team.id)
+        if coalesce_reason != "replayed":
+            invalidate_unread_count_cache(team.id)
 
         return Response(
             {

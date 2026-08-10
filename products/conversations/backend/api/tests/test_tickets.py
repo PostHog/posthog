@@ -14,7 +14,8 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1505,6 +1506,23 @@ class TestTicketManager(BaseTest):
 
         self.assertEqual(ticket1.ticket_number, 1)
         self.assertEqual(ticket2.ticket_number, 2)
+
+    def test_create_with_number_takes_team_key_share_before_numbering_lock(self) -> None:
+        with CaptureQueriesContext(connection) as ctx:
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id="session-lock-check",
+                distinct_id="user-lock-check",
+            )
+
+        sqls = [query["sql"].lower() for query in ctx.captured_queries]
+        self.assertFalse(any("posthog_team" in sql and "for update" in sql for sql in sqls))
+        team_key_share_index = next(
+            index for index, sql in enumerate(sqls) if "posthog_team" in sql and "for key share" in sql
+        )
+        numbering_lock_index = next(index for index, sql in enumerate(sqls) if "pg_advisory_xact_lock" in sql)
+        self.assertLess(team_key_share_index, numbering_lock_index)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

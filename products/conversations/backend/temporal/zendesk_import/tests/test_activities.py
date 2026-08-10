@@ -5,6 +5,9 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.models import Tag
@@ -484,12 +487,13 @@ class TestZendeskImportBatchActivity(BaseTest):
         # without colliding on unique_ticket_number_per_team.
         Ticket.objects.create(team=self.team, ticket_number=5, widget_session_id="s", distinct_id="d")
 
-        self._run_batch(
-            [301, 302, 303],
-            tickets=[_zd_ticket(301, 10), _zd_ticket(302, 10), _zd_ticket(303, 10)],
-            users={10: _zd_user(10, "requester@x.com")},
-            comments_by_ticket={},
-        )
+        with CaptureQueriesContext(connection) as query_context:
+            self._run_batch(
+                [301, 302, 303],
+                tickets=[_zd_ticket(301, 10), _zd_ticket(302, 10), _zd_ticket(303, 10)],
+                users={10: _zd_user(10, "requester@x.com")},
+                comments_by_ticket={},
+            )
 
         numbers = sorted(
             Ticket.objects.filter(team=self.team, zendesk_ticket_id__in=[301, 302, 303]).values_list(
@@ -497,6 +501,13 @@ class TestZendeskImportBatchActivity(BaseTest):
             )
         )
         self.assertEqual(numbers, [6, 7, 8])
+        sql_statements = [query["sql"].lower() for query in query_context.captured_queries]
+        self.assertFalse(any("posthog_team" in sql and "for update" in sql for sql in sql_statements))
+        team_key_share_index = next(
+            index for index, sql in enumerate(sql_statements) if "posthog_team" in sql and "for key share" in sql
+        )
+        numbering_lock_index = next(index for index, sql in enumerate(sql_statements) if "pg_advisory_xact_lock" in sql)
+        self.assertLess(team_key_share_index, numbering_lock_index)
 
     def test_image_attachment_embedded_in_rich_content(self) -> None:
         comment = _zd_comment(
