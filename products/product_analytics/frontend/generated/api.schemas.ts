@@ -3997,6 +3997,7 @@ export const IntegrationKindApi = {
     Github: 'github',
     Gitlab: 'gitlab',
     MetaAds: 'meta-ads',
+    Instagram: 'instagram',
     Clickup: 'clickup',
     RedditAds: 'reddit-ads',
     Databricks: 'databricks',
@@ -5372,8 +5373,12 @@ export interface PathsV2ActorsQueryApi {
 }
 
 export interface HogQLFiltersApi {
+    /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
+    breakdownFilter?: BreakdownFilterApi | null
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
+    /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
+    interval?: IntervalTypeApi | null
     properties?:
         | (
               | EventPropertyFilterApi
