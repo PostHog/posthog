@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconChevronDown, IconEye } from '@posthog/icons'
+import { IconChevronDown, IconEye, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -108,6 +108,29 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     )
 }
 
+/** One-click summary: an inline summarizer scan, so it needs no saved scanner. */
+function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
+    const { summarizing } = useValues(observationsDockLogic({ sessionId }))
+    const { summarize } = useActions(observationsDockLogic({ sessionId }))
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+
+    return (
+        <LemonButton
+            size="small"
+            type="secondary"
+            icon={<IconNotebook />}
+            loading={summarizing}
+            onClick={() => summarize()}
+            disabledReason={quotaDisabledReason}
+            tooltip={quotaTooltip ?? 'Write a summary of what happened in this recording'}
+            data-attr="vision-summarize-recording"
+        >
+            Summarize this recording
+        </LemonButton>
+    )
+}
+
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
@@ -145,6 +168,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             {dockOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <ScannerPicker sessionId={sessionId} />
+                <SummarizeButton sessionId={sessionId} />
                 {observations.length > 0 && (
                     <span className="text-muted text-sm min-w-0 truncate">
                         {observations.length} observation{observations.length === 1 ? '' : 's'}
@@ -170,7 +194,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : observations.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No observations yet. Pick a scanner to run on this recording.
+                            No observations yet. Summarize this recording, or pick a scanner to run on it.
                         </div>
                     ) : (
                         observations.map((observation) => (
