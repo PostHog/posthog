@@ -22,18 +22,20 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
-    if (!hasIdentityMode && (!posthog.conversations || !posthog.conversations.isAvailable())) {
-        return (
-            <div className="text-center text-muted-alt py-8">
-                <p>Support is not available for this team.</p>
-            </div>
-        )
-    }
-
+    // Loading first: isAvailable() is false while the lazy extension is still arriving, so the
+    // verdict below is only trustworthy once loading has settled
     if (ticketsLoading) {
         return (
             <div className="flex items-center justify-center h-40">
                 <Spinner />
+            </div>
+        )
+    }
+
+    if (!hasIdentityMode && (!posthog.conversations || !posthog.conversations.isAvailable())) {
+        return (
+            <div className="text-center text-muted-alt py-8">
+                <p>Support is not available for this team.</p>
             </div>
         )
     }
