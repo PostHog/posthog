@@ -21,12 +21,16 @@ use serde_json::Value;
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
+use personhog_proto::personhog::types::v1::LifecycleOpType;
+
 use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
 
-pub const OP_TYPE_DELETE: &str = "delete";
+// Derived from the shared enum so the op-type string cannot drift from
+// the leader's fence records or the lifecycle_op CHECK constraint.
+pub const OP_TYPE_DELETE: &str = LifecycleOpType::Delete.as_op_type_str();
 
 /// The delete saga's non-terminal steps, in order. Stored as text in
 /// `lifecycle_op.step` (the engine is generic over op types, so its API is

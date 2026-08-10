@@ -1,12 +1,11 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import {
+  ArrowRightIcon,
   CaretDownIcon,
   CaretRightIcon,
   ChartBarIcon,
-  CubeFocusIcon,
   DotsThreeIcon,
   FileTextIcon,
-  HashIcon,
   LinkIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -58,6 +57,7 @@ import {
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
+import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
   type Channel,
@@ -81,6 +81,7 @@ import {
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
+import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import {
   keepListForNextRoute,
   showChannelPane,
@@ -101,7 +102,10 @@ import {
   TaskStatusDot,
   TaskStatusTooltips,
 } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
-import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  DOT_TONE_VAR,
+  taskDot,
+} from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   OverflowTickerText,
@@ -156,7 +160,7 @@ function SpaceRowSurface({
         size="default"
         left
         className={cn(
-          "w-full min-w-0 justify-start gap-2 data-selected:bg-fill-selected data-selected:text-foreground",
+          "w-full min-w-0 justify-start gap-2 data-selected:text-foreground",
           className,
         )}
         {...rest}
@@ -205,7 +209,14 @@ function SpaceRowSurface({
  * parent each task hangs off and the space each row belongs to.
  */
 type SpaceTreeNode =
-  | { kind: "space"; value: string; spaceId: string | undefined }
+  | { kind: "section"; value: string; sectionId: string }
+  | {
+      kind: "space";
+      value: string;
+      spaceId: string | undefined;
+      /** The heading above it, absent while searching — there are none then. */
+      parentValue: string | undefined;
+    }
   | { kind: "task"; value: string; spaceId: string; parentValue: string };
 
 /** How long the pointer has to rest on a space before its sessions are warmed. */
@@ -258,6 +269,66 @@ function moveHighlight(
 }
 
 /**
+ * There are sessions in this space that want something from you. Sits after the
+ * name, and is the same 8px yellow the session rows' own dots are: it stands for
+ * those rows, so it has to look like one of them rather than a badge about them.
+ *
+ * One dot however many sessions, because the row's job here is to say "there is
+ * something in here", and a count you can't act on without opening the space is
+ * a number for its own sake. Nothing at all when the space is quiet — the only
+ * mark on the row allowed to be absent, which is what makes it worth a glance.
+ */
+function SpaceAttentionDot({
+  count,
+  tone = "attention",
+  faded,
+  className,
+}: {
+  count: number;
+  /**
+   * Which of the two things the space is saying. Blue is the session rows' own
+   * "blocked on you", so a space whose sessions are waiting on an answer shows
+   * that alongside the yellow rather than folding it in — one of these you can
+   * clear from here, the other you have to go in and read.
+   */
+  tone?: "attention" | "blocked";
+  /**
+   * The sessions it stands for are on screen, wearing dots of their own. It
+   * still marks which space they belong to, so it stays — at a weight that
+   * leaves the ones you can act on the brighter of the two.
+   */
+  faded?: boolean;
+  /** The row's hover margin, when the dot is what ends its content. */
+  className?: string;
+}) {
+  if (count === 0) return null;
+  const sessions = `${count} ${count === 1 ? "session" : "sessions"}`;
+  return (
+    <span
+      // The dot is one mark whatever the number, but the number is still the
+      // useful fact for anyone who can't see it.
+      aria-label={
+        tone === "blocked"
+          ? `${sessions} waiting on you`
+          : `${sessions} waiting`
+      }
+      role="img"
+      className={cn(
+        "size-2 shrink-0 rounded-full",
+        faded && "opacity-40",
+        className,
+      )}
+      // The session rows' own tone, off the one table that decides what a dot's
+      // colour means, so the space and the rows inside it can't drift.
+      style={{
+        backgroundColor:
+          tone === "blocked" ? DOT_TONE_VAR.blue : "var(--primary)",
+      }}
+    />
+  );
+}
+
+/**
  * The tree's disclosure caret, in its own fixed slot ahead of the space glyph.
  * Always drawn: a control that only appears on hover moves the row's contents
  * as the pointer crosses the list, and leaves the tree invisible to anyone who
@@ -300,21 +371,21 @@ function SpaceDisclosure({
       }}
       className={cn(
         "relative flex size-3.5 shrink-0 items-center justify-center",
-        // Half-lit at rest, open or closed, because a column of carets down the
-        // list would out-draw the names beside it. It brightens for its own
-        // hover only, which is what says it opens the tree rather than the row's
-        // space.
+        // Barely lit while closed, because a column of carets down the list
+        // would out-draw the names beside it. Open, it comes up to full: it is
+        // the only thing saying this space is the one the rows below belong to.
         //
         // Forced, and aimed at the glyph's descendants, because quill repaints
         // a highlighted option's contents (see `ROW_LABEL_TONE`) and that rule's
         // `*` reaches the icon's `<path>`, which is what `fill: currentColor`
         // resolves against, so a colour on this span or on the `<svg>` still
         // leaves the mark drawn in the row's colour.
-        "**:text-muted-foreground/50! hover:**:text-foreground!",
+        expanded ? "**:text-foreground!" : "**:text-muted-foreground/30!",
+        "hover:**:text-foreground!",
         // A 24px hit target on a 14px mark, hung off the caret's left so it
         // reaches the row's edge and stops before the name. Absolute rather than
         // padding, so the caret keeps its slot and nothing in the row moves.
-        "before:-left-1.5 before:absolute before:inset-auto before:size-6 before:content-['']",
+        "before:-left-8 before:absolute before:inset-auto before:size-6 before:content-['']",
         "before:-translate-y-1/2 before:top-1/2 before:rounded-[calc(var(--radius)-5px)]",
         "hover:before:bg-fill-hover",
       )}
@@ -400,9 +471,9 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       optionValue={item.key}
       data-selected={isActive || undefined}
       onClick={() => openTask(spaceId, item.id)}
-      // A step in from its space's name, so the depth reads off that column
-      // without a guide line to draw it.
-      className="pl-6"
+      // A step in from its space's name, clear of the guide that runs between
+      // the two columns.
+      className="pl-8"
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
@@ -480,18 +551,60 @@ function ViewAllRow({
       asOption={asOption}
       optionValue={viewAllValue(spaceId)}
       onClick={onOpenSpace}
-      className={cn("pl-6.5 text-[13px]", ROW_LABEL_TONE)}
+      className={cn("pl-8 text-[13px]", ROW_LABEL_TONE)}
     >
-      {/* An empty slot the width of a session's status dot, so the label starts
-          in the same column as the titles above it. */}
-      <span className="flex min-w-0 items-center gap-1.5">
-        <span aria-hidden className="size-2 shrink-0" />
-        <span className="truncate">View all</span>
+      {/* The arrow takes the slot a session's status dot has, so the guide's
+          turn lands on that column and the label starts where the titles above
+          it do. */}
+      <span className="flex min-w-0 items-center gap-0.5">
+        <ArrowRightIcon
+          aria-hidden
+          size={10}
+          className="relative top-[-0.5px] left-[-3px] shrink-0 text-foreground/20"
+        />
+        <span className="truncate">view all</span>
       </span>
       <span className="shrink-0 text-muted-foreground/50 text-xxs">
         {remaining}
       </span>
     </SpaceRowSurface>
+  );
+}
+
+/**
+ * Runs from the space's caret down the sessions beneath it, so a long list still
+ * reads as belonging to the space above rather than to the list at large.
+ *
+ * Positioned rather than a border, on the caret's own centre: it lines up with
+ * the glyph that opened the space, not the text beside it, and it costs the rows
+ * none of their width. The half-pixel is the centre — a 1px line either side of
+ * it would sit off the glyph by the same amount.
+ */
+function SpaceTreeGuide() {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 left-[14.5px] w-px bg-foreground/20"
+    />
+  );
+}
+
+/**
+ * How the guide ends when the space has more than the tree is showing: it turns
+ * into the "View all" row instead of running past it. The turn says this is the
+ * end of the branch, and points at the row that leads out of it.
+ *
+ * `-top-px` and the matching height close the flex gap above, so the turn reads
+ * as the same line rather than a mark that starts below it. The width carries it
+ * from the guide's column to the one the status dots keep, where the row's arrow
+ * picks it up.
+ */
+function SpaceTreeGuideEnd() {
+  return (
+    <span
+      aria-hidden
+      className="-top-px pointer-events-none absolute left-[14.5px] h-[calc(50%+1px)] w-[16.5px] rounded-bl-md border-foreground/20 border-b border-l"
+    />
   );
 }
 
@@ -514,30 +627,43 @@ function SpaceTaskRows({
 }) {
   if (tasks.items.length === 0) {
     return (
-      <div className="py-1 pl-12 text-subtle-foreground text-xs">
-        No sessions yet
+      <div className="relative">
+        <SpaceTreeGuide />
+        <div className="py-1 pl-12 text-subtle-foreground text-xs">
+          No sessions yet
+        </div>
       </div>
     );
   }
   return (
-    <>
-      {tasks.items.map((item) => (
-        <SpaceTaskRow
-          key={item.key}
-          item={item}
-          spaceId={spaceId}
-          asOption={asOption}
-        />
-      ))}
+    // The rows were siblings in the list's own flex column, so the wrappers that
+    // give the guide something to hang off have to keep their spacing. The
+    // sessions get their own, because the guide runs their full height and stops
+    // where the turn into "View all" begins.
+    <div className="flex flex-col gap-px">
+      <div className="relative flex flex-col gap-px">
+        <SpaceTreeGuide />
+        {tasks.items.map((item) => (
+          <SpaceTaskRow
+            key={item.key}
+            item={item}
+            spaceId={spaceId}
+            asOption={asOption}
+          />
+        ))}
+      </div>
       {hasViewAllRow(tasks) && (
-        <ViewAllRow
-          spaceId={spaceId}
-          remaining={tasks.total - tasks.items.length}
-          asOption={asOption}
-          onOpenSpace={onOpenSpace}
-        />
+        <div className="relative">
+          <SpaceTreeGuideEnd />
+          <ViewAllRow
+            spaceId={spaceId}
+            remaining={tasks.total - tasks.items.length}
+            asOption={asOption}
+            onOpenSpace={onOpenSpace}
+          />
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -776,6 +902,8 @@ const ChannelSection = memo(
   function ChannelSection({
     channel,
     isUnread,
+    unreadSessions = 0,
+    blockedSessions = 0,
     hotkeySlot,
     expanded = false,
     tasks,
@@ -784,6 +912,10 @@ const ChannelSection = memo(
     channel: Channel;
     /** Bolds the name: activity here the viewer hasn't seen. */
     isUnread?: boolean;
+    /** How many sessions inside are unread. A number, so the memo can compare it. */
+    unreadSessions?: number;
+    /** How many sessions inside are waiting on an answer from you. */
+    blockedSessions?: number;
     /** ⌘1-9 slot, shown as a hint while the row isn't hovered. */
     hotkeySlot?: number;
     expanded?: boolean;
@@ -809,6 +941,7 @@ const ChannelSection = memo(
     // while open.
     const [newMenuOpen, setNewMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
+    const hasAttention = unreadSessions > 0 || blockedSessions > 0;
     const prefetchSessions = usePrefetchSpaceTasks();
     const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined,
@@ -877,7 +1010,7 @@ const ChannelSection = memo(
                   data-selected={(isActive && !expanded) || undefined}
                   onClick={() => openChannel(channel)}
                   {...focusProps}
-                  className={spacesLayout ? "pl-4" : undefined}
+                  className={spacesLayout ? "pl-2" : undefined}
                 >
                   {onToggleExpanded && (
                     <SpaceDisclosure
@@ -892,19 +1025,45 @@ const ChannelSection = memo(
                     className={cn(
                       "text-[13px]",
                       // mr-11 clears the two icon-xs hover buttons pinned at
-                      // right-1. With a count beside it, that margin moves to
-                      // the count, which is the one nearer the buttons.
-                      "group-hover/chan:mr-11",
+                      // right-1. It belongs on whatever ends the row's content —
+                      // put it on the name while the dot is there and the gap
+                      // opens between them, carrying the dot off to the buttons.
+                      !hasAttention && "group-hover/chan:mr-11",
                       // Bold is unread's alone; full contrast is shared with the
                       // channel you're in. Either way there's no hover brighten
                       // left to do, so those rows skip it.
                       isUnread ? "font-bold" : "font-medium",
                       isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
-                      menuOpen && "mr-11",
+                      menuOpen && !hasAttention && "mr-11",
                     )}
                   >
                     {channel.name}
                   </OverflowTickerText>
+                  {/* Both dots in one slot, so the hover margin belongs to the
+                      pair rather than to whichever of them happens to end the
+                      row. */}
+                  {hasAttention && (
+                    <span
+                      className={cn(
+                        "flex shrink-0 items-center gap-1",
+                        "group-hover/chan:mr-11",
+                        menuOpen && "mr-11",
+                      )}
+                    >
+                      {/* Blue first, because the rows below are sorted with
+                          what wants you at the top — the pair reads as a
+                          summary of that list, in its order. */}
+                      <SpaceAttentionDot
+                        count={blockedSessions}
+                        tone="blocked"
+                        faded={expanded}
+                      />
+                      <SpaceAttentionDot
+                        count={unreadSessions}
+                        faded={expanded}
+                      />
+                    </span>
+                  )}
                   {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
                   which is meant to let a shortcut hang into a button's own
                   padding. Here `ml-auto` takes every pixel of slack, so the
@@ -1070,6 +1229,8 @@ const ChannelSection = memo(
   (prev, next) =>
     prev.expanded === next.expanded &&
     prev.isUnread === next.isUnread &&
+    prev.unreadSessions === next.unreadSessions &&
+    prev.blockedSessions === next.blockedSessions &&
     prev.hotkeySlot === next.hotkeySlot &&
     prev.tasks === next.tasks &&
     prev.onToggleExpanded === next.onToggleExpanded &&
@@ -1171,6 +1332,8 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   // is fetched; `undefined` just means the list hasn't loaded it yet.
   const meChannel = channels.find((c) => c.channelType === "personal");
   const isUnread = useIsChannelUnread()(meChannel?.id);
+  const unreadSessions = useUnreadSessionCount()(meChannel?.id);
+  const blockedSessions = useBlockedSessionCount()(meChannel?.id);
   const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
   const isActive =
     !!meChannel &&
@@ -1230,7 +1393,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           onClick={openPersonalChannel}
           // "me" is a starred space among the others now, so it takes the same
           // inset rather than sitting out at the heading's margin.
-          className={spacesLayout ? "pl-4" : undefined}
+          className={spacesLayout ? "pl-2" : undefined}
         >
           {onToggleExpanded && meChannel && (
             <SpaceDisclosure
@@ -1248,6 +1411,14 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
             )}
           >
             {PERSONAL_CHANNEL_NAME}
+          </span>
+          <span className="mt-[2px] flex shrink-0 items-center gap-1">
+            <SpaceAttentionDot
+              count={blockedSessions}
+              tone="blocked"
+              faded={expanded}
+            />
+            <SpaceAttentionDot count={unreadSessions} faded={expanded} />
           </span>
           {hotkeySlot != null && (
             <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
@@ -1317,21 +1488,24 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
 const STARRED_SECTION_ID = "channels:starred";
 const CHANNELS_SECTION_ID = "channels:all";
 
+/** A heading's identity in the flat list, kept clear of any channel's id. */
+const sectionValue = (sectionId: string) => `section:${sectionId}`;
+
 // A collapsible sidebar group ("Starred" / "Channels"). Base UI directly rather
 // than quill's Collapsible: quill styles its trigger as a button (which fought
 // the label styling) and animates the panel height (which janked on a list this
 // long). Unstyled parts give a plain label row that snaps.
 //
-// The whole header row is the trigger. Its section glyph swaps to a down/right
-// disclosure caret on hover or keyboard focus while keeping Starred and Spaces
-// distinct at rest.
+// The whole header row is the trigger, and the label is all of it: the headings
+// are two, named, and always in the same order, so a glyph beside each was
+// decoration rather than a way of telling them apart.
 function ChannelGroup({
   sectionId,
   label,
   className,
   flat,
   keepMounted = true,
-  icon,
+  asOption = false,
   children,
 }: {
   sectionId: string;
@@ -1345,7 +1519,12 @@ function ChannelGroup({
    * rebuild on expand is better than highlighting a row nobody can see.
    */
   keepMounted?: boolean;
-  icon: ReactNode;
+  /**
+   * Under the layout the heading is a row of the tree like any other: ↑/↓ walk
+   * onto it, → opens the section, ← closes it. Off the layout there is no search
+   * box driving a list, so it stays a plain label you click.
+   */
+  asOption?: boolean;
   children: ReactNode;
 }) {
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
@@ -1364,28 +1543,39 @@ function ChannelGroup({
       className={cn(className, "mb-2")}
     >
       {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
-          real button so the whole row is clickable. */}
+          real button so the whole row is clickable. Wrapped in an option when
+          the keyboard walks the list, so the heading is a stop on the way down
+          rather than a gap the highlight jumps over. */}
       <Collapsible.Trigger
-        className="group/group-trigger flex w-full items-center gap-2"
-        render={<MenuLabel render={<button type="button" />} />}
-      >
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="group-hover/group-trigger:hidden group-focus-visible/group-trigger:hidden">
-            {icon}
-          </span>
-          {isOpen ? (
-            <CaretDownIcon
-              size={14}
-              className="hidden group-hover/group-trigger:block group-focus-visible/group-trigger:block"
+        className={cn(
+          "group/group-trigger flex w-full items-center gap-2 py-1",
+          // quill wraps an option's children in its own flex row, so the caret's
+          // `ml-auto` has nothing to push against until that row is full width.
+          // The highlight is the rows' own hover fill rather than quill's focus
+          // ring, for the reason SpaceRowSurface gives.
+          asOption &&
+            "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
+        )}
+        render={
+          asOption ? (
+            <AutocompleteItem
+              value={sectionValue(sectionId)}
+              render={<MenuLabel render={<button type="button" />} />}
             />
           ) : (
-            <CaretRightIcon
-              size={14}
-              className="hidden group-hover/group-trigger:block group-focus-visible/group-trigger:block"
-            />
-          )}
-        </span>
+            <MenuLabel render={<button type="button" />} />
+          )
+        }
+      >
         {label}
+        {/* On the right, because the heading's name is the left edge every row
+            beneath it lines up to. Always drawn: which way the section is, is
+            the one thing this row has to say. */}
+        {isOpen ? (
+          <CaretDownIcon size={12} className="shrink-0" />
+        ) : (
+          <CaretRightIcon size={12} className="shrink-0" />
+        )}
       </Collapsible.Trigger>
       {/* Stay mounted while collapsed. Every row builds a context menu, a
           dropdown, a tooltip and two dialogs up front, so unmounting on close
@@ -1415,6 +1605,8 @@ export function ChannelsList() {
   const channelsLayout = useChannelsLayout();
 
   const isUnread = useIsChannelUnread();
+  const unreadSessions = useUnreadSessionCount();
+  const blockedSessions = useBlockedSessionCount();
 
   const [query, setQuery] = useState("");
   const normalizedQuery = channelsLayout ? query.trim().toLowerCase() : "";
@@ -1471,14 +1663,18 @@ export function ChannelsList() {
   // it already shows — and ArrowLeft needs to know which space a task hangs off.
   // A collapsed group or space renders no rows, so it contributes none.
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
+  const toggleSection = useSidebarStore((s) => s.toggleSection);
   // "me" is provisioned server-side with the first list fetch; before it loads
   // it has no id to go by.
   const meValue = me?.id ?? PERSONAL_CHANNEL_NAME;
+  const starredValue = sectionValue(STARRED_SECTION_ID);
+  const channelsValue = sectionValue(CHANNELS_SECTION_ID);
   const spaceNodes = (
     value: string,
     spaceId: string | undefined,
+    parentValue?: string,
   ): SpaceTreeNode[] => {
-    const space: SpaceTreeNode = { kind: "space", value, spaceId };
+    const space: SpaceTreeNode = { kind: "space", value, spaceId, parentValue };
     if (!isExpanded(spaceId) || !spaceId) return [space];
     const tasks = tasksOf(spaceId);
     return [
@@ -1513,20 +1709,31 @@ export function ChannelsList() {
         ),
       ]
     : [
+        // A heading is a row of the tree, so it is a node whether or not its
+        // section is open — a folded section is still somewhere ↓ can land and
+        // → can open.
+        { kind: "section", value: starredValue, sectionId: STARRED_SECTION_ID },
         // "me" leads the starred section rather than floating above it: it is
         // the space you always keep, so it belongs with the ones you chose to
         // keep. Folding the section away takes it with them.
         ...(collapsedSections.has(STARRED_SECTION_ID)
           ? []
           : [
-              ...spaceNodes(meValue, me?.id),
+              ...spaceNodes(meValue, me?.id, starredValue),
               ...starred.flatMap((channel) =>
-                spaceNodes(channel.id, channel.id),
+                spaceNodes(channel.id, channel.id, starredValue),
               ),
             ]),
+        {
+          kind: "section",
+          value: channelsValue,
+          sectionId: CHANNELS_SECTION_ID,
+        },
         ...(collapsedSections.has(CHANNELS_SECTION_ID)
           ? []
-          : others.flatMap((channel) => spaceNodes(channel.id, channel.id))),
+          : others.flatMap((channel) =>
+              spaceNodes(channel.id, channel.id, channelsValue),
+            )),
       ];
   const optionValues = nodes.map((node) => node.value);
 
@@ -1576,7 +1783,17 @@ export function ChannelsList() {
     if (!node) return;
 
     if (event.key === "ArrowRight") {
-      if (!atEnd || node.kind !== "space" || !node.spaceId) return;
+      if (!atEnd) return;
+      if (node.kind === "section") {
+        event.preventDefault();
+        if (collapsedSections.has(node.sectionId)) {
+          toggleSection(node.sectionId);
+          return;
+        }
+        moveHighlight(input, "ArrowDown", 1);
+        return;
+      }
+      if (node.kind !== "space" || !node.spaceId) return;
       event.preventDefault();
       if (!expandedSpaceIds.has(node.spaceId)) {
         expandSpace(node.spaceId);
@@ -1589,6 +1806,13 @@ export function ChannelsList() {
     }
 
     if (!atStart) return;
+    // A heading has nothing above it to step to, so ← only ever folds it.
+    if (node.kind === "section") {
+      if (collapsedSections.has(node.sectionId)) return;
+      event.preventDefault();
+      toggleSection(node.sectionId);
+      return;
+    }
     if (node.kind === "task") {
       event.preventDefault();
       // Move first, while the children are still rendered — the highlight is an
@@ -1604,7 +1828,17 @@ export function ChannelsList() {
     if (node.spaceId && expandedSpaceIds.has(node.spaceId)) {
       event.preventDefault();
       collapseSpace(node.spaceId);
+      return;
     }
+    // Closed already, so ← does what it does from a session: steps up to the
+    // row this one hangs off, which for a space is its heading.
+    if (!node.parentValue) return;
+    event.preventDefault();
+    moveHighlight(
+      input,
+      "ArrowUp",
+      optionValues.indexOf(node.value) - optionValues.indexOf(node.parentValue),
+    );
   };
 
   const rows = normalizedQuery ? (
@@ -1615,6 +1849,8 @@ export function ChannelsList() {
           key={channel.id}
           channel={channel}
           isUnread={isUnread(channel.id)}
+          unreadSessions={unreadSessions(channel.id)}
+          blockedSessions={blockedSessions(channel.id)}
         />
       ))}
       {noMatches && (
@@ -1633,7 +1869,7 @@ export function ChannelsList() {
         label="Starred"
         flat={channelsLayout}
         keepMounted={!channelsLayout}
-        icon={<StarIcon size={14} />}
+        asOption={channelsLayout}
       >
         <PersonalChannelRow
           hotkeySlot={channelsLayout && me ? slotFor(me) : undefined}
@@ -1646,6 +1882,8 @@ export function ChannelsList() {
             key={channel.id}
             channel={channel}
             isUnread={isUnread(channel.id)}
+            unreadSessions={unreadSessions(channel.id)}
+            blockedSessions={blockedSessions(channel.id)}
             hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
@@ -1659,9 +1897,7 @@ export function ChannelsList() {
         label={channelsLayout ? "Spaces" : "Channels"}
         flat={channelsLayout}
         keepMounted={!channelsLayout}
-        icon={
-          channelsLayout ? <CubeFocusIcon size={14} /> : <HashIcon size={14} />
-        }
+        asOption={channelsLayout}
       >
         {!isLoading && channels.length === 0 && (
           <Empty className="px-2 py-1 text-subtle-foreground text-xs">
@@ -1675,6 +1911,8 @@ export function ChannelsList() {
             key={channel.id}
             channel={channel}
             isUnread={isUnread(channel.id)}
+            unreadSessions={unreadSessions(channel.id)}
+            blockedSessions={blockedSessions(channel.id)}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
             onToggleExpanded={toggleSpace}
@@ -1707,7 +1945,7 @@ export function ChannelsList() {
             placeholder="Search spaces…"
             aria-label="Search spaces"
             showSearchIcon={false}
-            className="h-7 text-[13px]"
+            className="h-7 text-[13px] hover:bg-fill-hover"
             onKeyDown={(event) => {
               onTreeKeyDown(event);
               // Base UI's clear is a tabIndex=-1 decoration, so Escape is the
@@ -1724,7 +1962,7 @@ export function ChannelsList() {
                 It gives way to the clear button once there's a query — by then
                 you are in the box and clearing is the useful action. */}
             {query === "" ? (
-              <Kbd className="!mr-0 shrink-0 opacity-50">
+              <Kbd className="-mr-0.5 shrink-0">
                 {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
               </Kbd>
             ) : (
@@ -1773,11 +2011,6 @@ export function ChannelsList() {
             items={optionValues}
             filter={null}
             value={query}
-            autoHighlight="always"
-            // Without this the highlight resets on pointer-leave, and "always"
-            // then snaps it back to the first row — so drifting the mouse across
-            // the gap between two rows threw the keyboard back to the top.
-            keepHighlight
             // ArrowRight / ArrowLeft act on the row the keyboard is on, and this
             // is the only way to know which one that is.
             onItemHighlighted={(value, eventDetails) => {

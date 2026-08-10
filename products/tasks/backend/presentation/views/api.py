@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 
 import pydantic
 import requests as http_requests
@@ -45,7 +45,7 @@ from posthog.permissions import (
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS, SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
@@ -110,6 +110,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsDismissRequestSerializer,
+    TaskRunArtifactsDismissResponseSerializer,
     TaskRunArtifactsFinalizeUploadRequestSerializer,
     TaskRunArtifactsFinalizeUploadResponseSerializer,
     TaskRunArtifactsPrepareUploadRequestSerializer,
@@ -838,6 +840,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=WarmTaskResponseSerializer,
                 description="Warm Run provisioned (`task_id`/`run_id` to activate on submit), or an empty body when the feature is off, capped, or the integration didn't resolve.",
             ),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
         },
         summary="Warm a task sandbox",
         description=(
@@ -848,6 +853,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't "
             "belong to the team."
         ),
+        include_serializer_context=True,
     )
     @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
     def warm(self, request, **kwargs):
@@ -858,16 +864,20 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if user_id is None:
             return Response(status=status.HTTP_200_OK)
 
-        github_integration_id = tasks_facade.resolve_team_github_integration_id(
-            self.team_id, request.validated_data["github_integration"]
-        )
-        if github_integration_id is None:
-            return Response(status=status.HTTP_200_OK)
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
+
+        github_integration_id = request.validated_data.get("github_integration")
+        if github_integration_id is not None:
+            github_integration_id = tasks_facade.resolve_team_github_integration_id(self.team_id, github_integration_id)
+            if github_integration_id is None:
+                return Response(status=status.HTTP_200_OK)
 
         result = tasks_facade.warm_task_sandbox(
             self.team_id,
             user_id,
-            repository=request.validated_data["repository"],
+            repository=request.validated_data.get("repository"),
+            repositories=request.validated_data.get("repositories"),
             github_integration_id=github_integration_id,
             branch=request.validated_data.get("branch"),
             runtime_adapter=request.validated_data.get("runtime_adapter"),
@@ -1046,6 +1056,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    def _is_sandbox_agent_request(self, task_id: str) -> bool:
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        access_token = authenticator.access_token
+        application = access_token.application
+        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+            return False
+        return access_token.sandbox_task_id == UUID(task_id) or "internal_run:read" in (
+            get_authenticator_scopes(authenticator) or []
+        )
+
     # Actions that only read run state. Everything else mutates or drives the
     # run, so it requires task control (not just visibility): public-channel
     # visibility lets teammates watch a run, never command it. connection_token
@@ -1060,6 +1082,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "stream_token",
         "artifacts_presign",
         "artifacts_download",
+        "artifacts_download_by_id",
     )
 
     def _ensure_task_accessible(self) -> str:
@@ -1611,8 +1634,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts_finalize_upload(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        is_agent_upload = self._is_sandbox_agent_request(task_id)
         finalized_entries, error = tasks_facade.finalize_task_run_artifact_uploads(
-            pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
+            pk,
+            task_id,
+            self.team_id,
+            artifacts=request.validated_data["artifacts"],
+            uploaded_by="agent" if is_agent_upload else "user",
+            uploaded_by_user_id=None if is_agent_upload else self._user_id(),
         )
         if finalized_entries is None and error is None:
             raise NotFound()
@@ -1662,6 +1691,46 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": 3600})
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsDismissRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsDismissResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Dismiss or restore task run artifacts",
+        description=(
+            "Hides artifacts from clients without deleting them from storage, so a file dismissed "
+            "by mistake can be restored."
+        ),
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/dismiss",
+        required_scopes=["task:write"],
+    )
+    def artifacts_dismiss(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        manifest, error = tasks_facade.set_task_run_artifacts_dismissed(
+            pk,
+            task_id,
+            self.team_id,
+            artifact_ids=request.validated_data["artifact_ids"],
+            dismissed=request.validated_data["dismissed"],
+        )
+        if error == "not_found":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if manifest is None:
+            raise NotFound()
+        return Response(TaskRunArtifactsDismissResponseSerializer({"artifacts": manifest}).data)
 
     @validated_request(
         request_serializer=TaskRunArtifactPresignRequestSerializer,
@@ -1720,6 +1789,46 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             f'attachment; filename="{os.path.basename(str(artifact.get("name") or "artifact"))}"'
         )
         return response
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "artifact_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                description="Manifest id of the artifact to download",
+            )
+        ],
+        responses={
+            302: OpenApiResponse(description="Redirect to a short-lived presigned download URL"),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Unable to generate download URL"
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Download a task run artifact by id",
+        description=(
+            "Redirects to a short-lived presigned URL for the artifact, so callers can share a stable "
+            "link instead of a raw presigned URL."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"artifacts/(?P<artifact_id>[^/]+)/download",
+        required_scopes=["task:read"],
+    )
+    def artifacts_download_by_id(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        url, error = tasks_facade.presign_task_run_artifact_download(pk, task_id, self.team_id, artifact_id=artifact_id)
+        if error == "unavailable":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if url is None:
+            raise NotFound()
+        return HttpResponseRedirect(url)
 
     @extend_schema(
         extensions={"x-product": "logs"},

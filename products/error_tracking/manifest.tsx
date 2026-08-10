@@ -37,10 +37,10 @@ export const manifest: ProductManifest = {
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
         '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+        '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+        '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
-        '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
-        '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
     redirects: {
         '/error_tracking/configuration': (_params, searchParams, hashParams) => {

@@ -5,6 +5,8 @@ import contextvars
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import InterfaceError, OperationalError
+
 from parameterized import parameterized
 
 from posthog.exceptions_capture import ambient_exception_properties
@@ -230,10 +232,14 @@ class TestBudgetExhaustion:
             schema.clear_repartition_pending.assert_called_once()
             schema.stamp_last_repartition_at.assert_called_once()
             schema.set_repartition_pending.assert_not_called()
+            # The rewrite checkpoint must be dropped too, or the next flag cycle would resume the same
+            # doomed temp and the give-up would never take effect.
+            schema.clear_repartition_rewrite.assert_called_once()
         else:
             assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
             schema.clear_repartition_pending.assert_not_called()
             schema.stamp_last_repartition_at.assert_not_called()
+            schema.clear_repartition_rewrite.assert_not_called()
 
 
 class TestFeatureFlagGate:
@@ -318,6 +324,28 @@ class TestMaybeFlagPreExtraction:
         schema = _schema(name="stripe_charge", s3_folder_name=None)
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(side_effect=TransientObjectStoreError(message))
+
+        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
+
+        assert result is None
+        mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("operational_error", OperationalError("consuming input failed: server closed the connection")),
+            ("interface_error", InterfaceError("connection already closed")),
+        ]
+    )
+    @patch(f"{MODULE}.capture_exception")
+    def test_transient_db_connection_drop_is_not_reported(
+        self, _name: str, error: Exception, mock_capture: MagicMock
+    ) -> None:
+        # `get_delta_table` resolves `job.folder_path()` on a pooled app-DB connection (see
+        # `DeltaTableRef._get_delta_table_uri`), which can raise these on a stale pooled connection —
+        # not the object-store errors `is_transient_object_store_error` alone would catch.
+        schema = _schema(name="stripe_charge", s3_folder_name=None)
+        helper = MagicMock()
+        helper.get_delta_table = AsyncMock(side_effect=error)
 
         result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
 

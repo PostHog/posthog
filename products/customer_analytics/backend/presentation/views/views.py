@@ -21,7 +21,7 @@ from uuid import UUID
 from django.db import transaction
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -29,12 +29,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scopes, is_service_auth
+from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes, is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
@@ -47,6 +48,9 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
     AccountSerializer,
+    CalendarSyncStatusSerializer,
+    CalendarSyncTriggerResponseSerializer,
+    CalendarSyncTriggerSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
     CustomPropertyDefinitionSerializer,
@@ -60,6 +64,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    MeetingSerializer,
     SupportTicketSerializer,
 )
 
@@ -963,6 +968,38 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
+    @extend_schema(
+        parameters=[
+            _ACCOUNT_ID_PARAM,
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter meetings by title or attendee email/name.",
+            ),
+        ],
+        responses={200: MeetingSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True)
+    def meetings(self, request: Request, *args, **kwargs) -> Response:
+        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        search = request.query_params.get("search", "").strip() or None
+
+        def fetch(offset: int, limit: int) -> tuple[list[contracts.MeetingView], int]:
+            result = api.list_account_meetings(
+                self.team_id,
+                self.kwargs["pk"],
+                self.user_access_control,
+                offset=offset,
+                limit=limit,
+                search=search,
+            )
+            return result if result is not None else ([], 0)
+
+        return self._paginate_via_facade(request, fetch, MeetingSerializer)
+
     def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)
         if callable(super_method):
@@ -1608,3 +1645,34 @@ def _event_stream_write_fields(validated, raw_data: dict) -> dict:
     """The event-stream columns the caller actually sent, so a PATCH that omits a field
     leaves it untouched (the serializer fields carry defaults for create)."""
     return {column: getattr(validated, key) for key, column in _EVENT_STREAM_WRITE_FIELDS.items() if key in raw_data}
+
+
+class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    """Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+    Temporal schedule; this surface only offers the manual "sync now" escape hatch."""
+
+    scope_object = "account"
+    scope_object_read_actions = ["list"]
+    # Same gate as IntegrationViewSet: any member can read status, starting a run needs admin.
+    permission_classes = [TeamMemberStrictManagementPermission]
+    serializer_class = CalendarSyncTriggerSerializer
+    pagination_class = None  # a team connects a handful of calendars — nothing to paginate
+    queryset = None  # no model — state lives in integration config, reached through the facade
+
+    @extend_schema(responses={200: CalendarSyncStatusSerializer(many=True)})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        statuses = api.list_calendar_sync_statuses(self.team_id)
+        return Response(CalendarSyncStatusSerializer(instance=statuses, many=True).data)
+
+    @validated_request(
+        request_serializer=CalendarSyncTriggerSerializer,
+        responses={200: OpenApiResponse(response=CalendarSyncTriggerResponseSerializer)},
+        summary="Sync a connected calendar now",
+        description="Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.",
+    )
+    @action(methods=["POST"], detail=False, url_path="sync_now")
+    def sync_now(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        result = api.trigger_calendar_sync(self.team_id, request.validated_data["integration_id"])
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)

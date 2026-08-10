@@ -125,6 +125,7 @@ class Feature(StrEnum):
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
+    DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
@@ -221,6 +222,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY:
             return {"product": Product.METRICS}
+        case NodeKind.ACCOUNTS_TABLE_QUERY:
+            return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
         case (

@@ -805,7 +805,7 @@ jobs:
 
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
-            # used by core-tests/django which achieves ~1s wait times.
+            # used by core-tests/django and makes the later wait step negligible.
             - name: Clean up data directories
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
@@ -849,7 +849,7 @@ jobs:
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
                   - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    uses: ./.github/actions/setup-python-cached
                     with:
                         python-version: 3.13.13
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -923,7 +923,7 @@ jobs:
             - name: Register Temporal search attributes
               # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
               # via sync_connect() in their tests, so keep a readiness gate before tests run.
-              # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
+              # By this point Temporal has warmed up in the background, so the wait is negligible.
               # data_warehouse tests use custom search attributes (PostHogTeamId, PostHogOrgId,
               # PostHogDagId) when calling schedule_materialization() → sync_saved_query_workflow(),
               # so they must be registered before tests run.
@@ -1152,7 +1152,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1284,6 +1284,9 @@ jobs:
                   owner: ${{ github.repository_owner }}
                   repositories: ${{ github.event.repository.name }}
 
+            # Plain setup-python: this PR-only job runs on ubuntu-latest, whose cache
+            # store no master job ever saves the python tool cache to, so the
+            # setup-python-cached restore would miss on every run.
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -1332,6 +1335,8 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
         timeout-minutes: 20
+        outputs:
+            mig_schema_key: ${{ steps.mig-schema-key.outputs.key }}
         # The "Publish Migration risk check" step posts the check via the
         # posthog-tests app token, which carries its own checks:write
         # installation permission — so the check lands in that app's own
@@ -1383,7 +1388,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1461,7 +1466,7 @@ jobs:
 
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
-              # of ~10 minutes of full migrations.
+              # of a full migration run.
               if: github.event_name != 'push'
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -1973,6 +1978,37 @@ jobs:
                       echo "Skipping CH migration section — script not present on this checkout"
                   fi
 
+    mirror-schema-cache:
+        needs: [check-migrations]
+        # Fork PRs run without secrets, so they aren't authenticated to Depot Cache and
+        # read only GitHub's own cache, where check-migrations' Depot-runner saves never land.
+        # Mirror the dump there so fork PRs prime instead of migrating from scratch.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        name: Mirror schema cache to GitHub cache
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - name: Download migrated schema artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: migrated-schema
+
+            - name: Save schema to GitHub cache (merge-base key)
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
+
+            - name: Save schema to GitHub cache (migration-set key)
+              if: github.ref == 'refs/heads/master' && needs.check-migrations.outputs.mig_schema_key != ''
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.check-migrations.outputs.mig_schema_key }}
+
     check-openapi-types:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
@@ -2026,11 +2062,28 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            # Tool cache steps inlined rather than the setup-python-cached composite:
+            # this job checks out the PR head ref, which cannot resolve a local
+            # action that only exists on master until the branch rebases.
+            - name: Restore Python tool cache
+              id: python-toolcache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/3.13.13
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Save Python tool cache
+              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/3.13.13
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
 
             - name: Install uv
               id: setup-uv
@@ -2238,7 +2291,7 @@ jobs:
                   # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
                   # draft means it was cancelled or failed (typically ready_for_review
                   # superseding it mid-flight). Without this, the draft builds the full
-                  # matrix and holds the per-branch concurrency slot for ~30 min, so the
+                  # matrix and holds the per-branch concurrency slot for the whole run, so the
                   # ready-for-review run — the actual merge gate — queues behind it instead
                   # of starting. Skip here and defer to that ready run. The run-ci-backend
                   # label intentionally forces the full matrix on a draft, so honor it.
@@ -2588,6 +2641,18 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            # Tool cache steps inlined rather than the setup-python-cached composite:
+            # this job checks out the PR head ref, which cannot resolve a local
+            # action that only exists on master until the branch rebases. The
+            # restore sits before the parallel block so the tool cache is warm
+            # when setup-python starts.
+            - name: Restore Python tool cache
+              id: python-toolcache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
+
             - parallel:
                   - name: Set up Python
                     uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -2601,6 +2666,13 @@ jobs:
                     with:
                         toolchain: 1.91.1
                         components: cargo
+
+            - name: Save Python tool cache
+              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
 
             - name: Install uv
               id: setup-uv-tests
@@ -2665,7 +2737,7 @@ jobs:
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
-              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
@@ -3387,7 +3459,7 @@ jobs:
 
             # Per-test failure rollup: only when a test job actually failed, download that
             # shard's JUnit so "Check dependency results" can list the failing tests. Skipped
-            # on green runs (the common case) to avoid pulling ~50 artifacts for nothing.
+            # on green runs (the common case) to avoid pulling every shard artifact for nothing.
             # continue-on-error so a flaky fetch can't fail this required gate.
             - name: Download shard JUnit results
               if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')

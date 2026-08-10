@@ -9,7 +9,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -26,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz import (
     HOST_NOT_ALLOWED_ERROR,
+    SIGNOZ_API_VERSION_V5,
     SigNozResumeConfig,
     signoz_source,
     validate_credentials as validate_signoz_credentials,
@@ -37,6 +42,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://signoz.io/api-reference/"
+
+    # SigNoz versions its telemetry API in the endpoint path (see SIGNOZ_API_VERSION_V5): this source
+    # already reads the v5 query_range endpoint, so the legacy unversioned label and "v5" drive
+    # identical requests. New sources default to "v5"; existing pins keep syncing byte-for-byte.
+    supported_versions = (UNVERSIONED_API_VERSION, SIGNOZ_API_VERSION_V5)
+    default_version = SIGNOZ_API_VERSION_V5
 
     @property
     def source_type(self) -> ExternalDataSourceType:

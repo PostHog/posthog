@@ -1467,6 +1467,33 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["title"] == "UniqueSearchableTitle"
 
+    def test_list_subscriptions_search_matches_ai_prompt_text(self):
+        # An AI report's subject exists only in its prompt, so without this a caller wanting the
+        # reports about one thing has to fetch every ai_prompt row and sift them client-side.
+        for title, prompt in [
+            ("Tool health", "Report on $mcp_tool_call errors this week."),
+            ("Pageviews", "Summarize $pageview trends this week."),
+        ]:
+            Subscription.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title=title,
+                prompt=prompt,
+                target_type="email",
+                target_value="test@posthog.com",
+                frequency="weekly",
+                interval=1,
+                start_date=datetime(2022, 1, 1, tzinfo=UTC),
+            )
+
+        list_res = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {"resource_type": "ai_prompt", "search": "$mcp_"},
+        )
+
+        assert list_res.status_code == status.HTTP_200_OK
+        assert [r["title"] for r in list_res.json()["results"]] == ["Tool health"]
+
     def test_list_subscriptions_filter_by_resource_type(self):
         self.dashboard.tiles.create(insight=self.insight)
         dash_res = self.client.post(

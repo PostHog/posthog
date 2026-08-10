@@ -30,6 +30,48 @@ class AccessControlLevel(StrEnum):
     MANAGER = "manager"
 
 
+class AccountsTableAccountField(StrEnum):
+    NAME = "name"
+    EXTERNAL_ID = "external_id"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    STRIPE_CUSTOMER_ID = "stripe_customer_id"
+    HUBSPOT_DEAL_ID = "hubspot_deal_id"
+    BILLING_ID = "billing_id"
+    SFDC_ID = "sfdc_id"
+    ZENDESK_ID = "zendesk_id"
+
+
+class WindowDays(float, Enum):
+    NUMBER_7 = 7
+    NUMBER_14 = 14
+    NUMBER_30 = 30
+    NUMBER_90 = 90
+
+
+class AccountsTableCustomPropertyOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
+
+
+class AccountsTableSortDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -427,6 +469,22 @@ class AssistantTool(StrEnum):
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
+    SCAN_REPLAY_VISION_SESSIONS = "scan_replay_vision_sessions"
+    RETRY_REPLAY_VISION_OBSERVATION = "retry_replay_vision_observation"
+    GET_REPLAY_VISION_QUOTA = "get_replay_vision_quota"
+    CREATE_REPLAY_VISION_SCANNER = "create_replay_vision_scanner"
+    UPDATE_REPLAY_VISION_SCANNER = "update_replay_vision_scanner"
+    LIST_REPLAY_VISION_SCANNERS = "list_replay_vision_scanners"
+    DELETE_REPLAY_VISION_SCANNER = "delete_replay_vision_scanner"
+    ESTIMATE_REPLAY_VISION_SCANNER = "estimate_replay_vision_scanner"
+    LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
+    ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
+    SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
+    READ_REPLAY_VISION_ACTIONS = "read_replay_vision_actions"
+    UPDATE_REPLAY_VISION_ACTION = "update_replay_vision_action"
+    DELETE_REPLAY_VISION_ACTION = "delete_replay_vision_action"
+    RUN_REPLAY_VISION_ACTION = "run_replay_vision_action"
+    CREATE_REPLAY_VISION_ACTION = "create_replay_vision_action"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -1850,6 +1908,7 @@ class ExternalDataSourceType(StrEnum):
     PEEC_AI = "PeecAI"
     HEALTHCHECKS = "Healthchecks"
     IMPACT = "Impact"
+    IMPACT_PARTNER = "ImpactPartner"
     AIKIDO_SECURITY = "AikidoSecurity"
     ALGUNA = "Alguna"
     ANTHROPIC = "Anthropic"
@@ -2470,6 +2529,7 @@ class ExternalDataSourceType(StrEnum):
     WIX = "Wix"
     SEVALLA = "Sevalla"
     MOTION = "Motion"
+    FRAMER = "Framer"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2843,6 +2903,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
     GOOGLE_ANALYTICS = "google-analytics"
+    GOOGLE_CALENDAR = "google-calendar"
     GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
@@ -2855,6 +2916,7 @@ class IntegrationKind(StrEnum):
     GITHUB = "github"
     GITLAB = "gitlab"
     META_ADS = "meta-ads"
+    INSTAGRAM = "instagram"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
@@ -3262,6 +3324,7 @@ class NodeKind(StrEnum):
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
     ACCOUNTS_QUERY = "AccountsQuery"
+    ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
@@ -3348,6 +3411,7 @@ class ProductIntentContext(StrEnum):
     EXPERIMENT_CREATED = "experiment created"
     EXPERIMENT_ANALYZED = "experiment analyzed"
     EXPERIMENT_VIEW_RECORDINGS = "experiment view recordings"
+    EXPERIMENT_REPLAY_VISION_SCANNER_CREATED = "experiment replay vision scanner created"
     FEATURE_FLAG_CREATED = "feature flag created"
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"

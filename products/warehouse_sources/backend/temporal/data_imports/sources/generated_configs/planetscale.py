@@ -6,4 +6,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class PlanetScaleSourceConfig(config.Config):
-    pass
+    host: str
+    database: str
+    user: str
+    password: str
+    port: int = config.value(converter=int)
+    schema: str | None = None

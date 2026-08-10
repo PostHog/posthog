@@ -88,7 +88,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
         outputs_completeness_check_enabled: true,
-        capture_analytics_ai_events_topic: None,
+        capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
         capture_analytics_ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
@@ -155,15 +155,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
     ai_gateway_signing_secret: None,
-    ai_sink_mode: capture::config::AiSinkMode::Primary,
-    ai_secondary_allowlist_tokens: None,
-    ai_secondary_kafka_hosts: None,
-    ai_secondary_kafka_topic: None,
-    ai_secondary_kafka_tls: false,
-    ai_secondary_kafka_client_id: String::new(),
-    capture_analytics_ai_events_mode: capture::config::AiSinkMode::Primary,
-    capture_analytics_ai_events_allowlist_tokens: None,
-    capture_analytics_ai_events_percentage: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -311,6 +302,9 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.ai_gateway_signing_secret = Some(secret.to_string());
+        // The gateway tests send `$ai_*` events, which route to the AI topic;
+        // point it at the same ephemeral topic so the consumer sees them.
+        config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }

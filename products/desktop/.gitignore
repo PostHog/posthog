@@ -6,6 +6,8 @@ node_modules/
 dist/
 release/
 out/
+# HostHog deploy artifact for the announcements admin (named after its slug)
+tools/announcements-admin/desktop-announcements-admin.zip
 .vite/
 .turbo/
 storybook-static

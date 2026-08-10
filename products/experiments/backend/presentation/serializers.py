@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentApiMetric,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
+    MultipleVariantHandling,
 )
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
@@ -48,6 +49,13 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
+from products.experiments.backend.session_event_deltas import (
+    MAX_CARD_RECORDINGS,
+    MAX_DELTA_SCAN_DAYS,
+    MAX_FALLBACK_DELTA_SCAN_DAYS,
+    DeltaStrength,
+    WatchCardKind,
+)
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -1864,5 +1872,179 @@ class ExperimentSessionBucketResponseSerializer(serializers.Serializer):
             "server-side and can never match a session. The sessions then mean 'the flag was active in this "
             "session', not 'the exposure moment was captured'. The variant comes from the flag's value on each "
             "event, so a returning user can appear under a variant they were re-bucketed into later."
+        )
+    )
+
+
+class ExperimentSessionEventDeltaRequestSerializer(serializers.Serializer):
+    """The watch cards endpoint takes no parameters: the shelf is computed per experiment, every
+    variant at once."""
+
+
+class ExperimentWatchCardSerializer(serializers.Serializer):
+    """One group of recordings worth opening, and the sentence that justifies it.
+
+    Deliberately no rate, no ratio and no person count: a precise number next to an event name is
+    an effect size, and the experiment's results publish those for everything it measures, computed
+    over a different window and a different unit. The only number here is how many recordings the
+    card can actually show.
+    """
+
+    kind = serializers.ChoiceField(
+        choices=[kind.value for kind in WatchCardKind],
+        help_text=(
+            "What the card is: 'behavior' for an event this variant did clearly more than the other variants "
+            "together, 'friction' for the same finding on an error or rage signal, 'metric' for a shortcut to "
+            "recordings around one of the experiment's own metric events. Metric cards claim nothing about how "
+            "the metric moved: that is the experiment results' answer."
+        ),
+    )
+    event = serializers.CharField(help_text="The event behind the card.")
+    variant = serializers.CharField(
+        help_text="The variant whose recordings these are: for comparison cards, the one that did the event more."
+    )
+    strength = serializers.ChoiceField(
+        choices=[strength.value for strength in DeltaStrength],
+        allow_null=True,
+        help_text=(
+            "How far apart this variant and the rest are, as a band rather than a number: 'only' when nobody in "
+            "the other variants did it at all among the people compared, then 'far_more', 'more' and "
+            "'slightly_more'. Read off the conservative end of the difference, so a card that clears the bar "
+            "only because the sample is large reports as slight. Null on metric cards, which compare nothing. "
+            "Present a band as a comparison ('far more common in test'), never convert it into a multiple."
+        ),
+    )
+    metric_name = serializers.CharField(
+        allow_null=True,
+        help_text="The metric whose event this card shortcuts to. Null outside metric cards.",
+    )
+    recording_count = serializers.IntegerField(
+        help_text=(
+            f"How many recordings the card carries, at most {MAX_CARD_RECORDINGS}. Every card is backed by "
+            "recordings that actually exist: a finding whose sessions were never recorded is dropped rather "
+            "than promised."
+        )
+    )
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The recordings themselves, most recent first, ready to hand to the recordings list as-is.",
+    )
+
+
+class ExperimentWatchArmSerializer(serializers.Serializer):
+    """One variant's compared population."""
+
+    key = serializers.CharField(help_text="The variant key.")
+    persons = serializers.IntegerField(
+        help_text=(
+            "Exposed people the comparison covered for this variant. People rather than sessions because a "
+            "variant can change how often the flag is evaluated again later, which moves a variant's session "
+            "count without anyone behaving differently. Each person is read from the first session the "
+            "comparison covers them in, so every variant gets the same amount of behavior per person."
+        )
+    )
+    sessions = serializers.IntegerField(
+        help_text=(
+            "Exposed sessions those people were seen in, which is more than the comparison reads: it says how "
+            "much recorded material sits behind the variant."
+        )
+    )
+
+
+class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
+    """The recordings worth watching for this experiment, grouped into cards.
+
+    Descriptive, never a result: cards say where behavior visibly differed and hand over the
+    recordings, while the experiment's results measure its metrics over the whole run window and
+    state the magnitudes. Nothing here says a variant is winning.
+    """
+
+    cards = ExperimentWatchCardSerializer(
+        many=True,
+        help_text=(
+            "The shelf, strongest comparison first, then metric shortcuts. Events the variants can't be told "
+            "apart on get no card at all rather than a weak one, so an empty shelf means no difference was big "
+            "enough to be sure of, not that nothing was measured. The experiment's own metric events never "
+            "appear as comparisons: see metric_events."
+        ),
+    )
+    arms = ExperimentWatchArmSerializer(
+        many=True,
+        help_text="Every variant's compared population, in the flag's variant order.",
+    )
+    multiple_variant_persons = serializers.IntegerField(
+        help_text=(
+            "People who saw more than one variant and were left out of every card. Always 0 when the experiment "
+            "attributes such users to the variant they saw first."
+        )
+    )
+    multiple_variant_handling = serializers.ChoiceField(
+        choices=[handling.value for handling in MultipleVariantHandling],
+        help_text=(
+            "How the experiment handles someone who saw more than one variant, followed here so the cards split "
+            "their people the same way the analysis does."
+        ),
+    )
+    metric_events = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The experiment's own metric events, which never enter the behavior comparison. They are the events "
+            "it was built to move, so they would top the ranking on nearly every experiment, and the "
+            "experiment's results already say what happened to them with the statistics that go with a result. "
+            "They can appear as 'metric' shortcut cards, which claim nothing."
+        ),
+    )
+    date_from = serializers.DateTimeField(
+        help_text=(
+            f"Start of what was actually compared. The requested window is the experiment's run window clamped "
+            f"to its most recent {MAX_DELTA_SCAN_DAYS} days ({MAX_FALLBACK_DELTA_SCAN_DAYS} when sessions are "
+            "matched on the stamped flag property, which no event name can prune a scan on), but a busy "
+            "experiment reaches the session ceiling long before that, and this reports where the compared "
+            "sessions really begin - often hours rather than days back. Display this, not the experiment's own "
+            "dates."
+        )
+    )
+    date_to = serializers.DateTimeField(
+        help_text="End of what was compared: the experiment's end date, or now while it runs."
+    )
+    filter_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the project's test-account filters were applied, following the experiment's exposure "
+            "criteria, the same rule the experiment's recordings list uses."
+        )
+    )
+    used_exposure_fallback = serializers.BooleanField(
+        help_text=(
+            "True when the compared sessions were matched on the stamped $feature/<flag key> event property "
+            "instead of the exposure event, because the default exposure event has only ever been captured "
+            "server-side and can never match a session. The sessions then mean 'the flag was active in this "
+            "session', and the variant comes from the flag's value on each event, so a returning user can be "
+            "counted under a variant they were re-bucketed into later."
+        )
+    )
+    sessions_truncated = serializers.BooleanField(
+        help_text=(
+            "True when the experiment had more exposed sessions in the requested window than one comparison "
+            "covers, so the most recent ones were used and date_from is later than the experiment's own window. "
+            "Every variant is still covered over the same stretch of time."
+        )
+    )
+    events_truncated = serializers.BooleanField(
+        help_text=(
+            "True when the project has more distinct event names in the window than one comparison can rank, so "
+            "some were never considered."
+        )
+    )
+    min_arm_persons = serializers.IntegerField(
+        help_text=(
+            "How many exposed people a variant needs before it can be compared at all. Below it a variant's "
+            "cards would be noise whatever the evidence bar allows."
+        )
+    )
+    too_early = serializers.BooleanField(
+        help_text=(
+            "True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and "
+            "cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented "
+            "without this would read as 'the variants behaved identically'."
         )
     )
