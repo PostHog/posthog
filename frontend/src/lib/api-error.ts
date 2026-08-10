@@ -28,7 +28,9 @@ export class ApiError extends Error {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
-        this.detail = data?.detail || null
+        // DRF returns a dict or list in `detail` for nested validation errors. Only keep a real
+        // string, so callers that render `detail` never show a stringified object like "[object Object]".
+        this.detail = typeof data?.detail === 'string' ? data.detail : null
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null

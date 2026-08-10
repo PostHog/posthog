@@ -13,6 +13,17 @@ describe('ApiError.fromResponse', () => {
         expect(error).toMatchObject({ message: expected, status: 400, data: body })
     })
 
+    it.each([
+        ['a dict', { content: ['This field is required.'] }],
+        ['a list', ['Something went wrong.']],
+    ])('keeps `detail` null when the body sends %s instead of a string', async (_, detail) => {
+        const response = new Response(JSON.stringify({ detail }), { status: 400 })
+
+        const error = await ApiError.fromResponse(response, 'fallback')
+
+        expect(error.detail).toBeNull()
+    })
+
     it('uses the fallback for a response without a recognized message', async () => {
         const response = new Response('Bad gateway', { status: 502 })
 
