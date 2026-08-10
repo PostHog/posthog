@@ -246,6 +246,7 @@ export const sourceFieldToElement = (
                     <LemonInputSelect
                         mode="multiple"
                         data-attr={field.name}
+                        placeholder={`Select ${field.label.toLowerCase()}`}
                         options={field.options.map((option) => ({ key: option.value, label: option.label }))}
                         value={toArray(value === undefined || value === null ? lastValue?.[field.name] : value)}
                         onChange={onChange}
