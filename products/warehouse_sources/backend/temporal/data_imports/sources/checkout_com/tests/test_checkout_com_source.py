@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
@@ -20,6 +22,12 @@ DISCOVER_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
 )
 _STATIC_SCHEMAS = ["disputes", "reports", "payments", "payment_actions", "customers", "instruments"]
+
+
+def _http_error(status: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError(f"{status} Client Error", response=response)
 
 
 class TestCheckoutComSource:
@@ -94,6 +102,32 @@ class TestCheckoutComSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
+            "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+        ],
+    )
+    def test_retryable_errors_match_payments_search_503(self, observed_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            # A 5xx from a different (potentially non-idempotent) endpoint must stay untouched.
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/pay_1/actions",
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/reports",
+            # A 4xx on the search endpoint itself is a real bug (e.g. a malformed request), not a
+            # transient blip, and must not be classified as retryable.
+            "400 Client Error: Bad Request for url: https://api.checkout.com/payments/search",
+        ],
+    )
+    def test_retryable_errors_does_not_match_other_endpoints(self, other_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert not any(key in other_error for key in retryable_errors)
+
     @mock.patch(DISCOVER_PATCH)
     def test_get_schemas_static_catalog(self, mock_discover):
         mock_discover.return_value = {}
@@ -137,13 +171,29 @@ class TestCheckoutComSource:
         mock_discover.assert_not_called()
         assert [s.name for s in schemas] == _STATIC_SCHEMAS
 
+    @pytest.mark.parametrize("status", [401, 403])
     @mock.patch(DISCOVER_PATCH)
-    def test_get_schemas_discovery_failure_degrades_to_static(self, mock_discover):
-        mock_discover.side_effect = Exception("boom")
+    def test_get_schemas_scope_denied_discovery_degrades_to_static(self, mock_discover, status):
+        # A key without the reports scope is a valid configuration; its correct listing
+        # is the static catalog.
+        mock_discover.side_effect = _http_error(status)
 
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert [s.name for s in schemas] == _STATIC_SCHEMAS
+
+    @pytest.mark.parametrize(
+        "error",
+        [_http_error(429), _http_error(500), requests.ConnectionError("connection reset")],
+    )
+    @mock.patch(DISCOVER_PATCH)
+    def test_get_schemas_transient_discovery_failure_propagates(self, mock_discover, error):
+        # Degrading to the static catalog on a transient failure would make scheduled
+        # discovery prune the report-type schemas it discovered on earlier runs.
+        mock_discover.side_effect = error
+
+        with pytest.raises(type(error)):
+            self.source.get_schemas(self.config, self.team_id)
 
     @pytest.mark.parametrize(
         "names, expected",

@@ -394,6 +394,46 @@ class TestShouldPauseScheduleForTimeout:
         for job in previous_jobs:
             await database_sync_to_async(job.delete)()
 
+    async def test_streak_survives_a_run_skipped_for_an_upstream_failure(self, ateam, asaved_query):
+        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
+
+        previous_jobs = []
+        for i in range(5):
+            job = await database_sync_to_async(DataModelingJob.objects.create)(
+                team=ateam,
+                saved_query=asaved_query,
+                status=DataModelingJob.Status.FAILED,
+                error="Timeout exceeded",
+                workflow_id=f"prev-workflow-{i}",
+            )
+            previous_jobs.append(job)
+
+        skipped = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            saved_query=asaved_query,
+            status=DataModelingJob.Status.SKIPPED,
+            error="Skipped because upstream view orders_daily is failing.",
+            workflow_id="skipped-workflow",
+        )
+        previous_jobs.append(skipped)
+
+        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            saved_query=asaved_query,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="current-workflow",
+        )
+
+        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
+            asaved_query.id, current_job.id
+        )
+        assert should_pause is True
+        assert count == 5
+
+        await database_sync_to_async(current_job.delete)()
+        for job in previous_jobs:
+            await database_sync_to_async(job.delete)()
+
     async def test_streak_ignores_jobs_from_other_engines(self, ateam, asaved_query):
         from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
 
@@ -518,6 +558,40 @@ class TestNodeSuspension:
         # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
         for job in jobs:
             await database_sync_to_async(job.delete)()
+
+    async def test_skipped_runs_do_not_break_the_failure_streak(self, ateam, anode, asaved_query, adag):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND - 1)
+        ]
+        # an upstream failure parks this node for one run; it never got to succeed
+        jobs.append(await _make_job(ateam, asaved_query, DataModelingJob.Status.SKIPPED, error="upstream failed"))
+        job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs.append(job)
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason="boom",
+            job_id=str(job.id),
+        )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for j in jobs:
+            await database_sync_to_async(j.delete)()
 
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine

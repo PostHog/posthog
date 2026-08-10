@@ -659,6 +659,9 @@ importers:
       '@posthog/products-business-knowledge':
         specifier: workspace:*
         version: link:../products/business_knowledge
+      '@posthog/products-canvas':
+        specifier: workspace:*
+        version: link:../products/canvas
       '@posthog/products-cohorts':
         specifier: workspace:*
         version: link:../products/cohorts
@@ -2530,7 +2533,24 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
-  products/canvas: {}
+  products/canvas:
+    dependencies:
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
 
   products/cdp: {}
 
@@ -2867,6 +2887,8 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+
+  products/data_quality: {}
 
   products/data_tools: {}
 

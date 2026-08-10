@@ -1,3 +1,4 @@
+import errno
 import socket
 import threading
 from collections.abc import Generator, Iterable, Iterator
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -108,6 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _rls_active_from_conn,
     _role_subject_to_rls,
     _safe_close_connection,
+    _schema_discovery_timeout_error,
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
     _tunnel_with_handshake_translation,
@@ -421,6 +424,21 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: server closed the connection unexpectedly',
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: SSL connection has been closed unexpectedly',
+        ],
+    )
+    def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
+        # These transient drops are retried in-process, then re-raised once that budget is exhausted.
+        # If they drop out of get_retryable_errors, _handle_import_error logs the self-recovering
+        # failure as a tracked exception again instead of a warning. They must also stay out of
+        # get_non_retryable_errors so the sync keeps retrying rather than being disabled.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -769,6 +787,23 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed for user "u"',
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed\nuser "u"',
+            "connection failed: error received from server in SCRAM exchange: Wrong password",
+        ],
+    )
+    def test_password_authentication_failure_surfaces_a_host_free_message(self, source, error_msg):
+        # The raw driver string embeds the host/IP and port; the surfaced message must be actionable
+        # and carry neither. Guards a regression back to the raw error (value `None`).
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "A rejected password should surface an actionable message"
+        assert "username or password" in friendly[0]
+        assert "203.0.113.30" not in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],
@@ -878,6 +913,22 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Read-replica timeout error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw activity-level message (what `sync_new_schemas_activity` sees via str(e)) — no
+            # class name. Raised by `_schemas_from_conn` when the column-listing catalog scan
+            # itself exhausts the raised METADATA_STATEMENT_TIMEOUT_MS.
+            str(_schema_discovery_timeout_error()),
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            f"QueryTimeoutException: {_schema_discovery_timeout_error()}",
+        ],
+    )
+    def test_schema_discovery_catalog_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Schema discovery catalog timeout should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1665,11 +1716,25 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EAUTHQUERY) auth_query secret check timed out"
             ),
+            # Supavisor's own credential fetch fails repeatedly and trips its internal circuit
+            # breaker, rejecting new connects with a bare OperationalError carrying its
+            # "(ECIRCUITBREAKER)" code. Same transient pooler-bookkeeping class as EAUTHQUERY —
+            # recovers once the breaker resets — so the reconnect must catch it.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) failed to retrieve database credentials after multiple "
+                "attempts, new connections are temporarily blocked"
+            ),
             # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
             # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
             # passing health check or once its ban expires — so the reconnect must catch it.
             psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
+            # psycopg's own message when `PQconnectStart` reports the connection BAD before the
+            # handshake begins and libpq has no server-reported error text to attach — a purely
+            # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
+            # server-side rejection. Transient; the reconnect must catch it.
+            psycopg.OperationalError("connection is bad: no error details available"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -1702,6 +1767,10 @@ class TestIsConnectionDroppedError:
             # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain
             # "refused" substring would wrongly retry it.
             psycopg.OperationalError('connection to server at "10.0.0.1", port 5432 failed: Connection refused'),
+            # A "connection is bad" failure that *does* carry a server-reported detail is a genuine,
+            # permanent rejection — only the "no error details available" variant (a purely local,
+            # pre-handshake failure) is transient, so the match must not broaden to the bare prefix.
+            psycopg.OperationalError("connection is bad: FATAL: password authentication failed"),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
@@ -1746,6 +1815,12 @@ class TestDroppedOrConnectTimeout:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is shutting down"
             ),
+            # This worker's process-wide (EMFILE) or system-wide (ENFILE) file-descriptor table is
+            # full while opening the socket for a fresh connect. Transient on our side of the wire —
+            # a descriptor frees the moment another connection/cursor in this worker closes — so the
+            # connect retry must recover instead of failing the whole activity on the first blip.
+            OSError(errno.EMFILE, "Too many open files"),
+            OSError(errno.ENFILE, "Too many open files in system"),
         ],
     )
     def test_transient_connect_path_errors_are_retryable(self, error):
@@ -1768,6 +1843,9 @@ class TestDroppedOrConnectTimeout:
                 "FATAL:  the database system is not accepting connections "
                 "DETAIL:  Hot standby mode is disabled."
             ),
+            # An unrelated OSError must not be absorbed just because OSError is now one of the
+            # caught types — only the EMFILE/ENFILE fd-exhaustion errno is retryable.
+            OSError(errno.ENOSPC, "No space left on device"),
         ],
     )
     def test_permanent_and_non_connect_errors_are_not_retryable(self, error):
@@ -6089,6 +6167,49 @@ class TestGetTable:
         )
         column_query_idx = next(i for i, q in enumerate(conn.executed) if "information_schema.columns" in q)
         assert set_timeout_idx < column_query_idx
+
+    @pytest.mark.django_db
+    def test_schemas_from_conn_catalog_scan_timeout_is_non_retryable(self):
+        # A catalog wide enough that the column-listing query itself exhausts the raised
+        # METADATA_STATEMENT_TIMEOUT_MS: retrying re-runs the same futile scan, so it must be
+        # converted to the non-retryable QueryTimeoutException instead of the raw, retried QueryCanceled.
+        cursor = MagicMock()
+        cursor.execute.side_effect = [
+            None,  # SET statement_timeout
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),  # catalog scan
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+            return_value=({"big_table": (None, "public", "big_table")}, False),
+        ):
+            with pytest.raises(QueryTimeoutException) as exc_info:
+                _schemas_from_conn(cast(Any, connection), "public", None)
+
+        assert str(exc_info.value) == str(_schema_discovery_timeout_error())
+
+    @pytest.mark.django_db
+    def test_schemas_from_conn_recovery_conflict_stays_retryable(self):
+        # A hot-standby recovery conflict during the catalog scan is also a QueryCanceled, but it's
+        # transient and already retried by `get_schemas`'s outer `_retry_on_connection_dropped` (via
+        # `_is_recovery_conflict_error`). It must propagate unconverted, not get mapped to the
+        # non-retryable timeout error meant for a genuinely oversized catalog.
+        cursor = MagicMock()
+        cursor.execute.side_effect = [
+            None,  # SET statement_timeout
+            psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"),
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+            return_value=({"big_table": (None, "public", "big_table")}, False),
+        ):
+            with pytest.raises(psycopg.errors.QueryCanceled, match="conflict with recovery"):
+                _schemas_from_conn(cast(Any, connection), "public", None)
 
     @pytest.mark.django_db
     def test_regular_table(self):

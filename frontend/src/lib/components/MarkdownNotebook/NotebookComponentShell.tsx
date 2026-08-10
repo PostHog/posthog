@@ -16,6 +16,7 @@ import {
     IconDatabase,
     IconEllipsis,
     IconExpand,
+    IconExternal,
     IconEye,
     IconPencil,
     IconGraph,
@@ -66,6 +67,10 @@ export type NotebookComponentShellProps = {
     persistComponentPanelVisibility: boolean
     /** Surface-level opt-in for definitions with `viewModeFilters` (read-only canvases). */
     allowViewModeFilters?: boolean
+    /** Public/shared read-only renders: hide the resource link, whose relative URL resolves
+     * against the viewer's project (wrong project or 404 for logged-in viewers, unusable for
+     * anonymous ones). Mirrors the legacy notebook's `!isShared` gate. */
+    hideResourceLinks?: boolean
     isSelected: boolean
     registry: NotebookComponentRegistry
     toggleComponentPanel: (panel: ComponentPanel) => void
@@ -86,6 +91,7 @@ export function NotebookComponentShell({
     rememberedComponentPanels,
     persistComponentPanelVisibility,
     allowViewModeFilters,
+    hideResourceLinks,
     isSelected,
     registry,
     toggleComponentPanel,
@@ -120,6 +126,10 @@ export function NotebookComponentShell({
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
+    const href = definition?.getHref?.(node) ?? null
+    // Suppress the link on public/shared renders (see hideResourceLinks): its relative URL would
+    // resolve against the viewer's own project rather than the notebook author's.
+    const showResourceLink = !!href && !hideResourceLinks
     // The user-set title (props.title) wins; the computed contextual title is the watermark/fallback.
     // A title equal to the component's own label (e.g. code blocks default to "Python") is treated
     // as "no user title" so the field reads as empty by default.
@@ -416,7 +426,7 @@ export function NotebookComponentShell({
                         {resolvedTitle}
                     </div>
                 ) : null}
-                {mode === 'edit' || toolbarMenuItems || showCollapseToggle ? (
+                {showResourceLink || mode === 'edit' || toolbarMenuItems || showCollapseToggle ? (
                     <div className="MarkdownNotebook__component-actions">
                         {showCollapseToggle ? (
                             <LemonButton
@@ -436,6 +446,16 @@ export function NotebookComponentShell({
                                     tooltip="More actions"
                                 />
                             </LemonMenu>
+                        ) : null}
+                        {showResourceLink ? (
+                            <LemonButton
+                                aria-label="Open in new tab"
+                                size="xsmall"
+                                icon={<IconExternal />}
+                                tooltip="Open in new tab"
+                                to={href ?? undefined}
+                                targetBlank
+                            />
                         ) : null}
                         {mode === 'edit' ? (
                             <LemonButton
