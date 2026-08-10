@@ -43,11 +43,10 @@ use common_ingestion_warnings::{
 /// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
 /// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 ///
-/// When `route_ai_events` is set (this batch's token routes to the AI topic
-/// per the configured `AiRouting` policy: mode plus token allowlist), AI events
-/// (per [`is_ai_event`]) are diverted to `Destination::AiEvents`; otherwise they
-/// fall through to `AnalyticsMain` exactly as before, so an unconfigured AI
-/// topic or `primary` mode is a strict no-op.
+/// When `route_ai_events` is set (the deployment's capture mode routes AI
+/// events, see `CaptureMode::routes_ai_events`), AI events (per
+/// [`is_ai_event`]) are diverted to `Destination::AiEvents`; otherwise they
+/// fall through to `AnalyticsMain`.
 fn destination_for_event_name(name: &str, route_ai_events: bool) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
@@ -73,8 +72,8 @@ pub async fn process_batch(
     }
     context.set_batch_metadata(&batch);
 
-    // A batch carries a single token, so the AI routing decision is per batch.
-    let route_ai_events = state.ai_routing.routes_to_secondary(&context.api_token);
+    // Whether `$ai_*` events divert to the AI lane is a deployment property.
+    let route_ai_events = state.capture_mode.routes_ai_events();
     let mut events = match validate_events(context, batch, route_ai_events) {
         Ok(events) => events,
         Err(err) => {
@@ -3623,22 +3622,11 @@ mod tests {
         });
     }
 
-    /// process_batch wiring: the AI routing decision is derived once per batch
-    /// from the request token, so with a `SecondaryAllowlist` policy the same
-    /// `$ai_*` event lands on the AI topic only when the batch token is listed.
-    #[rstest::rstest]
-    #[case("phc_allowlisted", "ai_events")]
-    #[case("phc_other", "events_main")]
+    /// process_batch wiring: an `$ai_*` event lands on the AI topic.
     #[tokio::test]
-    async fn process_batch_gates_ai_topic_on_batch_token(
-        #[case] token: &str,
-        #[case] expected_topic: &str,
-    ) {
-        let allowlist: HashSet<String> = ["phc_allowlisted".to_string()].into_iter().collect();
-        let ts = TestStateBuilder::new()
-            .with_ai_routing(crate::config::AiRouting::SecondaryAllowlist(allowlist))
-            .build();
-        let mut ctx = gateway_context(token, Utc::now(), None);
+    async fn process_batch_routes_ai_events_to_ai_topic() {
+        let ts = TestStateBuilder::new().build();
+        let mut ctx = gateway_context("phc_test_token", Utc::now(), None);
         let batch = valid_batch(vec![Event {
             event: "$ai_generation".to_string(),
             ..valid_event()
@@ -3648,7 +3636,7 @@ mod tests {
 
         ts.mock_producer.with_records(|records| {
             assert_eq!(records.len(), 1, "the event must be published");
-            assert_eq!(records[0].topic, expected_topic);
+            assert_eq!(records[0].topic, "ai_events");
         });
     }
 
@@ -3661,7 +3649,6 @@ mod tests {
     #[tokio::test]
     async fn process_batch_routes_ai_overflow_with_only_ai_limiter_armed() {
         let ts = TestStateBuilder::new()
-            .with_ai_routing(crate::config::AiRouting::Secondary)
             .with_ai_events_overflow_limiter(1, 1)
             .build();
         let mut ctx = test_utils::test_analytics_context();
@@ -3990,13 +3977,14 @@ mod tests {
 
     #[tokio::test]
     async fn import_mode_historical_batch_never_overflows() {
-        // Import's no-overflow guarantee on the v1 path. With AI routing off (the
-        // deployment config), every event in a historical batch is rerouted to
-        // AnalyticsHistorical before overflow stamping, which only touches
-        // AnalyticsMain/AiEvents. Even with the burst overflow limiter armed at
-        // burst=1 and all three events sharing one token:distinct_id — which would
-        // overflow the 2nd and 3rd in Events mode — nothing lands on
-        // events_overflow or the AI lanes.
+        // Import's no-overflow guarantee on the v1 path. Non-AI events in a
+        // historical batch reroute to AnalyticsHistorical before overflow
+        // stamping (which only touches AnalyticsMain), and $ai_* events divert
+        // to the AI lane, which cannot stamp overflow while the AI overflow
+        // valve is unset — the capture-import config. Even with the burst
+        // overflow limiter armed at burst=1 and all three events sharing one
+        // token:distinct_id — which would overflow the 2nd and 3rd in Events
+        // mode — nothing lands on events_overflow or the AI overflow lane.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .with_overflow_limiter(1, 1)
@@ -4019,33 +4007,29 @@ mod tests {
         ts.mock_producer.with_records(|records| {
             assert_eq!(records.len(), 3, "all three historical events must publish");
             for r in records {
+                let expected = if r.payload.contains("$ai_generation") {
+                    "ai_events"
+                } else {
+                    "events_hist"
+                };
                 assert_eq!(
-                    r.topic, "events_hist",
-                    "Import must route every event to the historical topic, got {}",
-                    r.topic,
+                    r.topic, expected,
+                    "unexpected lane for a historical import event",
                 );
             }
         });
     }
 
-    #[rstest::rstest]
-    #[case::ai_routing_off(crate::config::AiRouting::Primary, "events_hist")]
-    #[case::ai_routing_on(crate::config::AiRouting::Secondary, "ai_events")]
     #[tokio::test]
-    async fn import_mode_ai_precedence_follows_routing(
-        #[case] ai_routing: crate::config::AiRouting,
-        #[case] expected_topic: &str,
-    ) {
-        // Pins the AI-vs-historical precedence the no-overflow guarantee rests on:
-        // a historical batch's $ai_* event stays on the historical lane only while
-        // AI routing is off. Arming it (Secondary) diverts the event to the AI
-        // lane even in a historical batch, because v1 assigns AiEvents up front and
-        // apply_historical_rerouting only reroutes AnalyticsMain. This is exactly
-        // why capture-import must keep AI routing off — armed, the AI lane becomes
-        // reachable and overflowable again.
+    async fn import_mode_routes_ai_events_to_ai_lane() {
+        // A historical batch's $ai_* event diverts to the AI lane, winning
+        // over historical: only the AI lane has AI processing (cost
+        // enrichment, the ai_events double-write), so leaving it on the
+        // historical lane would import it incorrectly. Import's no-overflow
+        // guarantee holds by config: capture-import leaves the AI overflow
+        // valve unset, and an unarmed valve never stamps overflow.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
-            .with_ai_routing(ai_routing)
             .build();
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![Event {
@@ -4057,7 +4041,7 @@ mod tests {
 
         ts.mock_producer.with_records(|records| {
             assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, expected_topic);
+            assert_eq!(records[0].topic, "ai_events");
         });
     }
 

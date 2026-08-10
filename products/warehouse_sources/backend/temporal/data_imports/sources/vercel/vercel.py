@@ -161,8 +161,16 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code in (401, 403):
-        return False, "Invalid or unauthorized Vercel access token"
+    if response.status_code == 401:
+        return (
+            False,
+            "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
+        )
+    if response.status_code == 403:
+        return (
+            False,
+            "Your Vercel access token is not authorized for this resource. Check the token's scope (and team access), then reconnect.",
+        )
     # 429 (rate limit) and 5xx are transient Vercel-side problems, not a bad token, so surface a
     # retry hint rather than telling the user to fix credentials they can't fix.
     if response.status_code == 429 or response.status_code >= 500:

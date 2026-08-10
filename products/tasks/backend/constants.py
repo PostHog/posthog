@@ -16,6 +16,26 @@ PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 
+# Models a caller may only select while the paired flag is enabled for them. The Desktop
+# pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
+# but a picker is a convenience rather than a gate: a stored per-task model preference, an
+# older client, or a direct API call all reach the write paths without consulting a flag, so
+# entitlement is re-checked server-side. Keys are the model ids callers send.
+MODEL_ACCESS_FLAGS: dict[str, str] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+}
+
+
+def get_required_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it's generally available."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
+
 
 def _decode_vm_sandbox_payload(payload: object) -> object:
     """Flag payloads may arrive JSON-encoded; decode strings, mapping bad JSON to None."""

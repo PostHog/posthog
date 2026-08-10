@@ -1,3 +1,4 @@
+import errno
 import socket
 import threading
 from collections.abc import Generator, Iterable, Iterator
@@ -1696,6 +1697,11 @@ class TestIsConnectionDroppedError:
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
             # passing health check or once its ban expires — so the reconnect must catch it.
             psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
+            # psycopg's own message when `PQconnectStart` reports the connection BAD before the
+            # handshake begins and libpq has no server-reported error text to attach — a purely
+            # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
+            # server-side rejection. Transient; the reconnect must catch it.
+            psycopg.OperationalError("connection is bad: no error details available"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -1728,6 +1734,10 @@ class TestIsConnectionDroppedError:
             # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain
             # "refused" substring would wrongly retry it.
             psycopg.OperationalError('connection to server at "10.0.0.1", port 5432 failed: Connection refused'),
+            # A "connection is bad" failure that *does* carry a server-reported detail is a genuine,
+            # permanent rejection — only the "no error details available" variant (a purely local,
+            # pre-handshake failure) is transient, so the match must not broaden to the bare prefix.
+            psycopg.OperationalError("connection is bad: FATAL: password authentication failed"),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
@@ -1772,6 +1782,12 @@ class TestDroppedOrConnectTimeout:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is shutting down"
             ),
+            # This worker's process-wide (EMFILE) or system-wide (ENFILE) file-descriptor table is
+            # full while opening the socket for a fresh connect. Transient on our side of the wire —
+            # a descriptor frees the moment another connection/cursor in this worker closes — so the
+            # connect retry must recover instead of failing the whole activity on the first blip.
+            OSError(errno.EMFILE, "Too many open files"),
+            OSError(errno.ENFILE, "Too many open files in system"),
         ],
     )
     def test_transient_connect_path_errors_are_retryable(self, error):
@@ -1794,6 +1810,9 @@ class TestDroppedOrConnectTimeout:
                 "FATAL:  the database system is not accepting connections "
                 "DETAIL:  Hot standby mode is disabled."
             ),
+            # An unrelated OSError must not be absorbed just because OSError is now one of the
+            # caught types — only the EMFILE/ENFILE fd-exhaustion errno is retryable.
+            OSError(errno.ENOSPC, "No space left on device"),
         ],
     )
     def test_permanent_and_non_connect_errors_are_not_retryable(self, error):
