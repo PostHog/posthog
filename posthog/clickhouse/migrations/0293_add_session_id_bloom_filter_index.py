@@ -10,9 +10,6 @@ TYPE bloom_filter
 GRANULARITY 1
 """
 
-# ADD INDEX is metadata-only; new parts index themselves on insert and merge. Existing partitions are backfilled
-# manually on the cluster (MATERIALIZE INDEX ... IN PARTITION ID) rather than here, so a long-running or failed
-# mutation on sharded_events can't block deploys.
 operations = [
     run_sql_with_exceptions(
         ADD_BLOOM_FILTER_INDEX_SHARDED_EVENTS,
