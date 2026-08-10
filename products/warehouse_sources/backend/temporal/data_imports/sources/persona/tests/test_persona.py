@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -95,6 +95,33 @@ class TestFlattenItem:
         assert row["status"] == "completed"
         assert row["created-at"] == "2026-01-01"
         assert "attributes" not in row
+
+
+class TestSessionCapture:
+    def test_validate_credentials_disables_http_sample_capture(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona.make_tracked_session"
+        ) as make_session:
+            make_session.return_value.get.return_value = MagicMock(status_code=200)
+            persona.validate_credentials("persona_test")
+        # Inquiry bodies carry KYC PII the name-based scrubber can't reliably strip.
+        assert make_session.call_args.kwargs["capture"] is False
+
+    def test_get_rows_disables_http_sample_capture(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(persona, "_fetch_page", lambda *a, **kw: {"data": [], "links": {"next": None}})
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona.make_tracked_session"
+        ) as make_session:
+            list(
+                get_rows(
+                    api_key="persona_test",
+                    endpoint="inquiries",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        # Verification bodies carry KYC PII the name-based scrubber can't reliably strip.
+        assert make_session.call_args.kwargs["capture"] is False
 
 
 class TestFetchPageRetryClassification:

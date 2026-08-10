@@ -110,7 +110,10 @@ def validate_credentials(api_key: str) -> int:
     """
     url = _build_url(f"{PERSONA_BASE_URL}/inquiries", {"page[size]": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        # Inquiry and verification bodies carry KYC PII (names, DOBs, government-ID and selfie check
+        # results) that the name-based scrubber can't reliably strip, so keep them out of HTTP sample
+        # capture, following the same pattern as gusto and workday.
+        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code
     except Exception:
         return 0
@@ -202,8 +205,10 @@ def get_rows(
     config = PERSONA_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. Inquiry and
+    # verification bodies carry KYC PII the name-based scrubber can't reliably strip, so keep them
+    # out of HTTP sample capture, following the same pattern as gusto and workday.
+    session = make_tracked_session(capture=False)
 
     use_incremental = should_use_incremental_field and config.supports_incremental
     watermark = _to_datetime(db_incremental_field_last_value) if use_incremental else None
