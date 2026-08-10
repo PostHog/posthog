@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -29,7 +30,11 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import AccountsTableQueryRunner
+from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import (
+    ACCOUNTS_TABLE_MAX_COLUMNS,
+    ACCOUNTS_TABLE_MAX_PAGE_SIZE,
+    AccountsTableQueryRunner,
+)
 from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipDefinition,
@@ -171,6 +176,37 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
+
+    def test_caps_selected_columns_and_page_size(self) -> None:
+        with self.assertRaises(ValidationError):
+            self._run(AccountsTableQuery(columns=[AccountsTableTagsColumn()] * (ACCOUNTS_TABLE_MAX_COLUMNS + 1)))
+
+        response = self._run(AccountsTableQuery(columns=[], limit=ACCOUNTS_TABLE_MAX_PAGE_SIZE + 1))
+
+        assert response.limit == ACCOUNTS_TABLE_MAX_PAGE_SIZE
+
+    @patch.object(api, "ACCOUNT_TABLE_MAX_HISTORY_POINTS", 1)
+    def test_rejects_history_results_over_the_point_budget(self) -> None:
+        account = create_account(team_id=self.team.id, name="Acme")
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="Health score",
+            display_type=DisplayType.NUMBER,
+        )
+        for value in [10, 20]:
+            CustomPropertyValue.objects.unscoped().create(
+                team=self.team,
+                account=account,
+                definition=definition,
+                value_num=value,
+            )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[AccountsTableCustomPropertyHistoryColumn(definitionId=str(definition.id), windowDays=30)]
+                )
+            )
 
     def test_applies_stable_limit_and_offset_pagination(self) -> None:
         accounts = [create_account(team_id=self.team.id, name=name) for name in ["First", "Second", "Third"]]

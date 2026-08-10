@@ -2085,6 +2085,9 @@ class InvalidAccountTableColumn(ValueError):
     pass
 
 
+ACCOUNT_TABLE_MAX_HISTORY_POINTS = 50_000
+
+
 def _account_table_field_values(
     account: Account, fields: frozenset[contracts.AccountTableField]
 ) -> dict[contracts.AccountTableField, str | None]:
@@ -2234,11 +2237,19 @@ def query_accounts_table(
         for definition_id, window_days in history_windows.items():
             history_filter |= Q(definition_id=definition_id, created_at__gte=now - timedelta(days=window_days))
             history_filter |= Q(definition_id=definition_id, is_deleted=False)
-        for value in (
+        history_point_count = 0
+        history_values = (
             CustomPropertyValue.objects.for_team(team_id)
             .filter(history_filter, account_id__in=account_ids, value_num__isnull=False)
             .order_by("created_at", "id")
-        ):
+            .iterator(chunk_size=2_000)
+        )
+        for value in history_values:
+            history_point_count += 1
+            if history_point_count > ACCOUNT_TABLE_MAX_HISTORY_POINTS:
+                raise InvalidAccountTableColumn(
+                    f"Account table queries support up to {ACCOUNT_TABLE_MAX_HISTORY_POINTS} history points."
+                )
             assert value.value_num is not None
             custom_property_history_by_account[value.account_id][value.definition_id].append(
                 contracts.AccountTableCustomPropertyHistoryPoint(

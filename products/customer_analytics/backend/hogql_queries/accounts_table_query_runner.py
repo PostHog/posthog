@@ -25,6 +25,9 @@ from posthog.rbac.user_access_control import UserAccessControl, UserAccessContro
 
 from products.customer_analytics.backend.facade import api, contracts
 
+ACCOUNTS_TABLE_MAX_COLUMNS = 100
+ACCOUNTS_TABLE_MAX_PAGE_SIZE = 500
+
 
 class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse]):
     query: AccountsTableQuery
@@ -37,6 +40,9 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         raise NotImplementedError("AccountsTableQueryRunner executes against Postgres")
 
     def _column_selection(self) -> contracts.AccountTableColumnSelection:
+        if len(self.query.columns) > ACCOUNTS_TABLE_MAX_COLUMNS:
+            raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_COLUMNS} columns.")
+
         account_fields: set[contracts.AccountTableField] = set()
         include_tags = False
         include_note_count = False
@@ -83,6 +89,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         limit = min(
             self.query.limit or get_default_limit_for_context(self.limit_context),
             get_max_limit_for_context(self.limit_context),
+            ACCOUNTS_TABLE_MAX_PAGE_SIZE,
         )
         offset = max(self.query.offset or 0, 0)
 
