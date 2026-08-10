@@ -229,22 +229,9 @@ function DetectionBasedRunStep(): JSX.Element {
     const status = detectionBasedRunDetail?.status ?? null
 
     let body: JSX.Element
-    if (isDetectionBasedRunLive) {
-        body = (
-            <>
-                <StepHeader
-                    title="Setting up source maps"
-                    description={`The agent is setting up ${projectLabel} and will open a pull request.`}
-                />
-                <div className="flex flex-col items-center gap-2 py-4">
-                    <span className="text-sm text-secondary">
-                        This usually takes a few minutes. You can close this window and check back later.
-                    </span>
-                    <LoadingBar loadId={detectionBasedRun?.runId} wrapperClassName="my-0 max-w-full" />
-                </div>
-            </>
-        )
-    } else if (status === 'completed') {
+    if (detectionBasedRunPrUrl || status === 'completed') {
+        // The PR is the deliverable, and a wizard-family run stays live until that PR merges —
+        // so the ready state keys on the stamped pr_url, not on a terminal run status.
         body = (
             <>
                 <StepHeader title="Pull request ready" description="The agent finished setting up source maps." />
@@ -270,6 +257,21 @@ function DetectionBasedRunStep(): JSX.Element {
                             Set up another project
                         </LemonButton>
                     </div>
+                </div>
+            </>
+        )
+    } else if (isDetectionBasedRunLive) {
+        body = (
+            <>
+                <StepHeader
+                    title="Setting up source maps"
+                    description={`The agent is setting up ${projectLabel} and will open a pull request.`}
+                />
+                <div className="flex flex-col items-center gap-2 py-4">
+                    <span className="text-sm text-secondary">
+                        This usually takes a few minutes. You can close this window and check back later.
+                    </span>
+                    <LoadingBar loadId={detectionBasedRun?.runId} wrapperClassName="my-0 max-w-full" />
                 </div>
             </>
         )
