@@ -4477,6 +4477,11 @@ def create_task(
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
+    if not validated_data.get("github_integration"):
+        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if default_integration:
+            validated_data["github_integration"] = default_integration
+
     if (
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
@@ -4562,11 +4567,6 @@ def create_task(
     # The relationship the client asserted (validated by the serializer, which rejects `research`).
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
-
-    if not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
-        if default_integration:
-            validated_data["github_integration"] = default_integration
 
     # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
     # creating a report-linked task that can never open a PR.
