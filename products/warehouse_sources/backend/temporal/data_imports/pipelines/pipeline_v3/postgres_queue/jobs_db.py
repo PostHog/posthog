@@ -831,7 +831,7 @@ class BatchQueue:
                         expires_at = excluded.expires_at,
                         acquired_at = now(),
                         updated_at = now()
-                    WHERE {LEASE_TABLE}.expires_at < now()
+                    WHERE {LEASE_TABLE}.expires_at <= now()
                 RETURNING id
                 """,
                 {
@@ -1098,7 +1098,11 @@ class BatchQueue:
                         -- rows during the 2026-08 failure storm, a minutes-long disk
                         -- spill at work_mem=4MB that, run by every pod concurrently,
                         -- starved the claim path (the 2026-08-09 loader stall).
-                        AND b.state_changed_at >= now() - make_interval(secs => %(lookback)s)
+                        -- state_changed_at is nullable; NULL rows must stay visible or a
+                        -- failed run could strand until the retention prune (the stranded
+                        -- sweep skips runs that have a failed batch).
+                        AND (b.state_changed_at IS NULL
+                             OR b.state_changed_at >= now() - make_interval(secs => %(lookback)s))
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
