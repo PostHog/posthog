@@ -541,14 +541,17 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
-    async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(self, ateam, anode, asaved_query, adag):
+    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty"])
+    async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
+        self, ateam, anode, asaved_query, adag, identifier
+    ):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
             maybe_suspend_node_for_engine,
         )
 
-        error = "Code: 47. DB::Exception: Missing columns: 'Preempted' while processing query"
+        error = f"Code: 47. DB::Exception: Missing columns: '{identifier}' while processing query"
         jobs = [
             await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=error)
             for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
