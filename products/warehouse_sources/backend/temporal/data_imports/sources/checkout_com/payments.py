@@ -44,8 +44,10 @@ PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "customers", "instruments")
 SEARCH_PAGE_LIMIT = 1000
 # The search endpoint rejects a request without a non-empty `query` as unprocessable
 # (422), and Checkout.com documents no match-all expression, so the widest valid
-# filter is a predicate every payment satisfies.
-SEARCH_MATCH_ALL_QUERY = "amount>=0"
+# filter is a predicate every payment satisfies. Comparisons use the colon-prefixed
+# form (`field:>=value`) to match the documented `field:value` grammar; a bare
+# `amount>=0` appears in no official example.
+SEARCH_MATCH_ALL_QUERY = "amount:>=0"
 # Checkout.com documents payments search as covering roughly the previous 90 days, so
 # this is both the default backfill reach and the clamp for configured start dates and
 # stale watermarks; anything older can't come back from search.
