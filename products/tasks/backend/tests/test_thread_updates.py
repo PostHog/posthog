@@ -9,6 +9,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.tasks.backend.facade.api import (
+    emit_task_event,
     list_mentions,
     list_thread_messages,
     post_canvas_created_thread_update,
@@ -16,7 +17,14 @@ from products.tasks.backend.facade.api import (
     set_task_run_output,
     update_task_run,
 )
-from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage, TaskThreadMessageMention
+from products.tasks.backend.models import (
+    Channel,
+    Task,
+    TaskActivity,
+    TaskRun,
+    TaskThreadMessage,
+    TaskThreadMessageMention,
+)
 
 _FLAG_TARGET = "products.tasks.backend.facade.api.posthoganalytics.feature_enabled"
 
@@ -56,7 +64,15 @@ class TestAgentThreadUpdates(TestCase):
         self.assertIsNone(messages[0].author_id)
         self.assertEqual(messages[0].author_kind, TaskThreadMessage.AuthorKind.AGENT)
         self.assertEqual(messages[0].event, "pr_created")
-        self.assertEqual(messages[0].payload, {"pr_url": "https://github.com/posthog/posthog/pull/123"})
+        self.assertEqual(
+            messages[0].payload,
+            {
+                "pr_url": "https://github.com/posthog/posthog/pull/123",
+                "repository": "posthog/posthog",
+                "pr_number": 123,
+            },
+        )
+        self.assertEqual(messages[0].event_key, "https://github.com/posthog/posthog/pull/123")
         self.assertEqual(
             messages[0].content,
             "[posthog/posthog#123](https://github.com/posthog/posthog/pull/123) has been opened",
@@ -149,7 +165,14 @@ class TestAgentThreadUpdates(TestCase):
 
         messages = self._messages(self.task)
         self.assertEqual([message.event for message in messages], ["pr_created"])
-        self.assertEqual(messages[0].payload, {"pr_url": "https://github.com/posthog/posthog/pull/321"})
+        self.assertEqual(
+            messages[0].payload,
+            {
+                "pr_url": "https://github.com/posthog/posthog/pull/321",
+                "repository": "posthog/posthog",
+                "pr_number": 321,
+            },
+        )
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_pr_created_posts_when_set_output_records_pr_url(self, _flag) -> None:
@@ -294,3 +317,73 @@ class TestAgentThreadUpdates(TestCase):
             mentions = list_mentions(self.team.id, self.user.id)
 
         self.assertEqual([mention.message_id for mention in mentions], [human_message.id])
+
+
+class TestEmitTaskEvent(TestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_user(
+            email="creator@example.com", first_name="Casey", last_name="Creator", password="password"
+        )
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="Ship activity events",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+
+    def _events(self) -> list[TaskThreadMessage]:
+        return list(TaskThreadMessage.objects.for_team(self.team.id).filter(task=self.task).order_by("created_at"))
+
+    def test_keyed_event_is_written_once(self) -> None:
+        first = emit_task_event(
+            self.task, event="run_started", content="Run started", payload={"a": 1}, event_key="run-1"
+        )
+        second = emit_task_event(
+            self.task, event="run_started", content="Run started again", payload={"a": 2}, event_key="run-1"
+        )
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].payload, {"a": 1})
+
+    @parameterized.expand(
+        [
+            ("different_key", "run_started", "run-2"),
+            ("different_event", "run_failed", "run-1"),
+        ]
+    )
+    def test_distinct_identities_each_get_a_row(self, _name, event, event_key) -> None:
+        emit_task_event(self.task, event="run_started", content="Run started", event_key="run-1")
+        emit_task_event(self.task, event=event, content="Another", event_key=event_key)
+
+        self.assertEqual(len(self._events()), 2)
+
+    def test_unkeyed_events_are_never_collapsed(self) -> None:
+        # Repeatable events (a push, an artifact write) carry no key when the caller has
+        # no identity to key on, and must not silently swallow the second occurrence.
+        emit_task_event(self.task, event="artifact_created", content="One")
+        emit_task_event(self.task, event="artifact_created", content="Two")
+
+        self.assertEqual([event.content for event in self._events()], ["One", "Two"])
+
+    def test_lifecycle_events_stay_out_of_the_notification_feed(self) -> None:
+        # A run starting is timeline material; marking the task unread for it would
+        # bury the events a person actually needs to answer.
+        emit_task_event(self.task, event="run_started", content="Run started", event_key="run-1")
+
+        self.assertFalse(
+            TaskActivity.objects.for_team(self.team.id).filter(task=self.task, kind=TaskActivity.Kind.MESSAGE).exists()
+        )
+
+    def test_notify_projects_the_row_onto_the_feed(self) -> None:
+        emit_task_event(self.task, event="pr_created", content="PR opened", event_key="url", notify=True)
+
+        activity = TaskActivity.objects.for_team(self.team.id).filter(task=self.task, user=self.user).first()
+        assert activity is not None
+        self.assertEqual(activity.kind, TaskActivity.Kind.MESSAGE)

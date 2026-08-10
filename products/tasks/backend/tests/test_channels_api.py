@@ -523,7 +523,7 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(row["latest_author"]["id"], self.peer.id)
 
     def test_agent_message_is_unread_for_the_task_creator(self):
-        tasks_facade._create_agent_thread_message(self.task, "Hello!", event="agent_message")
+        tasks_facade.emit_task_event(self.task, event="agent_message", content="Hello!", notify=True)
 
         row = self._row_for(self.author_client, self.task)
         self.assertEqual(row["activity_kind"], "message")

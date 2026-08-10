@@ -75,6 +75,7 @@ from products.tasks.backend.models import (
     SandboxSnapshot,
     Task,
     TaskActivity,
+    TaskActivityEvent,
     TaskAutomation,
     TaskClientProvenance,
     TaskCommentActivity,
@@ -6714,24 +6715,60 @@ def forward_thread_message(
 AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
 
 
-def _create_agent_thread_message(task: Task, content: str, *, event: str, payload: dict | None = None) -> None:
-    """Write an agent-authored thread message and index its mentions.
+def emit_task_event(
+    task: Task,
+    *,
+    event: str,
+    content: str,
+    payload: dict | None = None,
+    event_key: str = "",
+    notify: bool = False,
+) -> TaskThreadMessage | None:
+    """Record one server-emitted task event, for the activity timeline.
 
     ``content`` is the rendered text (older clients show it as-is); ``event`` +
     ``payload`` are the structured record, mirroring ChannelFeedMessage, that
-    lets clients render agent rows natively and dedupe them against live views.
+    lets clients render the row natively and dedupe it against live views.
+
+    ``event_key`` names the real-world thing being announced (a run id, a PR url).
+    Supplying one makes the write idempotent against the partial unique index on
+    ``(task, event, event_key)``, so a redelivered webhook or a retried Temporal
+    activity is a no-op rather than a duplicate row. Returns ``None`` when the row
+    already existed.
+
+    ``notify`` opts a row into the notification feed and mention indexing. Lifecycle
+    rows leave it off: a run starting is timeline material, not something to mark a
+    task unread for.
     """
     # for_team: callers include non-request contexts (temporal relay) where the
     # fail-closed manager has no team scope.
-    message = TaskThreadMessage.objects.for_team(task.team_id).create(
-        team_id=task.team_id,
-        task_id=task.id,
-        author_id=None,
-        author_kind=TaskThreadMessage.AuthorKind.AGENT,
-        event=event,
-        payload=payload or {},
-        content=content,
-    )
+    row = {
+        "team_id": task.team_id,
+        "task_id": task.id,
+        "author_id": None,
+        "author_kind": TaskThreadMessage.AuthorKind.AGENT,
+        "event": event,
+        "event_key": event_key,
+        "payload": payload or {},
+        "content": content,
+    }
+    if event_key:
+        # get_or_create turns the unique index into the arbiter of the race between two
+        # paths observing the same thing (the agent's own output and the GitHub webhook
+        # backstop, say): the loser reads the winner's row instead of raising.
+        message, created = TaskThreadMessage.objects.for_team(task.team_id).get_or_create(
+            task_id=task.id,
+            event=event,
+            event_key=event_key,
+            defaults=row,
+        )
+        if not created:
+            return None
+    else:
+        message = TaskThreadMessage.objects.for_team(task.team_id).create(**row)
+
+    if not notify:
+        return message
     project_thread_message_activity(message)
     try:
         mentioned_user_ids = resolve_mentioned_user_ids(
@@ -6740,6 +6777,7 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
         _index_thread_message_mentions(message, mentioned_user_ids)
     except Exception:
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
+    return message
 
 
 def _agent_thread_updates_enabled(creator: User | None) -> bool:
@@ -6783,11 +6821,12 @@ def post_canvas_created_thread_update(
         # Brackets and newlines in the name would break the [label](url) token.
         name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
         content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
-        _create_agent_thread_message(
+        emit_task_event(
             task,
-            content,
-            event="canvas_created",
+            event=TaskActivityEvent.CANVAS_CREATED,
+            content=content,
             payload={"canvas_name": name, "canvas_url": canvas_url},
+            notify=True,
         )
     except Exception:
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
@@ -6826,14 +6865,27 @@ def _pr_display_label(pr_url: str) -> str:
     return pr_url
 
 
+def _pr_payload_identity(pr_url: str) -> dict[str, str | int]:
+    """``repository`` and ``pr_number`` parsed out of a GitHub PR url, so a client can
+    render "owner/repo#N" without a GitHub round trip. Empty for a non-GitHub url."""
+    parsed = urlparse(pr_url)
+    if parsed.hostname is None or parsed.hostname.lower() != "github.com":
+        return {}
+    match = _GITHUB_PR_PATH_PATTERN.fullmatch(parsed.path)
+    if not match:
+        return {}
+    owner, repo, number = match.groups()
+    return {"repository": f"{owner}/{repo}", "pr_number": int(number)}
+
+
 def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
     """Announce a run's freshly opened pull request in its task's thread.
 
     Posts "[owner/repo#N](url) has been opened" as an agent artifact message
     (``event="pr_created"``). Both the agent-output path and the GitHub webhook
-    backstop can observe the same PR, so the announcement dedupes on the task's
-    existing ``pr_created`` rows for this URL. Best-effort and never raises —
-    recording the PR must not fail because its announcement couldn't be written.
+    backstop can observe the same PR, so the announcement is keyed on the PR url and
+    the second observer's write is dropped. Best-effort and never raises — recording
+    the PR must not fail because its announcement couldn't be written.
     """
     try:
         if not _is_safe_pr_url(pr_url):
@@ -6850,22 +6902,14 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
                 extra={"task_id": str(task.id), "reason": "no_creator" if task.created_by is None else "flag_off"},
             )
             return
-        # The agent-output path and the webhook backstop can race on the same PR;
-        # locking the task row makes the dedupe check-and-create atomic across them.
-        with transaction.atomic():
-            Task.objects.select_for_update().filter(id=task.id).first()
-            if (
-                TaskThreadMessage.objects.for_team(task.team_id)
-                .filter(task_id=task.id, event="pr_created", payload__pr_url=pr_url)
-                .exists()
-            ):
-                return
-            label = _pr_display_label(pr_url)
-            _create_agent_thread_message(
-                task,
-                f"[{label}]({pr_url}) has been opened",
-                event="pr_created",
-                payload={"pr_url": pr_url},
-            )
+        label = _pr_display_label(pr_url)
+        emit_task_event(
+            task,
+            event=TaskActivityEvent.PR_CREATED,
+            content=f"[{label}]({pr_url}) has been opened",
+            payload={"pr_url": pr_url, **_pr_payload_identity(pr_url)},
+            event_key=pr_url,
+            notify=True,
+        )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
