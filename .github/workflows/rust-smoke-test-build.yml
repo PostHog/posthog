@@ -49,7 +49,10 @@ jobs:
         name: resolve image filter
         runs-on: ubuntu-latest
         timeout-minutes: 2
-        if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+        if: |
+            github.event_name == 'workflow_dispatch' ||
+            (github.event.pull_request.head.repo.full_name == github.repository &&
+             contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test'))
         permissions: {}
         outputs:
             filter: ${{ steps.parse.outputs.filter }}
