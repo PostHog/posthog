@@ -2,10 +2,16 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { CommentType } from '~/types'
+
+import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
 
@@ -63,6 +69,36 @@ describe('playerFrameCommentOverlayLogic', () => {
         }).toDispatchActions(['ensureAllMembersLoaded', 'loadAllMembers', 'loadAllMembersSuccess'])
 
         expect(membersLogic.values.meFirstMembers).toHaveLength(mockMembers.length)
+    })
+
+    // Regression test: the overlay logic mounts with the player toolbar, before the recording has
+    // loaded, and only refreshes its timestamp when the formatted (second resolution) playhead
+    // time changes. Commenting without moving the playhead off 00:00 therefore submitted the
+    // `dayjs(null)` Invalid Date captured at mount, which threw inside the kea-forms submit - and
+    // kea-forms swallows that, so Save made no request and reported nothing.
+    it('saves a comment made while the playhead is still at the start', async () => {
+        const createSpy = jest.spyOn(api.comments, 'create').mockResolvedValue({} as CommentType)
+
+        await expectLogic(sessionRecordingPlayerLogic(playerLogicProps)).toDispatchActions([
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+        ])
+        expect(logic.values.currentPlayerTime).toBe(0)
+
+        logic.actions.setIsCommenting(true)
+        logic.actions.setRichContent({
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a comment' }] }],
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitRecordingComment()
+        }).toDispatchActions(['submitRecordingCommentSuccess'])
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        expect(createSpy.mock.calls[0][0].item_context).toMatchObject({
+            milliseconds_into_recording: 0,
+            time_in_recording: dayjs(recordingMetaJson.start_time).toISOString(),
+        })
     })
 
     it('does not load all members again when the overlay closes', async () => {

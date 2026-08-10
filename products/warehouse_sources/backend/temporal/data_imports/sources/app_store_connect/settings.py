@@ -44,6 +44,13 @@ class AppStoreConnectEndpointConfig:
     # Stable creation-style field to partition by — never an updated/modified field.
     partition_key: Optional[str] = None
     should_sync_default: bool = True
+    # When set, rows for this endpoint come from the pages' JSON:API `included` resources
+    # of this type (requested via an `include` param) instead of `data`. Lets a related
+    # resource with no list endpoint of its own ride another collection's walk.
+    rows_from_included_type: Optional[str] = None
+    # Column that carries the id of the `data` resource referencing each included row, so
+    # the table joins back to its parent without a per-row request.
+    included_parent_column: str = "parent_id"
     # `/v1/salesReports` filters, only meaningful for the "sales_report" kind.
     report_type: str = ""
     report_sub_type: str = ""
@@ -104,6 +111,23 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         path="/v1/apps/{app_id}/customerReviews",
         params={"sort": "createdDate"},
         partition_key="createdDate",
+    ),
+    # Developer responses to customer reviews: the other half of the reviews conversation.
+    # Responses have no list endpoint of their own, so they ride the per-app reviews walk
+    # via `include=response`, filtered to reviews with a published response so unresponded
+    # reviews are never paged through. Rows come from the pages' included resources, each
+    # carrying the id of the review it answers. The only timestamp on a response is
+    # lastModifiedDate, which changes when the response is edited, so the table is
+    # unpartitioned (partition keys must never change for a row). Full refresh replaces
+    # the table each sync, so edited responses update and deleted ones drop out.
+    "review_responses": AppStoreConnectEndpointConfig(
+        name="review_responses",
+        kind="app_fanout",
+        primary_keys=["app_id", "id"],
+        path="/v1/apps/{app_id}/customerReviews",
+        params={"include": "response", "exists[publishedResponse]": "true", "sort": "createdDate"},
+        rows_from_included_type="customerReviewResponses",
+        included_parent_column="review_id",
     ),
     # In-app purchase catalog per app.
     "in_app_purchases": AppStoreConnectEndpointConfig(

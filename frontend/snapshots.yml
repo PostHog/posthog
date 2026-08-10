@@ -1941,9 +1941,9 @@ snapshots:
     errortracking-contextdisplay--context-display-misc--light:
         hash: v1.k794b7964.00799acd69df9d4178cc8e3a22396275da74af7e9ac3aa44230457a93ba1e6b0.Hw5Bm-xSzHlK5h1pGziquWyxHVAn4tsb_XN8IboLpCw
     errortracking-contextdisplay--context-display-with-stacktrace--dark:
-        hash: v1.k794b7964.9121d4f367026feecf12778c6b7b059e23bade1da1128df35caa395e6c49c055.Eyc0wiDeWL4bsFO0RS2-iTrHqv_Bxd5L7xdfagzpGxY
+        hash: v1.k794b7964.cb01ac0c8ec731bf6615682b42a02a4af6010dedc74a4e02f98682c00f89033d.r9ko2z5Ew7PiEmPRGAugMqp2sA7Pwv-vMMERAFGKuEA
     errortracking-contextdisplay--context-display-with-stacktrace--light:
-        hash: v1.k794b7964.2f60cfda48c4da83267fbafd7551aa3391b84ee1eac3eb91c4b0bf3f3b001a86.-wGXL7sLZx5P7cIM7CdrmxqC-CtckBVdIZSwGJmH8zs
+        hash: v1.k794b7964.2cb3491793b79cf90503fca5f272462570ca063baf084f4798ef855f560d5691.hVu_B8x0_P63Lnkqyk-syp8-LlqSbzw1GdRonGsH6W4
     errortracking-exceptioncard--exception-card-all-events--dark:
         hash: v1.k794b7964.b483574651f80c06e0ff28e020f9a49f859a6961ce4371e1429e8af16e440b05.u_JXXvDFsIfQPKnvnaS4HjCvBOG2tYOkywcnufkxA0Q
     errortracking-exceptioncard--exception-card-all-events--light:
