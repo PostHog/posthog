@@ -102,9 +102,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
-        useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { experimentLoading, experimentId, experiment, exposureCriteria, showDebugPanel } = useValues(experimentLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -115,7 +113,7 @@ export function ExperimentView(): JSX.Element {
         removeMetric,
     } = useActions(experimentLogic)
 
-    const { activeTabKey } = useValues(experimentSceneLogic)
+    const { activeTabKey, availableTabs } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
@@ -127,56 +125,24 @@ export function ExperimentView(): JSX.Element {
     }
 
     // Ordered as: results (Metrics), configuration (Settings, Code, Variants),
-    // feature tabs (Recordings, User feedback), audit trail (History)
-    const tabs: LemonTab<ExperimentTab>[] = [
-        {
-            key: 'metrics',
-            label: 'Metrics',
-            content: <MetricsTab />,
-        },
-        {
-            key: 'settings',
-            label: 'Settings',
-            content: <SettingsTab />,
-        },
-        ...(!isExperimentDraft
-            ? ([
-                  {
-                      key: 'code',
-                      label: 'Code',
-                      content: <CodeTab />,
-                  },
-              ] satisfies LemonTab<ExperimentTab>[])
-            : []),
-        {
-            key: 'variants',
-            label: 'Variants',
-            content: <VariantsTab />,
-        },
-        ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
-            ? ([
-                  {
-                      key: 'recordings',
-                      label: 'Recordings',
-                      content: <ExperimentReplayTab experiment={experiment} />,
-                  },
-              ] satisfies LemonTab<ExperimentTab>[])
-            : []),
-        ...(experiment.feature_flag
-            ? ([
-                  {
-                      key: 'feedback',
-                      label: 'User feedback',
-                      content: <ExperimentFeedbackTab experiment={experiment} />,
-                  },
-              ] satisfies LemonTab<ExperimentTab>[])
-            : []),
-        {
-            key: 'history',
-            label: 'History',
-            content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-        },
-    ]
+    // feature tabs (Recordings, User feedback), audit trail (History). Which of these actually
+    // render is resolved by experimentSceneLogic's availableTabs, so the tab set, the URL, and the
+    // tracked tab stay in agreement.
+    const tabs: LemonTab<ExperimentTab>[] = (
+        [
+            { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
+            { key: 'settings', label: 'Settings', content: <SettingsTab /> },
+            { key: 'code', label: 'Code', content: <CodeTab /> },
+            { key: 'variants', label: 'Variants', content: <VariantsTab /> },
+            { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
+            { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
+            {
+                key: 'history',
+                label: 'History',
+                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+            },
+        ] satisfies LemonTab<ExperimentTab>[]
+    ).filter((tab) => availableTabs.includes(tab.key))
 
     return (
         <SceneContent>

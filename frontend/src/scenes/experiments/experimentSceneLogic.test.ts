@@ -2,16 +2,29 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { Experiment } from '~/types'
 
 import { FORM_MODES } from './experimentLogic'
-import { DEFAULT_EXPERIMENT_TAB, experimentSceneLogic } from './experimentSceneLogic'
+import { DEFAULT_EXPERIMENT_TAB, experimentSceneLogic, getAvailableExperimentTabs } from './experimentSceneLogic'
+
+const LEGACY_EXPERIMENT = {
+    id: 123,
+    metrics: [{ kind: NodeKind.ExperimentTrendsQuery }],
+} as unknown as Experiment
+const DRAFT_EXPERIMENT = { id: 123 } as Experiment
+const LAUNCHED_EXPERIMENT = { id: 123, start_date: '2020-01-01T00:00:00Z' } as Experiment
 
 type ExperimentLogicMock = {
     experimentLogic: {
         build: jest.Mock<any, any>
+        // Presents a loaded experiment through the same selector the scene proxies. Undefined (the
+        // default) leaves the scene reading the NEW_EXPERIMENT placeholder, i.e. "still loading".
+        __setExperiment: (experiment: Partial<Experiment> | undefined) => void
         __logic: {
             mount: jest.Mock<any, any>
             actions: {
@@ -27,6 +40,7 @@ type ExperimentLogicMock = {
 }
 
 jest.mock('./experimentLogic', () => {
+    const experimentHolder: { current: any } = { current: undefined }
     const logicInstance = {
         mount: jest.fn(() => jest.fn()),
         actions: {
@@ -35,6 +49,9 @@ jest.mock('./experimentLogic', () => {
             loadExperiment: jest.fn(),
             loadExposures: jest.fn(),
             refreshStaleResultsOnReentry: jest.fn(),
+        },
+        selectors: {
+            experiment: () => experimentHolder.current,
         },
         props: {},
     }
@@ -47,8 +64,11 @@ jest.mock('./experimentLogic', () => {
                 return logicInstance
             }),
             __logic: logicInstance,
+            __setExperiment: (experiment: any) => {
+                experimentHolder.current = experiment
+            },
         },
-        NEW_EXPERIMENT: {},
+        NEW_EXPERIMENT: { id: 'new' },
     }
 })
 
@@ -58,6 +78,7 @@ describe('experimentSceneLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        mockModule.experimentLogic.__setExperiment(undefined)
         mockModule.experimentLogic.__logic.actions.loadExperiment.mockClear()
         mockModule.experimentLogic.__logic.actions.loadExposures.mockClear()
     })
@@ -237,5 +258,57 @@ describe('experimentSceneLogic', () => {
 
             logic.unmount()
         })
+    })
+
+    describe('getAvailableExperimentTabs', () => {
+        it('reduces legacy experiments to metrics and variants', () => {
+            expect(getAvailableExperimentTabs(LEGACY_EXPERIMENT, {})).toEqual(['metrics', 'variants'])
+        })
+
+        it.each([
+            ['launched experiments', LAUNCHED_EXPERIMENT, true],
+            ['draft experiments', DRAFT_EXPERIMENT, false],
+        ])('offers the code tab only for %s', (_label, experiment, expected) => {
+            expect(getAvailableExperimentTabs(experiment, {}).includes('code')).toBe(expected)
+        })
+
+        it('offers the feedback tab only when a feature flag is linked', () => {
+            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT, {}).includes('feedback')).toBe(false)
+            const withFlag = { ...DRAFT_EXPERIMENT, feature_flag: { id: 1 } } as Experiment
+            expect(getAvailableExperimentTabs(withFlag, {}).includes('feedback')).toBe(true)
+        })
+
+        it('offers the recordings tab only when the feature flag is enabled', () => {
+            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT, {}).includes('recordings')).toBe(false)
+            expect(
+                getAvailableExperimentTabs(DRAFT_EXPERIMENT, {
+                    [FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]: true,
+                }).includes('recordings')
+            ).toBe(true)
+        })
+    })
+
+    it('clamps the active tab to the default once the experiment loads without it', async () => {
+        // The deep-link path: ?tab=code resolves from the URL before the experiment loads, so the
+        // scene holds 'code' provisionally. Once it loads as a draft (no code tab), scene state —
+        // not just the rendered tab — must fall back to metrics, or the URL and the
+        // `experiment tab viewed` event keep naming a tab the user never sees.
+        router.actions.push(urls.experiment(123), { tab: 'code' })
+        const logic = experimentSceneLogic({ experimentId: 123 as any, formMode: FORM_MODES.update })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ activeTabKey: 'code' })
+
+        await expectLogic(logic, () => {
+            // Simulate the experiment finishing loading as a draft; the ref update re-derives its
+            // available tabs, standing in for the loadExperimentSuccess that swaps in real data.
+            mockModule.experimentLogic.__setExperiment(DRAFT_EXPERIMENT)
+            logic.actions.setExperimentLogicRef(mockModule.experimentLogic.__logic as any, jest.fn(), {
+                experimentId: 123,
+                formMode: FORM_MODES.update,
+            } as any)
+        }).toMatchValues({ activeTabKey: DEFAULT_EXPERIMENT_TAB })
+        expect(router.values.searchParams['tab']).toBeUndefined()
+
+        logic.unmount()
     })
 })
