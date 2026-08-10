@@ -23,3 +23,11 @@ pub enum StubOutcome {
     /// the transaction rolled back. The caller re-resolves to find the winner.
     LostRace,
 }
+
+/// One live distinct id row for a person.
+#[derive(Debug, Clone)]
+pub struct DistinctIdMapping {
+    pub person_id: i64,
+    pub distinct_id: String,
+    pub version: Option<i64>,
+}
