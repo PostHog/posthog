@@ -93,7 +93,7 @@ class BillingSerializer(serializers.Serializer):
 
 @extend_schema_serializer(many=False)
 class BillingOverviewResponseSerializer(serializers.Serializer):
-    customer_id = serializers.IntegerField(required=False, allow_null=True)
+    customer_id = serializers.CharField(required=False, allow_null=True)
     billing_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     subscription_level = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     has_active_subscription = serializers.BooleanField(required=False)

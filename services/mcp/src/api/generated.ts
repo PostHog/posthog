@@ -13465,7 +13465,7 @@ export namespace Schemas {
 
     export interface BillingOverviewResponse {
       /** @nullable */
-      customer_id?: number | null;
+      customer_id?: string | null;
       /** @nullable */
       billing_plan?: string | null;
       /** @nullable */

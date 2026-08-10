@@ -11,7 +11,7 @@ export type BillingOverviewResponseApiProductsItem = { [key: string]: unknown }
 
 export interface BillingOverviewResponseApi {
     /** @nullable */
-    customer_id?: number | null
+    customer_id?: string | null
     /** @nullable */
     billing_plan?: string | null
     /** @nullable */
