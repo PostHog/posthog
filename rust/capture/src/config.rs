@@ -53,8 +53,9 @@ impl CaptureMode {
     /// ai_events double-write), so historical backfills must divert too or
     /// their `$ai_*` events import incorrectly. `Ai` deployments don't: they
     /// already produce to the AI lane as their main topic. Import deployments
-    /// keep their no-overflow guarantee by leaving the AI overflow valve
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) unset.
+    /// keep their no-overflow guarantee in code: setup refuses to boot import
+    /// mode with the AI overflow valve
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) set.
     pub fn routes_ai_events(&self) -> bool {
         matches!(self, CaptureMode::Events | CaptureMode::Import)
     }
@@ -429,7 +430,8 @@ pub struct KafkaConfig {
     /// Unset means AI events never overflow (the pre-overflow behavior). When
     /// set, the AI lane participates in the same overflow limiter and
     /// restriction-driven force_overflow as the analytics main lane, rerouting
-    /// here instead of the analytics overflow topic.
+    /// here instead of the analytics overflow topic. Refused at boot in import
+    /// mode because imports must never overflow.
     pub capture_analytics_ai_events_overflow_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,

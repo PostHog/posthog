@@ -330,12 +330,7 @@ pub async fn build_components(
         !config.kafka.capture_analytics_ai_events_topic.is_empty(),
         "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_TOPIC must not be empty",
     );
-    // The AI overflow valve: unset means AI events never overflow.
-    let ai_events_overflow_enabled = config
-        .kafka
-        .capture_analytics_ai_events_overflow_topic
-        .as_deref()
-        .is_some_and(|t| !t.is_empty());
+    let ai_events_overflow_enabled = ai_events_overflow_valve(&config);
     info!(
         capture_analytics_ai_events_topic = %config.kafka.capture_analytics_ai_events_topic,
         capture_analytics_ai_events_overflow_topic = ?config.kafka.capture_analytics_ai_events_overflow_topic,
@@ -434,6 +429,26 @@ pub async fn build_components(
         v1_sink_router,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
+}
+
+/// The AI overflow valve: an unset or empty
+/// `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` means AI events never
+/// overflow. Import mode refuses an armed valve at boot: non-AI import events
+/// can't overflow because historical rerouting takes precedence no matter how
+/// the deployment is configured, but nothing structural protects `$ai_*`
+/// imports, so an armed valve would silently break the imports-never-overflow
+/// guarantee.
+fn ai_events_overflow_valve(config: &Config) -> bool {
+    let armed = config
+        .kafka
+        .capture_analytics_ai_events_overflow_topic
+        .as_deref()
+        .is_some_and(|topic| !topic.is_empty());
+    assert!(
+        !(armed && matches!(config.capture_mode, CaptureMode::Import)),
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC must be unset in import mode; imports must never overflow"
+    );
+    armed
 }
 
 /// Builds the v1 sink router. The dedicated `$ai_*` topics are
@@ -831,6 +846,78 @@ mod tests {
             .enable_all()
             .build()
             .expect("runtime")
+    }
+
+    struct AiValveInput {
+        capture_mode: &'static str,
+        overflow_topic: Option<&'static str>,
+    }
+
+    fn ai_valve_config(input: &AiValveInput) -> Config {
+        let mut cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", input.capture_mode),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        if let Some(topic) = input.overflow_topic {
+            cfg_env.insert(
+                "CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC".to_string(),
+                topic.to_string(),
+            );
+        }
+        envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
+    }
+
+    #[rstest]
+    #[case::events_set(
+        AiValveInput {
+            capture_mode: "events",
+            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
+        },
+        true
+    )]
+    #[case::events_unset(
+        AiValveInput {
+            capture_mode: "events",
+            overflow_topic: None,
+        },
+        false
+    )]
+    #[case::import_unset(
+        AiValveInput {
+            capture_mode: "import",
+            overflow_topic: None,
+        },
+        false
+    )]
+    #[case::import_empty(
+        AiValveInput {
+            capture_mode: "import",
+            overflow_topic: Some(""),
+        },
+        false
+    )]
+    fn ai_events_overflow_valve_arms_only_on_a_set_topic(
+        #[case] input: AiValveInput,
+        #[case] expected_armed: bool,
+    ) {
+        assert_eq!(
+            ai_events_overflow_valve(&ai_valve_config(&input)),
+            expected_armed
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "imports must never overflow")]
+    fn ai_events_overflow_valve_rejects_armed_valve_in_import_mode() {
+        ai_events_overflow_valve(&ai_valve_config(&AiValveInput {
+            capture_mode: "import",
+            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
+        }));
     }
 
     #[test]
