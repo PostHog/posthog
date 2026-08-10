@@ -22,6 +22,7 @@ import { AccountCustomPropertyFilter, PropertyOperator } from '~/types'
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { TileFilter } from './accountsOverviewTilesLogic'
@@ -126,11 +127,44 @@ function customPropertyFilter(
     filter: AccountCustomPropertyFilter,
     definitionsById: Record<string, CustomPropertyDefinitionApi>
 ): AccountsTableCustomPropertyFilter | null {
-    if (!filter.key || !isUUIDLike(filter.key) || !definitionsById[filter.key]) {
+    if (!filter.key || !isUUIDLike(filter.key)) {
         return null
     }
+    const definition = definitionsById[filter.key]
     const operator = CUSTOM_PROPERTY_OPERATOR_MAP[filter.operator]
-    if (!operator) {
+    if (!definition || !operator) {
+        return null
+    }
+    if (
+        operator === AccountsTableCustomPropertyOperator.Regex ||
+        operator === AccountsTableCustomPropertyOperator.NotRegex
+    ) {
+        return null
+    }
+    if (
+        (operator === AccountsTableCustomPropertyOperator.Contains ||
+            operator === AccountsTableCustomPropertyOperator.DoesNotContain) &&
+        definition.display_type !== 'text' &&
+        definition.display_type !== 'select'
+    ) {
+        return null
+    }
+    if (
+        (operator === AccountsTableCustomPropertyOperator.GreaterThan ||
+            operator === AccountsTableCustomPropertyOperator.GreaterThanOrEqual ||
+            operator === AccountsTableCustomPropertyOperator.LessThan ||
+            operator === AccountsTableCustomPropertyOperator.LessThanOrEqual) &&
+        !isNumericDisplayType(definition.display_type)
+    ) {
+        return null
+    }
+    if (
+        (operator === AccountsTableCustomPropertyOperator.DateExact ||
+            operator === AccountsTableCustomPropertyOperator.DateBefore ||
+            operator === AccountsTableCustomPropertyOperator.DateAfter) &&
+        definition.display_type !== 'date' &&
+        definition.display_type !== 'datetime'
+    ) {
         return null
     }
     const rawValues = Array.isArray(filter.value) ? filter.value : filter.value == null ? [] : [filter.value]
@@ -152,7 +186,7 @@ function customPropertyFilter(
     }
 }
 
-function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFilter[] {
+function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFilter[] | null {
     if (input.accountIdFilter) {
         return [{ kind: 'account_id', accountId: input.accountIdFilter } satisfies AccountsTableAccountIdFilter]
     }
@@ -173,9 +207,10 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     }
     for (const filter of input.customPropertyFilters) {
         const translatedFilter = customPropertyFilter(filter, input.customPropertyDefinitionsById)
-        if (translatedFilter) {
-            filters.push(translatedFilter)
+        if (!translatedFilter) {
+            return null
         }
+        filters.push(translatedFilter)
     }
     return filters
 }
@@ -215,11 +250,16 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
         }
     }
 
+    const filters = queryFilters(input)
+    if (!filters) {
+        return null
+    }
+
     return {
         query: {
             kind: NodeKind.AccountsTableQuery,
             columns: columns.map(({ column }) => column),
-            filters: queryFilters(input),
+            filters,
             sort,
             tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_postgres_list' },
         },

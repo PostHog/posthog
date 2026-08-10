@@ -146,6 +146,24 @@ describe('accountsTableQuery', () => {
         expect(buildAccountsTableQueryPlan(queryInput(overrides))).toBeNull()
     })
 
+    it.each([
+        ['regex', 'currency', PropertyOperator.Regex],
+        ['contains on a number', 'currency', PropertyOperator.IContains],
+        ['comparison on text', 'text', PropertyOperator.GreaterThan],
+        ['date comparison on boolean', 'boolean', PropertyOperator.IsDateBefore],
+    ])('falls back to HogQL for %s custom property filters', (_, displayType, operator) => {
+        const incompatibleDefinition = { ...definition, display_type: displayType } as CustomPropertyDefinitionApi
+
+        expect(
+            buildAccountsTableQueryPlan(
+                queryInput({
+                    customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: incompatibleDefinition },
+                    customPropertyFilters: [customFilter({ operator })],
+                })
+            )
+        ).toBeNull()
+    })
+
     it('translates custom property values and history into positional cells', () => {
         const plan = buildAccountsTableQueryPlan(
             queryInput({

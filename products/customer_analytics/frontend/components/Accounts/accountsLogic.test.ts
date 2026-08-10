@@ -186,6 +186,64 @@ describe('accountsLogic', () => {
         expect(logic.values.tableRowsTransformer?.(previousRows)).toEqual(previousRows)
     })
 
+    it('keeps retained Postgres rows translated while a tile filter switches the runner to HogQL', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+        const keyedRows = [
+            {
+                result: {
+                    id: 'account-id',
+                    name: 'Acme',
+                    externalId: 'acme',
+                    accountFields: { name: 'Acme' },
+                    tags: ['enterprise'],
+                    noteCount: 2,
+                    relationships: Object.fromEntries(DEFINITIONS.map(({ id }) => [id, []])),
+                    customProperties: {},
+                    customPropertyHistory: {},
+                },
+            },
+        ] as DataTableRow[]
+
+        logic.actions.setTileFilter({ tileId: 'tile', expression: 'count() > 1' })
+
+        expect(logic.values.accountsQuerySource?.kind).toBe('AccountsQuery')
+        expect(logic.values.tableRowsTransformer?.(keyedRows)[0].result).toEqual([
+            { id: 'account-id', name: 'Acme', external_id: 'acme' },
+            ['enterprise'],
+            2,
+            [],
+            [],
+            [],
+        ])
+    })
+
+    it('hides incompatible retained Postgres rows while an unsupported column switches to HogQL', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+        const keyedRows = [
+            {
+                result: {
+                    id: 'account-id',
+                    name: 'Acme',
+                    accountFields: { name: 'Acme' },
+                    relationships: {},
+                    customProperties: {},
+                    customPropertyHistory: {},
+                },
+            },
+        ] as DataTableRow[]
+
+        accountsColumnConfigLogic
+            .findMounted()!
+            .actions.setSelectColumns([...logic.values.selectColumns, 'arbitrary_hogql()'])
+
+        expect(logic.values.accountsQuerySource?.kind).toBe('AccountsQuery')
+        expect(logic.values.tableRowsTransformer?.(keyedRows)).toEqual([])
+    })
+
     it('keeps unsupported list state on the HogQL runner', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,

@@ -55,6 +55,7 @@ import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesL
 import { sortAccountRows } from './accountsSort'
 import {
     AccountsTableQueryPlan,
+    BuildAccountsTableQueryPlanInput,
     accountsTableRowsToLegacyRows,
     buildAccountsTableQueryPlan,
     isAccountsTableRow,
@@ -221,6 +222,8 @@ export interface accountsLogicValues {
     accountsDataTableQuery: DataTableNode
     accountsQuerySource: AccountsQuery | AccountsTableQuery | null
     accountsTableQueryPlan: AccountsTableQueryPlan | null
+    accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+    accountsTableResponsePlan: AccountsTableQueryPlan | null
     activeFilterCount: number
     allRolesUnassigned: boolean
     assignedToCurrentUser: boolean
@@ -455,7 +458,7 @@ export interface accountsLogicMeta {
             visibleColumnNames: string[]
         ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         postgresAccountsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        accountsTableQueryPlan: (
+        accountsTableQueryPlanInput: (
             querySelectColumns: string[],
             visibleColumnNames: string[],
             searchQuery: string,
@@ -469,7 +472,9 @@ export interface accountsLogicMeta {
             columnDisplay: AccountColumnDisplayState,
             sortOrder: AccountSortOrder,
             canSortClientSide: boolean
-        ) => AccountsTableQueryPlan | null
+        ) => BuildAccountsTableQueryPlanInput
+        accountsTableQueryPlan: (accountsTableQueryPlanInput: any) => AccountsTableQueryPlan | null
+        accountsTableResponsePlan: (accountsTableQueryPlanInput: any) => AccountsTableQueryPlan | null
         hogqlQuery: (
             searchQuery: string,
             tagsFilter: string[],
@@ -497,8 +502,7 @@ export interface accountsLogicMeta {
             visibleColumnNames: string[]
         ) => DataTableNode
         tableRowsTransformer: (
-            accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
-            accountsTableQueryPlan: AccountsTableQueryPlan | null,
+            accountsTableResponsePlan: any,
             sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         metricsQuery: (
@@ -854,7 +858,7 @@ export const accountsLogic = kea<accountsLogicType>([
             (featureFlags: FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES],
         ],
-        accountsTableQueryPlan: [
+        accountsTableQueryPlanInput: [
             (s) => [
                 s.querySelectColumns,
                 s.visibleColumnNames,
@@ -884,22 +888,31 @@ export const accountsLogic = kea<accountsLogicType>([
                 columnDisplay: AccountColumnDisplayState,
                 sortOrder: AccountSortOrder,
                 canSortClientSide: boolean
-            ): AccountsTableQueryPlan | null =>
-                buildAccountsTableQueryPlan({
-                    querySelectColumns,
-                    visibleColumnNames,
-                    searchQuery,
-                    tagsFilter,
-                    allRolesUnassigned,
-                    assignedToFilter,
-                    accountIdFilter,
-                    tileFilter,
-                    customPropertyFilters,
-                    customPropertyDefinitionsById,
-                    columnDisplay,
-                    sortOrder,
-                    canSortClientSide,
-                }),
+            ): BuildAccountsTableQueryPlanInput => ({
+                querySelectColumns,
+                visibleColumnNames,
+                searchQuery,
+                tagsFilter,
+                allRolesUnassigned,
+                assignedToFilter,
+                accountIdFilter,
+                tileFilter,
+                customPropertyFilters,
+                customPropertyDefinitionsById,
+                columnDisplay,
+                sortOrder,
+                canSortClientSide,
+            }),
+        ],
+        accountsTableQueryPlan: [
+            (s) => [s.accountsTableQueryPlanInput],
+            (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan | null =>
+                buildAccountsTableQueryPlan(input),
+        ],
+        accountsTableResponsePlan: [
+            (s) => [s.accountsTableQueryPlanInput],
+            (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan | null =>
+                buildAccountsTableQueryPlan({ ...input, tileFilter: null }),
         ],
         hogqlQuery: [
             (s) => [
@@ -996,28 +1009,26 @@ export const accountsLogic = kea<accountsLogicType>([
             }),
         ],
         tableRowsTransformer: [
-            (s) => [s.accountsQuerySource, s.accountsTableQueryPlan, s.sortedRowsTransformer],
+            (s) => [s.accountsTableResponsePlan, s.sortedRowsTransformer],
             (
-                accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
-                accountsTableQueryPlan: AccountsTableQueryPlan | null,
+                accountsTableResponsePlan: AccountsTableQueryPlan | null,
                 sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
-            ): ((rows: DataTableRow[]) => DataTableRow[]) | undefined => {
-                if (accountsQuerySource?.kind !== NodeKind.AccountsTableQuery || !accountsTableQueryPlan) {
-                    return sortedRowsTransformer
-                }
-                return (rows: DataTableRow[]): DataTableRow[] => {
+            ): ((rows: DataTableRow[]) => DataTableRow[]) | undefined =>
+                (rows: DataTableRow[]): DataTableRow[] => {
                     const rowResults = rows.map((row) => row.result)
-                    if (!rowResults.every(isAccountsTableRow)) {
+                    if (!rowResults.some(isAccountsTableRow)) {
                         return sortedRowsTransformer ? sortedRowsTransformer(rows) : rows
                     }
-                    const translatedResults = accountsTableRowsToLegacyRows(rowResults, accountsTableQueryPlan)
+                    if (!accountsTableResponsePlan || !rowResults.every(isAccountsTableRow)) {
+                        return []
+                    }
+                    const translatedResults = accountsTableRowsToLegacyRows(rowResults, accountsTableResponsePlan)
                     const translatedRows = rows.map((row, index) => ({
                         ...row,
                         result: translatedResults[index],
                     }))
                     return sortedRowsTransformer ? sortedRowsTransformer(translatedRows) : translatedRows
-                }
-            },
+                },
         ],
         // The overview-tile aggregations run as their own metrics-only query (no
         // `select`), keyed to ACCOUNTS_METRICS_DATA_NODE_KEY, so they load
