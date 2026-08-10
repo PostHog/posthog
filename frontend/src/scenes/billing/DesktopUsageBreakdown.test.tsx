@@ -16,7 +16,7 @@ describe('DesktopUsageBreakdown', () => {
                 }}
             />
         )
-        expect(screen.getByRole('img', { name: '82% tokens and 18% cloud compute' })).toBeTruthy()
+        expect(screen.getByLabelText('82% tokens and 18% cloud compute')).toBeTruthy()
         expect(screen.getByText(/\$12\.34/)).toBeTruthy()
         expect(screen.getByText(/\$2\.66/)).toBeTruthy()
         expect(screen.getByText(/1\.5 core-seconds · 4\.5 GiB-seconds/)).toBeTruthy()
@@ -31,7 +31,7 @@ describe('DesktopUsageBreakdown', () => {
                 }}
             />
         )
-        expect(screen.getByRole('img', { name: '0% tokens and 0% cloud compute' })).toBeTruthy()
+        expect(screen.getByLabelText('0% tokens and 0% cloud compute')).toBeTruthy()
         expect(screen.getAllByText(/\$0\.00/)).toHaveLength(2)
         expect(screen.getByText(/CPU unavailable · Memory unavailable/)).toBeTruthy()
     })

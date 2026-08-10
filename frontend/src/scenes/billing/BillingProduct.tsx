@@ -7,7 +7,7 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -531,9 +531,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
 
-                    {product.type === 'posthog_code_usage' && (
-                        <DesktopUsageBreakdown summary={billing?.usage_summary} />
-                    )}
+                    {product.type === 'posthog_code_usage' &&
+                        featureFlags[FEATURE_FLAGS.POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING] && (
+                            <DesktopUsageBreakdown summary={billing?.usage_summary} />
+                        )}
 
                     {product.price_description ? (
                         <LemonBanner type="info">

@@ -1,6 +1,6 @@
-import { BillingUsageResponseBreakdownType, convertDesktopUsageSeries } from './billingUsageLogic'
+import { BillingUsageResponse, BillingUsageResponseBreakdownType, convertDesktopUsageSeries } from './billingUsageLogic'
 
-const series = (label: string, data: number[]) => ({
+const series = (label: string, data: number[]): BillingUsageResponse['results'][number] => ({
     id: 1,
     label,
     data,
