@@ -410,6 +410,7 @@ jobs:
                   fi
 
             - name: Set up databases (fast path - restore schema)
+              id: fast_path_db_setup
               if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
               env:
                   TEST: 'true'
@@ -418,8 +419,15 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  # Download pre-migrated schema from CI
-                  ./bin/hogli db:download-schema
+                  # Download pre-migrated schema from CI. hogli retries transient network
+                  # errors; if the artifact still cannot be fetched, fall back to the migrations
+                  # slow path below instead of reding the shard. No test database exists yet, so
+                  # the slow path starts from a clean state.
+                  if ! ./bin/hogli db:download-schema; then
+                    echo "schema_download_failed=true" >> "$GITHUB_OUTPUT"
+                    echo "Schema download failed; falling back to the migrations slow path"
+                    exit 0
+                  fi
 
                   # Create test databases
                   docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
@@ -440,7 +448,7 @@ jobs:
                   cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
 
             - name: Set up databases (slow path - run migrations)
-              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true' || steps.fast_path_db_setup.outputs.schema_download_failed == 'true'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
@@ -502,6 +510,18 @@ jobs:
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: cd nodejs && pnpm run test:postgres-parity
+
+            # JUnit XML otherwise goes only to Trunk. Keep a GitHub copy so a Jest flake that Trunk
+            # has not quarantined can still be traced to the failing test after the run.
+            - name: Upload JUnit results
+              if: always()
+              continue-on-error: true
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: junit-nodejs-${{ matrix.shard }}
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
+                  retention-days: 7
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
@@ -682,6 +702,7 @@ jobs:
                   fi
 
             - name: Set up databases (fast path - restore schema)
+              id: fast_path_db_setup
               if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
               env:
                   TEST: 'true'
@@ -690,8 +711,15 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  # Download pre-migrated schema from CI
-                  ./bin/hogli db:download-schema
+                  # Download pre-migrated schema from CI. hogli retries transient network
+                  # errors; if the artifact still cannot be fetched, fall back to the migrations
+                  # slow path below instead of reding the shard. No test database exists yet, so
+                  # the slow path starts from a clean state.
+                  if ! ./bin/hogli db:download-schema; then
+                    echo "schema_download_failed=true" >> "$GITHUB_OUTPUT"
+                    echo "Schema download failed; falling back to the migrations slow path"
+                    exit 0
+                  fi
 
                   # Create test databases
                   docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
@@ -709,7 +737,7 @@ jobs:
                   cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
 
             - name: Set up databases (slow path - run migrations)
-              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true' || steps.fast_path_db_setup.outputs.schema_download_failed == 'true'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only

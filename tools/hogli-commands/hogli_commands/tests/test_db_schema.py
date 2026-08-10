@@ -6,10 +6,36 @@ from typing import Any
 
 import pytest
 
+import requests
 from click.testing import CliRunner
 from hogli_commands import db_schema
 
 runner = CliRunner()
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeSession:
+    """Session whose get() replays a scripted list of responses or exceptions."""
+
+    def __init__(self, script: list[object]) -> None:
+        self._script = list(script)
+        self.calls = 0
+
+    def get(self, url: str, **kwargs: object) -> _FakeResponse:
+        self.calls += 1
+        outcome = self._script.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        assert isinstance(outcome, _FakeResponse)
+        return outcome
 
 
 def _artifact(
@@ -62,6 +88,45 @@ def test_validate_gzip_rejects_truncated_stream(tmp_path: Path) -> None:
     truncated.write_bytes(raw[: len(raw) // 2])
     with pytest.raises(db_schema.SchemaRestoreError):
         db_schema._validate_gzip(truncated)
+
+
+@pytest.mark.parametrize(
+    "script,expected_calls",
+    [
+        ([requests.ConnectionError(), _FakeResponse(200)], 2),
+        ([_FakeResponse(503), _FakeResponse(200)], 2),
+        ([_FakeResponse(500), requests.Timeout(), _FakeResponse(200)], 3),
+    ],
+)
+def test_get_with_retry_recovers_from_transient_failures(
+    script: list[object], expected_calls: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(db_schema.time, "sleep", lambda _seconds: None)
+    session = _FakeSession(script)
+
+    response = db_schema._get_with_retry(session, "https://example.com", headers={}, timeout=1)  # type: ignore[arg-type]
+
+    assert response.status_code == 200
+    assert session.calls == expected_calls
+
+
+def test_get_with_retry_returns_non_retryable_status_without_retrying() -> None:
+    session = _FakeSession([_FakeResponse(404)])
+
+    response = db_schema._get_with_retry(session, "https://example.com", headers={}, timeout=1)  # type: ignore[arg-type]
+
+    assert response.status_code == 404
+    assert session.calls == 1
+
+
+def test_get_with_retry_raises_after_exhausting_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(db_schema.time, "sleep", lambda _seconds: None)
+    session = _FakeSession([requests.ConnectionError()] * db_schema.SCHEMA_HTTP_MAX_ATTEMPTS)
+
+    with pytest.raises(requests.ConnectionError):
+        db_schema._get_with_retry(session, "https://example.com", headers={}, timeout=1)  # type: ignore[arg-type]
+
+    assert session.calls == db_schema.SCHEMA_HTTP_MAX_ATTEMPTS
 
 
 def test_select_newest_compatible_artifact_returns_most_recent() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import gzip
+import time
 import shutil
 import zipfile
 import tempfile
@@ -29,6 +30,11 @@ LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
 DEFAULT_BASE_BRANCH = "master"
 DIAGNOSTIC_CANDIDATE_LIMIT = 3
+SCHEMA_FETCH_TIMEOUT_SECONDS = 30
+SCHEMA_DOWNLOAD_TIMEOUT_SECONDS = 60
+SCHEMA_HTTP_MAX_ATTEMPTS = 4
+SCHEMA_HTTP_BACKOFF_SECONDS = 2.0
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
@@ -262,17 +268,48 @@ def select_newest_compatible_artifact(
     return candidates[0] if candidates else None
 
 
+def _get_with_retry(
+    session: requests.Session,
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    timeout: int,
+    params: Mapping[str, str | int] | None = None,
+    stream: bool = False,
+) -> requests.Response:
+    """GET with bounded exponential backoff on transient network and 5xx/429 errors.
+
+    A schema fetch is a read-only idempotent request, so a retry cannot double-apply
+    anything. This retries the HTTP call alone, not a whole CI job. The caller still runs
+    raise_for_status, so a non-retryable status (401, 404, 410) surfaces on the first try.
+    """
+    for attempt in range(SCHEMA_HTTP_MAX_ATTEMPTS):
+        is_last_attempt = attempt == SCHEMA_HTTP_MAX_ATTEMPTS - 1
+        try:
+            response = session.get(url, params=params, headers=dict(headers), stream=stream, timeout=timeout)
+        except requests.RequestException:
+            if is_last_attempt:
+                raise
+        else:
+            if is_last_attempt or response.status_code not in RETRYABLE_STATUS_CODES:
+                return response
+            response.close()
+        time.sleep(SCHEMA_HTTP_BACKOFF_SECONDS * (2**attempt))
+    raise SchemaRestoreError(f"exhausted retries fetching {url}")  # unreachable; loop returns or raises
+
+
 def fetch_schema_artifacts(*, token: str | None, session: requests.Session | None = None) -> list[SchemaArtifact]:
     http = session or requests.Session()
     artifacts: list[SchemaArtifact] = []
     page = 1
 
     while True:
-        response = http.get(
+        response = _get_with_retry(
+            http,
             f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/artifacts",
             params={"name": SCHEMA_ARTIFACT_NAME, "per_page": 100, "page": page},
             headers=github_headers(token),
-            timeout=30,
+            timeout=SCHEMA_FETCH_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()
@@ -307,11 +344,12 @@ def download_schema_artifact(
         raise SchemaRestoreUnavailable("no GitHub token found; run `gh auth login` or set GH_TOKEN")
 
     http = session or requests.Session()
-    response = http.get(
+    response = _get_with_retry(
+        http,
         artifact.archive_download_url,
         headers=github_headers(token),
         stream=True,
-        timeout=60,
+        timeout=SCHEMA_DOWNLOAD_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
 
