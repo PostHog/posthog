@@ -18,6 +18,7 @@ from django.conf import settings
 import structlog
 
 from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
+from posthog.helpers.slack_identity import resolve_slack_user
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team import Team
@@ -25,6 +26,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
 from products.tasks.backend.logic.services.comment_activity import target_is_accessible
 from products.tasks.backend.models import Task, TaskCommentActivity
 
@@ -81,7 +83,9 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
         return _skip(comment_id, "task_missing")
 
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    client = SlackIntegration(integration).client
+    emails = dict(User.objects.filter(id__in=list(wanted)).values_list("id", "email"))
+    slack = SlackIntegration(integration)
+    client = slack.client
     for user_id, kind in wanted.items():
         # Re-checked at send time rather than trusting the projected recipient set: the in-app feed
         # re-checks visibility on every read, and a DM can't be taken back.
@@ -90,9 +94,11 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
         ):
             _skip(comment_id, "recipient_lost_access", user_id=user_id)
             continue
-        slack_user_id = _slack_user_id(user_id, integration.integration_id)
+        slack_user_id = _resolve_slack_user_id(
+            user_id=user_id, email=emails.get(user_id) or "", integration=integration, slack=slack
+        )
         if not slack_user_id:
-            _skip(comment_id, "recipient_has_no_slack_link", user_id=user_id)
+            _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
             continue
         fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=organization_id)
         try:
@@ -156,17 +162,46 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
     return wanted
 
 
-def _slack_user_id(user_id: int, slack_team_id: str) -> str | None:
+def _resolve_slack_user_id(
+    *, user_id: int, email: str, integration: Integration, slack: SlackIntegration
+) -> str | None:
+    """Who to DM, preferring the identity the user authenticated over the one we inferred."""
     link = (
         UserIntegration.objects.filter(
             user_id=user_id,
             kind=UserIntegration.IntegrationKind.SLACK,
-            config__slack_team_id=slack_team_id,
+            config__slack_team_id=integration.integration_id,
         )
         .order_by("-created_at")
         .first()
     )
-    return link.integration_id if link else None
+    if link:
+        return link.integration_id
+    return _slack_user_id_by_email(email=email, integration=integration, slack=slack)
+
+
+def _slack_user_id_by_email(*, email: str, integration: Integration, slack: SlackIntegration) -> str | None:
+    """Match a PostHog email against the workspace's own Slack directory.
+
+    This is what makes the feature work without every person linking an account first. It asks the
+    customer's own directory a question about our own user's email, which is the opposite direction
+    from the inbound path (where a Slack-supplied email would decide who a PostHog user is, and so
+    can't be trusted).
+    """
+    workspace = integration.integration_id or ""
+    if not email or not workspace:
+        return None
+    slack_user_id = lookup_slack_user_id_by_email(slack, integration, email)
+    if not slack_user_id:
+        return None
+    profile = resolve_slack_user(slack.client, slack_user_id, workspace=workspace)
+    # `users.lookupByEmail` also returns external Slack Connect members, whose profile emails are
+    # controlled by their own workspace's admin. Without this check an outsider could claim a
+    # teammate's address and receive their comment text.
+    if profile.get("team_id") != workspace:
+        logger.warning("comment_slack_dm_email_match_outside_workspace", integration_id=integration.id)
+        return None
+    return slack_user_id
 
 
 def _author_name(comment: Comment) -> str:
