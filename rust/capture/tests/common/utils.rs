@@ -220,6 +220,7 @@ pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
+    event_restriction_service: Option<capture::event_restrictions::EventRestrictionService>,
 }
 
 impl ServerHandle {
@@ -337,6 +338,7 @@ impl ServerHandle {
         let handles = setup::register_components(&mut manager, &config);
         let _monitor = manager.monitor_background();
         let components = setup::build_components(config, sink_env, handles).await;
+        let event_restriction_service = components.event_restriction_service.clone();
 
         tokio::spawn(async move { serve(listener, components).await });
 
@@ -349,6 +351,26 @@ impl ServerHandle {
             addr,
             shutdown: shutdown_token,
             client,
+            event_restriction_service,
+        }
+    }
+
+    /// Wait for the event restriction service's first successful load. Entries
+    /// written to Redis before boot are guaranteed visible after this returns,
+    /// because a refresh fetches every restriction type and swaps the manager
+    /// atomically.
+    pub async fn wait_for_restrictions_loaded(&self) {
+        let service = self
+            .event_restriction_service
+            .as_ref()
+            .expect("server booted without event restrictions enabled");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !service.has_loaded() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "event restrictions not loaded within 10s"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 

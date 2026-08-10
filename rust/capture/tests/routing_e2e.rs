@@ -19,7 +19,6 @@ use redis::Commands;
 use reqwest::StatusCode;
 use serde_json::json;
 use std::num::NonZeroU32;
-use std::time::Duration;
 
 /// Writes restriction entries at the production Redis key for one restriction
 /// type, deleting the key on drop. The production repository reads
@@ -52,13 +51,6 @@ impl Drop for RestrictionKey {
     }
 }
 
-/// The restriction refresh task's first tick runs at boot, after the entries
-/// above are already in Redis; one beat of delay keeps the first request from
-/// racing that initial load.
-async fn wait_for_restriction_load() {
-    tokio::time::sleep(Duration::from_secs(1)).await;
-}
-
 #[tokio::test]
 async fn it_routes_dlq_redirected_events_to_the_dlq_topic() -> Result<()> {
     setup_tracing();
@@ -79,7 +71,7 @@ async fn it_routes_dlq_redirected_events_to_the_dlq_topic() -> Result<()> {
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
     let server = ServerHandle::for_config(config).await;
-    wait_for_restriction_load().await;
+    server.wait_for_restrictions_loaded().await;
 
     let event = json!({
         "token": token,
@@ -140,7 +132,7 @@ async fn it_routes_custom_redirected_events_to_the_admin_topic() -> Result<()> {
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
     let server = ServerHandle::for_config(config).await;
-    wait_for_restriction_load().await;
+    server.wait_for_restrictions_loaded().await;
 
     let event = json!({
         "token": token,
